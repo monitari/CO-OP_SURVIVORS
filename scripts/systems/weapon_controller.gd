@@ -76,6 +76,46 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 		"comet_shower":
 			_fire_flame_nova(0, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier)
 			_fire_flame_nova(1, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier)
+		"starbound_trajectory":
+			_fire_lightning(players[0].global_position, 6, 30.0 * damage_multiplier, 560.0, Color("43d9ff"))
+			_fire_lightning(players[1].global_position, 6, 30.0 * damage_multiplier, 560.0, Color("43d9ff"))
+		"storm_core":
+			_fire_lightning(midpoint, 10, 34.0 * damage_multiplier, 820.0, Color("b892ff"))
+		"inferno_storm":
+			_fire_flame_nova(0, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier)
+			_fire_flame_nova(1, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier)
+			_damage_area(midpoint, 210.0, 34.0 * damage_multiplier)
+		"absolute_zero":
+			_damage_area(players[0].global_position, 220.0, 30.0 * damage_multiplier, 0.3)
+			_damage_area(players[1].global_position, 220.0, 30.0 * damage_multiplier, 0.3)
+			_draw_ring(midpoint, 260.0, Color("8ecae6"), 10.0)
+		"bright_moon_flurry":
+			_swing_scythe(0, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier)
+			_swing_scythe(1, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier)
+		"bonded_mantra":
+			for player in players:
+				player.heal(10.0)
+			_damage_along_chain(78.0, 34.0 * damage_multiplier, 1.0)
+		"guided_bombardment":
+			_fire_flame_nova(0, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier)
+			_fire_flame_nova(1, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier)
+			_fire_lightning(midpoint, 4, 22.0 * damage_multiplier, 520.0, Color("fff275"))
+		"twilight_pursuit":
+			_fire_lightning(players[0].global_position, 5, 26.0 * damage_multiplier, 600.0, Color("43d9ff"))
+			_swing_scythe(1, {"range": 250.0, "arc": 2.2}, 40.0 * damage_multiplier)
+		"storm_cut_crescent":
+			_swing_scythe(0, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier)
+			_swing_scythe(1, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier)
+			_fire_lightning(midpoint, 4, 20.0 * damage_multiplier, 480.0, Color("b892ff"))
+		"sacred_flame_vow":
+			for player in players:
+				player.heal(9.0)
+			_damage_area(midpoint, 240.0, 32.0 * damage_multiplier)
+			_draw_ring(midpoint, 240.0, Color("ff8c42"), 9.0)
+		"frost_shade":
+			_swing_scythe(0, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier)
+			_swing_scythe(1, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier)
+			_damage_area(midpoint, 200.0, 20.0 * damage_multiplier, 0.35)
 
 
 func clear_transients() -> void:
