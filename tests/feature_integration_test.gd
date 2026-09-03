@@ -24,11 +24,12 @@ func _run() -> void:
 
 	_test_experience_pickup(main)
 	_test_downed_revive(main)
+	_test_downed_tow(main)
 	_test_enemy_pool_and_archetypes(main)
 	_test_resonance_vote(main)
 
 	if failures.is_empty():
-		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive, resonance vote")
+		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive/tow, resonance vote")
 		quit(0)
 	else:
 		for failure in failures:
@@ -85,6 +86,58 @@ func _test_downed_revive(main: Node) -> void:
 	_check(not player.downed, "nearby partner revives a downed player")
 	_check(player.health > 0.0, "revived player returns with health")
 
+
+## Drags one survivor away from the other for a second of frames and reports
+## how far each of them actually travelled.
+func _tow_run(main: Node, downed_slot: int) -> Dictionary:
+	var downed := main.players[downed_slot] as ChainPlayer
+	var rescuer := main.players[1 - downed_slot] as ChainPlayer
+	var away := Vector2.RIGHT if downed_slot == 0 else Vector2.LEFT
+	downed.position = Vector2.ZERO
+	rescuer.position = away * main.chain_max_length
+	downed.current_input = Vector2.ZERO
+	rescuer.current_input = away
+	var downed_start := downed.position
+	var rescuer_start := rescuer.position
+	var delta := 1.0 / 60.0
+	for frame in 60:
+		rescuer.position += away * rescuer.move_speed * delta
+		main._apply_chain_constraint()
+	return {
+		"towed": downed.position.distance_to(downed_start),
+		"advanced": rescuer.position.distance_to(rescuer_start),
+		"distance": downed.position.distance_to(rescuer.position)
+	}
+
+
+func _test_downed_tow(main: Node) -> void:
+	var downed := main.players[0] as ChainPlayer
+	var partner := main.players[1] as ChainPlayer
+	downed.downed = true
+	partner.downed = false
+
+	var run := _tow_run(main, 0)
+	_check(float(run["towed"]) > 150.0, "a downed survivor is towed along the chain")
+	_check(float(run["advanced"]) > 150.0, "towing does not anchor the standing partner")
+	_check(float(run["distance"]) <= main.chain_max_length + 1.0, "towing still respects the chain limit")
+	print("TOW_METRICS: p1_down towed=%.0f advanced=%.0f" % [run["towed"], run["advanced"]])
+
+	downed.downed = false
+	partner.downed = true
+	var mirrored := _tow_run(main, 1)
+	_check(float(mirrored["towed"]) > 150.0, "towing works symmetrically for either slot")
+	print("TOW_METRICS: p2_down towed=%.0f advanced=%.0f" % [mirrored["towed"], mirrored["advanced"]])
+
+	downed.downed = true
+	partner.downed = true
+	var both := _tow_run(main, 0)
+	_check(float(both["towed"]) < 100.0, "with both survivors down the chain resists instead of towing")
+	print("TOW_METRICS: both_down towed=%.0f advanced=%.0f" % [both["towed"], both["advanced"]])
+
+	downed.downed = false
+	partner.downed = false
+	downed.revive()
+	partner.revive()
 
 func _test_enemy_pool_and_archetypes(main: Node) -> void:
 	var center := Vector2.ZERO

@@ -16,6 +16,7 @@ const SettingsScript := preload("res://scripts/systems/settings_system.gd")
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
 const RUN_BOSS_TIME := 120.0
+const DOWNED_TOW_SHARE := 0.88
 
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
@@ -801,9 +802,7 @@ func _apply_chain_constraint() -> void:
 	if distance <= 0.001:
 		return
 	var direction := offset.normalized()
-	var p1_outward := maxf(0.0, players[0].current_input.dot(-direction))
-	var p2_outward := maxf(0.0, players[1].current_input.dot(direction))
-	var p1_share := (p1_outward + 0.25) / (p1_outward + p2_outward + 0.5)
+	var p1_share := _chain_correction_share(direction)
 	if distance > chain_max_length * 0.92:
 		var resistance := (distance - chain_max_length * 0.92) * 0.08
 		players[0].position += direction * resistance * p1_share
@@ -815,6 +814,23 @@ func _apply_chain_constraint() -> void:
 	var overflow := distance - chain_max_length
 	players[0].position += direction * overflow * p1_share
 	players[1].position -= direction * overflow * (1.0 - p1_share)
+
+
+## Fraction of a chain correction absorbed by player 0; player 1 takes the rest.
+##
+## While both survivors are on their feet the correction lands on whoever is
+## straining outward, so neither can outrun the chain. That rule inverts once
+## one of them goes down: a downed survivor pushes outward with nothing, so the
+## input split would hand the whole correction to the partner and anchor them in
+## place instead of letting them drag the body clear. Dead weight therefore
+## takes almost all of the correction and gets towed, keeping a little back so
+## the pull still reads as heavy.
+func _chain_correction_share(direction: Vector2) -> float:
+	if players[0].downed != players[1].downed:
+		return DOWNED_TOW_SHARE if players[0].downed else 1.0 - DOWNED_TOW_SHARE
+	var p1_outward := maxf(0.0, players[0].current_input.dot(-direction))
+	var p2_outward := maxf(0.0, players[1].current_input.dot(direction))
+	return (p1_outward + 0.25) / (p1_outward + p2_outward + 0.5)
 
 
 func _update_revives(delta: float) -> void:
