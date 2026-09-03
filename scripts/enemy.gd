@@ -4,6 +4,9 @@ extends Node2D
 signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 signal damage_taken(enemy: ChaserEnemy, amount: float)
+signal chain_slam(impact_point: Vector2, damage: float, radius: float)
+
+const BOSS_SLAM_RADIUS := 95.0 ## Shared by the emitted hit radius and the drawn telegraph so they can never drift apart.
 
 var archetype := "chaser"
 var active := false
@@ -29,6 +32,10 @@ var charge_windup := 0.0
 var shooter_windup := 0.0
 var chain_windup := 0.0
 var telegraph_direction := Vector2.RIGHT
+var boss_attack_timer := 0.0
+var boss_slam_windup := 0.0
+var boss_slam_point := Vector2.ZERO
+var boss_enraged := false
 
 
 func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false) -> void:
@@ -51,6 +58,10 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	chain_windup = 0.0
 	telegraph_direction = Vector2.RIGHT
 	attack_timer = randf_range(0.8, 1.8)
+	boss_attack_timer = randf_range(2.6, 3.6) if is_boss else 0.0
+	boss_slam_windup = 0.0
+	boss_slam_point = Vector2.ZERO
+	boss_enraged = false
 
 	match archetype:
 		"charger":
@@ -75,7 +86,12 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 9
 			enemy_color = Color("06d6a0")
 		"brute":
-			move_speed = 48.0
+			# This archetype only ever spawns as the boss (WaveDirector never
+			# hands it to a regular or elite wave), so its base speed is tuned
+			# for that fight specifically — fast enough to threaten a chain
+			# that keeps its distance, not the ~63px/s crawl a generic tanky
+			# mob's stat block would otherwise produce at boss spawn time.
+			move_speed = 115.0
 			radius = 32.0
 			max_health = 260.0
 			contact_damage = 26.0
@@ -128,13 +144,20 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	if archetype == "chain_hunter" or archetype == "brute":
 		target_position = (players[0].global_position + players[1].global_position) * 0.5
 	var speed_scale := slow_multiplier if slow_timer > 0.0 else 1.0
-	var had_telegraph := charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0
+	var had_telegraph := charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0
 
 	match archetype:
 		"charger":
 			_step_charger(target_position, speed_scale, delta)
 		"shooter":
 			_step_shooter(target_position, speed_scale, delta)
+		"brute":
+			if boss:
+				_step_boss(players, target_position, speed_scale, delta)
+			else:
+				var direction := global_position.direction_to(target_position)
+				position += direction * move_speed * speed_scale * delta
+				rotation = direction.angle()
 		_:
 			var direction := global_position.direction_to(target_position)
 			position += direction * move_speed * speed_scale * delta
@@ -154,7 +177,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# of leaving a stale frame on screen. Skipping it the rest of the time is
 	# what keeps a few hundred pooled enemies from redrawing every physics tick
 	# regardless of whether anything they draw actually changed.
-	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0:
+	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
 		queue_redraw()
 
 
@@ -199,6 +222,70 @@ func _step_shooter(target_position: Vector2, speed_scale: float, delta: float) -
 		attack_timer = maxf(0.65, 1.8 - max_health / 500.0)
 		telegraph_direction = direction
 		shooter_windup = 0.48
+
+
+## The boss ("결속 파괴자" / Bond Breaker) alternates a slow chase with two
+## telegraphed attacks instead of the generic "walk into the players" a plain
+## brute stat block would otherwise produce: 사슬 강타 (Chain Slam) strikes the
+## nearest point of the chain itself — draining chain integrity directly
+## rather than just player health, which is the whole point of a boss whose
+## arrival message already promises it targets the chain — and, once it drops
+## below half health, an enraged charge dash that reuses the exact windup/dash
+## fields and telegraph the regular charger archetype already draws, so it
+## reads as the same kind of threat the player has learned to respect all
+## game instead of an unfamiliar one arriving for the first time at the boss.
+func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_scale: float, delta: float) -> void:
+	if not boss_enraged and health <= max_health * 0.5:
+		boss_enraged = true
+		move_speed *= 1.4
+		boss_attack_timer = minf(boss_attack_timer, 1.2)
+
+	if charge_timer > 0.0:
+		charge_timer -= delta
+		position += charge_direction * move_speed * 2.6 * speed_scale * delta
+		rotation = charge_direction.angle()
+		return
+	if charge_windup > 0.0:
+		charge_windup -= delta
+		if charge_windup <= 0.0:
+			charge_timer = 0.5
+		return
+	if boss_slam_windup > 0.0:
+		boss_slam_windup -= delta
+		if boss_slam_windup <= 0.0:
+			chain_slam.emit(boss_slam_point, 44.0 if boss_enraged else 34.0, BOSS_SLAM_RADIUS)
+		return
+
+	var direction := global_position.direction_to(target_position)
+	position += direction * move_speed * speed_scale * delta
+	rotation = direction.angle()
+
+	boss_attack_timer -= delta
+	if boss_attack_timer <= 0.0:
+		boss_attack_timer = randf_range(3.2, 4.2) if boss_enraged else randf_range(4.4, 5.6)
+		if boss_enraged and randf() < 0.5:
+			charge_direction = direction
+			telegraph_direction = direction
+			charge_windup = 0.5
+		else:
+			boss_slam_point = _closest_point_on_chain(players)
+			telegraph_direction = global_position.direction_to(boss_slam_point)
+			boss_slam_windup = 0.7
+
+
+## The point on the players' current chain segment closest to the boss right
+## now — captured once at windup start so the telegraph is a committed,
+## dodgeable threat (move the chain away from it during the windup) rather
+## than one that homes in on wherever the chain ends up by the time it lands.
+func _closest_point_on_chain(players: Array[ChainPlayer]) -> Vector2:
+	var from := players[0].global_position
+	var to := players[1].global_position
+	var segment := to - from
+	var length_squared := segment.length_squared()
+	if length_squared <= 0.001:
+		return from
+	var ratio := clampf((global_position - from).dot(segment) / length_squared, 0.0, 1.0)
+	return from + segment * ratio
 
 
 func _try_contact_damage(players: Array[ChainPlayer]) -> void:
@@ -286,6 +373,11 @@ func _draw() -> void:
 		draw_dashed_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 320.0, Color(1.0, 0.35, 0.42, 0.8), 3.0, 10.0, true)
 	if chain_windup > 0.0:
 		draw_arc(Vector2.ZERO, radius + 14.0, 0.0, TAU, 28, Color("ff5d8f"), 6.0, true)
+	if boss_slam_windup > 0.0:
+		var slam_alpha := 0.32 + sin(boss_slam_windup * 22.0) * 0.16
+		var local_point := (boss_slam_point - global_position).rotated(-rotation)
+		draw_line(Vector2.ZERO, local_point, Color(1.0, 0.35, 0.42, 0.4), 3.0, true)
+		draw_arc(local_point, BOSS_SLAM_RADIUS, 0.0, TAU, 32, Color(1.0, 0.25, 0.35, slam_alpha), 6.0, true)
 	draw_circle(Vector2.ZERO, radius + 6.0, Color(enemy_color, 0.13))
 	match archetype:
 		"charger":

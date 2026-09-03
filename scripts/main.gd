@@ -30,6 +30,12 @@ const CHAIN_OVERLOAD_DAMAGE := 12.0
 const CHAIN_OVERLOAD_PENALTY := 0.8
 const CHAIN_OVERLOAD_CLEAR := 45.0
 
+## How hard the boss's Chain Slam attack drains integrity directly, separate
+## from — and stackable with — the overcharge drain above. Roughly one second
+## of max-tension overcharge drain in a single hit: painful if the chain is
+## already strained, survivable if it was not.
+const BOSS_SLAM_INTEGRITY_DRAIN := 28.0
+
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
@@ -944,6 +950,8 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		enemy.ranged_attack.connect(_on_enemy_ranged_attack)
 	if not enemy.damage_taken.is_connected(_on_enemy_damaged):
 		enemy.damage_taken.connect(_on_enemy_damaged)
+	if not enemy.chain_slam.is_connected(_on_boss_chain_slam):
+		enemy.chain_slam.connect(_on_boss_chain_slam)
 	if enemy not in enemies:
 		enemies.append(enemy)
 	if enemy.boss:
@@ -962,6 +970,20 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 	projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
 	projectile.setup(origin, direction, damage, players)
 	add_child(projectile)
+
+
+## The boss's Chain Slam always drains chain integrity directly — it is
+## targeting the bond itself, not the survivors — and additionally hurts
+## anyone still standing inside the telegraphed impact radius when it lands.
+func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) -> void:
+	var hit_someone := false
+	for player in players:
+		if impact_point.distance_to(player.global_position) <= radius + player.radius:
+			hit_someone = player.hurt(damage) or hit_someone
+	chain_integrity = maxf(0.0, chain_integrity - BOSS_SLAM_INTEGRITY_DRAIN)
+	camera_shake = maxf(camera_shake, 13.0)
+	feedback.play_cue("warning")
+	_show_message("결속 파괴자가 사슬을 강타했습니다!" if hit_someone else "결속 파괴자가 사슬 내구도를 노렸습니다!", Color("ff5d8f"))
 
 
 func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:

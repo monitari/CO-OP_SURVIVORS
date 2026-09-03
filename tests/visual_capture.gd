@@ -84,6 +84,17 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/boss-arrival.png")
+
+	main.players[0].position = Vector2(-80.0, 40.0)
+	main.players[1].position = Vector2(80.0, 40.0)
+	boss.position = Vector2(0.0, -140.0)
+	boss.boss_attack_timer = 0.0
+	boss.step(main.players, 0.1)
+	main._update_chain_visual()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/boss-chain-slam.png")
+
 	boss.take_damage(999999.0)
 	await process_frame
 	await RenderingServer.frame_post_draw
