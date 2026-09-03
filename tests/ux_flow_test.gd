@@ -1,11 +1,13 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
+const TestHarness := preload("res://tests/test_harness.gd")
 
 var failures: Array[String] = []
 
 
 func _initialize() -> void:
+	TestHarness.arm_watchdog(self, "UX_FLOW_FAIL", 60.0)
 	call_deferred("_run")
 
 
@@ -13,6 +15,8 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	if not TestHarness.require_loaded(self, main, "UX_FLOW_FAIL"):
+		return
 	main.character_confirmed[0] = true
 	main.character_confirmed[1] = true
 	main._start_selected_run()

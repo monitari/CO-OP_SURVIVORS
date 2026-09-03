@@ -1,11 +1,13 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
+const TestHarness := preload("res://tests/test_harness.gd")
 
 var failures: Array[String] = []
 
 
 func _initialize() -> void:
+	TestHarness.arm_watchdog(self, "LOBBY_FAIL", 60.0)
 	call_deferred("_run")
 
 
@@ -13,6 +15,8 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	if not TestHarness.require_loaded(self, main, "LOBBY_FAIL"):
+		return
 	if main.get_script() == null:
 		push_error("LOBBY_FAIL: main.gd failed to load")
 		quit(1)

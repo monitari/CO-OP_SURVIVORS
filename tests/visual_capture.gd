@@ -1,9 +1,11 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
+const TestHarness := preload("res://tests/test_harness.gd")
 
 
 func _initialize() -> void:
+	TestHarness.arm_watchdog(self, "VISUAL_CAPTURE_FAIL", 120.0)
 	call_deferred("_run")
 
 
@@ -11,6 +13,8 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	if not TestHarness.require_loaded(self, main, "VISUAL_CAPTURE_FAIL"):
+		return
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/character-select.png")
 

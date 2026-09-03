@@ -1,12 +1,14 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
+const TestHarness := preload("res://tests/test_harness.gd")
 const EnemyProjectileScript := preload("res://scripts/enemy_projectile.gd")
 
 var failures: Array[String] = []
 
 
 func _initialize() -> void:
+	TestHarness.arm_watchdog(self, "FEATURE_TEST_FAIL", 60.0)
 	call_deferred("_run")
 
 
@@ -14,6 +16,8 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	if not TestHarness.require_loaded(self, main, "FEATURE_TEST_FAIL"):
+		return
 	await _test_selection_and_movement_input(main)
 	main.set_physics_process(false)
 	await process_frame
