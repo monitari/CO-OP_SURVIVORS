@@ -54,14 +54,24 @@ func _run() -> void:
 	_check(main.kills > 0, "automated pair kills enemies")
 	_check(main.progression.level > 1, "automated pair collects shared XP and levels")
 
+	# Every level-up pauses the run for both players, so pacing is a gameplay
+	# property worth guarding, not just a curiosity to eyeball in SOAK_METRICS.
+	# The band is deliberately loose (spawn/movement RNG shifts kill timing a
+	# little run to run) but still catches a regression back toward the old
+	# ~12s cadence on one edge and an overcorrection into a leveling drought
+	# on the other.
+	var seconds_per_level: float = main.elapsed / maxf(1.0, float(main.progression.level - 1))
+	_check(seconds_per_level >= 18.0, "level-ups are not pausing the run more often than ~18s apart")
+	_check(seconds_per_level <= 34.0, "level-ups are not so sparse the run feels stalled")
+
 	var archetypes: Dictionary = {}
 	for enemy in main.enemies:
 		if is_instance_valid(enemy) and enemy.active:
 			archetypes[enemy.archetype] = true
 	_check(archetypes.size() >= 3, "long run contains multiple enemy archetypes")
 
-	print("SOAK_METRICS: simulated=%.1fs wall=%dms kills=%d level=%d active=%d pooled_enemies=%d pooled_gems=%d archetypes=%d" % [
-		main.elapsed, wall_elapsed, main.kills, main.progression.level, main.enemies.size(),
+	print("SOAK_METRICS: simulated=%.1fs wall=%dms kills=%d level=%d sec_per_level=%.1f active=%d pooled_enemies=%d pooled_gems=%d archetypes=%d" % [
+		main.elapsed, wall_elapsed, main.kills, main.progression.level, seconds_per_level, main.enemies.size(),
 		main.wave_director.enemy_pool.size(), main.experience_system.gem_pool.size(), archetypes.size()
 	])
 	if failures.is_empty():
