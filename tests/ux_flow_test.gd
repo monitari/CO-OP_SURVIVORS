@@ -35,6 +35,8 @@ func _run() -> void:
 	_check(main._tension_damage_multiplier() > 1.0, "gold overcharge stage grants the advertised bonus")
 	_check(main.chain_status_label.text.contains("과충전"), "HUD names the beneficial chain stage")
 
+	await _test_chain_integrity(main)
+
 	var charger := main.wave_director._acquire_enemy("charger", 0.0, Vector2.ZERO, false, false) as ChaserEnemy
 	charger.position = main.players[0].position + Vector2(220.0, 0.0)
 	charger.behavior_timer = 0.0
@@ -54,12 +56,64 @@ func _run() -> void:
 	_check(main.run_won and main.result_overlay.visible and paused, "boss defeat opens a persistent victory result")
 
 	if failures.is_empty():
-		print("UX_FLOW_PASS: HUD, chain states, telegraphs, pause/settings, boss victory")
+		print("UX_FLOW_PASS: HUD, chain states, overcharge cost, telegraphs, pause/settings, boss victory")
 		quit(0)
 	else:
 		for failure in failures:
 			push_error("UX_FLOW_FAIL: " + failure)
 		quit(1)
+
+
+## Places the pair at a given fraction of the chain limit and runs the integrity
+## step for a stretch of simulated frames.
+func _hold_chain(main: Node, tension: float, seconds: float) -> void:
+	var half: float = main.chain_max_length * tension * 0.5
+	main.players[0].position = Vector2(-half, 0.0)
+	main.players[1].position = Vector2(half, 0.0)
+	var delta := 1.0 / 60.0
+	for frame in int(seconds / delta):
+		main._update_chain_integrity(delta)
+
+
+func _test_chain_integrity(main: Node) -> void:
+	main.chain_integrity = main.CHAIN_INTEGRITY_MAX
+	main.chain_overloaded = false
+	for player in main.players:
+		player.invulnerability = 0.0
+		player.health = player.max_health
+
+	# Overcharging is a loan: it has to visibly cost something per second.
+	_hold_chain(main, 0.86, 2.0)
+	var after_overcharge: float = main.chain_integrity
+	_check(after_overcharge < main.CHAIN_INTEGRITY_MAX, "holding overcharge drains chain integrity")
+	_check(main._tension_damage_multiplier() > 1.0, "the bonus still applies while integrity remains")
+
+	# The band between the resist and warning ratios must be genuinely neutral.
+	_hold_chain(main, 0.76, 2.0)
+	_check(is_equal_approx(main.chain_integrity, after_overcharge), "the neutral band neither drains nor repays")
+
+	# Running the bar out must invert the reward, not merely remove it.
+	var health_before: float = main.players[0].health
+	_hold_chain(main, 1.0, 12.0)
+	_check(main.chain_overloaded, "sustained overcharge overloads the chain")
+	_check(main.chain_integrity <= 0.0, "overload empties the integrity bar")
+	_check(main.players[0].health < health_before, "overload jolts both survivors")
+	_check(main._tension_damage_multiplier() < 1.0, "an overloaded chain penalises damage instead of boosting it")
+	main._update_hud()
+	_check(main.chain_status_label.text.contains("과부하"), "HUD names the overload state")
+	_check(main.chain_status_label.text.contains("내구"), "HUD exposes the integrity reading")
+
+	# Closing up is the only way back, and it must actually clear the penalty.
+	_hold_chain(main, 0.5, 4.0)
+	_check(main.chain_integrity > 0.0, "closing up repairs the chain")
+	_check(not main.chain_overloaded, "repairing past the clear threshold ends the penalty")
+	print("CHAIN_METRICS: overcharge_2s=%.0f%% repaired=%.0f%%" % [after_overcharge, main.chain_integrity])
+
+	main.chain_integrity = main.CHAIN_INTEGRITY_MAX
+	main.chain_overloaded = false
+	for player in main.players:
+		player.health = player.max_health
+		player.invulnerability = 0.0
 
 
 func _check(condition: bool, label: String) -> void:

@@ -18,6 +18,18 @@ const CHAIN_RESIST_RATIO := 0.70
 const RUN_BOSS_TIME := 120.0
 const DOWNED_TOW_SHARE := 0.88
 
+# Overcharge is a loan against the chain, not a free damage bonus. Holding the
+# survivors apart past CHAIN_WARNING_RATIO burns integrity; only closing back
+# inside CHAIN_RESIST_RATIO pays it back. The gap between the two ratios is a
+# neutral band so ordinary spacing neither drains nor refills.
+const CHAIN_INTEGRITY_MAX := 100.0
+const CHAIN_DRAIN_AT_WARNING := 9.0
+const CHAIN_DRAIN_AT_LIMIT := 26.0
+const CHAIN_INTEGRITY_RECOVERY := 14.0
+const CHAIN_OVERLOAD_DAMAGE := 12.0
+const CHAIN_OVERLOAD_PENALTY := 0.8
+const CHAIN_OVERLOAD_CLEAR := 45.0
+
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
@@ -39,6 +51,7 @@ var p2_status_label: Label
 var p1_health_bar: ProgressBar
 var p2_health_bar: ProgressBar
 var chain_bar: ProgressBar
+var chain_integrity_bar: ProgressBar
 var chain_status_label: Label
 var resonance_status_label: Label
 var boss_bar: ProgressBar
@@ -109,6 +122,8 @@ var last_countdown_second := -1
 var run_stats := {"revives": 0, "pings": 0, "overcharge_time": 0.0, "chain_bursts": 0, "resonance_casts": 0}
 
 var chain_max_length := 370.0
+var chain_integrity := CHAIN_INTEGRITY_MAX
+var chain_overloaded := false
 
 var character_catalog: Array[Dictionary] = []
 var selected_character_indices: Array[int] = [0, 1]
@@ -216,6 +231,7 @@ func _physics_process(delta: float) -> void:
 		player.step_movement(delta)
 	_apply_chain_constraint()
 	_update_revives(delta)
+	_update_chain_integrity(delta)
 	_update_chain_visual()
 	_update_camera(delta)
 
@@ -346,6 +362,9 @@ func _create_hud() -> void:
 
 	chain_bar = _create_bar(layer, Vector2(455.0, 111.0), Vector2(370.0, 12.0), Color("43d9ff"))
 	chain_bar.max_value = 100.0
+	chain_integrity_bar = _create_bar(layer, Vector2(455.0, 127.0), Vector2(370.0, 6.0), Color("80ed99"))
+	chain_integrity_bar.max_value = CHAIN_INTEGRITY_MAX
+	chain_integrity_bar.value = CHAIN_INTEGRITY_MAX
 	chain_status_label = Label.new()
 	chain_status_label.position = Vector2(415.0, 140.0)
 	chain_status_label.size = Vector2(450.0, 32.0)
@@ -789,10 +808,12 @@ func _start_selected_run() -> void:
 		attack_timers[player_index] = 0.15 + player_index * 0.12
 	character_select_active = false
 	character_overlay.visible = false
+	chain_integrity = CHAIN_INTEGRITY_MAX
+	chain_overloaded = false
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
-	help_label.text = "P1 WASD     P2 방향키     금빛 과충전: 공격력 +25%     ESC / START: 일시정지"
+	help_label.text = "P1 WASD     P2 방향키     금빛 과충전: +25% (사슬 내구 소모)     ESC / START: 일시정지"
 	_show_message("목표: 02:00에 나타나는 결속 파괴자를 처치하세요", Color("80ed99"))
 
 
@@ -850,6 +871,35 @@ func _update_revives(delta: float) -> void:
 		downed_player.queue_redraw()
 
 
+## Burns chain integrity while the survivors hold an overcharged gap and pays it
+## back only once they close inside the resist ratio. Running the bar to zero
+## overloads the chain: the damage bonus inverts into a penalty until they have
+## spent long enough together to repair it.
+func _update_chain_integrity(delta: float) -> void:
+	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
+	if ratio >= CHAIN_WARNING_RATIO:
+		var strain := inverse_lerp(CHAIN_WARNING_RATIO, 1.0, minf(ratio, 1.0))
+		var drain := lerpf(CHAIN_DRAIN_AT_WARNING, CHAIN_DRAIN_AT_LIMIT, strain)
+		chain_integrity = maxf(0.0, chain_integrity - drain * delta)
+		if chain_integrity <= 0.0 and not chain_overloaded:
+			_trigger_chain_overload()
+	elif ratio < CHAIN_RESIST_RATIO:
+		chain_integrity = minf(CHAIN_INTEGRITY_MAX, chain_integrity + CHAIN_INTEGRITY_RECOVERY * delta)
+		if chain_overloaded and chain_integrity >= CHAIN_OVERLOAD_CLEAR:
+			chain_overloaded = false
+			feedback.play_cue("revive")
+			_show_message("사슬 복구 — 과충전을 다시 쓸 수 있습니다", Color("80ed99"))
+
+
+func _trigger_chain_overload() -> void:
+	chain_overloaded = true
+	for player in players:
+		player.hurt(CHAIN_OVERLOAD_DAMAGE)
+	camera_shake = maxf(camera_shake, 14.0)
+	feedback.play_cue("down")
+	_show_message("사슬 과부하! 서로 가까워져 복구하세요", Color("ff5d8f"))
+
+
 func _update_chain_visual() -> void:
 	chain_line.set_point_position(0, players[0].position)
 	chain_line.set_point_position(1, players[1].position)
@@ -867,8 +917,11 @@ func _update_chain_visual() -> void:
 	elif ratio >= CHAIN_RESIST_RATIO:
 		stage = 1
 		chain_color = Color("8ecae6")
+	if chain_overloaded:
+		chain_color = Color("6b2338")
 	chain_line.default_color = chain_color
-	chain_glow.default_color = Color(chain_line.default_color, 0.12 + ratio * 0.13)
+	chain_line.width = 2.5 if chain_overloaded else 5.0
+	chain_glow.default_color = Color(chain_color, 0.05 if chain_overloaded else 0.12 + ratio * 0.13)
 	if stage == 3 and previous_chain_stage < 3:
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 4.0)
@@ -1269,6 +1322,8 @@ func _tag_name(tag: String) -> String:
 
 
 func _tension_damage_multiplier() -> float:
+	if chain_overloaded:
+		return CHAIN_OVERLOAD_PENALTY
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
 	return 1.25 if ratio >= CHAIN_WARNING_RATIO else 1.0
 
@@ -1289,7 +1344,10 @@ func _update_hud() -> void:
 	chain_bar.value = tension * 100.0
 	var chain_state := "안정"
 	var chain_color := Color("43d9ff")
-	if tension >= 0.95:
+	if chain_overloaded:
+		chain_state = "과부하 · 공격력 -20% · 붙어서 복구"
+		chain_color = Color("ff5d8f")
+	elif tension >= 0.95:
 		chain_state = "한계! 서로 가까워지세요"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
@@ -1298,11 +1356,20 @@ func _update_hud() -> void:
 	elif tension >= CHAIN_RESIST_RATIO:
 		chain_state = "팽팽함"
 		chain_color = Color("8ecae6")
-	chain_status_label.text = "사슬 %d%%  ·  %s" % [int(tension * 100.0), chain_state]
+	chain_status_label.text = "사슬 %d%%  ·  내구 %d%%  ·  %s" % [int(tension * 100.0), int(round(chain_integrity)), chain_state]
 	chain_status_label.add_theme_color_override("font_color", chain_color)
 	var fill := chain_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if fill != null:
 		fill.bg_color = chain_color
+	chain_integrity_bar.value = chain_integrity
+	var integrity_fill := chain_integrity_bar.get_theme_stylebox("fill") as StyleBoxFlat
+	if integrity_fill != null:
+		if chain_overloaded:
+			integrity_fill.bg_color = Color("ff5d8f")
+		elif chain_integrity < 40.0:
+			integrity_fill.bg_color = Color("fff275")
+		else:
+			integrity_fill.bg_color = Color("80ed99")
 	if resonance_system.active_resonance.is_empty():
 		resonance_status_label.text = "공명 대기 · 두 무기 T3 필요"
 	else:
