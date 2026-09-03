@@ -1,0 +1,148 @@
+extends SceneTree
+
+const MainScene := preload("res://scenes/main.tscn")
+const EnemyProjectileScript := preload("res://scripts/enemy_projectile.gd")
+
+var failures: Array[String] = []
+
+
+func _initialize() -> void:
+	call_deferred("_run")
+
+
+func _run() -> void:
+	var main := MainScene.instantiate()
+	root.add_child(main)
+	await process_frame
+	await _test_selection_and_movement_input(main)
+	main.set_physics_process(false)
+	await process_frame
+
+	_test_experience_pickup(main)
+	_test_downed_revive(main)
+	_test_enemy_pool_and_archetypes(main)
+	_test_resonance_vote(main)
+
+	if failures.is_empty():
+		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive, resonance vote")
+		quit(0)
+	else:
+		for failure in failures:
+			push_error("FEATURE_TEST_FAIL: " + failure)
+		quit(1)
+
+
+func _test_selection_and_movement_input(main: Node) -> void:
+	var first_index: int = main.selected_character_indices[0]
+	Input.action_press("p1_select_next")
+	main._handle_character_select_input()
+	Input.action_release("p1_select_next")
+	_check(main.selected_character_indices[0] != first_index, "P1 selection input changes character")
+	await process_frame
+	Input.action_press("p1_select_confirm")
+	Input.action_press("p2_select_confirm")
+	main._handle_character_select_input()
+	Input.action_release("p1_select_confirm")
+	Input.action_release("p2_select_confirm")
+	_check(not main.character_select_active, "both mapped confirm inputs start the run")
+
+	var p1_before: Vector2 = main.players[0].position
+	var p2_before: Vector2 = main.players[1].position
+	Input.action_press("p1_right")
+	Input.action_press("p2_left")
+	main.players[0].step_movement(0.25)
+	main.players[1].step_movement(0.25)
+	Input.action_release("p1_right")
+	Input.action_release("p2_left")
+	_check(main.players[0].position.x > p1_before.x and main.players[1].position.x < p2_before.x, "both local movement maps move independently")
+	main.players[0].position = Vector2(-500.0, 0.0)
+	main.players[1].position = Vector2(500.0, 0.0)
+	main._apply_chain_constraint()
+	_check(main.players[0].position.distance_to(main.players[1].position) <= main.chain_max_length + 0.01, "chain hard limit constrains both players")
+
+
+func _test_experience_pickup(main: Node) -> void:
+	var before: int = main.progression.experience
+	main.experience_system.spawn_gem(main.players[0].global_position, 11)
+	main.experience_system.step(main.players, 0.016)
+	_check(main.progression.experience == before + 11, "nearby XP gem is shared immediately on pickup")
+	_check(main.experience_system.gem_pool.size() == 1, "collected XP gem returns to pool")
+
+
+func _test_downed_revive(main: Node) -> void:
+	var player := main.players[0] as ChainPlayer
+	player.health = 1.0
+	player.invulnerability = 0.0
+	player.hurt(50.0)
+	_check(player.downed, "lethal damage downs instead of immediately ending the run")
+	main.players[1].position = player.position + Vector2(50.0, 0.0)
+	for index in 3:
+		main._update_revives(1.0)
+	_check(not player.downed, "nearby partner revives a downed player")
+	_check(player.health > 0.0, "revived player returns with health")
+
+
+func _test_enemy_pool_and_archetypes(main: Node) -> void:
+	var center := Vector2.ZERO
+	var enemy := main.wave_director._acquire_enemy("charger", 0.0, center, false, false) as ChaserEnemy
+	main._register_enemy(enemy)
+	var original_id := enemy.get_instance_id()
+	_check(enemy.active and enemy.archetype == "charger", "charger archetype activates")
+	enemy.take_damage(99999.0)
+	_check(main.wave_director.enemy_pool.size() >= 1, "dead enemy returns to pool")
+	_check(not main.experience_system.active_gems.is_empty(), "dead enemy drops an XP gem")
+	var reused := main.wave_director._acquire_enemy("shooter", 1.0, center, true, false) as ChaserEnemy
+	_check(reused.get_instance_id() == original_id, "enemy instance is reused from pool")
+	_check(reused.archetype == "shooter" and reused.elite, "pooled enemy resets as elite shooter")
+	main._register_enemy(reused)
+	reused.position = main.players[0].position + Vector2(300.0, 0.0)
+	reused.attack_timer = 0.0
+	reused.step(main.players, 0.016)
+	_check(reused.shooter_windup > 0.0, "shooter telegraphs before firing")
+	reused.step(main.players, 0.25)
+	reused.step(main.players, 0.25)
+	var ranged_projectiles := 0
+	for child in main.get_children():
+		if child.get_script() == EnemyProjectileScript:
+			ranged_projectiles += 1
+	_check(ranged_projectiles > 0, "shooter emits a hostile projectile")
+	main.spatial_grid.rebuild(main.enemies)
+	_check(main.spatial_grid.nearest(reused.global_position, 50.0) == reused, "spatial grid returns nearby enemy")
+
+	for archetype in ["chaser", "charger", "shooter", "chain_hunter", "brute"]:
+		var sample := main.wave_director._acquire_enemy(archetype, 2.0, center, false, archetype == "brute") as ChaserEnemy
+		_check(sample.active and sample.archetype == archetype, "%s archetype configures" % archetype)
+		main.wave_director.release_enemy(sample)
+
+
+func _test_resonance_vote(main: Node) -> void:
+	main.selected_characters[0] = main.character_catalog[0].duplicate(true)
+	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
+	main.weapon_states[0] = (main.selected_characters[0]["weapon"] as Dictionary).duplicate(true)
+	main.weapon_states[1] = (main.selected_characters[1]["weapon"] as Dictionary).duplicate(true)
+	main.weapon_states[0]["tier"] = 3
+	main.weapon_states[1]["tier"] = 3
+	main.resonance_system.active_resonance = {}
+	main.p1_has_chosen = true
+	main.p2_has_chosen = true
+	main.level_up_active = true
+	paused = true
+	main._after_personal_upgrade_choices()
+	_check(main.resonance_vote_active, "eligible tag pair opens resonance vote")
+	_check(not main.resonance_candidates.is_empty(), "resonance candidates are generated")
+	Input.action_press("p1_choice_1")
+	Input.action_press("p2_choice_1")
+	main._handle_resonance_vote_input()
+	Input.action_release("p1_choice_1")
+	Input.action_release("p2_choice_1")
+	_check(not main.resonance_system.active_resonance.is_empty(), "matching votes activate resonance")
+	_check(String(main.resonance_system.active_resonance["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
+	_check(not main.resonance_vote_active and not paused, "resonance vote returns to combat")
+	for resonance in main.resonance_system.catalog:
+		main.weapon_controller.perform_resonance(resonance, 1.0)
+	main.weapon_controller.clear_transients()
+
+
+func _check(condition: bool, label: String) -> void:
+	if not condition:
+		failures.append(label)

@@ -1,0 +1,264 @@
+class_name WeaponController
+extends Node2D
+
+const ProjectileScript := preload("res://scripts/projectile.gd")
+
+var players: Array[ChainPlayer] = []
+var selected_characters: Array[Dictionary] = []
+var weapon_states: Array[Dictionary] = []
+var spatial_grid: EnemySpatialGrid
+var elapsed := 0.0
+var active_projectiles: Array[HomingProjectile] = []
+var projectile_pool: Array[HomingProjectile] = []
+
+
+func configure(
+	player_nodes: Array[ChainPlayer],
+	characters: Array[Dictionary],
+	states: Array[Dictionary],
+	grid: EnemySpatialGrid
+) -> void:
+	players = player_nodes
+	selected_characters = characters
+	weapon_states = states
+	spatial_grid = grid
+
+
+func perform_attack(player_index: int, damage_multiplier: float) -> void:
+	if players[player_index].downed:
+		return
+	var weapon_id := String(selected_characters[player_index]["weapon_id"])
+	var state := weapon_states[player_index]
+	var damage := float(state["damage"]) * damage_multiplier
+	match weapon_id:
+		"homing": _fire_homing(player_index, state, damage)
+		"lightning": _fire_lightning(players[player_index].global_position, int(state["jumps"]), damage, float(state["range"]), Color(selected_characters[player_index]["color"]))
+		"flame": _fire_flame_nova(player_index, state, damage)
+		"frost": _fire_frost_ring(player_index, state, damage)
+		"scythe": _swing_scythe(player_index, state, damage)
+		"chain": _fire_chain_pulse(state, damage)
+
+
+func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
+	var resonance_id := String(resonance["id"])
+	var midpoint := (players[0].global_position + players[1].global_position) * 0.5
+	match resonance_id:
+		"guided_thunder":
+			_fire_lightning(midpoint, 8, 38.0 * damage_multiplier, 760.0, Color("fff275"))
+		"storm_volley":
+			_fire_flame_nova(0, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier)
+			_fire_flame_nova(1, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier)
+			_fire_lightning(midpoint, 5, 26.0 * damage_multiplier, 620.0, Color("b892ff"))
+		"arcane_circuit":
+			_damage_along_chain(68.0, 48.0 * damage_multiplier, 1.0)
+			for player in players:
+				player.heal(4.0)
+		"thermal_fracture":
+			_damage_area(midpoint, 300.0, 44.0 * damage_multiplier, 0.38)
+			_draw_ring(midpoint, 300.0, Color("ffb4a2"), 12.0)
+		"eclipse_tether":
+			_fire_chain_pulse({"width": 92.0}, 42.0 * damage_multiplier)
+			_swing_scythe(0, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier)
+			_swing_scythe(1, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier)
+		"storm_field":
+			_fire_lightning(players[0].global_position, 6, 28.0 * damage_multiplier, 520.0, Color("b892ff"))
+			_fire_lightning(players[1].global_position, 6, 28.0 * damage_multiplier, 520.0, Color("43d9ff"))
+		"inferno_crescent":
+			_swing_scythe(0, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier)
+			_swing_scythe(1, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier)
+		"astral_covenant":
+			for player in players:
+				player.heal(8.0)
+				_damage_area(player.global_position, 190.0, 32.0 * damage_multiplier)
+				_draw_ring(player.global_position, 190.0, Color("e4c1f9"), 8.0)
+		"frozen_tether":
+			_damage_along_chain(82.0, 36.0 * damage_multiplier, 0.32)
+		"comet_shower":
+			_fire_flame_nova(0, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier)
+			_fire_flame_nova(1, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier)
+
+
+func clear_transients() -> void:
+	for projectile in active_projectiles.duplicate():
+		projectile.release()
+
+
+func _acquire_projectile() -> HomingProjectile:
+	var projectile: HomingProjectile
+	if projectile_pool.is_empty():
+		projectile = ProjectileScript.new() as HomingProjectile
+		projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
+		projectile.released.connect(_on_projectile_released)
+		add_child(projectile)
+	else:
+		projectile = projectile_pool.pop_back()
+	active_projectiles.append(projectile)
+	return projectile
+
+
+func _on_projectile_released(projectile: HomingProjectile) -> void:
+	active_projectiles.erase(projectile)
+	if projectile not in projectile_pool:
+		projectile_pool.append(projectile)
+
+
+func _fire_homing(player_index: int, state: Dictionary, damage: float) -> void:
+	var target := spatial_grid.nearest(players[player_index].global_position, 700.0)
+	if target == null:
+		return
+	var count := int(state["count"])
+	for shot in count:
+		var projectile := _acquire_projectile()
+		projectile.global_position = players[player_index].global_position
+		var spread := (float(shot) - float(count - 1) * 0.5) * 0.16
+		projectile.setup(players[player_index].last_input.rotated(spread), target)
+		projectile.spatial_grid = spatial_grid
+		projectile.damage = damage
+		projectile.speed = float(state["speed"])
+		projectile.projectile_color = Color(selected_characters[player_index]["color"])
+
+
+func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: float, color: Color) -> void:
+	var hit: Array[ChaserEnemy] = []
+	var current_position := origin
+	var search_range := first_range
+	for jump in jumps:
+		var target := spatial_grid.nearest(current_position, search_range, hit)
+		if target == null:
+			break
+		_draw_lightning(current_position, target.global_position, color, 4.0)
+		target.take_damage(damage * pow(0.82, jump))
+		hit.append(target)
+		current_position = target.global_position
+		search_range = 210.0
+
+
+func _fire_flame_nova(player_index: int, state: Dictionary, damage: float) -> void:
+	var count := int(state["count"])
+	var phase := elapsed * 0.7
+	for shot in count:
+		var direction := Vector2.from_angle(phase + TAU * float(shot) / float(count))
+		var projectile := _acquire_projectile()
+		projectile.global_position = players[player_index].global_position + direction * 22.0
+		projectile.setup(direction, null)
+		projectile.spatial_grid = spatial_grid
+		projectile.homing_enabled = false
+		projectile.damage = damage
+		projectile.speed = float(state["speed"])
+		projectile.radius = 7.0
+		projectile.projectile_color = Color(selected_characters[player_index]["color"])
+	_draw_ring(players[player_index].global_position, 40.0, Color(selected_characters[player_index]["color"]), 4.0)
+
+
+func _fire_frost_ring(player_index: int, state: Dictionary, damage: float) -> void:
+	var origin := players[player_index].global_position
+	var radius := float(state["radius"])
+	for enemy in spatial_grid.query_radius(origin, radius + 40.0):
+		if origin.distance_to(enemy.global_position) <= radius + enemy.radius:
+			enemy.take_damage(damage)
+			if is_instance_valid(enemy) and not enemy.dead:
+				enemy.apply_slow(1.25, float(state["slow"]))
+	_draw_ring(origin, radius, Color(selected_characters[player_index]["color"]), 7.0)
+
+
+func _swing_scythe(player_index: int, state: Dictionary, damage: float) -> void:
+	var origin := players[player_index].global_position
+	var direction := players[player_index].last_input.normalized()
+	var attack_range := float(state["range"])
+	var arc := float(state["arc"])
+	for enemy in spatial_grid.query_radius(origin, attack_range + 40.0):
+		var to_enemy := enemy.global_position - origin
+		if to_enemy.length() <= attack_range + enemy.radius and absf(direction.angle_to(to_enemy.normalized())) <= arc * 0.5:
+			enemy.take_damage(damage)
+	_draw_scythe_arc(origin, direction.angle(), attack_range, arc, Color(selected_characters[player_index]["color"]))
+
+
+func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
+	_damage_along_chain(float(state["width"]), damage, 1.0)
+
+
+func _damage_area(center: Vector2, radius: float, damage: float, slow_multiplier: float = 1.0) -> void:
+	for enemy in spatial_grid.query_radius(center, radius + 45.0):
+		if center.distance_to(enemy.global_position) > radius + enemy.radius:
+			continue
+		enemy.take_damage(damage)
+		if slow_multiplier < 1.0 and is_instance_valid(enemy) and not enemy.dead:
+			enemy.apply_slow(1.8, slow_multiplier)
+
+
+func _damage_along_chain(width: float, damage: float, slow_multiplier: float) -> void:
+	var from := players[0].global_position
+	var to := players[1].global_position
+	var midpoint := (from + to) * 0.5
+	var search_radius := from.distance_to(to) * 0.5 + width + 45.0
+	for enemy in spatial_grid.query_radius(midpoint, search_radius):
+		if _distance_to_segment(enemy.global_position, from, to) <= width + enemy.radius:
+			enemy.take_damage(damage)
+			if slow_multiplier < 1.0 and is_instance_valid(enemy) and not enemy.dead:
+				enemy.apply_slow(1.8, slow_multiplier)
+	_draw_chain_pulse(from, to, width)
+
+
+func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
+	var segment := to - from
+	var length_squared := segment.length_squared()
+	if length_squared <= 0.001:
+		return point.distance_to(from)
+	var ratio := clampf((point - from).dot(segment) / length_squared, 0.0, 1.0)
+	return point.distance_to(from + segment * ratio)
+
+
+func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> void:
+	var bolt := Line2D.new()
+	bolt.width = width
+	bolt.default_color = color
+	bolt.z_index = 3
+	for index in 8:
+		var ratio := float(index) / 7.0
+		var point := from.lerp(to, ratio)
+		if index > 0 and index < 7:
+			point += Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
+		bolt.add_point(point)
+	add_child(bolt)
+	_fade_and_free(bolt, 0.17)
+
+
+func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> void:
+	var ring := Line2D.new()
+	ring.position = center
+	ring.width = width
+	ring.default_color = color
+	ring.z_index = 3
+	for index in 41:
+		ring.add_point(Vector2.from_angle(TAU * float(index) / 40.0) * radius)
+	add_child(ring)
+	_fade_and_free(ring, 0.24)
+
+
+func _draw_scythe_arc(center: Vector2, angle: float, radius: float, arc: float, color: Color) -> void:
+	var slash := Line2D.new()
+	slash.position = center
+	slash.width = 12.0
+	slash.default_color = color
+	slash.z_index = 3
+	for index in 19:
+		slash.add_point(Vector2.from_angle(angle - arc * 0.5 + arc * float(index) / 18.0) * radius)
+	add_child(slash)
+	_fade_and_free(slash, 0.2)
+
+
+func _draw_chain_pulse(from: Vector2, to: Vector2, width: float) -> void:
+	var pulse := Line2D.new()
+	pulse.width = width * 2.0
+	pulse.default_color = Color(0.5, 0.93, 0.6, 0.32)
+	pulse.z_index = 2
+	pulse.add_point(from)
+	pulse.add_point(to)
+	add_child(pulse)
+	_fade_and_free(pulse, 0.22)
+
+
+func _fade_and_free(node: CanvasItem, duration: float) -> void:
+	var tween := create_tween()
+	tween.tween_property(node, "modulate:a", 0.0, duration)
+	tween.tween_callback(node.queue_free)

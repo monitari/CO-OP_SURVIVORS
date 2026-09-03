@@ -1,0 +1,10 @@
+# Godot writes LF; keep it that way so Windows checkouts do not churn the diff.
+* text=auto eol=lf
+
+# Godot binary resources must never be line-ending converted.
+*.res binary
+*.scn binary
+*.ctex binary
+*.png binary
+*.wav binary
+*.ogg binary
