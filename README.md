@@ -81,9 +81,11 @@ godot --headless --path . --script res://tests/ux_flow_test.gd
 godot --headless --path . --script res://tests/lobby_flow_test.gd
 godot --headless --path . --script res://tests/resonance_coverage_test.gd
 godot --headless --path . --script res://tests/resonance_effects_test.gd
+godot --headless --path . --script res://tests/enemy_redraw_test.gd
+godot --headless --path . --script res://tests/feedback_system_test.gd
 ```
 
-각각 6종 무기, 경험치/적 풀/부활/공명, 가속된 장시간 2인 플레이, HUD/사슬 상태/공격 예고/보스 승리 흐름, 참가 로비에서 캐릭터 선택까지의 진입 흐름, 캐릭터 조합 21가지 전체의 공명 등장 여부, 공명 21종이 실제로 발동 시 피해를 주는지를 검사합니다.
+각각 6종 무기, 경험치/적 풀/부활/공명, 가속된 장시간 2인 플레이, HUD/사슬 상태/공격 예고/보스 승리 흐름, 참가 로비에서 캐릭터 선택까지의 진입 흐름, 캐릭터 조합 21가지 전체의 공명 등장 여부, 공명 21종이 실제로 발동 시 피해를 주는지, 적이 텔레그래프가 없을 때 매 프레임 다시 그리지 않는지(있을 때는 정확히 다시 그리는지), 피해 숫자가 프레임당 상한을 지키고 효과음이 캐싱·재사용되는지를 검사합니다.
 
 ## 구조와 최적화
 

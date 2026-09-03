@@ -18,6 +18,7 @@ var xp_value := 5
 var contact_cooldown := 0.0
 var enemy_color := Color("ef476f")
 var dead := false
+var redraw_count := 0 ## Bumped by _draw() itself; lets tests confirm queue_redraw() calls actually drop instead of trusting the diff.
 var slow_timer := 0.0
 var slow_multiplier := 1.0
 var behavior_timer := 0.0
@@ -127,6 +128,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	if archetype == "chain_hunter" or archetype == "brute":
 		target_position = (players[0].global_position + players[1].global_position) * 0.5
 	var speed_scale := slow_multiplier if slow_timer > 0.0 else 1.0
+	var had_telegraph := charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0
 
 	match archetype:
 		"charger":
@@ -142,7 +144,18 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		_try_damage_chain(players, delta)
 	else:
 		_try_contact_damage(players)
-	queue_redraw()
+	# Position and rotation move the node via its transform, which Godot composites
+	# without a redraw. The only per-frame state _draw() actually reads is the
+	# telegraph windup timers (their pulsing alpha and presence); everything else
+	# that _draw() depends on (health, elite/boss flags, radius) already triggers
+	# its own queue_redraw() where it changes. Redraw when a telegraph is active
+	# on either side of this step — mid-windup for the pulsing alpha, and on the
+	# entry/exit frame so the line actually appears and actually clears instead
+	# of leaving a stale frame on screen. Skipping it the rest of the time is
+	# what keeps a few hundred pooled enemies from redrawing every physics tick
+	# regardless of whether anything they draw actually changed.
+	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0:
+		queue_redraw()
 
 
 func _step_charger(target_position: Vector2, speed_scale: float, delta: float) -> void:
@@ -265,6 +278,7 @@ func apply_slow(duration: float, multiplier: float) -> void:
 
 
 func _draw() -> void:
+	redraw_count += 1
 	if charge_windup > 0.0:
 		var charge_alpha := 0.25 + sin(charge_windup * 34.0) * 0.12
 		draw_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 240.0, Color(1.0, 0.25, 0.2, charge_alpha), 12.0, true)
