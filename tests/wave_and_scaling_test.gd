@@ -35,6 +35,7 @@ func _run() -> void:
 	_test_late_ramp()
 	_test_wave_clock()
 	_test_surge_and_calm()
+	_test_intro_pacing()
 	await _test_culling(main)
 
 	if failures.is_empty():
@@ -62,14 +63,14 @@ func _test_late_ramp() -> void:
 	var mid := _stats_at(ChaserEnemy.LATE_GAME_DIFFICULTY)
 	var late := _stats_at(ChaserEnemy.LATE_GAME_DIFFICULTY * 2.0)
 
-	# Below the threshold the ramp must contribute exactly nothing: the early
-	# game measured as the lethal part already, and this change is not meant
-	# to touch it.
+	# Health stays linear up to the late threshold. Contact damage deliberately
+	# starts lower during the first 30 seconds, then reaches its base value and
+	# stays flat until the late-game ramp begins.
 	var linear_at_threshold: float = float(early["health"]) + ChaserEnemy.LATE_GAME_DIFFICULTY * 5.0
 	_check(absf(float(mid["health"]) - linear_at_threshold) < 0.01,
 		"at the threshold the health ramp has not started (%.1f vs linear %.1f)" % [mid["health"], linear_at_threshold])
-	_check(is_equal_approx(float(mid["damage"]), float(early["damage"])),
-		"contact damage is untouched up to the threshold")
+	_check(is_equal_approx(float(early["damage"]), float(mid["damage"]) * ChaserEnemy.OPENING_CONTACT_DAMAGE_MULTIPLIER),
+		"opening contact damage starts at the intended fraction (%.1f vs %.1f)" % [early["damage"], mid["damage"]])
 
 	# Past it, both climb.
 	# The multiplier applies to the linear value at the late difficulty, not to
@@ -141,6 +142,31 @@ func _test_surge_and_calm() -> void:
 			found_elite = true
 	_check(found_elite, "an elite still arrives during the lull")
 
+	director.free()
+
+
+func _test_intro_pacing() -> void:
+	var director := WaveDirectorScript.new() as WaveDirector
+	root.add_child(director)
+	var opening_interval := director.spawn_interval()
+	director.wave_index = 1
+	var second_interval := director.spawn_interval()
+	director.wave_index = 2
+	var established_interval := director.spawn_interval()
+	_check(opening_interval > second_interval and second_interval > established_interval,
+		"the first two waves ramp into the established spawn rate (%.2f -> %.2f -> %.2f)" % [opening_interval, second_interval, established_interval])
+
+	# No special attack pattern should arrive during the controls-and-chain
+	# learning window. Once it ends, chargers must actually enter the pool.
+	for sample in 200:
+		_check(director._pick_archetype(WaveDirector.CHARGER_UNLOCK_TIME - 0.1) == "chaser",
+			"the intro only spawns readable chasers")
+	var found_charger := false
+	for sample in 200:
+		if director._pick_archetype(WaveDirector.CHARGER_UNLOCK_TIME + 0.1) == "charger":
+			found_charger = true
+			break
+	_check(found_charger, "chargers unlock after the learning window")
 	director.free()
 
 

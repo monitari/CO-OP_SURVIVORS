@@ -16,6 +16,8 @@ signal enraged(enemy: ChaserEnemy)
 const LATE_GAME_DIFFICULTY := 4.0
 const LATE_HEALTH_PER_STEP := 0.35
 const LATE_DAMAGE_PER_STEP := 0.20
+const EARLY_GAME_DIFFICULTY := 1.0
+const OPENING_CONTACT_DAMAGE_MULTIPLIER := 0.75
 
 const BOSS_SLAM_RADIUS := 95.0
 ## A hit used to be a scale tween allocated per call, which at a few hundred
@@ -128,6 +130,16 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 
 	move_speed += difficulty * 2.6 + randf_range(-7.0, 9.0)
 	max_health += difficulty * 5.0 + radius * 0.3
+	# Spawn pacing alone cannot protect a pair whose first ring closes from an
+	# unlucky set of angles. Let contact damage teach pressure before it fully
+	# punishes it, reaching the original value at 30 seconds. Special enemies
+	# unlock at that same boundary, so they are never softened by this ramp.
+	if difficulty < EARLY_GAME_DIFFICULTY:
+		contact_damage *= lerpf(
+			OPENING_CONTACT_DAMAGE_MULTIPLIER,
+			1.0,
+			clampf(difficulty / EARLY_GAME_DIFFICULTY, 0.0, 1.0)
+		)
 	if difficulty > LATE_GAME_DIFFICULTY:
 		var late := difficulty - LATE_GAME_DIFFICULTY
 		max_health *= 1.0 + late * LATE_HEALTH_PER_STEP

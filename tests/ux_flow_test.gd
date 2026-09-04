@@ -26,8 +26,14 @@ func _run() -> void:
 	main._update_hud()
 	_check(main.p1_status_label.text.contains("P1"), "split HUD identifies P1")
 	_check(main.p2_status_label.text.contains("P2"), "split HUD identifies P2")
+	_check(main.p1_health_text_label.text.contains("/"), "P1 health value is written inside its bar")
+	_check(main.p2_health_text_label.text.contains("/"), "P2 health value is written inside its bar")
 	_check(not main.help_label.visible, "the permanent controls strip stays off the play field")
 	_check(main.xp_bar.max_value == main.progression.required_experience, "the XP bar tracks the shared requirement on its own")
+	_check(main.xp_text_label.text.contains("LV.") and main.xp_text_label.text.contains("XP"),
+		"level and experience share the bottom bar")
+	_check(main.chain_distance_text_label.text.contains("사슬 거리"), "the distance bar names what it measures")
+	_check(main.chain_integrity_text_label.text.contains("내구도"), "the integrity bar names what it measures")
 
 	main.players[0].position = Vector2(-main.chain_max_length * 0.43, 0.0)
 	main.players[1].position = Vector2(main.chain_max_length * 0.43, 0.0)
@@ -58,6 +64,8 @@ func _run() -> void:
 	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, true, true) as ChaserEnemy
 	main._register_enemy(boss)
 	_check(main.boss_bar.visible and main.boss_label.visible, "boss arrival exposes name and health bar")
+	_check(main.boss_health_text_label.visible and main.boss_health_text_label.text.contains("/"),
+		"boss health is written inside its bar")
 	boss.take_damage(999999.0)
 	_check(main.run_won and main.result_overlay.visible and paused, "boss defeat opens a persistent victory result")
 

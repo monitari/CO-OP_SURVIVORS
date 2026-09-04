@@ -198,7 +198,11 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		projectile.homing_enabled = false
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
-		projectile.radius = 7.0
+		# A narrow ember could pass cleanly through the gaps in the opening
+		# ring, making Ignis survival depend heavily on random spawn angles.
+		# The modestly wider hit disc preserves the radial gaps but makes close
+		# interceptions reliable.
+		projectile.radius = 9.0
 		projectile.projectile_color = color
 	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
 
@@ -279,13 +283,16 @@ func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> 
 func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> void:
 	var ring := Line2D.new()
 	ring.position = center
-	ring.width = width
-	ring.default_color = color
-	ring.z_index = 3
-	for index in 41:
-		ring.add_point(Vector2.from_angle(TAU * float(index) / 40.0) * radius)
+	# Friendly area attacks were reading like persistent arena boundaries.
+	# Keep their footprint visible, but subordinate them to enemy telegraphs.
+	ring.width = clampf(width * 0.45, 2.0, 4.0)
+	ring.default_color = Color(color, minf(color.a, 0.34))
+	ring.z_index = 2
+	ring.antialiased = true
+	for index in 33:
+		ring.add_point(Vector2.from_angle(TAU * float(index) / 32.0) * radius)
 	add_child(ring)
-	_fade_and_free(ring, 0.24)
+	_fade_and_free(ring, 0.12)
 
 
 func _draw_scythe_arc(center: Vector2, angle: float, radius: float, arc: float, color: Color) -> void:

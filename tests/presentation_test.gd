@@ -41,6 +41,7 @@ func _run() -> void:
 	_test_no_per_hit_tween(main)
 	_test_threat_indicator(main)
 	_test_palette(main)
+	_test_attack_ring_hierarchy(main)
 	_test_layout(main)
 
 	if failures.is_empty():
@@ -225,7 +226,32 @@ func _test_palette(main: Node) -> void:
 	_check(main.players[1].body_color == Color("b892ff"), "P2's body matches its HUD colour")
 
 
+func _test_attack_ring_hierarchy(main: Node) -> void:
+	var before: int = main.weapon_controller.get_child_count()
+	main.weapon_controller._draw_ring(Vector2.ZERO, 200.0, Color("43d9ff"), 12.0)
+	_check(main.weapon_controller.get_child_count() == before + 1, "an area attack creates one ring")
+	var ring := main.weapon_controller.get_child(main.weapon_controller.get_child_count() - 1) as Line2D
+	_check(ring != null and ring.width <= 4.0,
+		"friendly attack rings stay visually subordinate (width %.1f)" % (ring.width if ring else -1.0))
+	_check(ring != null and ring.default_color.a <= 0.341,
+		"friendly attack rings are translucent (alpha %.2f)" % (ring.default_color.a if ring else -1.0))
+	if ring:
+		ring.queue_free()
+
+
 func _test_layout(main: Node) -> void:
+	_check(is_equal_approx(main.p1_health_bar.position.y, main.p2_health_bar.position.y),
+		"both player health bars share a baseline")
+	_check(main.p1_health_text_label.position == main.p1_health_bar.position
+		and main.p1_health_text_label.size == main.p1_health_bar.size,
+		"P1 health text is aligned inside its bar")
+	_check(main.chain_distance_text_label.position == main.chain_bar.position
+		and main.chain_integrity_text_label.position == main.chain_integrity_bar.position,
+		"chain labels are aligned inside their bars")
+	_check(main.xp_text_label.position == main.xp_bar.position and main.xp_text_label.size == main.xp_bar.size,
+		"level and XP text are aligned inside the bottom bar")
+	_check(main.level_overlay.position.y >= main.chain_integrity_bar.position.y + main.chain_integrity_bar.size.y,
+		"the level-up panel starts below the chain bars")
 	# The largest text on screen used to land on top of the two survivors.
 	_check(main.message_label.position.y > 480.0,
 		"the message banner is clear of the play area (y=%.0f)" % main.message_label.position.y)
@@ -238,6 +264,18 @@ func _test_layout(main: Node) -> void:
 	var half_width: float = main.LEVEL_CARD_WIDTH * 3.0 + main.LEVEL_CARD_GAP * 2.0
 	_check(596.0 + half_width <= main.level_overlay.size.x,
 		"both card halves fit inside the overlay (%.0f of %.0f)" % [596.0 + half_width, main.level_overlay.size.x])
+	var bounded_labels: Array = [
+		main.p1_status_label, main.p2_status_label, main.hud_label,
+		main.chain_status_label, main.resonance_status_label,
+		main.message_label, main.character_p1_label, main.character_p2_label,
+		main.character_synergy_label, main.resonance_choices_label,
+		main.pause_label, main.result_label, main.tutorial_label,
+	]
+	for label: Label in bounded_labels:
+		_check(label.clip_text, "%s clips text to its UI bounds" % label.name)
+	for player_cards: Array in main.level_card_labels:
+		for card: Label in player_cards:
+			_check(card.clip_text, "level-up cards clip text to their UI bounds")
 
 
 func _check(condition: bool, label: String) -> void:

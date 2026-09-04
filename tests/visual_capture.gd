@@ -16,6 +16,11 @@ func _run() -> void:
 	if not TestHarness.require_loaded(self, main, "VISUAL_CAPTURE_FAIL"):
 		return
 	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/lobby.png")
+
+	main._finish_lobby()
+	await process_frame
+	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/character-select.png")
 
 	main.selected_character_indices[0] = 2
@@ -40,6 +45,17 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+
+	# Pin the pair in the beneficial tension band so the compact chain labels
+	# and action text can be reviewed together rather than only as empty bars.
+	var overcharge_half: float = main.chain_max_length * 0.43
+	main.players[0].position = Vector2(-overcharge_half, 0.0)
+	main.players[1].position = Vector2(overcharge_half, 0.0)
+	main._update_chain_visual()
+	main._update_hud()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/chain-status.png")
 
 	main.players[0].health = 1.0
 	main.players[0].invulnerability = 0.0

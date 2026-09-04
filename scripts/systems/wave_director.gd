@@ -15,6 +15,10 @@ const WAVE_DURATION := 20.0
 const WAVE_CALM := 5.0 ## Trailing quiet stretch of each wave, for regrouping and picking up drops.
 const SURGE_EVERY := 3 ## Every third wave opens with a much larger surge.
 const BOSS_TIME := 120.0
+const OPENING_SPAWN_INTERVAL := 0.78
+const SECOND_WAVE_SPAWN_INTERVAL := 0.68
+const FIRST_REINFORCEMENT_COUNT := 3
+const CHARGER_UNLOCK_TIME := 30.0
 
 var enemy_pool: Array[ChaserEnemy] = []
 var spawn_timer := 0.0
@@ -30,6 +34,13 @@ var in_calm := false
 ## The assault stretch tightens as waves go on, but never below a floor — the
 ## enemy cap and the cull radius are what bound the fight, not the interval.
 func spawn_interval() -> float:
+	# The first two waves are the learning window: the pair is still on one
+	# weapon each and has not yet had time to establish armor, recovery, or a
+	# resonance. Ease the stream here, then join the original curve from wave 2.
+	if wave_index == 0:
+		return OPENING_SPAWN_INTERVAL
+	if wave_index == 1:
+		return SECOND_WAVE_SPAWN_INTERVAL
 	return maxf(0.16, 0.62 - float(wave_index) * 0.045)
 
 
@@ -50,7 +61,10 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		wave_started.emit(wave_index, is_surge_wave(wave_index))
 		# A wave opens with a burst so it lands as an event rather than as a
 		# slightly faster trickle.
-		var surge := 10 if is_surge_wave(wave_index) else 4
+		# The first boundary used to combine four instant reinforcements with
+		# the charger unlock two seconds earlier. Three plain chasers make it a
+		# readable escalation without turning the end of the tutorial into a wall.
+		var surge := 10 if is_surge_wave(wave_index) else (FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4)
 		for index in surge:
 			if active_count + spawned.size() >= enemy_cap:
 				break
@@ -113,6 +127,6 @@ func _pick_archetype(elapsed: float) -> String:
 		return "chain_hunter"
 	if elapsed >= 36.0 and roll < 0.34:
 		return "shooter"
-	if elapsed >= 18.0 and roll < 0.55:
+	if elapsed >= CHARGER_UNLOCK_TIME and roll < 0.55:
 		return "charger"
 	return "chaser"

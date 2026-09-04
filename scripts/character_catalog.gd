@@ -41,7 +41,10 @@ static func all_characters() -> Array[Dictionary]:
 			"color": Color("ff8c42"),
 			"health": 110.0,
 			"speed": 215.0,
-			"weapon": {"damage": 15.0, "cooldown": 1.25, "count": 8, "speed": 315.0, "tier": 1}
+			# Radial shots trade reliability for coverage. Nine slightly stronger
+			# embers give the starting version enough intersections to finish a
+			# basic enemy before the ring has already closed on both survivors.
+			"weapon": {"damage": 17.0, "cooldown": 1.2, "count": 9, "speed": 315.0, "tier": 1}
 		},
 		{
 			"id": "neve",
@@ -67,7 +70,9 @@ static func all_characters() -> Array[Dictionary]:
 			"color": Color("ef476f"),
 			"health": 105.0,
 			"speed": 230.0,
-			"weapon": {"damage": 32.0, "cooldown": 1.05, "range": 205.0, "arc": 1.75, "tier": 1}
+			# A committed melee swing should clear a basic chaser in one hit; the
+			# short range and facing requirement already supply its risk.
+			"weapon": {"damage": 38.0, "cooldown": 0.98, "range": 220.0, "arc": 2.1, "tier": 1}
 		},
 		{
 			"id": "serin",

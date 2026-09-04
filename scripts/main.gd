@@ -70,16 +70,22 @@ var settings: GameSettings
 var hud_layer: CanvasLayer
 var hud_label: Label
 var xp_bar: ProgressBar
+var xp_text_label: Label
 var p1_status_label: Label
 var p2_status_label: Label
 var p1_health_bar: ProgressBar
 var p2_health_bar: ProgressBar
+var p1_health_text_label: Label
+var p2_health_text_label: Label
 var chain_bar: ProgressBar
 var chain_integrity_bar: ProgressBar
+var chain_distance_text_label: Label
+var chain_integrity_text_label: Label
 var chain_status_label: Label
 var resonance_status_label: Label
 var boss_bar: ProgressBar
 var boss_label: Label
+var boss_health_text_label: Label
 var help_label: Label
 var message_label: Label
 var level_overlay: ColorRect
@@ -339,6 +345,7 @@ func _physics_process(delta: float) -> void:
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
 		boss_bar.value = boss_enemy.health
+		boss_health_text_label.text = "%d / %d" % [int(ceil(boss_enemy.health)), int(ceil(boss_enemy.max_health))]
 
 	_update_hud()
 	if (players[0].downed and players[1].downed) or players[0].bleedout_remaining <= 0.0 or players[1].bleedout_remaining <= 0.0:
@@ -350,8 +357,6 @@ func _draw() -> void:
 	for coordinate in range(-2400, 2401, 96):
 		draw_line(Vector2(coordinate, -2400), Vector2(coordinate, 2400), grid_color, 1.0)
 		draw_line(Vector2(-2400, coordinate), Vector2(2400, coordinate), grid_color, 1.0)
-	draw_circle(Vector2.ZERO, 115.0, Color(0.2, 0.35, 0.55, 0.08))
-	draw_arc(Vector2.ZERO, 115.0, 0.0, TAU, 64, Color(0.25, 0.55, 0.85, 0.3), 2.0)
 
 
 func _create_world() -> void:
@@ -438,53 +443,65 @@ func _create_hud() -> void:
 	modal_dim.visible = false
 	layer.add_child(modal_dim)
 
-	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 96.0), Color(0.02, 0.04, 0.09, 0.88))
-	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 96.0), Color(0.02, 0.04, 0.09, 0.88))
+	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 86.0), Color(0.02, 0.04, 0.09, 0.88))
+	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 86.0), Color(0.02, 0.04, 0.09, 0.88))
 	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0), Color(0.02, 0.04, 0.09, 0.82))
 
 	p1_status_label = Label.new()
 	p1_status_label.position = Vector2(34.0, 24.0)
-	p1_status_label.size = Vector2(330.0, 52.0)
+	p1_status_label.size = Vector2(330.0, 26.0)
 	p1_status_label.add_theme_font_size_override("font_size", 20)
 	p1_status_label.add_theme_color_override("font_color", Color("43d9ff"))
+	_confine_label(p1_status_label)
 	layer.add_child(p1_status_label)
-	p1_health_bar = _create_bar(layer, Vector2(34.0, 80.0), Vector2(330.0, 13.0), Color("43d9ff"))
+	p1_health_bar = _create_bar(layer, Vector2(34.0, 56.0), Vector2(330.0, 28.0), Color("43d9ff"))
+	p1_health_text_label = _create_bar_text(layer, Vector2(34.0, 56.0), Vector2(330.0, 28.0), 15)
+	p1_health_text_label.size = p1_health_bar.size
 
 	p2_status_label = Label.new()
 	p2_status_label.position = Vector2(913.0, 24.0)
-	p2_status_label.size = Vector2(330.0, 52.0)
+	p2_status_label.size = Vector2(330.0, 26.0)
 	p2_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	p2_status_label.add_theme_font_size_override("font_size", 20)
 	p2_status_label.add_theme_color_override("font_color", Color("b892ff"))
+	_confine_label(p2_status_label)
 	layer.add_child(p2_status_label)
-	p2_health_bar = _create_bar(layer, Vector2(913.0, 80.0), Vector2(330.0, 13.0), Color("b892ff"))
+	p2_health_bar = _create_bar(layer, Vector2(913.0, 56.0), Vector2(330.0, 28.0), Color("b892ff"))
+	p2_health_text_label = _create_bar_text(layer, Vector2(913.0, 56.0), Vector2(330.0, 28.0), 15)
+	p2_health_text_label.size = p2_health_bar.size
 
 	hud_label = Label.new()
 	hud_label.position = Vector2(440.0, 22.0)
 	hud_label.size = Vector2(400.0, 30.0)
 	hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hud_label.add_theme_font_size_override("font_size", 22)
+	hud_label.add_theme_font_size_override("font_size", 19)
 	hud_label.add_theme_color_override("font_color", Color("e7f6ff"))
+	_confine_label(hud_label)
 	layer.add_child(hud_label)
 
-	chain_bar = _create_bar(layer, Vector2(455.0, 58.0), Vector2(370.0, 12.0), Color("43d9ff"))
+	chain_bar = _create_bar(layer, Vector2(455.0, 55.0), Vector2(370.0, 21.0), Color("43d9ff"))
 	chain_bar.max_value = 100.0
-	chain_integrity_bar = _create_bar(layer, Vector2(455.0, 74.0), Vector2(370.0, 6.0), Color("80ed99"))
+	chain_distance_text_label = _create_bar_text(layer, Vector2(455.0, 55.0), Vector2(370.0, 21.0), 14)
+	chain_distance_text_label.size = chain_bar.size
+	chain_integrity_bar = _create_bar(layer, Vector2(455.0, 81.0), Vector2(370.0, 17.0), Color("80ed99"))
 	chain_integrity_bar.max_value = CHAIN_INTEGRITY_MAX
 	chain_integrity_bar.value = CHAIN_INTEGRITY_MAX
+	chain_integrity_text_label = _create_bar_text(layer, Vector2(455.0, 81.0), Vector2(370.0, 17.0), 12)
+	chain_integrity_text_label.size = chain_integrity_bar.size
 	chain_status_label = Label.new()
-	chain_status_label.position = Vector2(415.0, 86.0)
-	chain_status_label.size = Vector2(450.0, 24.0)
-	chain_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	chain_status_label.add_theme_font_size_override("font_size", 17)
+	chain_status_label.position = Vector2(455.0, 108.0)
+	chain_status_label.size = Vector2(255.0, 22.0)
+	chain_status_label.add_theme_font_size_override("font_size", 14)
+	_confine_label(chain_status_label)
 	layer.add_child(chain_status_label)
 
 	resonance_status_label = Label.new()
-	resonance_status_label.position = Vector2(415.0, 106.0)
-	resonance_status_label.size = Vector2(450.0, 24.0)
-	resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	resonance_status_label.add_theme_font_size_override("font_size", 17)
+	resonance_status_label.position = Vector2(710.0, 108.0)
+	resonance_status_label.size = Vector2(115.0, 22.0)
+	resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	resonance_status_label.add_theme_font_size_override("font_size", 14)
 	resonance_status_label.add_theme_color_override("font_color", Color("e4c1f9"))
+	_confine_label(resonance_status_label)
 	layer.add_child(resonance_status_label)
 
 	_make_hud_panel(layer, Vector2(378.0, 130.0), Vector2(524.0, 60.0), Color(0.02, 0.04, 0.09, 0.9))
@@ -494,15 +511,21 @@ func _create_hud() -> void:
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_label.add_theme_font_size_override("font_size", 19)
 	boss_label.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(boss_label)
 	boss_label.text = "결속 파괴자"
 	boss_label.visible = false
 	layer.add_child(boss_label)
-	boss_bar = _create_bar(layer, Vector2(390.0, 166.0), Vector2(500.0, 12.0), Color("ef476f"))
+	boss_bar = _create_bar(layer, Vector2(390.0, 164.0), Vector2(500.0, 22.0), Color("ef476f"))
 	boss_bar.visible = false
+	boss_health_text_label = _create_bar_text(layer, Vector2(390.0, 164.0), Vector2(500.0, 22.0), 14)
+	boss_health_text_label.size = boss_bar.size
+	boss_health_text_label.visible = false
 
-	xp_bar = _create_bar(layer, Vector2(20.0, 695.0), Vector2(1240.0, 17.0), Color("80ed99"))
+	xp_bar = _create_bar(layer, Vector2(20.0, 688.0), Vector2(1240.0, 24.0), Color("80ed99"))
 	xp_bar.show_percentage = false
 	xp_bar.max_value = progression.required_experience
+	xp_text_label = _create_bar_text(layer, Vector2(20.0, 688.0), Vector2(1240.0, 24.0), 14)
+	xp_text_label.size = xp_bar.size
 
 	help_label = Label.new()
 	help_label.position = Vector2(24.0, 660.0)
@@ -512,6 +535,7 @@ func _create_hud() -> void:
 	help_label.text = "캐릭터 선택 중 — 각자 고유 무기와 능력치를 확인하고 확정하세요."
 	help_label.add_theme_font_size_override("font_size", 18)
 	help_label.add_theme_color_override("font_color", Color(0.75, 0.82, 0.93, 0.9))
+	_confine_label(help_label, true)
 	layer.add_child(help_label)
 
 	message_label = Label.new()
@@ -523,12 +547,13 @@ func _create_hud() -> void:
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	message_label.add_theme_font_size_override("font_size", 24)
 	message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_confine_label(message_label)
 	message_label.modulate.a = 0.0
 	_make_label_background(message_label, Color(0.02, 0.03, 0.07, 0.9))
 	layer.add_child(message_label)
 
 	level_overlay = ColorRect.new()
-	level_overlay.position = Vector2(60.0, 95.0)
+	level_overlay.position = Vector2(60.0, 132.0)
 	level_overlay.size = Vector2(1160.0, 525.0)
 	level_overlay.color = Color(0.025, 0.035, 0.075, 0.97)
 	level_overlay.visible = false
@@ -540,6 +565,7 @@ func _create_hud() -> void:
 	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	level_title.add_theme_font_size_override("font_size", 31)
 	level_title.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(level_title)
 	level_overlay.add_child(level_title)
 
 	level_card_labels[0] = _create_level_cards(level_overlay, 40.0, Color("43d9ff"))
@@ -548,7 +574,7 @@ func _create_hud() -> void:
 	p2_level_footer = _create_level_footer(level_overlay, 596.0, Color("b892ff"))
 
 	resonance_overlay = ColorRect.new()
-	resonance_overlay.position = Vector2(180.0, 105.0)
+	resonance_overlay.position = Vector2(180.0, 132.0)
 	resonance_overlay.size = Vector2(920.0, 500.0)
 	resonance_overlay.color = Color(0.055, 0.025, 0.09, 0.985)
 	resonance_overlay.visible = false
@@ -561,6 +587,7 @@ func _create_hud() -> void:
 	resonance_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	resonance_title.add_theme_font_size_override("font_size", 29)
 	resonance_title.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(resonance_title)
 	resonance_overlay.add_child(resonance_title)
 
 	resonance_choices_label = Label.new()
@@ -570,6 +597,7 @@ func _create_hud() -> void:
 	resonance_choices_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	resonance_choices_label.add_theme_font_size_override("font_size", 21)
 	resonance_choices_label.add_theme_color_override("font_color", Color("e4c1f9"))
+	_confine_label(resonance_choices_label, true)
 	resonance_overlay.add_child(resonance_choices_label)
 
 	character_overlay = ColorRect.new()
@@ -585,6 +613,7 @@ func _create_hud() -> void:
 	character_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_title.add_theme_font_size_override("font_size", 32)
 	character_title.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(character_title)
 	character_overlay.add_child(character_title)
 	character_roster_label = Label.new()
 	character_roster_label.position = Vector2(45.0, 78.0)
@@ -592,6 +621,7 @@ func _create_hud() -> void:
 	character_roster_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_roster_label.add_theme_font_size_override("font_size", 17)
 	character_roster_label.add_theme_color_override("font_color", Color("a9b8d4"))
+	_confine_label(character_roster_label)
 	character_overlay.add_child(character_roster_label)
 
 	character_p1_label = _create_character_label(Vector2(55.0, 112.0), Color("43d9ff"))
@@ -604,6 +634,7 @@ func _create_hud() -> void:
 	character_synergy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_synergy_label.add_theme_font_size_override("font_size", 18)
 	character_synergy_label.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(character_synergy_label, true)
 	character_overlay.add_child(character_synergy_label)
 
 	lobby_overlay = ColorRect.new()
@@ -618,6 +649,7 @@ func _create_hud() -> void:
 	lobby_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_title.add_theme_font_size_override("font_size", 30)
 	lobby_title.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(lobby_title, true)
 	lobby_overlay.add_child(lobby_title)
 	lobby_p1_label = _create_lobby_slot(Vector2(75.0, 210.0), Color("43d9ff"))
 	lobby_p2_label = _create_lobby_slot(Vector2(575.0, 210.0), Color("b892ff"))
@@ -630,6 +662,7 @@ func _create_hud() -> void:
 	lobby_help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_help.add_theme_font_size_override("font_size", 20)
 	lobby_help.add_theme_color_override("font_color", Color("a9b8d4"))
+	_confine_label(lobby_help, true)
 	lobby_overlay.add_child(lobby_help)
 
 	pause_overlay = ColorRect.new()
@@ -644,6 +677,7 @@ func _create_hud() -> void:
 	pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	pause_label.add_theme_font_size_override("font_size", 22)
+	_confine_label(pause_label, true)
 	pause_overlay.add_child(pause_label)
 
 	result_overlay = ColorRect.new()
@@ -658,6 +692,7 @@ func _create_hud() -> void:
 	result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	result_label.add_theme_font_size_override("font_size", 24)
+	_confine_label(result_label, true)
 	result_overlay.add_child(result_label)
 
 	tutorial_label = Label.new()
@@ -667,6 +702,7 @@ func _create_hud() -> void:
 	tutorial_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	tutorial_label.add_theme_font_size_override("font_size", 19)
 	tutorial_label.add_theme_color_override("font_color", Color("fff275"))
+	_confine_label(tutorial_label, true)
 	tutorial_label.visible = false
 	_make_label_background(tutorial_label, Color(0.02, 0.03, 0.07, 0.9))
 	layer.add_child(tutorial_label)
@@ -680,6 +716,7 @@ func _create_hud() -> void:
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	team_stats_label.add_theme_font_size_override("font_size", 16)
 	team_stats_label.add_theme_color_override("font_color", Color("dbe7ff"))
+	_confine_label(team_stats_label)
 	team_stats_label.visible = false
 	_make_label_background(team_stats_label, Color(0.02, 0.03, 0.07, 0.9))
 	level_overlay.add_child(team_stats_label)
@@ -705,6 +742,14 @@ func _make_label_background(label: Label, color: Color) -> void:
 	label.add_theme_stylebox_override("normal", style)
 
 
+func _confine_label(label: Label, wrap := false) -> void:
+	# Fixed-size HUD panels must own their text even when Korean localization or
+	# dynamic values produce a longer line than the English baseline.
+	label.clip_text = true
+	if wrap:
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+
 func _create_lobby_slot(slot_position: Vector2, color: Color) -> Label:
 	var label := Label.new()
 	label.position = slot_position
@@ -713,6 +758,7 @@ func _create_lobby_slot(slot_position: Vector2, color: Color) -> Label:
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 25)
 	label.add_theme_color_override("font_color", color)
+	_confine_label(label, true)
 	_make_label_background(label, Color(color, 0.08))
 	return label
 
@@ -723,6 +769,7 @@ func _create_edge_indicator(parent: Node, color: Color) -> Label:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", color)
+	_confine_label(label)
 	label.visible = false
 	_make_label_background(label, Color(0.02, 0.03, 0.07, 0.88))
 	parent.add_child(label)
@@ -752,6 +799,24 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 	return bar
 
 
+func _create_bar_text(parent: Node, label_position: Vector2, label_size: Vector2, font_size: int) -> Label:
+	var label := Label.new()
+	label.position = label_position
+	label.size = label_size
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.z_index = 2
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", Color("f4f8ff"))
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	_confine_label(label)
+	parent.add_child(label)
+	return label
+
+
 const LEVEL_CARD_WIDTH := 168.0
 const LEVEL_CARD_HEIGHT := 285.0
 const LEVEL_CARD_GAP := 10.0
@@ -773,6 +838,7 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		card.add_theme_font_size_override("font_size", 16)
 		card.add_theme_color_override("font_color", Color("e7f6ff"))
+		_confine_label(card, true)
 		var style := StyleBoxFlat.new()
 		style.bg_color = Color(accent, 0.1)
 		style.border_color = Color(accent, 0.4)
@@ -793,6 +859,7 @@ func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	footer.add_theme_font_size_override("font_size", 16)
 	footer.add_theme_color_override("font_color", color)
+	_confine_label(footer, true)
 	parent.add_child(footer)
 	return footer
 
@@ -806,6 +873,7 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", 23)
 	label.add_theme_color_override("font_color", color)
+	_confine_label(label, true)
 	return label
 
 
@@ -1181,6 +1249,8 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		boss_bar.value = enemy.health
 		boss_bar.visible = true
 		boss_label.visible = true
+		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
+		boss_health_text_label.visible = true
 		_show_message("경고 — 결속 파괴자가 사슬을 노립니다!", Color("ff5d8f"))
 		feedback.play_cue("boss")
 		feedback.play_music("boss")
@@ -1325,6 +1395,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	if defeated_boss:
 		boss_bar.visible = false
 		boss_label.visible = false
+		boss_health_text_label.visible = false
 		_end_run(true)
 		return
 	# Rolled after the boss branch on purpose: the boss carries the elite flag,
@@ -1757,7 +1828,7 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 
 
 func _refresh_level_up_ui() -> void:
-	level_title.text = "공유 레벨 %d — 좌우로 고르고 확정하세요" % progression.level
+	level_title.text = "레벨 %d  ·  각자 하나 선택" % progression.level
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
 	_refresh_team_stats_ui()
@@ -1809,9 +1880,11 @@ func _refresh_player_cards(player_index: int) -> void:
 	# The play field deliberately shows none of this, so the level-up screen is
 	# where a player actually reads what they have built so far.
 	var lines: Array[String] = [
-		"P%d  %s  ·  %s" % [player_index, String(character["name"]), _loadout_summary(slot)],
-		_attribute_summary(slot)
+		"P%d  %s  ·  %s" % [player_index, String(character["name"]), _loadout_summary(slot)]
 	]
+	var attribute_text := _attribute_summary(slot)
+	if not attribute_text.is_empty():
+		lines.append(attribute_text)
 	if level_up_input_delay > 0.0:
 		lines.append("잠시 후 선택할 수 있습니다")
 	elif locked:
@@ -1826,9 +1899,14 @@ func _refresh_player_cards(player_index: int) -> void:
 ## from, so they get one line of their own instead of being repeated under
 ## each player next to their personal stats.
 func _refresh_team_stats_ui() -> void:
-	team_stats_label.text = "공유   자석 %.0f%%   ·   성장 %.0f%%   ·   행운 %d" % [
-		team_magnet * 100.0, team_growth * 100.0, team_luck
-	]
+	var parts: Array[String] = []
+	if not is_equal_approx(team_magnet, 1.0):
+		parts.append("자석 %.0f%%" % (team_magnet * 100.0))
+	if not is_equal_approx(team_growth, 1.0):
+		parts.append("성장 %.0f%%" % (team_growth * 100.0))
+	if team_luck > 0:
+		parts.append("행운 %d" % team_luck)
+	team_stats_label.text = "공유 속성 없음" if parts.is_empty() else "공유  ·  " + "  ·  ".join(parts)
 	team_stats_label.visible = true
 
 
@@ -1853,7 +1931,7 @@ func _attribute_summary(slot: int) -> String:
 	if player.recovery > 0.0:
 		parts.append("재생 %.1f/s" % player.recovery)
 	if parts.is_empty():
-		return "속성 없음"
+		return ""
 	return " · ".join(parts)
 
 
@@ -1962,27 +2040,32 @@ func _update_hud() -> void:
 	var tension := clampf(distance / chain_max_length, 0.0, 1.0)
 	var objective := "보스 격파" if wave_director.boss_spawned else "보스 %02d:%02d" % [int(maxf(0.0, RUN_BOSS_TIME - elapsed)) / 60, int(maxf(0.0, RUN_BOSS_TIME - elapsed)) % 60]
 	var wave_text := "휴식" if wave_director.in_calm else "%d파" % maxi(1, wave_director.wave_index + 1)
-	hud_label.text = "%02d:%02d   ·   %s   ·   LV.%d   ·   처치 %d   ·   %s" % [minutes, seconds, wave_text, progression.level, kills, objective]
+	hud_label.text = "%02d:%02d  ·  %s  ·  처치 %d  ·  %s" % [minutes, seconds, wave_text, kills, objective]
 	p1_status_label.text = _player_status_text(0)
 	p2_status_label.text = _player_status_text(1)
 	p1_health_bar.max_value = players[0].max_health
 	p1_health_bar.value = players[0].health
 	p2_health_bar.max_value = players[1].max_health
 	p2_health_bar.value = players[1].health
+	p1_health_text_label.text = _player_health_text(0)
+	p2_health_text_label.text = _player_health_text(1)
+	p1_health_text_label.add_theme_color_override("font_color", Color("ffcfdf") if players[0].downed else Color("f4f8ff"))
+	p2_health_text_label.add_theme_color_override("font_color", Color("ffcfdf") if players[1].downed else Color("f4f8ff"))
 	chain_bar.value = tension * 100.0
+	chain_distance_text_label.text = "사슬 거리  %d%%" % int(round(tension * 100.0))
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
-		chain_state = "과부하 · 공격력 -20% · 붙어서 복구"
+		chain_state = "과부하  ·  공격 -20%"
 		chain_color = Color("ff5d8f")
 	elif tension >= 0.95:
-		chain_state = "한계! 서로 가까워지세요"
+		chain_state = "한계  ·  가까이!"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
-		chain_state = "과충전 · 공격력 +25%"
+		chain_state = "과충전  ·  공격 +25%"
 		chain_color = Color("fff275")
 	elif tension >= CHAIN_RESIST_RATIO:
-		chain_state = "팽팽함"
+		chain_state = "저항"
 		chain_color = Color("8ecae6")
 	chain_status_label.text = chain_state
 	chain_status_label.visible = not chain_state.is_empty()
@@ -1991,6 +2074,7 @@ func _update_hud() -> void:
 	if fill != null:
 		fill.bg_color = chain_color
 	chain_integrity_bar.value = chain_integrity
+	chain_integrity_text_label.text = "내구도  %d%%" % int(round(chain_integrity))
 	var integrity_fill := chain_integrity_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if integrity_fill != null:
 		if chain_overloaded:
@@ -2003,22 +2087,26 @@ func _update_hud() -> void:
 	if resonance_system.active_resonances.is_empty():
 		resonance_status_label.text = ""
 	else:
-		var resonance_names: Array[String] = []
-		for active in resonance_system.active_resonances:
-			resonance_names.append(String(active["name"]))
-		resonance_status_label.text = "공명 %d/%d  ·  %s" % [
-			resonance_system.active_resonances.size(), resonance_system.MAX_ACTIVE_RESONANCES, " · ".join(resonance_names)
+		resonance_status_label.text = "공명 %d/%d" % [
+			resonance_system.active_resonances.size(), resonance_system.MAX_ACTIVE_RESONANCES
 		]
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
+	xp_text_label.text = "LV.%d  ·  XP %d / %d" % [
+		progression.level, int(progression.experience), int(progression.required_experience)
+	]
 
 
 func _player_status_text(player_index: int) -> String:
 	var player := players[player_index]
-	var prefix := "P%d  %s   %d / %d" % [player_index + 1, player.character_name, int(player.health), int(player.max_health)]
+	return "P%d  %s" % [player_index + 1, player.character_name]
+
+
+func _player_health_text(player_index: int) -> String:
+	var player := players[player_index]
 	if player.downed:
-		return prefix + "\nDOWN %.1f초 · 구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
-	return prefix
+		return "DOWN %.1f초  ·  구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
+	return "%d / %d" % [int(player.health), int(player.max_health)]
 
 
 ## Compact HUD summary of a player's whole loadout: the weapon name when they
