@@ -5,6 +5,7 @@ signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 signal damage_taken(enemy: ChaserEnemy, amount: float)
 signal chain_slam(impact_point: Vector2, damage: float, radius: float)
+signal enraged(enemy: ChaserEnemy)
 
 const BOSS_SLAM_RADIUS := 95.0 ## Shared by the emitted hit radius and the drawn telegraph so they can never drift apart.
 
@@ -239,6 +240,7 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 		boss_enraged = true
 		move_speed *= 1.4
 		boss_attack_timer = minf(boss_attack_timer, 1.2)
+		enraged.emit(self)
 
 	if charge_timer > 0.0:
 		charge_timer -= delta

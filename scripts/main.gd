@@ -195,6 +195,7 @@ func _ready() -> void:
 	feedback = FeedbackScript.new() as FeedbackSystem
 	add_child(feedback)
 	feedback.sound_enabled = settings.sound_enabled
+	feedback.music_enabled = settings.music_enabled
 	feedback.damage_numbers_enabled = settings.damage_numbers_enabled
 	screen_shake_enabled = settings.screen_shake_enabled
 	weapon_controller = WeaponControllerScript.new() as WeaponController
@@ -916,6 +917,7 @@ func _start_selected_run() -> void:
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
+	feedback.play_music("field")
 	# Controls already appear on the lobby and character-select screens;
 	# repeating them under the play field forever is noise.
 	help_label.visible = false
@@ -1051,6 +1053,8 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		enemy.damage_taken.connect(_on_enemy_damaged)
 	if not enemy.chain_slam.is_connected(_on_boss_chain_slam):
 		enemy.chain_slam.connect(_on_boss_chain_slam)
+	if not enemy.enraged.is_connected(_on_boss_enraged):
+		enemy.enraged.connect(_on_boss_enraged)
 	if enemy not in enemies:
 		enemies.append(enemy)
 	if enemy.boss:
@@ -1061,6 +1065,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		boss_label.visible = true
 		_show_message("경고 — 결속 파괴자가 사슬을 노립니다!", Color("ff5d8f"))
 		feedback.play_cue("boss")
+		feedback.play_music("boss")
 		camera_shake = 10.0
 
 
@@ -1074,6 +1079,14 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 ## The boss's Chain Slam always drains chain integrity directly — it is
 ## targeting the bond itself, not the survivors — and additionally hurts
 ## anyone still standing inside the telegraphed impact radius when it lands.
+## The boss crossing half health changes how the fight is played, so it gets
+## an announcement of its own rather than passing silently.
+func _on_boss_enraged(_enemy: ChaserEnemy) -> void:
+	feedback.play_cue("boss_enrage")
+	camera_shake = maxf(camera_shake, 12.0)
+	_show_message("결속 파괴자가 격노합니다 — 더 빨라졌습니다!", Color("ff5d8f"))
+
+
 func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) -> void:
 	var hit_someone := false
 	for player in players:
@@ -1133,20 +1146,27 @@ func _handle_pause_input() -> void:
 		feedback.sound_enabled = not feedback.sound_enabled
 		_persist_settings()
 		_update_pause_text()
+	elif Input.is_action_just_pressed("toggle_music"):
+		feedback.music_enabled = not feedback.music_enabled
+		feedback.refresh_music()
+		_persist_settings()
+		_update_pause_text()
 
 
 func _persist_settings() -> void:
 	settings.screen_shake_enabled = screen_shake_enabled
 	settings.damage_numbers_enabled = feedback.damage_numbers_enabled
 	settings.sound_enabled = feedback.sound_enabled
+	settings.music_enabled = feedback.music_enabled
 	settings.save_settings()
 
 
 func _update_pause_text() -> void:
-	pause_label.text = "일시정지\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F11] 전체 화면" % [
+	pause_label.text = "일시정지\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F4] 음악: %s\n[F11] 전체 화면" % [
 		"켜짐" if screen_shake_enabled else "꺼짐",
 		"켜짐" if feedback.damage_numbers_enabled else "꺼짐",
-		"켜짐" if feedback.sound_enabled else "꺼짐"
+		"켜짐" if feedback.sound_enabled else "꺼짐",
+		"켜짐" if feedback.music_enabled else "꺼짐"
 	]
 
 
@@ -1907,6 +1927,7 @@ func _end_run(victory: bool = false) -> void:
 		players[1].character_name, _loadout_summary(1)
 	]
 	result_label.add_theme_color_override("font_color", Color("fff275") if victory else Color("ff8fab"))
+	feedback.stop_music()
 	feedback.play_cue("victory" if victory else "down")
 
 
@@ -1924,6 +1945,7 @@ func _setup_input_map() -> void:
 	_add_key_action("toggle_shake", KEY_F1)
 	_add_key_action("toggle_numbers", KEY_F2)
 	_add_key_action("toggle_sound", KEY_F3)
+	_add_key_action("toggle_music", KEY_F4)
 	_add_key_action("toggle_fullscreen", KEY_F11)
 	_add_key_action("p1_choice_1", KEY_A)
 	_add_key_action("p1_choice_2", KEY_S)
