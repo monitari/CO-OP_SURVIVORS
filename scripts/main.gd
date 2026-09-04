@@ -132,6 +132,16 @@ var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
 
+## Team attributes. Experience is a shared pool and both survivors level
+## together, so the stats that act on that pool are shared too — one player
+## owning a bigger magnet while the other does not would be incoherent when
+## either of them picking a gem credits the same bar. Everything that acts on
+## a survivor's own body or weapons stays personal (see ChainPlayer).
+const EXPERIENCE_MAGNET_BASE := 155.0
+var team_magnet := 1.0 ## multiplier on the shared XP pickup radius
+var team_growth := 1.0 ## multiplier on all shared XP gained
+var team_luck := 0 ## extra weight toward new-tech and special upgrade cards
+
 var character_catalog: Array[Dictionary] = []
 var selected_character_indices: Array[int] = [0, 1]
 var character_confirmed: Array[bool] = [false, false]
@@ -241,6 +251,7 @@ func _physics_process(delta: float) -> void:
 	weapon_controller.elapsed = elapsed
 	for player in players:
 		player.step_movement(delta)
+		player.step_recovery(delta)
 	_apply_chain_constraint()
 	_update_revives(delta)
 	_update_chain_integrity(delta)
@@ -265,7 +276,7 @@ func _physics_process(delta: float) -> void:
 		for weapon_slot in weapon_loadouts[player_index].size():
 			if attack_timers[player_index][weapon_slot] <= 0.0:
 				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
-				attack_timers[player_index][weapon_slot] = float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
+				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
 	for resonance in resonance_system.step(delta):
 		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
@@ -573,8 +584,11 @@ func _create_hud() -> void:
 	layer.add_child(tutorial_label)
 
 	build_inspect_label = Label.new()
-	build_inspect_label.position = Vector2(300.0, 555.0)
-	build_inspect_label.size = Vector2(680.0, 85.0)
+	# Sits over the level-up cards rather than under them: this is a
+	# hold-to-peek panel, so covering the cards while it is up is clearer than
+	# crowding into the footer row they already occupy.
+	build_inspect_label.position = Vector2(270.0, 225.0)
+	build_inspect_label.size = Vector2(740.0, 270.0)
 	build_inspect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	build_inspect_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	build_inspect_label.add_theme_font_size_override("font_size", 17)
@@ -874,6 +888,10 @@ func _start_selected_run() -> void:
 	chain_overloaded = false
 	rerolls_remaining = [1, 1] ## Spent across the run, not refilled per level-up
 	last_upgrade_choice_keys = [[], []]
+	team_magnet = 1.0
+	team_growth = 1.0
+	team_luck = 0
+	_apply_team_magnet()
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
@@ -1139,7 +1157,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 
 
 func _gain_shared_xp(amount: int) -> void:
-	progression.add_experience(amount)
+	progression.add_experience(int(round(float(amount) * team_growth)))
 	feedback.play_cue("xp")
 	if not level_up_active and progression.can_level_up():
 		_begin_level_up()
@@ -1195,7 +1213,17 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var loadout: Array = weapon_loadouts[slot]
 	var pool: Array[Dictionary] = [
 		{"id": "move", "weapon_slot": -1, "title": "가벼운 발걸음"},
-		{"id": "vitality", "weapon_slot": -1, "title": "생명력"}
+		{"id": "vitality", "weapon_slot": -1, "title": "생명력"},
+		{"id": "might", "weapon_slot": -1, "title": "위력"},
+		{"id": "area", "weapon_slot": -1, "title": "확장 범위"},
+		{"id": "amount", "weapon_slot": -1, "title": "탄량"},
+		{"id": "haste", "weapon_slot": -1, "title": "신속"},
+		{"id": "projectile_speed", "weapon_slot": -1, "title": "가속 탄도"},
+		{"id": "armor", "weapon_slot": -1, "title": "방어"},
+		{"id": "recovery", "weapon_slot": -1, "title": "재생"},
+		{"id": "magnet", "weapon_slot": -1, "title": "자석 · 공유"},
+		{"id": "growth", "weapon_slot": -1, "title": "성장 · 공유"},
+		{"id": "luck", "weapon_slot": -1, "title": "행운 · 공유"}
 	]
 	for weapon_slot in loadout.size():
 		var weapon_name := String(loadout[weapon_slot]["weapon_name"])
@@ -1222,7 +1250,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "넓은 파동"})
 				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "느슨한 족쇄"})
 	if loadout.size() < WEAPON_LOADOUT_CAP:
-		for character in _pick_unowned_characters(slot, 2):
+		for character in _pick_unowned_characters(slot, 2 + team_luck):
 			pool.append({
 				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
 				"title": "신규 기술: %s" % String(character["weapon_name"])
@@ -1238,13 +1266,52 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	if fresh_pool.size() >= 3:
 		pool = fresh_pool
 
-	pool.shuffle()
-	var choices: Array[Dictionary] = pool.slice(0, 3)
+	# Luck re-enters the weapon-defining options (a new tech, or a weapon's
+	# unique special rather than a flat number) so they are drawn more often.
+	var weighted: Array[Dictionary] = pool.duplicate()
+	for extra in team_luck:
+		for option in pool:
+			var option_id := String(option["id"])
+			if option_id == "unlock_weapon" or option_id == "special_a" or option_id == "special_b":
+				weighted.append(option)
+
+	weighted.shuffle()
+	var choices: Array[Dictionary] = []
+	var chosen_keys: Array = []
+	for option in weighted:
+		if choices.size() >= 3:
+			break
+		var key := _option_key(option)
+		if key in chosen_keys:
+			continue
+		choices.append(option)
+		chosen_keys.append(key)
+
+	# Tier progress is the only route to resonance, so at least one weapon
+	# upgrade is always on the table. Without this the attribute cards dilute
+	# the pool badly enough (roughly 4 weapon options among 17) that a pair
+	# could go several levels without either weapon reaching tier 3.
+	if not _has_weapon_upgrade(choices) and not loadout.is_empty():
+		var weapon_options: Array[Dictionary] = []
+		for option in pool:
+			if int(option.get("weapon_slot", -1)) >= 0:
+				weapon_options.append(option)
+		if not weapon_options.is_empty():
+			weapon_options.shuffle()
+			choices[choices.size() - 1] = weapon_options[0]
+
 	var choice_keys: Array = []
 	for option in choices:
 		choice_keys.append(_option_key(option))
 	last_upgrade_choice_keys[slot] = choice_keys
 	return choices
+
+
+func _has_weapon_upgrade(options: Array) -> bool:
+	for option in options:
+		if int(option.get("weapon_slot", -1)) >= 0:
+			return true
+	return false
 
 
 func _upgrade_preview(slot: int, option: Dictionary) -> String:
@@ -1259,6 +1326,9 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		return "이동 속도 %.0f → %.0f" % [players[slot].move_speed, players[slot].move_speed * 1.08]
 	if upgrade_id == "vitality":
 		return "최대 체력 %.0f → %.0f · 즉시 15 회복" % [players[slot].max_health, players[slot].max_health + 15.0]
+	var attribute_preview := _attribute_preview(slot, upgrade_id)
+	if not attribute_preview.is_empty():
+		return attribute_preview
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
@@ -1284,6 +1354,38 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 				"scythe": return "공격 각도 %.0f° → %.0f°%s" % [rad_to_deg(float(state["arc"])), rad_to_deg(minf(PI * 1.75, float(state["arc"]) + 0.25)), tier_hint]
 				"chain": return "사슬 한계 %.0f → %.0f%s" % [chain_max_length, chain_max_length + 30.0, tier_hint]
 	return "현재 능력을 강화합니다."
+
+
+## Attribute cards read as "every weapon you own gets this", so their preview
+## shows the multiplier rather than one weapon's numbers. Shared attributes say
+## so explicitly — they act on the pooled experience both survivors draw from.
+func _attribute_preview(slot: int, upgrade_id: String) -> String:
+	var player := players[slot]
+	match upgrade_id:
+		"might":
+			return "모든 무기 피해 %.0f%% → %.0f%%" % [player.might * 100.0, (player.might + 0.15) * 100.0]
+		"area":
+			return "모든 무기 범위 %.0f%% → %.0f%%" % [player.area * 100.0, (player.area + 0.15) * 100.0]
+		"amount":
+			return "모든 투사체 +%d → +%d발" % [player.amount, player.amount + 1]
+		"haste":
+			return "모든 무기 발동 간격 %.0f%% → %.0f%%" % [player.haste * 100.0, maxf(0.4, player.haste - 0.1) * 100.0]
+		"projectile_speed":
+			return "투사체 속도 %.0f%% → %.0f%%" % [player.projectile_speed * 100.0, (player.projectile_speed + 0.15) * 100.0]
+		"armor":
+			return "피격당 피해 감소 %.0f → %.0f" % [player.armor, player.armor + 2.0]
+		"recovery":
+			return "초당 회복 %.1f → %.1f" % [player.recovery, player.recovery + 0.8]
+		"magnet":
+			return "공유 획득 범위 %.0f%% → %.0f%%
+두 사람 모두에게 적용" % [team_magnet * 100.0, (team_magnet + 0.25) * 100.0]
+		"growth":
+			return "공유 경험치 %.0f%% → %.0f%%
+두 사람 모두에게 적용" % [team_growth * 100.0, (team_growth + 0.15) * 100.0]
+		"luck":
+			return "행운 %d → %d
+신규 기술과 고유 강화가 더 자주 등장" % [team_luck, team_luck + 1]
+	return ""
 
 
 func _handle_level_up_input() -> void:
@@ -1361,6 +1463,8 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		players[player_slot].max_health += 15.0
 		players[player_slot].heal(15.0)
 		return
+	if _apply_attribute(player_slot, upgrade_id):
+		return
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
@@ -1397,6 +1501,37 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 					chain_max_length += 30.0
 	if upgrade_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
 		state["tier"] = int(state.get("tier", 1)) + 1
+
+
+## Applies an attribute card and reports whether it handled the id, so
+## _apply_upgrade can fall through to the weapon-slot path for everything else.
+func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
+	var player := players[player_slot]
+	match upgrade_id:
+		"might":
+			player.might += 0.15
+		"area":
+			player.area += 0.15
+		"amount":
+			player.amount += 1
+		"haste":
+			player.haste = maxf(0.4, player.haste - 0.1)
+		"projectile_speed":
+			player.projectile_speed += 0.15
+		"armor":
+			player.armor += 2.0
+		"recovery":
+			player.recovery += 0.8
+		"magnet":
+			team_magnet += 0.25
+			_apply_team_magnet()
+		"growth":
+			team_growth += 0.15
+		"luck":
+			team_luck += 1
+		_:
+			return false
+	return true
 
 
 func _refresh_level_up_ui() -> void:
@@ -1461,8 +1596,35 @@ func _refresh_build_inspect_ui() -> void:
 		for weapon in weapon_loadouts[slot]:
 			names.append("%s T%d" % [String(weapon["weapon_name"]), int(weapon.get("tier", 1))])
 		lines.append("P%d  %s  ·  %s" % [player_index, String(selected_characters[slot]["name"]), " / ".join(names)])
+		lines.append("     %s" % _attribute_summary(slot))
+	lines.append("공유  자석 %.0f%%  ·  성장 %.0f%%  ·  행운 %d" % [team_magnet * 100.0, team_growth * 100.0, team_luck])
 	build_inspect_label.text = "현재 빌드\n\n" + "\n".join(lines)
 	build_inspect_label.visible = true
+
+
+## One-line personal attribute readout. Only non-neutral values are listed so
+## an early-run player sees a short line instead of ten stats all sitting at
+## their starting value.
+func _attribute_summary(slot: int) -> String:
+	var player := players[slot]
+	var parts: Array[String] = []
+	if not is_equal_approx(player.might, 1.0):
+		parts.append("위력 %.0f%%" % (player.might * 100.0))
+	if not is_equal_approx(player.area, 1.0):
+		parts.append("범위 %.0f%%" % (player.area * 100.0))
+	if player.amount > 0:
+		parts.append("탄량 +%d" % player.amount)
+	if not is_equal_approx(player.haste, 1.0):
+		parts.append("신속 %.0f%%" % (player.haste * 100.0))
+	if not is_equal_approx(player.projectile_speed, 1.0):
+		parts.append("탄속 %.0f%%" % (player.projectile_speed * 100.0))
+	if player.armor > 0.0:
+		parts.append("방어 %.0f" % player.armor)
+	if player.recovery > 0.0:
+		parts.append("재생 %.1f/s" % player.recovery)
+	if parts.is_empty():
+		return "속성 없음"
+	return " · ".join(parts)
 
 
 func _finish_level_up() -> void:
@@ -1543,6 +1705,19 @@ func _tag_name(tag: String) -> String:
 		"holy": "성휘", "control": "제어", "burst": "폭발", "arc": "호격"
 	}
 	return String(names.get(tag, tag))
+
+
+## A weapon's own cooldown scaled by its owner's haste, floored so stacked
+## haste can never drive an interval to zero (which would fire every frame).
+## The XP pickup radius lives on ExperienceSystem, so the shared magnet
+## attribute is pushed into it whenever it changes rather than read per frame.
+func _apply_team_magnet() -> void:
+	experience_system.magnet_radius = EXPERIENCE_MAGNET_BASE * team_magnet
+
+
+func _weapon_interval(player_index: int, weapon_slot: int) -> float:
+	var base := float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
+	return maxf(0.12, base * players[player_index].haste)
 
 
 func _tension_damage_multiplier() -> float:

@@ -20,6 +20,19 @@ var bleedout_remaining := 18.0
 var revive_progress := 0.0
 var current_input := Vector2.ZERO
 
+## Personal attributes, applied across this player's whole weapon loadout
+## rather than to a single weapon. Multipliers start neutral at 1.0; `amount`
+## and `armor` are additive. These live on the player node alongside
+## move_speed/max_health because that is already where per-survivor stats are
+## kept, and hurt() needs armor without reaching back into main.gd.
+var might := 1.0 ## damage multiplier
+var area := 1.0 ## radius / range / arc / width multiplier
+var projectile_speed := 1.0 ## projectile travel speed multiplier
+var amount := 0 ## extra projectiles per volley
+var haste := 1.0 ## cooldown multiplier, lower is faster
+var armor := 0.0 ## flat damage subtracted from every hit
+var recovery := 0.0 ## health per second regenerated while standing
+
 
 func setup(index: int, color: Color) -> void:
 	player_index = index
@@ -37,6 +50,13 @@ func apply_character(character: Dictionary) -> void:
 	downed = false
 	bleedout_remaining = 18.0
 	revive_progress = 0.0
+	might = 1.0
+	area = 1.0
+	projectile_speed = 1.0
+	amount = 0
+	haste = 1.0
+	armor = 0.0
+	recovery = 0.0
 	queue_redraw()
 
 
@@ -56,10 +76,12 @@ func step_movement(delta: float) -> void:
 	position += input_vector * move_speed * speed_multiplier * delta
 
 
+## Armor subtracts flat damage but can never fully negate a hit — a chip
+## minimum keeps stacked armor from making a survivor untouchable.
 func hurt(amount: float) -> bool:
 	if invulnerability > 0.0 or downed:
 		return false
-	health = maxf(0.0, health - amount)
+	health = maxf(0.0, health - maxf(1.0, amount - armor))
 	invulnerability = 0.55
 	damaged.emit(self, amount)
 	if health <= 0.0:
@@ -76,6 +98,14 @@ func heal(amount: float) -> void:
 		return
 	health = minf(max_health, health + amount)
 	queue_redraw()
+
+
+## Regenerates health from the recovery attribute. Downed survivors are
+## excluded — they are on the bleedout clock and only a revive brings them back.
+func step_recovery(delta: float) -> void:
+	if downed or recovery <= 0.0 or health >= max_health:
+		return
+	heal(recovery * delta)
 
 
 func step_bleedout(delta: float) -> void:

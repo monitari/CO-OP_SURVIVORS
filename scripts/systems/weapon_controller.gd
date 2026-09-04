@@ -26,19 +26,30 @@ func configure(
 ## because a picked-up weapon belongs to whichever character it came from —
 ## a player's second or third weapon does not share their own character's color.
 func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: float) -> void:
-	if players[player_index].downed:
+	var owner_player := players[player_index]
+	if owner_player.downed:
 		return
 	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
 	var color := Color(state["color"])
-	var damage := float(state["damage"]) * damage_multiplier
+	var damage := float(state["damage"]) * damage_multiplier * owner_player.might
+	# The personal attributes scale the weapon's own numbers rather than
+	# replacing them, so a scaled copy is handed to the effect functions and the
+	# stored loadout entry keeps its unmodified base values.
+	var scaled := state.duplicate()
+	scaled["count"] = int(state.get("count", 1)) + owner_player.amount
+	scaled["speed"] = float(state.get("speed", 0.0)) * owner_player.projectile_speed
+	scaled["radius"] = float(state.get("radius", 0.0)) * owner_player.area
+	scaled["range"] = float(state.get("range", 0.0)) * owner_player.area
+	scaled["width"] = float(state.get("width", 0.0)) * owner_player.area
+	scaled["arc"] = minf(TAU, float(state.get("arc", 0.0)) * owner_player.area)
 	match weapon_id:
-		"homing": _fire_homing(player_index, state, damage, color)
-		"lightning": _fire_lightning(players[player_index].global_position, int(state["jumps"]), damage, float(state["range"]), color)
-		"flame": _fire_flame_nova(player_index, state, damage, color)
-		"frost": _fire_frost_ring(player_index, state, damage, color)
-		"scythe": _swing_scythe(player_index, state, damage, color)
-		"chain": _fire_chain_pulse(state, damage)
+		"homing": _fire_homing(player_index, scaled, damage, color)
+		"lightning": _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color)
+		"flame": _fire_flame_nova(player_index, scaled, damage, color)
+		"frost": _fire_frost_ring(player_index, scaled, damage, color)
+		"scythe": _swing_scythe(player_index, scaled, damage, color)
+		"chain": _fire_chain_pulse(scaled, damage)
 
 
 func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:

@@ -58,6 +58,10 @@ func _tap(main: Node, action: String) -> void:
 	await process_frame
 
 
+## Must cover every value any upgrade card can move — including the personal
+## and shared attributes. A snapshot that only watched weapons and health
+## silently passed when both players happened to draw shared-attribute cards,
+## which changed real state the snapshot could not see.
 func _stat_snapshot(main: Node) -> Array:
 	var snapshot: Array = []
 	for slot in 2:
@@ -66,7 +70,14 @@ func _stat_snapshot(main: Node) -> Array:
 			weapons.append("%s|%.3f|%.3f|%d" % [
 				String(weapon["weapon_id"]), float(weapon["damage"]), float(weapon["cooldown"]), int(weapon.get("tier", 1))
 			])
-		snapshot.append("%.2f|%.2f|%s" % [main.players[slot].move_speed, main.players[slot].max_health, "/".join(weapons)])
+		var player: ChainPlayer = main.players[slot]
+		snapshot.append("%.2f|%.2f|%.3f|%.3f|%.3f|%d|%.3f|%.2f|%.2f|%s" % [
+			player.move_speed, player.max_health,
+			player.might, player.area, player.projectile_speed, player.amount,
+			player.haste, player.armor, player.recovery,
+			"/".join(weapons)
+		])
+	snapshot.append("%.3f|%.3f|%d" % [main.team_magnet, main.team_growth, main.team_luck])
 	return snapshot
 
 

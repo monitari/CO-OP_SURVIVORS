@@ -53,6 +53,24 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/level-up.png")
+
+	# Give both survivors a few attributes so the build panel has something to
+	# show, then capture the hold-to-peek overlay.
+	main.players[0].might = 1.3
+	main.players[0].area = 1.15
+	main.players[0].amount = 2
+	main.players[1].haste = 0.8
+	main.players[1].armor = 4.0
+	main.players[1].recovery = 1.6
+	main.team_magnet = 1.5
+	main.team_growth = 1.15
+	main.team_luck = 2
+	main._refresh_build_inspect_ui()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/build-inspect.png")
+	main.build_inspect_label.visible = false
+
 	main.level_up_active = false
 	main.level_overlay.visible = false
 	paused = false
