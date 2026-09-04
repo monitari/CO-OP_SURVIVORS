@@ -11,6 +11,7 @@ const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
+const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
 const SettingsScript := preload("res://scripts/systems/settings_system.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
@@ -45,6 +46,7 @@ var world_camera: Camera2D
 var spatial_grid: EnemySpatialGrid
 var progression: SharedProgression
 var experience_system: ExperienceSystem
+var field_items: FieldItemSystem
 var wave_director: WaveDirector
 var resonance_system: ResonanceSystem
 var weapon_controller: WeaponController
@@ -137,6 +139,16 @@ var chain_overloaded := false
 ## owning a bigger magnet while the other does not would be incoherent when
 ## either of them picking a gem credits the same bar. Everything that acts on
 ## a survivor's own body or weapons stays personal (see ChainPlayer).
+## Field drops are rare enough that finding one is an event, not a resource
+## tick. Luck raises the odds the same way it weights level-up cards, and
+## elites always leave something so a telegraphed hard fight has a payoff.
+const FIELD_ITEM_BASE_CHANCE := 0.015
+const FIELD_ITEM_LUCK_CHANCE := 0.005
+const FIELD_ITEM_HEAL_RATIO := 0.3
+const FIELD_ITEM_CHAIN_REPAIR := 45.0
+const FIELD_ITEM_PURGE_DAMAGE := 120.0
+const FIELD_ITEM_PURGE_RADIUS := 620.0
+
 const EXPERIENCE_MAGNET_BASE := 155.0
 var team_magnet := 1.0 ## multiplier on the shared XP pickup radius
 var team_growth := 1.0 ## multiplier on all shared XP gained
@@ -264,6 +276,7 @@ func _physics_process(delta: float) -> void:
 			enemy.step(players, delta)
 	spatial_grid.rebuild(enemies)
 	experience_system.step(players, delta)
+	field_items.step(players, delta)
 
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
@@ -303,6 +316,9 @@ func _create_world() -> void:
 	experience_system = ExperienceScript.new() as ExperienceSystem
 	experience_system.experience_collected.connect(_gain_shared_xp)
 	add_child(experience_system)
+	field_items = FieldItemScript.new() as FieldItemSystem
+	field_items.item_collected.connect(_on_field_item_collected)
+	add_child(field_items)
 	wave_director = WaveDirectorScript.new() as WaveDirector
 	add_child(wave_director)
 	resonance_system = ResonanceScript.new() as ResonanceSystem
@@ -892,6 +908,7 @@ func _start_selected_run() -> void:
 	team_growth = 1.0
 	team_luck = 0
 	_apply_team_magnet()
+	field_items.clear_all()
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
@@ -1140,6 +1157,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	var death_position := enemy.global_position
 	var dropped_xp := enemy.xp_value
 	var defeated_boss := enemy.boss
+	var was_elite := enemy.elite
 	enemies.erase(enemy)
 	kills += 1
 	experience_system.spawn_gem(death_position, dropped_xp)
@@ -1150,10 +1168,59 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		boss_label.visible = false
 		_end_run(true)
 		return
+	# Rolled after the boss branch on purpose: the boss carries the elite flag,
+	# so rolling before it would hand out a guaranteed drop at the exact moment
+	# the run ends and nobody can walk to it.
+	_try_drop_field_item(death_position, was_elite)
 	if kills % 18 == 0:
 		for player in players:
 			player.heal(8.0)
 		_show_message("사슬의 마력이 회복되었습니다  +8 HP", Color("80ed99"))
+
+
+## Elites always leave a drop; ordinary kills roll against a small chance that
+## team luck raises. The boss is excluded because defeating it ends the run,
+## so a pickup nobody can reach would just be noise.
+func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
+	var chance := FIELD_ITEM_BASE_CHANCE + FIELD_ITEM_LUCK_CHANCE * float(team_luck)
+	if not was_elite and randf() >= chance:
+		return
+	field_items.spawn_item(drop_position, field_items.roll_item_id())
+
+
+## Field pickups act on the pair, not the survivor who walked over them — the
+## chain already decides who can reach a drop, so making the reward personal
+## would punish whoever happened to be on the wrong side of it.
+func _on_field_item_collected(item_id: String) -> void:
+	var label: String = field_items.item_display_name(item_id)
+	var color: Color = field_items.item_color(item_id)
+	match item_id:
+		"heal":
+			for player in players:
+				player.heal(player.max_health * FIELD_ITEM_HEAL_RATIO)
+			label += " — 두 사람 회복"
+		"magnet":
+			var collected := experience_system.collect_all()
+			label += " — 경험치 %d개 회수" % collected
+		"chain_repair":
+			chain_integrity = minf(CHAIN_INTEGRITY_MAX, chain_integrity + FIELD_ITEM_CHAIN_REPAIR)
+			if chain_overloaded and chain_integrity >= CHAIN_OVERLOAD_CLEAR:
+				chain_overloaded = false
+			label += " — 사슬 내구도 회복"
+		"purge":
+			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
+			var burned := 0
+			for candidate in enemies.duplicate():
+				var enemy := candidate as ChaserEnemy
+				if not is_instance_valid(enemy) or enemy.dead:
+					continue
+				if midpoint.distance_to(enemy.global_position) <= FIELD_ITEM_PURGE_RADIUS:
+					enemy.take_damage(FIELD_ITEM_PURGE_DAMAGE)
+					burned += 1
+			camera_shake = maxf(camera_shake, 9.0)
+			label += " — 적 %d체 정화" % burned
+	feedback.play_cue("revive")
+	_show_message(label, color)
 
 
 func _gain_shared_xp(amount: int) -> void:

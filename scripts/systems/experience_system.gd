@@ -38,6 +38,19 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			_collect(gem)
 
 
+## Instantly banks every gem on the field. Used by the magnet field item,
+## which is the only thing that reaches gems the pickup radius never would.
+func collect_all() -> int:
+	var collected := 0
+	for candidate in active_gems.duplicate():
+		var gem := candidate as ExperienceGem
+		if not is_instance_valid(gem) or not gem.active:
+			continue
+		collected += 1
+		_collect(gem)
+	return collected
+
+
 func _collect(gem: ExperienceGem) -> void:
 	active_gems.erase(gem)
 	experience_collected.emit(gem.value)

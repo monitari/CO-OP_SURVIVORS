@@ -31,6 +31,10 @@ func _run() -> void:
 		enemy.position = Vector2.from_angle(TAU * float(index) / float(archetypes.size())) * 265.0
 		main._register_enemy(enemy)
 	main.experience_system.spawn_gem(Vector2(0.0, 115.0), 5)
+	# One of each field drop so the capture shows all four icons.
+	var drop_ids := ["heal", "magnet", "chain_repair", "purge"]
+	for drop_index in drop_ids.size():
+		main.field_items.spawn_item(Vector2(-165.0 + drop_index * 110.0, 175.0), drop_ids[drop_index])
 	main.spatial_grid.rebuild(main.enemies)
 	for frame in 20:
 		await process_frame
