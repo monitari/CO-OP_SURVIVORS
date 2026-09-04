@@ -61,8 +61,12 @@ func _run() -> void:
 	# ~12s cadence on one edge and an overcorrection into a leveling drought
 	# on the other.
 	var seconds_per_level: float = main.elapsed / maxf(1.0, float(main.progression.level - 1))
-	_check(seconds_per_level >= 18.0, "level-ups are not pausing the run more often than ~18s apart")
-	_check(seconds_per_level <= 34.0, "level-ups are not so sparse the run feels stalled")
+	# The band used to be 18-34, which was wide enough that the curve drifted
+	# all the way to 34s per level — three or four level-ups in a whole run —
+	# without ever failing. Measured pacing sits at 21-23s; this is a real
+	# band around that rather than a formality.
+	_check(seconds_per_level >= 17.0, "level-ups are not pausing the run more often than ~17s apart")
+	_check(seconds_per_level <= 29.0, "level-ups have not drifted sparse enough to starve a run of upgrades")
 
 	var archetypes: Dictionary = {}
 	for enemy in main.enemies:

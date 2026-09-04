@@ -43,6 +43,7 @@ func _run() -> void:
 	_test_palette(main)
 	_test_attack_ring_hierarchy(main)
 	_test_layout(main)
+	await _test_nothing_is_clipped(main)
 
 	if failures.is_empty():
 		print("PRESENTATION_PASS: kills burst, hits flash, overlays dim the field, threats point off screen")
@@ -276,6 +277,46 @@ func _test_layout(main: Node) -> void:
 	for player_cards: Array in main.level_card_labels:
 		for card: Label in player_cards:
 			_check(card.clip_text, "level-up cards clip text to their UI bounds")
+
+
+## Every fixed-size HUD label is built with clip_text on, which cuts overflow
+## silently — no warning, no ellipsis, the text is simply not there. The result
+## screen grew past its box exactly that way and lost both the co-op tally and
+## the line telling a dead pair how to restart. Godot reports the two counts
+## needed to catch it: how many lines the text wraps to, and how many of those
+## actually fit.
+func _test_nothing_is_clipped(main: Node) -> void:
+	# _begin_level_up returns early unless a level-up is actually pending, and
+	# an early return leaves every card empty — which is a guard that measures
+	# nothing at all.
+	main.progression.experience = main.progression.required_experience
+	main._begin_level_up()
+	_check(main.level_overlay.visible, "the level-up screen actually opened")
+	_check(String(main.level_card_labels[0][0].text).length() > 0, "the cards actually carry text")
+	await process_frame
+	await process_frame
+	for slot in 2:
+		for index in 3:
+			_check_fits("P%d의 %d번 카드" % [slot + 1, index + 1], main.level_card_labels[slot][index])
+	_check_fits("P1 빌드 요약", main.p1_level_footer)
+	_check_fits("P2 빌드 요약", main.p2_level_footer)
+	main.level_up_active = false
+
+	main._end_run(true)
+	await process_frame
+	await process_frame
+	_check_fits("결과 화면", main.result_label)
+	# Naming the tail explicitly: this is the line that went missing, and it is
+	# the only thing on screen telling the pair how to play again.
+	var text: String = main.result_label.text
+	_check(text.ends_with("ENTER / A  다시 결속하기"),
+		"the result screen still ends with the restart prompt")
+
+
+func _check_fits(name: String, label: Label) -> void:
+	var wrapped := label.get_line_count()
+	var shown := label.get_visible_line_count()
+	_check(wrapped <= shown, "%s의 텍스트가 잘리지 않는다 (%d줄 중 %d줄만 보임)" % [name, wrapped, shown])
 
 
 func _check(condition: bool, label: String) -> void:

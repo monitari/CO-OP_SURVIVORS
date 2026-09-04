@@ -562,31 +562,31 @@ func _create_hud() -> void:
 	layer.add_child(message_label)
 
 	level_overlay = ColorRect.new()
-	level_overlay.position = Vector2(60.0, 132.0)
-	level_overlay.size = Vector2(1160.0, 525.0)
+	level_overlay.position = Vector2(20.0, 132.0)
+	level_overlay.size = Vector2(1240.0, 545.0)
 	level_overlay.color = Color(0.025, 0.035, 0.075, 0.97)
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
 
 	level_title = Label.new()
 	level_title.position = Vector2(0.0, 24.0)
-	level_title.size = Vector2(1160.0, 55.0)
+	level_title.size = Vector2(1240.0, 55.0)
 	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	level_title.add_theme_font_size_override("font_size", 31)
 	level_title.add_theme_color_override("font_color", Color("fff275"))
 	_confine_label(level_title)
 	level_overlay.add_child(level_title)
 
-	level_card_labels[0] = _create_level_cards(level_overlay, 40.0, Color("43d9ff"))
-	level_card_labels[1] = _create_level_cards(level_overlay, 596.0, Color("b892ff"))
+	level_card_labels[0] = _create_level_cards(level_overlay, 8.0, Color("43d9ff"))
+	level_card_labels[1] = _create_level_cards(level_overlay, 624.0, Color("b892ff"))
 	level_portrait_icons = [
-		_create_icon_rect(level_overlay, Vector2(40.0, 401.0), Vector2(68.0, 68.0)),
-		_create_icon_rect(level_overlay, Vector2(596.0, 401.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(8.0, 378.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(624.0, 378.0), Vector2(68.0, 68.0)),
 	]
-	level_weapon_icons[0] = _create_weapon_icon_row(level_overlay, 116.0)
-	level_weapon_icons[1] = _create_weapon_icon_row(level_overlay, 672.0)
-	p1_level_footer = _create_level_footer(level_overlay, 40.0, Color("43d9ff"))
-	p2_level_footer = _create_level_footer(level_overlay, 596.0, Color("b892ff"))
+	level_weapon_icons[0] = _create_weapon_icon_row(level_overlay, 84.0)
+	level_weapon_icons[1] = _create_weapon_icon_row(level_overlay, 700.0)
+	p1_level_footer = _create_level_footer(level_overlay, 8.0, Color("43d9ff"))
+	p2_level_footer = _create_level_footer(level_overlay, 624.0, Color("b892ff"))
 
 	resonance_overlay = ColorRect.new()
 	resonance_overlay.position = Vector2(180.0, 132.0)
@@ -664,7 +664,7 @@ func _create_hud() -> void:
 	lobby_title = Label.new()
 	lobby_title.position = Vector2(0.0, 48.0)
 	lobby_title.size = Vector2(1100.0, 110.0)
-	lobby_title.text = "CHAINBOUND SURVIVORS\n두 생존자가 모두 참가해야 결속할 수 있습니다"
+	lobby_title.text = "CO-OP SURVIVORS\n두 생존자가 모두 참가해야 결속할 수 있습니다"
 	lobby_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_title.add_theme_font_size_override("font_size", 30)
 	lobby_title.add_theme_color_override("font_color", Color("fff275"))
@@ -700,17 +700,20 @@ func _create_hud() -> void:
 	pause_overlay.add_child(pause_label)
 
 	result_overlay = ColorRect.new()
-	result_overlay.position = Vector2(260.0, 120.0)
-	result_overlay.size = Vector2(760.0, 480.0)
+	# The run summary grew (loadouts, then the co-op tally) while this panel
+	# stayed the size it was, and clip_text cuts silently — the last four
+	# lines, including "ENTER / A" and the whole tally, were simply gone.
+	result_overlay.position = Vector2(180.0, 132.0)
+	result_overlay.size = Vector2(920.0, 545.0)
 	result_overlay.color = Color(0.02, 0.03, 0.07, 0.985)
 	result_overlay.visible = false
 	layer.add_child(result_overlay)
 	result_label = Label.new()
-	result_label.position = Vector2(40.0, 35.0)
-	result_label.size = Vector2(680.0, 405.0)
+	result_label.position = Vector2(40.0, 26.0)
+	result_label.size = Vector2(840.0, 493.0)
 	result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	result_label.add_theme_font_size_override("font_size", 24)
+	result_label.add_theme_font_size_override("font_size", 22)
 	_confine_label(result_label, true)
 	result_overlay.add_child(result_label)
 
@@ -729,7 +732,7 @@ func _create_hud() -> void:
 	team_stats_label = Label.new()
 	# One shared line under the cards. The personal build sits in each
 	# player’s own footer; only the pooled stats belong in the middle.
-	team_stats_label.position = Vector2(350.0, 482.0)
+	team_stats_label.position = Vector2(390.0, 508.0)
 	team_stats_label.size = Vector2(460.0, 32.0)
 	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -850,7 +853,7 @@ func _create_icon_rect(parent: Node, icon_position: Vector2, icon_size: Vector2)
 func _create_weapon_icon_row(parent: Node, start_x: float) -> Array:
 	var icons: Array = []
 	for index in WEAPON_LOADOUT_CAP:
-		var icon := _create_icon_rect(parent, Vector2(start_x + index * 42.0, 414.0), Vector2(38.0, 38.0))
+		var icon := _create_icon_rect(parent, Vector2(start_x + index * 42.0, 391.0), Vector2(38.0, 38.0))
 		var tier := Label.new()
 		tier.name = "Tier"
 		tier.position = Vector2(15.0, 21.0)
@@ -865,8 +868,10 @@ func _create_weapon_icon_row(parent: Node, start_x: float) -> Array:
 	return icons
 
 
-const LEVEL_CARD_WIDTH := 168.0
-const LEVEL_CARD_HEIGHT := 285.0
+## Widened twice now. The recommendation lines added to card copy made the
+## old width break Korean words mid-syllable on nearly every card.
+const LEVEL_CARD_WIDTH := 196.0
+const LEVEL_CARD_HEIGHT := 262.0
 const LEVEL_CARD_GAP := 10.0
 const LEVEL_CARD_Y := 105.0
 
@@ -914,8 +919,13 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 
 func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 	var footer := Label.new()
+	# 317px at font 13 wraps the attribute line in two, so the four written
+	# lines became five and the last one fell outside the box — invisibly,
+	# because clip_text does not complain. That fifth line is the status line:
+	# "잠시 후 선택할 수 있습니다" is the only thing explaining why input is
+	# ignored during the anti-misclick delay, and nobody had ever seen it.
 	footer.position = Vector2(half_x + 207.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 8.0)
-	footer.size = Vector2(317.0, 85.0)
+	footer.size = Vector2(400.0, 128.0)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	footer.add_theme_font_size_override("font_size", 13)
