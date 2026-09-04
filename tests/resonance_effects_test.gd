@@ -2,6 +2,7 @@ extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
 const EnemyScript := preload("res://scripts/enemy.gd")
+const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
 
 var failures: Array[String] = []
@@ -61,7 +62,14 @@ func _test_resonance(main: Node, resonance: Dictionary) -> void:
 	main.spatial_grid.rebuild(main.enemies)
 
 	var health_before := enemy.health
+	var child_count_before: int = main.weapon_controller.get_child_count()
 	main.weapon_controller.perform_resonance(resonance, 1.0)
+	var flare_created := false
+	for child_index in range(child_count_before, main.weapon_controller.get_child_count()):
+		if main.weapon_controller.get_child(child_index).get_script() == CombatFlareScript:
+			flare_created = true
+			break
+	_check(flare_created, "%s creates a shared resonance flare" % String(resonance["id"]))
 	await create_timer(0.75).timeout
 	var dealt_damage := is_instance_valid(enemy) and enemy.health < health_before
 	var resonance_id := String(resonance["id"])

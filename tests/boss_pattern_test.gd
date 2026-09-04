@@ -37,7 +37,9 @@ func _run() -> void:
 	main.chain_integrity = main.CHAIN_INTEGRITY_MAX
 
 	var boss := main.wave_director._acquire_enemy("brute", 4.0, Vector2(0.0, 150.0), true, true) as ChaserEnemy
+	var effects_before: int = main.weapon_controller.get_child_count()
 	main._register_enemy(boss) # wires chain_slam into main._on_boss_chain_slam
+	_check(main.weapon_controller.get_child_count() > effects_before, "boss arrival creates a ceremonial combat flare")
 
 	_check(boss.move_speed > 120.0, "the boss moves well above the old ~63px/s brute crawl (got %.1f)" % boss.move_speed)
 	_check(boss.move_speed < 210.0, "the boss is still not as fast as a player before it enrages (got %.1f)" % boss.move_speed)

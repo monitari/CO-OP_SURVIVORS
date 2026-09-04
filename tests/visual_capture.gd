@@ -87,6 +87,8 @@ func _run() -> void:
 	main.team_magnet = 1.5
 	main.team_growth = 1.15
 	main.team_luck = 2
+	main.weapon_loadouts[0].append(main._build_weapon_state(main.character_catalog[4]))
+	main.weapon_loadouts[1].append(main._build_weapon_state(main.character_catalog[5]))
 	main._refresh_level_up_ui()
 	await process_frame
 	await RenderingServer.frame_post_draw
@@ -114,6 +116,11 @@ func _run() -> void:
 	main.resonance_overlay.visible = false
 	main.level_up_active = false
 	paused = false
+	main.weapon_controller.perform_resonance(main.resonance_system.catalog[3], 1.0)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/resonance-cast.png")
+
 	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, true, true) as ChaserEnemy
 	boss.position = Vector2(0.0, -170.0)
 	main._register_enemy(boss)
@@ -121,12 +128,19 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/boss-arrival.png")
+	boss.health = boss.max_health * 0.4
+	boss.step(main.players, 0.01)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/boss-enraged.png")
 
 	main.players[0].position = Vector2(-80.0, 40.0)
 	main.players[1].position = Vector2(80.0, 40.0)
 	boss.position = Vector2(0.0, -140.0)
-	boss.boss_attack_timer = 0.0
-	boss.step(main.players, 0.1)
+	boss.charge_windup = 0.0
+	boss.boss_slam_point = Vector2.ZERO
+	boss.boss_slam_windup = 0.7
+	boss.queue_redraw()
 	main._update_chain_visual()
 	await process_frame
 	await RenderingServer.frame_post_draw

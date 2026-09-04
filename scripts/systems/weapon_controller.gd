@@ -2,6 +2,7 @@ class_name WeaponController
 extends Node2D
 
 const ProjectileScript := preload("res://scripts/projectile.gd")
+const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 
 var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
@@ -55,6 +56,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 	var resonance_id := String(resonance["id"])
 	var midpoint := (players[0].global_position + players[1].global_position) * 0.5
+	_play_resonance_flare(midpoint, resonance)
 	match resonance_id:
 		"guided_thunder":
 			_fire_lightning(midpoint, 8, 38.0 * damage_multiplier, 760.0, Color("fff275"))
@@ -129,6 +131,31 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 			_swing_scythe(0, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
 			_swing_scythe(1, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
 			_damage_area(midpoint, 200.0, 20.0 * damage_multiplier, 0.35)
+
+
+func _play_resonance_flare(center: Vector2, resonance: Dictionary) -> void:
+	var tag_colors := {
+		"tracking": Color("43d9ff"), "lightning": Color("b892ff"),
+		"projectile": Color("43d9ff"), "storm": Color("b892ff"),
+		"arcane": Color("8ecae6"), "chain": Color("80ed99"),
+		"fire": Color("ff8c42"), "frost": Color("8ecae6"),
+		"shadow": Color("ef476f"), "tether": Color("80ed99"),
+		"aura": Color("e4c1f9"), "melee": Color("ef476f"),
+		"holy": Color("fff275"), "control": Color("8ecae6"),
+		"burst": Color("ff8c42"), "arc": Color("fff275"),
+	}
+	var requirements: Array = resonance["requires"]
+	_spawn_combat_flare(center, tag_colors.get(String(requirements[0]), Color("43d9ff")), tag_colors.get(String(requirements[1]), Color("fff275")), 165.0, 0.5)
+
+
+func play_boss_flare(center: Vector2, enraged := false) -> void:
+	_spawn_combat_flare(center, Color("ff334f") if enraged else Color("c1121f"), Color("fff275"), 235.0 if enraged else 205.0, 0.72)
+
+
+func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radius: float, lifetime: float) -> void:
+	var flare := CombatFlareScript.new()
+	flare.setup(center, primary, secondary, radius, lifetime)
+	add_child(flare)
 
 
 func clear_transients() -> void:

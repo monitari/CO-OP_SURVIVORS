@@ -31,12 +31,13 @@ func _run() -> void:
 	await process_frame
 
 	await _test_input_delay(main)
+	_test_recommendation_and_build_readout(main)
 	await _test_cursor_and_deferred_apply(main)
 	await _test_reroll(main)
 	await _test_no_immediate_repeat(main)
 
 	if failures.is_empty():
-		print("LEVEL_UP_CARD_PASS: open delay, cursor, deferred apply, cancel-before-partner, reroll budget, no repeat set")
+		print("LEVEL_UP_CARD_PASS: recommendations, icon build readout, open delay, cursor, deferred apply, reroll, no repeat set")
 		quit(0)
 	else:
 		for failure in failures:
@@ -117,6 +118,44 @@ func _test_input_delay(main: Node) -> void:
 	main.level_up_active = false
 	paused = false
 	await process_frame
+
+
+func _test_recommendation_and_build_readout(main: Node) -> void:
+	main.resonance_system.active_resonances.clear()
+	main.weapon_loadouts[0][0]["tier"] = 2
+	main.weapon_loadouts[1][0]["tier"] = 3
+	var choices: Array[Dictionary] = [
+		{"id": "weapon_power", "weapon_slot": 0, "title": "공명 직전 강화"},
+		{"id": "vitality", "weapon_slot": -1, "title": "생명력"},
+		{"id": "move", "weapon_slot": -1, "title": "이동"},
+	]
+	main._annotate_recommendations(0, choices)
+	_check(bool(choices[0]["recommended"]), "a tier-3 upgrade that unlocks a resonance is recommended")
+	_check(String(choices[0]["recommendation_reason"]).contains("공명 해금"), "the recommendation explains its tech-graph reason")
+	var recommendation_count := 0
+	for option in choices:
+		recommendation_count += 1 if bool(option["recommended"]) else 0
+		_check(option.has("recommendation_score") and option.has("recommendation_reason"), "every offered card receives an explainable score")
+	_check(recommendation_count == 1, "exactly one card is marked recommended")
+
+	# Restore the normal opening tiers before the randomized card-flow checks.
+	main.weapon_loadouts[0][0]["tier"] = 1
+	main.weapon_loadouts[1][0]["tier"] = 1
+	main.p1_choices = main._get_upgrade_choices(1)
+	main.p2_choices = main._get_upgrade_choices(2)
+	main._refresh_level_up_ui()
+	var recommended_cards := 0
+	for card: Label in main.level_card_labels[0]:
+		var icon := card.get_node("Icon") as TextureRect
+		var badge := card.get_node("Recommendation") as Label
+		_check(icon.texture != null, "every upgrade card renders a mapped icon")
+		recommended_cards += 1 if badge.visible else 0
+	_check(recommended_cards == 1, "the recommendation badge is visible on one dealt card")
+	_check(main.p1_level_footer.text.contains("공격") and main.p1_level_footer.text.contains("탄속")
+		and main.p1_level_footer.text.contains("재생") and main.p1_level_footer.text.contains("이동"),
+		"the level-up build readout always lists the full personal stat set")
+	_check(main.level_weapon_icons[0][0].visible and main.level_weapon_icons[0][0].texture != null,
+		"owned weapons render as tiered icons")
 
 func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_open_level_up(main)

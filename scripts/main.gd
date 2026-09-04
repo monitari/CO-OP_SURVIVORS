@@ -14,6 +14,7 @@ const WeaponControllerScript := preload("res://scripts/systems/weapon_controller
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
 const SettingsScript := preload("res://scripts/systems/settings_system.gd")
+const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
@@ -77,6 +78,7 @@ var p1_health_bar: ProgressBar
 var p2_health_bar: ProgressBar
 var p1_health_text_label: Label
 var p2_health_text_label: Label
+var hud_portrait_icons: Array[TextureRect] = []
 var chain_bar: ProgressBar
 var chain_integrity_bar: ProgressBar
 var chain_distance_text_label: Label
@@ -93,10 +95,13 @@ var level_title: Label
 var level_card_labels: Array = [[], []] ## level_card_labels[slot] = Array[Label], one per offered choice (up to 3)
 var p1_level_footer: Label
 var p2_level_footer: Label
+var level_portrait_icons: Array[TextureRect] = []
+var level_weapon_icons: Array = [[], []]
 var character_overlay: ColorRect
 var character_title: Label
 var character_p1_label: Label
 var character_p2_label: Label
+var character_portrait_icons: Array[TextureRect] = []
 var resonance_overlay: ColorRect
 var resonance_title: Label
 var resonance_choices_label: Label
@@ -447,9 +452,13 @@ func _create_hud() -> void:
 	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 86.0), Color(0.02, 0.04, 0.09, 0.88))
 	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0), Color(0.02, 0.04, 0.09, 0.82))
 
+	hud_portrait_icons = [
+		_create_icon_rect(layer, Vector2(31.0, 20.0), Vector2(30.0, 30.0)),
+		_create_icon_rect(layer, Vector2(1217.0, 20.0), Vector2(30.0, 30.0)),
+	]
 	p1_status_label = Label.new()
-	p1_status_label.position = Vector2(34.0, 24.0)
-	p1_status_label.size = Vector2(330.0, 26.0)
+	p1_status_label.position = Vector2(66.0, 24.0)
+	p1_status_label.size = Vector2(298.0, 26.0)
 	p1_status_label.add_theme_font_size_override("font_size", 20)
 	p1_status_label.add_theme_color_override("font_color", Color("43d9ff"))
 	_confine_label(p1_status_label)
@@ -460,7 +469,7 @@ func _create_hud() -> void:
 
 	p2_status_label = Label.new()
 	p2_status_label.position = Vector2(913.0, 24.0)
-	p2_status_label.size = Vector2(330.0, 26.0)
+	p2_status_label.size = Vector2(298.0, 26.0)
 	p2_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	p2_status_label.add_theme_font_size_override("font_size", 20)
 	p2_status_label.add_theme_color_override("font_color", Color("b892ff"))
@@ -570,6 +579,12 @@ func _create_hud() -> void:
 
 	level_card_labels[0] = _create_level_cards(level_overlay, 40.0, Color("43d9ff"))
 	level_card_labels[1] = _create_level_cards(level_overlay, 596.0, Color("b892ff"))
+	level_portrait_icons = [
+		_create_icon_rect(level_overlay, Vector2(40.0, 401.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(596.0, 401.0), Vector2(68.0, 68.0)),
+	]
+	level_weapon_icons[0] = _create_weapon_icon_row(level_overlay, 116.0)
+	level_weapon_icons[1] = _create_weapon_icon_row(level_overlay, 672.0)
 	p1_level_footer = _create_level_footer(level_overlay, 40.0, Color("43d9ff"))
 	p2_level_footer = _create_level_footer(level_overlay, 596.0, Color("b892ff"))
 
@@ -624,8 +639,12 @@ func _create_hud() -> void:
 	_confine_label(character_roster_label)
 	character_overlay.add_child(character_roster_label)
 
-	character_p1_label = _create_character_label(Vector2(55.0, 112.0), Color("43d9ff"))
-	character_p2_label = _create_character_label(Vector2(570.0, 112.0), Color("b892ff"))
+	character_portrait_icons = [
+		_create_icon_rect(character_overlay, Vector2(247.0, 108.0), Vector2(96.0, 96.0)),
+		_create_icon_rect(character_overlay, Vector2(762.0, 108.0), Vector2(96.0, 96.0)),
+	]
+	character_p1_label = _create_character_label(Vector2(55.0, 205.0), Color("43d9ff"))
+	character_p2_label = _create_character_label(Vector2(570.0, 205.0), Color("b892ff"))
 	character_overlay.add_child(character_p1_label)
 	character_overlay.add_child(character_p2_label)
 	character_synergy_label = Label.new()
@@ -817,6 +836,35 @@ func _create_bar_text(parent: Node, label_position: Vector2, label_size: Vector2
 	return label
 
 
+func _create_icon_rect(parent: Node, icon_position: Vector2, icon_size: Vector2) -> TextureRect:
+	var icon := TextureRect.new()
+	icon.position = icon_position
+	icon.size = icon_size
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(icon)
+	return icon
+
+
+func _create_weapon_icon_row(parent: Node, start_x: float) -> Array:
+	var icons: Array = []
+	for index in WEAPON_LOADOUT_CAP:
+		var icon := _create_icon_rect(parent, Vector2(start_x + index * 42.0, 414.0), Vector2(38.0, 38.0))
+		var tier := Label.new()
+		tier.name = "Tier"
+		tier.position = Vector2(15.0, 21.0)
+		tier.size = Vector2(24.0, 17.0)
+		tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tier.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		tier.add_theme_font_size_override("font_size", 10)
+		tier.add_theme_color_override("font_color", Color("f4f8ff"))
+		_make_label_background(tier, Color(0.01, 0.02, 0.05, 0.9))
+		icon.add_child(tier)
+		icons.append(icon)
+	return icons
+
+
 const LEVEL_CARD_WIDTH := 168.0
 const LEVEL_CARD_HEIGHT := 285.0
 const LEVEL_CARD_GAP := 10.0
@@ -839,6 +887,19 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		card.add_theme_font_size_override("font_size", 16)
 		card.add_theme_color_override("font_color", Color("e7f6ff"))
 		_confine_label(card, true)
+		var icon := _create_icon_rect(card, Vector2(10.0, 10.0), Vector2(54.0, 54.0))
+		icon.name = "Icon"
+		var recommendation := Label.new()
+		recommendation.name = "Recommendation"
+		recommendation.position = Vector2(70.0, 15.0)
+		recommendation.size = Vector2(88.0, 26.0)
+		recommendation.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		recommendation.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		recommendation.text = "★ 추천"
+		recommendation.add_theme_font_size_override("font_size", 13)
+		recommendation.add_theme_color_override("font_color", Color("fff275"))
+		_make_label_background(recommendation, Color(0.22, 0.16, 0.02, 0.95))
+		card.add_child(recommendation)
 		var style := StyleBoxFlat.new()
 		style.bg_color = Color(accent, 0.1)
 		style.border_color = Color(accent, 0.4)
@@ -853,11 +914,11 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 
 func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 	var footer := Label.new()
-	footer.position = Vector2(half_x, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 8.0)
-	footer.size = Vector2(LEVEL_CARD_WIDTH * 3.0 + LEVEL_CARD_GAP * 2.0, 78.0)
-	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footer.position = Vector2(half_x + 207.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 8.0)
+	footer.size = Vector2(317.0, 85.0)
+	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	footer.add_theme_font_size_override("font_size", 16)
+	footer.add_theme_font_size_override("font_size", 13)
 	footer.add_theme_color_override("font_color", color)
 	_confine_label(footer, true)
 	parent.add_child(footer)
@@ -867,7 +928,7 @@ func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 func _create_character_label(label_position: Vector2, color: Color) -> Label:
 	var label := Label.new()
 	label.position = label_position
-	label.size = Vector2(475.0, 420.0)
+	label.size = Vector2(475.0, 310.0)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -970,6 +1031,9 @@ func _handle_character_select_input() -> void:
 func _refresh_character_select_ui() -> void:
 	character_p1_label.text = _format_character_card(0)
 	character_p2_label.text = _format_character_card(1)
+	for player_index in 2:
+		var character: Dictionary = character_catalog[selected_character_indices[player_index]]
+		character_portrait_icons[player_index].texture = IconCatalog.survivor(String(character["id"]))
 	var roster: Array[String] = []
 	for character in character_catalog:
 		roster.append(String(character["name"]))
@@ -1035,6 +1099,7 @@ func _start_selected_run() -> void:
 		weapon_loadouts[player_index] = [_build_weapon_state(selected_characters[player_index])]
 		players[player_index].apply_character(selected_characters[player_index])
 		attack_timers[player_index] = [0.15 + player_index * 0.12]
+		hud_portrait_icons[player_index].texture = IconCatalog.survivor(String(selected_characters[player_index]["id"]))
 	character_select_active = false
 	character_overlay.visible = false
 	chain_integrity = CHAIN_INTEGRITY_MAX
@@ -1252,6 +1317,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
 		boss_health_text_label.visible = true
 		_show_message("경고 — 결속 파괴자가 사슬을 노립니다!", Color("ff5d8f"))
+		weapon_controller.play_boss_flare(enemy.global_position)
 		feedback.play_cue("boss")
 		feedback.play_music("boss")
 		camera_shake = 10.0
@@ -1271,6 +1337,7 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 ## an announcement of its own rather than passing silently.
 func _on_boss_enraged(_enemy: ChaserEnemy) -> void:
 	feedback.play_cue("boss_enrage")
+	weapon_controller.play_boss_flare(_enemy.global_position, true)
 	camera_shake = maxf(camera_shake, 12.0)
 	_show_message("결속 파괴자가 격노합니다 — 더 빨라졌습니다!", Color("ff5d8f"))
 
@@ -1601,6 +1668,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	for option in choices:
 		choice_keys.append(_option_key(option))
 	last_upgrade_choice_keys[slot] = choice_keys
+	_annotate_recommendations(slot, choices)
 	return choices
 
 
@@ -1609,6 +1677,113 @@ func _has_weapon_upgrade(options: Array) -> bool:
 		if int(option.get("weapon_slot", -1)) >= 0:
 			return true
 	return false
+
+
+## Rates only the three cards that were actually dealt. The score combines
+## expected combat value, current survivability, run timing and the build graph:
+## an option that creates a new tier-3 weapon pairing wins a large explicit
+## bonus because it immediately unlocks a resonance vote.
+func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
+	var best_index := -1
+	var best_score := -INF
+	for index in choices.size():
+		var rating := _score_upgrade_option(slot, choices[index])
+		choices[index]["recommendation_score"] = float(rating["score"])
+		choices[index]["recommendation_reason"] = String(rating["reason"])
+		choices[index]["recommended"] = false
+		if float(rating["score"]) > best_score:
+			best_score = float(rating["score"])
+			best_index = index
+	if best_index >= 0:
+		choices[best_index]["recommended"] = true
+
+
+func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
+	var upgrade_id := String(option["id"])
+	var loadout: Array = weapon_loadouts[slot]
+	var player := players[slot]
+	var health_ratio := player.health / maxf(1.0, player.max_health)
+	var score := 20.0
+	var reason := "균형 성장"
+	match upgrade_id:
+		"weapon_power":
+			score = 50.0
+			reason = "주력 피해 +25%"
+		"weapon_rate":
+			score = 47.0
+			reason = "실전 발동 빈도 증가"
+		"special_a", "special_b":
+			score = 49.0
+			reason = "고유 기능 강화"
+		"might":
+			score = 39.0 + loadout.size() * 7.0
+			reason = "무기 %d종 전체 강화" % loadout.size()
+		"area":
+			score = 38.0 + loadout.size() * 4.0
+			reason = "다중 무기 범위 강화"
+		"amount":
+			score = 45.0
+			reason = "투사체 화력 증가"
+		"haste":
+			score = 43.0 + loadout.size() * 5.0
+			reason = "모든 발동 간격 단축"
+		"projectile_speed":
+			score = 36.0
+			reason = "원거리 명중 안정화"
+		"vitality":
+			score = 34.0 + (1.0 - health_ratio) * 48.0
+			reason = "체력 여유 확보" if health_ratio >= 0.5 else "위기 생존력 우선"
+		"armor":
+			score = 35.0 + minf(20.0, elapsed / 6.0) + (1.0 - health_ratio) * 18.0
+			reason = "누적 접촉 피해 절감"
+		"recovery":
+			score = 34.0 + (1.0 - health_ratio) * 30.0
+			reason = "장기 생존 회복"
+		"move":
+			score = 34.0
+			reason = "회피·구조 기동성"
+		"magnet":
+			score = 32.0 + maxf(0.0, 12.0 - progression.level)
+			reason = "공유 XP 회수 안정화"
+		"growth":
+			score = 52.0 - progression.level * 3.0
+			reason = "초반 성장 가속"
+		"luck":
+			score = 40.0 - progression.level * 1.5
+			reason = "고유 테크 출현 증가"
+		"unlock_weapon":
+			score = 44.0 + (WEAPON_LOADOUT_CAP - loadout.size()) * 4.0
+			reason = "공격 축 추가"
+
+	var new_resonance := _new_resonance_from_option(slot, option)
+	if not new_resonance.is_empty():
+		score += 120.0
+		reason = "공명 해금 · %s" % new_resonance
+	elif int(option.get("weapon_slot", -1)) >= 0:
+		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
+		if int(weapon.get("tier", 1)) == 2:
+			score += 34.0
+			reason = "T3 도달 · 공명 탐색"
+	return {"score": score, "reason": reason}
+
+
+func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
+	var before := resonance_system.get_candidates_for_loadouts(weapon_loadouts[0], weapon_loadouts[1])
+	var known: Dictionary = {}
+	for candidate in before:
+		known[String(candidate["id"])] = true
+	var preview: Array = [weapon_loadouts[0].duplicate(true), weapon_loadouts[1].duplicate(true)]
+	if String(option["id"]) == "unlock_weapon":
+		preview[slot].append(_build_weapon_state(option["character"] as Dictionary))
+	else:
+		var weapon_slot := int(option.get("weapon_slot", -1))
+		if weapon_slot < 0:
+			return ""
+		preview[slot][weapon_slot]["tier"] = int(preview[slot][weapon_slot].get("tier", 1)) + 1
+	for candidate in resonance_system.get_candidates_for_loadouts(preview[0], preview[1]):
+		if not known.has(String(candidate["id"])):
+			return String(candidate["name"])
+	return ""
 
 
 func _upgrade_preview(slot: int, option: Dictionary) -> String:
@@ -1848,13 +2023,17 @@ func _refresh_player_cards(player_index: int) -> void:
 		var is_unlock := String(option.get("id", "")) == "unlock_weapon"
 		var is_focused := not locked and index == upgrade_cursors[slot]
 		var is_chosen := locked and index == selected_upgrade_indices[slot]
+		var is_recommended := bool(option.get("recommended", false))
 
 		card.visible = (not locked) or is_chosen
-		card.text = "%s\n\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
-		if is_unlock:
-			card.text = "✦ " + card.text
+		var recommendation_line := "\n추천 이유: %s" % String(option.get("recommendation_reason", "")) if is_recommended else ""
+		card.text = "\n\n\n%s\n%s%s" % [String(option.get("title", "")), String(option.get("description", "")), recommendation_line]
+		var icon := card.get_node("Icon") as TextureRect
+		icon.texture = IconCatalog.upgrade(String(option.get("id", "")), _option_weapon_id(slot, option))
+		var recommendation := card.get_node("Recommendation") as Label
+		recommendation.visible = is_recommended
 
-		var border := Color("fff275") if is_unlock else accent
+		var border := Color("fff275") if is_unlock or is_recommended else accent
 		if level_up_input_delay > 0.0:
 			# Visibly inert until input opens, so the pause reads as deliberate
 			# rather than as the game ignoring a keypress.
@@ -1875,16 +2054,14 @@ func _refresh_player_cards(player_index: int) -> void:
 			style.set_border_width_all(2)
 		card.scale = Vector2(1.05, 1.05) if is_focused and level_up_input_delay <= 0.0 else Vector2.ONE
 
+	_refresh_level_build_icons(slot)
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
 	var character := selected_characters[slot]
-	# The play field deliberately shows none of this, so the level-up screen is
-	# where a player actually reads what they have built so far.
 	var lines: Array[String] = [
-		"P%d  %s  ·  %s" % [player_index, String(character["name"]), _loadout_summary(slot)]
+		"P%d %s  ·  무기 %d/%d" % [player_index, String(character["name"]), weapon_loadouts[slot].size(), WEAPON_LOADOUT_CAP],
+		_full_attribute_summary(slot),
+		"공유  자석 %.0f%% · 성장 %.0f%% · 행운 %d" % [team_magnet * 100.0, team_growth * 100.0, team_luck],
 	]
-	var attribute_text := _attribute_summary(slot)
-	if not attribute_text.is_empty():
-		lines.append(attribute_text)
 	if level_up_input_delay > 0.0:
 		lines.append("잠시 후 선택할 수 있습니다")
 	elif locked:
@@ -1895,18 +2072,43 @@ func _refresh_player_cards(player_index: int) -> void:
 	footer.text = "\n".join(lines)
 
 
-## The shared attributes act on the pooled experience both survivors draw
-## from, so they get one line of their own instead of being repeated under
-## each player next to their personal stats.
+func _option_weapon_id(slot: int, option: Dictionary) -> String:
+	if String(option.get("id", "")) == "unlock_weapon":
+		return String((option["character"] as Dictionary)["weapon_id"])
+	var weapon_slot := int(option.get("weapon_slot", -1))
+	if weapon_slot >= 0 and weapon_slot < weapon_loadouts[slot].size():
+		return String(weapon_loadouts[slot][weapon_slot]["weapon_id"])
+	return ""
+
+
+func _refresh_level_build_icons(slot: int) -> void:
+	level_portrait_icons[slot].texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
+	var icons: Array = level_weapon_icons[slot]
+	for index in icons.size():
+		var icon := icons[index] as TextureRect
+		if index >= weapon_loadouts[slot].size():
+			icon.visible = false
+			continue
+		var weapon: Dictionary = weapon_loadouts[slot][index]
+		icon.visible = true
+		icon.texture = IconCatalog.weapon(String(weapon["weapon_id"]))
+		var tier := icon.get_node("Tier") as Label
+		tier.text = "T%d" % int(weapon.get("tier", 1))
+
+
+func _full_attribute_summary(slot: int) -> String:
+	var player := players[slot]
+	return "공격 %.0f · 범위 %.0f · 탄량 +%d · 신속 %.0f\n탄속 %.0f · 방어 %.0f · 재생 %.1f · 이동 %.0f" % [
+		player.might * 100.0, player.area * 100.0, player.amount, player.haste * 100.0,
+		player.projectile_speed * 100.0, player.armor, player.recovery, player.move_speed,
+	]
+
+
+## The shared values are already listed in both build ribbons. This centre
+## strip explains what the recommendation badge actually measured, keeping
+## the algorithm legible instead of presenting a mysterious gold star.
 func _refresh_team_stats_ui() -> void:
-	var parts: Array[String] = []
-	if not is_equal_approx(team_magnet, 1.0):
-		parts.append("자석 %.0f%%" % (team_magnet * 100.0))
-	if not is_equal_approx(team_growth, 1.0):
-		parts.append("성장 %.0f%%" % (team_growth * 100.0))
-	if team_luck > 0:
-		parts.append("행운 %d" % team_luck)
-	team_stats_label.text = "공유 속성 없음" if parts.is_empty() else "공유  ·  " + "  ·  ".join(parts)
+	team_stats_label.text = "★ 추천 계산  ·  현재 체력 · 예상 효율 · T3 공명 경로"
 	team_stats_label.visible = true
 
 

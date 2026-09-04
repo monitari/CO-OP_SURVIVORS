@@ -281,6 +281,7 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 		move_speed *= 1.4
 		boss_attack_timer = minf(boss_attack_timer, 1.2)
 		enraged.emit(self)
+		queue_redraw()
 
 	if charge_timer > 0.0:
 		charge_timer -= delta
@@ -437,6 +438,12 @@ func _draw() -> void:
 	if elite:
 		draw_arc(Vector2.ZERO, radius + 7.0, 0.0, TAU, 24, Color("fff275"), 3.0, true)
 	if boss:
+		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 32, Color("ff334f"), 5.0, true)
+		for quadrant in 4:
+			var start := quadrant * TAU / 4.0 + 0.16
+			draw_arc(Vector2.ZERO, radius + 19.0, start, start + 0.62, 8, Color("fff275"), 3.0, true)
+		if boss_enraged:
+			draw_arc(Vector2.ZERO, radius + 25.0, 0.0, TAU, 32, Color(1.0, 0.15, 0.25, 0.62), 7.0, true)
 		draw_colored_polygon(PackedVector2Array([Vector2(-14, -radius - 6), Vector2(-8, -radius - 19), Vector2(0, -radius - 9), Vector2(8, -radius - 19), Vector2(14, -radius - 6)]), Color("fff275"))
 	draw_circle(Vector2(radius * 0.35, -radius * 0.27), 3.0, Color.WHITE)
 	var health_ratio := clampf(health / max_health, 0.0, 1.0)
