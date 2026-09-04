@@ -59,13 +59,11 @@ func _run() -> void:
 
 	main.selected_characters[0] = main.character_catalog[0].duplicate(true)
 	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
-	main.weapon_states[0] = (main.selected_characters[0]["weapon"] as Dictionary).duplicate(true)
-	main.weapon_states[1] = (main.selected_characters[1]["weapon"] as Dictionary).duplicate(true)
-	main.weapon_states[0]["tier"] = 3
-	main.weapon_states[1]["tier"] = 3
-	main.resonance_system.active_resonance = {}
-	main.p1_has_chosen = true
-	main.p2_has_chosen = true
+	main.weapon_loadouts[0] = [main._build_weapon_state(main.selected_characters[0])]
+	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
+	main.weapon_loadouts[0][0]["tier"] = 3
+	main.weapon_loadouts[1][0]["tier"] = 3
+	main.resonance_system.active_resonances = []
 	main.level_up_active = true
 	paused = true
 	main._after_personal_upgrade_choices()

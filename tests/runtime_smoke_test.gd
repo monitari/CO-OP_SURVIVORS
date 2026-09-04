@@ -55,9 +55,9 @@ func _run() -> void:
 func _test_weapon(main: Node, character_index: int) -> void:
 	await _clear_combat_nodes(main)
 	var character: Dictionary = main.character_catalog[character_index].duplicate(true)
-	var weapon: Dictionary = (character["weapon"] as Dictionary).duplicate(true)
 	main.selected_characters[0] = character
-	main.weapon_states[0] = weapon
+	main.weapon_loadouts[0] = [main._build_weapon_state(character)]
+	main.attack_timers[0] = [0.0]
 	main.players[0].apply_character(character)
 	main.players[0].last_input = Vector2.RIGHT
 

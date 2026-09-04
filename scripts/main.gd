@@ -17,6 +17,7 @@ const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
 const RUN_BOSS_TIME := 120.0
 const DOWNED_TOW_SHARE := 0.88
+const WEAPON_LOADOUT_CAP := 3
 
 # Overcharge is a loan against the chain, not a free damage bonus. Holding the
 # survivors apart past CHAIN_WARNING_RATIO burns integrity; only closing back
@@ -66,8 +67,9 @@ var help_label: Label
 var message_label: Label
 var level_overlay: ColorRect
 var level_title: Label
-var p1_choices_label: Label
-var p2_choices_label: Label
+var level_card_labels: Array = [[], []] ## level_card_labels[slot] = Array[Label], one per offered choice (up to 3)
+var p1_level_footer: Label
+var p2_level_footer: Label
 var character_overlay: ColorRect
 var character_title: Label
 var character_p1_label: Label
@@ -105,15 +107,14 @@ var camera_shake := 0.0
 var screen_shake_enabled := true
 var previous_chain_stage := 0
 var last_input_gamepad: Array[bool] = [false, false]
-var p1_selected_upgrade := ""
-var p2_selected_upgrade := ""
 var lobby_joined: Array[bool] = [false, false]
 var lobby_devices: Array[int] = [-1, -1]
 var lobby_device_names: Array[String] = ["키보드", "키보드"]
 var lobby_input_cooldown := 0.0
 var upgrade_cursors: Array[int] = [0, 0]
-var selected_upgrade_indices: Array[int] = [-1, -1]
-var rerolls_remaining: Array[int] = [1, 1]
+var selected_upgrade_indices: Array[int] = [-1, -1] ## -1 = still choosing; >=0 = locked in but not yet applied until both players lock
+var rerolls_remaining: Array[int] = [1, 1] ## Spent across the whole run, not refilled per level-up
+var last_upgrade_choice_keys: Array = [[], []] ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
 var resonance_cursors: Array[int] = [0, 0]
 var build_inspect_active := false
 var tutorial_active := false
@@ -135,13 +136,18 @@ var character_catalog: Array[Dictionary] = []
 var selected_character_indices: Array[int] = [0, 1]
 var character_confirmed: Array[bool] = [false, false]
 var selected_characters: Array[Dictionary] = [{}, {}]
-var weapon_states: Array[Dictionary] = [{}, {}]
-var attack_timers: Array[float] = [0.0, 0.0]
+
+## weapon_loadouts[player_index] is an Array[Dictionary], one entry per owned
+## weapon (max WEAPON_LOADOUT_CAP). Each dictionary is self-contained — it
+## carries its own weapon_id/weapon_name/tags/color alongside its numeric
+## stats — because a picked-up weapon belongs to whichever character it came
+## from, not to the player's own character, so it can't borrow those fields
+## from selected_characters[i] the way the single starting weapon used to.
+var weapon_loadouts: Array = [[], []]
+var attack_timers: Array = [[], []] ## attack_timers[player_index][weapon_slot], 1:1 with weapon_loadouts
 
 var p1_choices: Array[Dictionary] = []
 var p2_choices: Array[Dictionary] = []
-var p1_has_chosen := false
-var p2_has_chosen := false
 var resonance_candidates: Array[Dictionary] = []
 var resonance_votes: Array[int] = [-1, -1]
 var resonance_vote_message := ""
@@ -166,7 +172,7 @@ func _ready() -> void:
 	screen_shake_enabled = settings.screen_shake_enabled
 	weapon_controller = WeaponControllerScript.new() as WeaponController
 	add_child(weapon_controller)
-	weapon_controller.configure(players, selected_characters, weapon_states, spatial_grid)
+	weapon_controller.configure(players, weapon_loadouts, spatial_grid)
 	_create_hud()
 	_begin_lobby()
 	queue_redraw()
@@ -248,18 +254,20 @@ func _physics_process(delta: float) -> void:
 	spatial_grid.rebuild(enemies)
 	experience_system.step(players, delta)
 
-	for index in 2:
-		attack_timers[index] -= delta
+	for player_index in 2:
+		for weapon_slot in weapon_loadouts[player_index].size():
+			attack_timers[player_index][weapon_slot] -= delta
 
 	var midpoint := (players[0].position + players[1].position) * 0.5
 	for enemy in wave_director.step(delta, elapsed, midpoint, enemies.size()):
 		_register_enemy(enemy)
-	for index in 2:
-		if attack_timers[index] <= 0.0:
-			_perform_character_attack(index)
-			attack_timers[index] = float(weapon_states[index]["cooldown"])
-	if resonance_system.step(delta):
-		_perform_resonance()
+	for player_index in 2:
+		for weapon_slot in weapon_loadouts[player_index].size():
+			if attack_timers[player_index][weapon_slot] <= 0.0:
+				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
+				attack_timers[player_index][weapon_slot] = float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
+	for resonance in resonance_system.step(delta):
+		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
 		boss_bar.value = boss_enemy.health
 
@@ -435,10 +443,10 @@ func _create_hud() -> void:
 	level_title.add_theme_color_override("font_color", Color("fff275"))
 	level_overlay.add_child(level_title)
 
-	p1_choices_label = _create_choice_label(Vector2(50.0, 100.0), Color("43d9ff"))
-	p2_choices_label = _create_choice_label(Vector2(545.0, 100.0), Color("b892ff"))
-	level_overlay.add_child(p1_choices_label)
-	level_overlay.add_child(p2_choices_label)
+	level_card_labels[0] = _create_level_cards(level_overlay, 50.0, Color("43d9ff"))
+	level_card_labels[1] = _create_level_cards(level_overlay, 545.0, Color("b892ff"))
+	p1_level_footer = _create_level_footer(level_overlay, 50.0, Color("43d9ff"))
+	p2_level_footer = _create_level_footer(level_overlay, 545.0, Color("b892ff"))
 
 	resonance_overlay = ColorRect.new()
 	resonance_overlay.position = Vector2(180.0, 105.0)
@@ -645,14 +653,49 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 	return bar
 
 
-func _create_choice_label(label_position: Vector2, color: Color) -> Label:
-	var label := Label.new()
-	label.position = label_position
-	label.size = Vector2(465.0, 380.0)
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 21)
-	label.add_theme_color_override("font_color", color)
-	return label
+const LEVEL_CARD_WIDTH := 142.0
+const LEVEL_CARD_HEIGHT := 345.0
+const LEVEL_CARD_GAP := 13.0
+const LEVEL_CARD_Y := 105.0
+
+
+## Builds the three card slots for one player's level-up choices. Each card is
+## a single autowrapping Label with a bordered background (swapped per-frame
+## in _refresh_level_up_ui() to show focus/locked/unlock-type state) rather
+## than separate title/description nodes, matching how the rest of this HUD
+## builds text blocks with a StyleBoxFlat behind them.
+func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
+	var cards: Array = []
+	for index in 3:
+		var card := Label.new()
+		card.position = Vector2(half_x + (LEVEL_CARD_WIDTH + LEVEL_CARD_GAP) * index, LEVEL_CARD_Y)
+		card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
+		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		card.add_theme_font_size_override("font_size", 16)
+		card.add_theme_color_override("font_color", Color("e7f6ff"))
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(accent, 0.1)
+		style.border_color = Color(accent, 0.4)
+		style.set_border_width_all(2)
+		style.set_corner_radius_all(10)
+		style.set_content_margin_all(10)
+		card.add_theme_stylebox_override("normal", style)
+		parent.add_child(card)
+		cards.append(card)
+	return cards
+
+
+func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
+	var footer := Label.new()
+	footer.position = Vector2(half_x, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 8.0)
+	footer.size = Vector2(LEVEL_CARD_WIDTH * 3.0 + LEVEL_CARD_GAP * 2.0, 55.0)
+	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footer.add_theme_font_size_override("font_size", 16)
+	footer.add_theme_color_override("font_color", color)
+	parent.add_child(footer)
+	return footer
 
 
 func _create_character_label(label_position: Vector2, color: Color) -> Label:
@@ -805,17 +848,32 @@ func _synergy_preview() -> String:
 	return "예상 공명: " + (" · ".join(names) if not names.is_empty() else "직접적인 조합 없음 — 각자의 강점을 활용하세요")
 
 
+## Builds a self-contained weapon-loadout entry from a character's catalog
+## entry: the numeric weapon stats plus the identity fields (id/name/tags/
+## color/source) that a picked-up weapon needs to carry with it once it no
+## longer matches the player's own selected_characters[i].
+func _build_weapon_state(character: Dictionary) -> Dictionary:
+	var state: Dictionary = (character["weapon"] as Dictionary).duplicate(true)
+	state["weapon_id"] = character["weapon_id"]
+	state["weapon_name"] = character["weapon_name"]
+	state["tags"] = (character["tags"] as Array).duplicate()
+	state["color"] = character["color"]
+	state["source_character"] = character["name"]
+	return state
+
+
 func _start_selected_run() -> void:
 	for player_index in 2:
 		selected_characters[player_index] = character_catalog[selected_character_indices[player_index]].duplicate(true)
-		var starting_weapon: Dictionary = selected_characters[player_index]["weapon"]
-		weapon_states[player_index] = starting_weapon.duplicate(true)
+		weapon_loadouts[player_index] = [_build_weapon_state(selected_characters[player_index])]
 		players[player_index].apply_character(selected_characters[player_index])
-		attack_timers[player_index] = 0.15 + player_index * 0.12
+		attack_timers[player_index] = [0.15 + player_index * 0.12]
 	character_select_active = false
 	character_overlay.visible = false
 	chain_integrity = CHAIN_INTEGRITY_MAX
 	chain_overloaded = false
+	rerolls_remaining = [1, 1] ## Spent across the run, not refilled per level-up
+	last_upgrade_choice_keys = [[], []]
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
@@ -1051,12 +1109,13 @@ func _update_pause_text() -> void:
 	]
 
 
+## Fires every weapon a player owns once — used by the physics loop's
+## per-weapon cooldown check above (one call per ready weapon) and reused by
+## tests that want to trigger "this player attacks now" without waiting out
+## real cooldowns.
 func _perform_character_attack(player_index: int) -> void:
-	weapon_controller.perform_attack(player_index, _tension_damage_multiplier())
-
-
-func _perform_resonance() -> void:
-	weapon_controller.perform_resonance(resonance_system.active_resonance, _tension_damage_multiplier())
+	for weapon_slot in weapon_loadouts[player_index].size():
+		weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 
 
 func _on_enemy_died(enemy: ChaserEnemy) -> void:
@@ -1090,10 +1149,10 @@ func _begin_level_up() -> void:
 	if not progression.consume_level_up():
 		return
 	level_up_active = true
-	p1_has_chosen = false
-	p2_has_chosen = false
-	p1_selected_upgrade = ""
-	p2_selected_upgrade = ""
+	selected_upgrade_indices = [-1, -1]
+	upgrade_cursors = [0, 0]
+	build_inspect_active = false
+	build_inspect_label.visible = false
 	p1_choices = _get_upgrade_choices(1)
 	p2_choices = _get_upgrade_choices(2)
 	level_overlay.visible = true
@@ -1103,58 +1162,112 @@ func _begin_level_up() -> void:
 	feedback.play_cue("level")
 
 
+## A key that identifies one specific offered option (not just its id, since
+## e.g. "weapon_power" exists once per owned weapon) so _get_upgrade_choices
+## can avoid repeating the exact same 3-card set the very next level-up.
+func _option_key(option: Dictionary) -> String:
+	if String(option["id"]) == "unlock_weapon":
+		return "unlock_weapon:" + String((option["character"] as Dictionary)["id"])
+	return "%s:%d" % [String(option["id"]), int(option.get("weapon_slot", -1))]
+
+
+## Characters whose weapon this player does not already carry, shuffled and
+## capped at `count` — the pool of "new tech" candidates a level-up can offer.
+func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
+	var owned_ids: Dictionary = {}
+	for weapon in weapon_loadouts[slot]:
+		owned_ids[String(weapon["weapon_id"])] = true
+	var candidates: Array[Dictionary] = []
+	for character in character_catalog:
+		if not owned_ids.has(String(character["weapon_id"])):
+			candidates.append(character)
+	candidates.shuffle()
+	return candidates.slice(0, count)
+
+
+## Builds the pool of everything this level-up could offer: two generic
+## options, four per owned weapon (power/rate/special_a/special_b), and — if
+## the player has room under WEAPON_LOADOUT_CAP — a couple of "learn this
+## other character's weapon" candidates competing on equal footing in the
+## same shuffle, not guaranteed to appear every time.
 func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var slot := player_index - 1
-	var character := selected_characters[slot]
-	var weapon_id := String(character["weapon_id"])
-	var weapon_name := String(character["weapon_name"])
+	var loadout: Array = weapon_loadouts[slot]
 	var pool: Array[Dictionary] = [
-		{"id": "weapon_power", "title": "마력 증폭", "description": "%s 피해 +25%%" % weapon_name},
-		{"id": "weapon_rate", "title": "고속 시전", "description": "%s 발동 간격 -12%%" % weapon_name},
-		{"id": "move", "title": "가벼운 발걸음", "description": "이동 속도 +8%"},
-		{"id": "vitality", "title": "생명력", "description": "최대 체력 +15, 즉시 회복"}
+		{"id": "move", "weapon_slot": -1, "title": "가벼운 발걸음"},
+		{"id": "vitality", "weapon_slot": -1, "title": "생명력"}
 	]
-	match weapon_id:
-		"homing":
-			pool.append({"id": "special_a", "title": "다중 유도", "description": "동시 발사 유도탄 +1"})
-			pool.append({"id": "special_b", "title": "마력 추진", "description": "유도탄 속도 +70"})
-		"lightning":
-			pool.append({"id": "special_a", "title": "연쇄 전도", "description": "번개 연쇄 횟수 +1"})
-			pool.append({"id": "special_b", "title": "확장 도체", "description": "첫 타격 사거리 +55"})
-		"flame":
-			pool.append({"id": "special_a", "title": "불씨 범람", "description": "방사형 화염탄 +2"})
-			pool.append({"id": "special_b", "title": "열풍 추진", "description": "화염탄 속도 +55"})
-		"frost":
-			pool.append({"id": "special_a", "title": "혹한 영역", "description": "빙결 고리 반경 +30"})
-			pool.append({"id": "special_b", "title": "동상", "description": "적을 더욱 느리게 만듦"})
-		"scythe":
-			pool.append({"id": "special_a", "title": "긴 자루", "description": "월식 낫 사거리 +30"})
-			pool.append({"id": "special_b", "title": "보름베기", "description": "월식 낫 부채꼴 각도 증가"})
-		"chain":
-			pool.append({"id": "special_a", "title": "넓은 파동", "description": "결속 파동 폭 +14"})
-			pool.append({"id": "special_b", "title": "느슨한 족쇄", "description": "사슬 최대 길이 +30"})
+	for weapon_slot in loadout.size():
+		var weapon_name := String(loadout[weapon_slot]["weapon_name"])
+		var weapon_id := String(loadout[weapon_slot]["weapon_id"])
+		pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭 · %s" % weapon_name})
+		pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전 · %s" % weapon_name})
+		match weapon_id:
+			"homing":
+				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "다중 유도"})
+				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "마력 추진"})
+			"lightning":
+				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "연쇄 전도"})
+				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "확장 도체"})
+			"flame":
+				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "불씨 범람"})
+				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "열풍 추진"})
+			"frost":
+				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "혹한 영역"})
+				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "동상"})
+			"scythe":
+				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "긴 자루"})
+				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "보름베기"})
+			"chain":
+				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "넓은 파동"})
+				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "느슨한 족쇄"})
+	if loadout.size() < WEAPON_LOADOUT_CAP:
+		for character in _pick_unowned_characters(slot, 2):
+			pool.append({
+				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
+				"title": "신규 기술: %s" % String(character["weapon_name"])
+			})
 	for option in pool:
-		option["description"] = _upgrade_preview(slot, String(option["id"]))
+		option["description"] = _upgrade_preview(slot, option)
+
+	var previous_keys: Array = last_upgrade_choice_keys[slot]
+	var fresh_pool: Array[Dictionary] = []
+	for option in pool:
+		if not (_option_key(option) in previous_keys):
+			fresh_pool.append(option)
+	if fresh_pool.size() >= 3:
+		pool = fresh_pool
+
 	pool.shuffle()
-	var choices: Array[Dictionary] = []
-	for index in 3:
-		choices.append(pool[index])
+	var choices: Array[Dictionary] = pool.slice(0, 3)
+	var choice_keys: Array = []
+	for option in choices:
+		choice_keys.append(_option_key(option))
+	last_upgrade_choice_keys[slot] = choice_keys
 	return choices
 
 
-func _upgrade_preview(slot: int, upgrade_id: String) -> String:
-	var state: Dictionary = weapon_states[slot]
-	var weapon_id := String(selected_characters[slot]["weapon_id"])
-	var tier_hint := "  ·  무기 T%d → T%d" % [int(state.get("tier", 1)), int(state.get("tier", 1)) + 1]
+func _upgrade_preview(slot: int, option: Dictionary) -> String:
+	var upgrade_id := String(option["id"])
+	if upgrade_id == "unlock_weapon":
+		var character: Dictionary = option["character"]
+		var tag_names: Array[String] = []
+		for tag in (character["tags"] as Array):
+			tag_names.append(_tag_name(String(tag)))
+		return "%s의 %s 습득\n태그: %s" % [String(character["name"]), String(character["weapon_name"]), " · ".join(tag_names)]
+	if upgrade_id == "move":
+		return "이동 속도 %.0f → %.0f" % [players[slot].move_speed, players[slot].move_speed * 1.08]
+	if upgrade_id == "vitality":
+		return "최대 체력 %.0f → %.0f · 즉시 15 회복" % [players[slot].max_health, players[slot].max_health + 15.0]
+	var weapon_slot := int(option["weapon_slot"])
+	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
+	var weapon_id := String(state["weapon_id"])
+	var tier_hint := "  ·  T%d → T%d" % [int(state.get("tier", 1)), int(state.get("tier", 1)) + 1]
 	match upgrade_id:
 		"weapon_power":
 			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.25, tier_hint]
 		"weapon_rate":
 			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.2, float(state["cooldown"]) * 0.88), tier_hint]
-		"move":
-			return "이동 속도 %.0f → %.0f" % [players[slot].move_speed, players[slot].move_speed * 1.08]
-		"vitality":
-			return "최대 체력 %.0f → %.0f · 즉시 15 회복" % [players[slot].max_health, players[slot].max_health + 15.0]
 		"special_a":
 			match weapon_id:
 				"homing": return "동시 발사 %d → %d%s" % [int(state["count"]), int(state["count"]) + 1, tier_hint]
@@ -1174,48 +1287,88 @@ func _upgrade_preview(slot: int, upgrade_id: String) -> String:
 
 
 func _handle_level_up_input() -> void:
-	if not p1_has_chosen:
-		for index in 3:
-			if Input.is_action_just_pressed("p1_choice_%d" % (index + 1)):
-				_select_upgrade(1, index)
-				break
-	if not p2_has_chosen:
-		for index in 3:
-			if Input.is_action_just_pressed("p2_choice_%d" % (index + 1)):
-				_select_upgrade(2, index)
-				break
+	if Input.is_action_pressed("build_inspect"):
+		if not build_inspect_active:
+			build_inspect_active = true
+			_refresh_build_inspect_ui()
+		return
+	elif build_inspect_active:
+		build_inspect_active = false
+		build_inspect_label.visible = false
+
+	for slot in 2:
+		var player_index := slot + 1
+		var prefix := "p1_select_" if player_index == 1 else "p2_select_"
+		var choices := p1_choices if player_index == 1 else p2_choices
+		if selected_upgrade_indices[slot] >= 0:
+			if Input.is_action_just_pressed(prefix + "cancel") and selected_upgrade_indices[1 - slot] < 0:
+				selected_upgrade_indices[slot] = -1
+				_refresh_level_up_ui()
+			continue
+		if Input.is_action_just_pressed(prefix + "previous"):
+			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] - 1, 0, choices.size())
+			_refresh_level_up_ui()
+		elif Input.is_action_just_pressed(prefix + "next"):
+			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] + 1, 0, choices.size())
+			_refresh_level_up_ui()
+		elif Input.is_action_just_pressed(prefix + "confirm"):
+			_select_upgrade(player_index, upgrade_cursors[slot])
+		elif Input.is_action_just_pressed("p%d_reroll" % player_index) and rerolls_remaining[slot] > 0:
+			_reroll_choices(player_index)
 
 
+func _reroll_choices(player_index: int) -> void:
+	var slot := player_index - 1
+	rerolls_remaining[slot] -= 1
+	if player_index == 1:
+		p1_choices = _get_upgrade_choices(1)
+	else:
+		p2_choices = _get_upgrade_choices(2)
+	upgrade_cursors[slot] = 0
+	_refresh_level_up_ui()
+
+
+## Locks in choice_index for player_index without applying it yet. Both
+## players' picks only take effect once BOTH have locked — until then, the
+## player who locked first can still cancel back to browsing (see
+## _handle_level_up_input), which is only meaningful if the upgrade hasn't
+## already changed their stats.
 func _select_upgrade(player_index: int, choice_index: int) -> void:
+	var slot := player_index - 1
 	var choices := p1_choices if player_index == 1 else p2_choices
 	if choice_index < 0 or choice_index >= choices.size():
 		return
-	var chosen_title := String(choices[choice_index]["title"])
-	_apply_upgrade(player_index - 1, String(choices[choice_index]["id"]))
-	if player_index == 1:
-		p1_has_chosen = true
-		p1_selected_upgrade = chosen_title
-	else:
-		p2_has_chosen = true
-		p2_selected_upgrade = chosen_title
+	selected_upgrade_indices[slot] = choice_index
+	upgrade_cursors[slot] = choice_index
 	_refresh_level_up_ui()
-	if p1_has_chosen and p2_has_chosen:
+	if selected_upgrade_indices[0] >= 0 and selected_upgrade_indices[1] >= 0:
+		_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
+		_apply_upgrade(1, p2_choices[selected_upgrade_indices[1]])
 		_after_personal_upgrade_choices()
 
 
-func _apply_upgrade(player_slot: int, upgrade_id: String) -> void:
-	var state := weapon_states[player_slot]
-	var weapon_id := String(selected_characters[player_slot]["weapon_id"])
+func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
+	var upgrade_id := String(option["id"])
+	if upgrade_id == "unlock_weapon":
+		var character: Dictionary = option["character"]
+		weapon_loadouts[player_slot].append(_build_weapon_state(character))
+		attack_timers[player_slot].append(0.2)
+		return
+	if upgrade_id == "move":
+		players[player_slot].move_speed *= 1.08
+		return
+	if upgrade_id == "vitality":
+		players[player_slot].max_health += 15.0
+		players[player_slot].heal(15.0)
+		return
+	var weapon_slot := int(option["weapon_slot"])
+	var state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
+	var weapon_id := String(state["weapon_id"])
 	match upgrade_id:
 		"weapon_power":
 			state["damage"] = float(state["damage"]) * 1.25
 		"weapon_rate":
 			state["cooldown"] = maxf(0.2, float(state["cooldown"]) * 0.88)
-		"move":
-			players[player_slot].move_speed *= 1.08
-		"vitality":
-			players[player_slot].max_health += 15.0
-			players[player_slot].heal(15.0)
 		"special_a":
 			match weapon_id:
 				"homing", "flame":
@@ -1247,29 +1400,76 @@ func _apply_upgrade(player_slot: int, upgrade_id: String) -> void:
 
 
 func _refresh_level_up_ui() -> void:
-	level_title.text = "공유 레벨 %d — 두 사람 모두 하나씩 선택" % progression.level
-	p1_choices_label.text = _format_choices(1, p1_choices, p1_has_chosen)
-	p2_choices_label.text = _format_choices(2, p2_choices, p2_has_chosen)
+	level_title.text = "공유 레벨 %d — 좌우로 고르고 확정하세요" % progression.level
+	_refresh_player_cards(1)
+	_refresh_player_cards(2)
+	if build_inspect_active:
+		_refresh_build_inspect_ui()
 
 
-func _format_choices(player_index: int, choices: Array[Dictionary], chosen: bool) -> String:
-	var character := selected_characters[player_index - 1]
-	var heading := "P%d  %s · %s" % [player_index, String(character["name"]), String(character["weapon_name"])]
-	if chosen:
-		var chosen_name := p1_selected_upgrade if player_index == 1 else p2_selected_upgrade
-		return heading + "\n\n✓ %s 선택 완료\n\n상대 플레이어를 기다리는 중..." % chosen_name
-	var keys := ["X", "A", "B"] if last_input_gamepad[player_index - 1] else (["A", "S", "D"] if player_index == 1 else ["←", "↓", "→"])
-	var text := heading + "\n"
-	for index in choices.size():
-		text += "\n[%s]  %s\n      %s\n" % [
-			keys[index], String(choices[index]["title"]), String(choices[index]["description"])
-		]
-	return text
+func _refresh_player_cards(player_index: int) -> void:
+	var slot := player_index - 1
+	var choices := p1_choices if player_index == 1 else p2_choices
+	var cards: Array = level_card_labels[slot]
+	var locked := selected_upgrade_indices[slot] >= 0
+	var accent := Color("43d9ff") if player_index == 1 else Color("b892ff")
+
+	for index in cards.size():
+		var card: Label = cards[index]
+		var option: Dictionary = choices[index] if index < choices.size() else {}
+		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
+		var is_unlock := String(option.get("id", "")) == "unlock_weapon"
+		var is_focused := not locked and index == upgrade_cursors[slot]
+		var is_chosen := locked and index == selected_upgrade_indices[slot]
+
+		card.visible = (not locked) or is_chosen
+		card.text = "%s\n\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
+		if is_unlock:
+			card.text = "✦ " + card.text
+
+		var border := Color("fff275") if is_unlock else accent
+		if is_chosen:
+			style.bg_color = Color(border, 0.28)
+			style.border_color = border
+			style.set_border_width_all(3)
+		elif is_focused:
+			style.bg_color = Color(border, 0.2)
+			style.border_color = Color(border, 0.9)
+			style.set_border_width_all(3)
+		else:
+			style.bg_color = Color(border, 0.08)
+			style.border_color = Color(border, 0.35)
+			style.set_border_width_all(2)
+		card.scale = Vector2(1.05, 1.05) if is_focused else Vector2.ONE
+
+	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
+	var character := selected_characters[slot]
+	var heading := "P%d  %s" % [player_index, String(character["name"])]
+	if locked:
+		footer.text = heading + "\n✓ 확정 — 상대를 기다리는 중 (취소하려면 다시 시도)"
+	else:
+		var keys := ["LB/RB", "A", "B"] if last_input_gamepad[slot] else (["A/D", "W", "S"] if player_index == 1 else ["←/→", "↑", "↓"])
+		var reroll_hint := "  ·  재추첨 %d회 남음" % rerolls_remaining[slot]
+		footer.text = heading + "\n%s 이동 · %s 확정 · %s 취소%s" % [keys[0], keys[1], keys[2], reroll_hint]
+
+
+func _refresh_build_inspect_ui() -> void:
+	var lines: Array[String] = []
+	for slot in 2:
+		var player_index := slot + 1
+		var names: Array[String] = []
+		for weapon in weapon_loadouts[slot]:
+			names.append("%s T%d" % [String(weapon["weapon_name"]), int(weapon.get("tier", 1))])
+		lines.append("P%d  %s  ·  %s" % [player_index, String(selected_characters[slot]["name"]), " / ".join(names)])
+	build_inspect_label.text = "현재 빌드\n\n" + "\n".join(lines)
+	build_inspect_label.visible = true
 
 
 func _finish_level_up() -> void:
 	level_up_active = false
 	level_overlay.visible = false
+	build_inspect_active = false
+	build_inspect_label.visible = false
 	get_tree().paused = false
 	_show_message("레벨 %d — 두 테크가 강화되었습니다" % progression.level, Color("fff275"))
 	if progression.can_level_up():
@@ -1277,9 +1477,11 @@ func _finish_level_up() -> void:
 
 
 func _after_personal_upgrade_choices() -> void:
-	resonance_candidates = resonance_system.get_candidates(
-		selected_characters[0], selected_characters[1], weapon_states[0], weapon_states[1]
-	)
+	var candidates := resonance_system.get_candidates_for_loadouts(weapon_loadouts[0], weapon_loadouts[1])
+	# The vote screen still uses the fixed p1_choice_1/2/3 digit inputs (a
+	# cursor-based rework was scoped out of this pass), so it can only ever
+	# present three options regardless of how many weapon pairs qualify.
+	resonance_candidates = candidates.slice(0, 3)
 	if resonance_candidates.is_empty():
 		_finish_level_up()
 		return
@@ -1392,10 +1594,15 @@ func _update_hud() -> void:
 			integrity_fill.bg_color = Color("fff275")
 		else:
 			integrity_fill.bg_color = Color("80ed99")
-	if resonance_system.active_resonance.is_empty():
+	if resonance_system.active_resonances.is_empty():
 		resonance_status_label.text = "공명 대기 · 두 무기 T3 필요"
 	else:
-		resonance_status_label.text = "공명  %s  ·  %.1f초" % [String(resonance_system.active_resonance["name"]), resonance_system.cooldown_remaining]
+		var resonance_names: Array[String] = []
+		for active in resonance_system.active_resonances:
+			resonance_names.append(String(active["name"]))
+		resonance_status_label.text = "공명 %d/%d  ·  %s" % [
+			resonance_system.active_resonances.size(), resonance_system.MAX_ACTIVE_RESONANCES, " · ".join(resonance_names)
+		]
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
 	help_label.text = "공유 XP  %d / %d     ·     P1 WASD     P2 방향키     ·     ESC / START 일시정지" % [progression.experience, progression.required_experience]
@@ -1406,7 +1613,20 @@ func _player_status_text(player_index: int) -> String:
 	var prefix := "P%d  %s  %d/%d HP" % [player_index + 1, player.character_name, int(player.health), int(player.max_health)]
 	if player.downed:
 		return prefix + "\nDOWN %.1f초 · 구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
-	return prefix + "\n%s · T%d" % [String(selected_characters[player_index].get("weapon_name", "")), int(weapon_states[player_index].get("tier", 1))]
+	return prefix + "\n" + _loadout_summary(player_index)
+
+
+## Compact HUD summary of a player's whole loadout: the weapon name when they
+## only carry one (matches how this used to read before extra weapons existed),
+## or a tier list once they have picked up more.
+func _loadout_summary(player_index: int) -> String:
+	var loadout: Array = weapon_loadouts[player_index]
+	if loadout.size() == 1:
+		return "%s · T%d" % [String(loadout[0]["weapon_name"]), int(loadout[0].get("tier", 1))]
+	var tiers: Array[String] = []
+	for weapon in loadout:
+		tiers.append("T%d" % int(weapon.get("tier", 1)))
+	return "무기 %d종 · %s" % [loadout.size(), "/".join(tiers)]
 
 
 func _show_message(text: String, color: Color) -> void:
@@ -1431,10 +1651,10 @@ func _end_run(victory: bool = false) -> void:
 	get_tree().paused = true
 	var heading := "결속을 지켜냈습니다!" if victory else "사슬이 끊어졌습니다"
 	var reason := "결속 파괴자를 쓰러뜨렸습니다." if victory else "두 명이 모두 다운되었거나 구조 시간이 끝났습니다."
-	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1  %s  ·  %s T%d\nP2  %s  ·  %s T%d\n\nENTER / A  다시 결속하기" % [
+	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1  %s  ·  %s\nP2  %s  ·  %s\n\nENTER / A  다시 결속하기" % [
 		heading, reason, int(elapsed) / 60, int(elapsed) % 60, kills, progression.level,
-		players[0].character_name, String(selected_characters[0]["weapon_name"]), int(weapon_states[0].get("tier", 1)),
-		players[1].character_name, String(selected_characters[1]["weapon_name"]), int(weapon_states[1].get("tier", 1))
+		players[0].character_name, _loadout_summary(0),
+		players[1].character_name, _loadout_summary(1)
 	]
 	result_label.add_theme_color_override("font_color", Color("fff275") if victory else Color("ff8fab"))
 	feedback.play_cue("victory" if victory else "down")
@@ -1469,6 +1689,9 @@ func _setup_input_map() -> void:
 	_add_key_action("p2_select_next", KEY_RIGHT)
 	_add_key_action("p2_select_confirm", KEY_UP)
 	_add_key_action("p2_select_cancel", KEY_DOWN)
+	_add_key_action("p1_reroll", KEY_Q)
+	_add_key_action("p2_reroll", KEY_SLASH)
+	_add_key_action("build_inspect", KEY_TAB)
 	_add_joy_axis("p1_left", 0, JOY_AXIS_LEFT_X, -1.0)
 	_add_joy_axis("p1_right", 0, JOY_AXIS_LEFT_X, 1.0)
 	_add_joy_axis("p1_up", 0, JOY_AXIS_LEFT_Y, -1.0)
@@ -1495,6 +1718,10 @@ func _setup_input_map() -> void:
 	_add_joy_button("pause", 1, JOY_BUTTON_START)
 	_add_joy_button("restart", 0, JOY_BUTTON_A)
 	_add_joy_button("restart", 1, JOY_BUTTON_A)
+	_add_joy_button("p1_reroll", 0, JOY_BUTTON_Y)
+	_add_joy_button("p2_reroll", 1, JOY_BUTTON_Y)
+	_add_joy_button("build_inspect", 0, JOY_BUTTON_BACK)
+	_add_joy_button("build_inspect", 1, JOY_BUTTON_BACK)
 
 
 func _add_key_action(action: StringName, physical_keycode: int) -> void:

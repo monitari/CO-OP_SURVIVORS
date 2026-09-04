@@ -1,8 +1,15 @@
 class_name ResonanceSystem
 extends Node
 
-var active_resonance: Dictionary = {}
-var cooldown_remaining := 0.0
+## A run used to lock to one resonance forever after the first activation.
+## With players able to carry up to three weapons each, the search space is
+## up to nine weapon pairs — capping at one would waste almost all of it.
+## Uncapped isn't safe either (every active resonance fires its own periodic
+## AOE, so an unbounded stack becomes both a balance and a readability
+## problem by the late game), so three is the deliberate middle ground.
+const MAX_ACTIVE_RESONANCES := 3
+
+var active_resonances: Array[Dictionary] = [] ## Each entry is a catalog dict plus its own "cooldown_remaining".
 
 var catalog: Array[Dictionary] = [
 	{"id": "guided_thunder", "name": "추적 뇌광", "description": "유도 마력이 적을 추적하는 대형 연쇄 번개가 됩니다.", "requires": ["tracking", "lightning"], "cooldown": 6.0},
@@ -34,30 +41,56 @@ var catalog: Array[Dictionary] = [
 ]
 
 
-func get_candidates(character_a: Dictionary, character_b: Dictionary, weapon_a: Dictionary, weapon_b: Dictionary) -> Array[Dictionary]:
+## Checks every weapon pair across both players' loadouts (up to 3x3) rather
+## than a single fixed pair, since either player may be carrying weapons
+## picked up from other characters. requires[] is still matched against
+## weapon["tags"] — tags now live on the weapon itself (a borrowed weapon
+## keeps its source character's tags, not the player's own).
+func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Dictionary]:
 	var candidates: Array[Dictionary] = []
-	if not active_resonance.is_empty() or int(weapon_a.get("tier", 1)) < 3 or int(weapon_b.get("tier", 1)) < 3:
+	if active_resonances.size() >= MAX_ACTIVE_RESONANCES:
 		return candidates
-	var tags_a: Array = character_a["tags"]
-	var tags_b: Array = character_b["tags"]
-	for resonance in catalog:
-		var requirements: Array = resonance["requires"]
-		var matches: bool = (requirements[0] in tags_a and requirements[1] in tags_b) or (requirements[1] in tags_a and requirements[0] in tags_b)
-		if matches:
-			candidates.append(resonance.duplicate(true))
+	var active_ids: Dictionary = {}
+	for active in active_resonances:
+		active_ids[String(active["id"])] = true
+	var seen_ids: Dictionary = {}
+	for weapon_a in loadout_a:
+		if int(weapon_a.get("tier", 1)) < 3:
+			continue
+		var tags_a: Array = weapon_a["tags"]
+		for weapon_b in loadout_b:
+			if int(weapon_b.get("tier", 1)) < 3:
+				continue
+			var tags_b: Array = weapon_b["tags"]
+			for resonance in catalog:
+				var resonance_id := String(resonance["id"])
+				if active_ids.has(resonance_id) or seen_ids.has(resonance_id):
+					continue
+				var requirements: Array = resonance["requires"]
+				var matches: bool = (requirements[0] in tags_a and requirements[1] in tags_b) or (requirements[1] in tags_a and requirements[0] in tags_b)
+				if matches:
+					seen_ids[resonance_id] = true
+					var candidate := resonance.duplicate(true)
+					candidate["weapon_a_name"] = String(weapon_a["weapon_name"])
+					candidate["weapon_b_name"] = String(weapon_b["weapon_name"])
+					candidates.append(candidate)
 	return candidates
 
 
 func activate(resonance: Dictionary) -> void:
-	active_resonance = resonance.duplicate(true)
-	cooldown_remaining = 1.2
+	var entry := resonance.duplicate(true)
+	entry["cooldown_remaining"] = 1.2
+	active_resonances.append(entry)
 
 
-func step(delta: float) -> bool:
-	if active_resonance.is_empty():
-		return false
-	cooldown_remaining -= delta
-	if cooldown_remaining > 0.0:
-		return false
-	cooldown_remaining = float(active_resonance["cooldown"])
-	return true
+## Returns the resonances that should fire this frame (each entry is the full
+## catalog dict, ready to hand to WeaponController.perform_resonance). Every
+## active resonance ticks its own independent cooldown.
+func step(delta: float) -> Array[Dictionary]:
+	var firing: Array[Dictionary] = []
+	for entry in active_resonances:
+		entry["cooldown_remaining"] = float(entry["cooldown_remaining"]) - delta
+		if float(entry["cooldown_remaining"]) <= 0.0:
+			entry["cooldown_remaining"] = float(entry["cooldown"])
+			firing.append(entry)
+	return firing

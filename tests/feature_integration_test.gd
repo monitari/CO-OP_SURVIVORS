@@ -175,13 +175,11 @@ func _test_enemy_pool_and_archetypes(main: Node) -> void:
 func _test_resonance_vote(main: Node) -> void:
 	main.selected_characters[0] = main.character_catalog[0].duplicate(true)
 	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
-	main.weapon_states[0] = (main.selected_characters[0]["weapon"] as Dictionary).duplicate(true)
-	main.weapon_states[1] = (main.selected_characters[1]["weapon"] as Dictionary).duplicate(true)
-	main.weapon_states[0]["tier"] = 3
-	main.weapon_states[1]["tier"] = 3
-	main.resonance_system.active_resonance = {}
-	main.p1_has_chosen = true
-	main.p2_has_chosen = true
+	main.weapon_loadouts[0] = [main._build_weapon_state(main.selected_characters[0])]
+	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
+	main.weapon_loadouts[0][0]["tier"] = 3
+	main.weapon_loadouts[1][0]["tier"] = 3
+	main.resonance_system.active_resonances = []
 	main.level_up_active = true
 	paused = true
 	main._after_personal_upgrade_choices()
@@ -192,8 +190,8 @@ func _test_resonance_vote(main: Node) -> void:
 	main._handle_resonance_vote_input()
 	Input.action_release("p1_choice_1")
 	Input.action_release("p2_choice_1")
-	_check(not main.resonance_system.active_resonance.is_empty(), "matching votes activate resonance")
-	_check(String(main.resonance_system.active_resonance["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
+	_check(not main.resonance_system.active_resonances.is_empty(), "matching votes activate resonance")
+	_check(String(main.resonance_system.active_resonances[0]["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
 	_check(not main.resonance_vote_active and not paused, "resonance vote returns to combat")
 	for resonance in main.resonance_system.catalog:
 		main.weapon_controller.perform_resonance(resonance, 1.0)

@@ -40,9 +40,9 @@ func _run() -> void:
 			main.resonance_votes[1] = 0
 			main._handle_resonance_vote_input()
 		elif main.level_up_active:
-			if not main.p1_has_chosen:
+			if main.selected_upgrade_indices[0] < 0:
 				main._select_upgrade(1, 0)
-			if main.level_up_active and not main.p2_has_chosen:
+			if main.level_up_active and main.selected_upgrade_indices[1] < 0:
 				main._select_upgrade(2, 0)
 		await physics_frame
 

@@ -4,8 +4,7 @@ extends Node2D
 const ProjectileScript := preload("res://scripts/projectile.gd")
 
 var players: Array[ChainPlayer] = []
-var selected_characters: Array[Dictionary] = []
-var weapon_states: Array[Dictionary] = []
+var weapon_loadouts: Array = []
 var spatial_grid: EnemySpatialGrid
 var elapsed := 0.0
 var active_projectiles: Array[HomingProjectile] = []
@@ -14,28 +13,31 @@ var projectile_pool: Array[HomingProjectile] = []
 
 func configure(
 	player_nodes: Array[ChainPlayer],
-	characters: Array[Dictionary],
-	states: Array[Dictionary],
+	loadouts: Array,
 	grid: EnemySpatialGrid
 ) -> void:
 	players = player_nodes
-	selected_characters = characters
-	weapon_states = states
+	weapon_loadouts = loadouts
 	spatial_grid = grid
 
 
-func perform_attack(player_index: int, damage_multiplier: float) -> void:
+## Each weapon-loadout entry is self-contained (weapon_id, color, and tags
+## travel with it) rather than looked up from selected_characters[player_index],
+## because a picked-up weapon belongs to whichever character it came from —
+## a player's second or third weapon does not share their own character's color.
+func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: float) -> void:
 	if players[player_index].downed:
 		return
-	var weapon_id := String(selected_characters[player_index]["weapon_id"])
-	var state := weapon_states[player_index]
+	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
+	var weapon_id := String(state["weapon_id"])
+	var color := Color(state["color"])
 	var damage := float(state["damage"]) * damage_multiplier
 	match weapon_id:
-		"homing": _fire_homing(player_index, state, damage)
-		"lightning": _fire_lightning(players[player_index].global_position, int(state["jumps"]), damage, float(state["range"]), Color(selected_characters[player_index]["color"]))
-		"flame": _fire_flame_nova(player_index, state, damage)
-		"frost": _fire_frost_ring(player_index, state, damage)
-		"scythe": _swing_scythe(player_index, state, damage)
+		"homing": _fire_homing(player_index, state, damage, color)
+		"lightning": _fire_lightning(players[player_index].global_position, int(state["jumps"]), damage, float(state["range"]), color)
+		"flame": _fire_flame_nova(player_index, state, damage, color)
+		"frost": _fire_frost_ring(player_index, state, damage, color)
+		"scythe": _swing_scythe(player_index, state, damage, color)
 		"chain": _fire_chain_pulse(state, damage)
 
 
@@ -46,8 +48,8 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 		"guided_thunder":
 			_fire_lightning(midpoint, 8, 38.0 * damage_multiplier, 760.0, Color("fff275"))
 		"storm_volley":
-			_fire_flame_nova(0, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier)
-			_fire_flame_nova(1, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier)
+			_fire_flame_nova(0, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier, Color("b892ff"))
+			_fire_flame_nova(1, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier, Color("b892ff"))
 			_fire_lightning(midpoint, 5, 26.0 * damage_multiplier, 620.0, Color("b892ff"))
 		"arcane_circuit":
 			_damage_along_chain(68.0, 48.0 * damage_multiplier, 1.0)
@@ -58,14 +60,14 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 			_draw_ring(midpoint, 300.0, Color("ffb4a2"), 12.0)
 		"eclipse_tether":
 			_fire_chain_pulse({"width": 92.0}, 42.0 * damage_multiplier)
-			_swing_scythe(0, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier)
-			_swing_scythe(1, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier)
+			_swing_scythe(0, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier, Color("ef476f"))
+			_swing_scythe(1, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier, Color("ef476f"))
 		"storm_field":
 			_fire_lightning(players[0].global_position, 6, 28.0 * damage_multiplier, 520.0, Color("b892ff"))
 			_fire_lightning(players[1].global_position, 6, 28.0 * damage_multiplier, 520.0, Color("43d9ff"))
 		"inferno_crescent":
-			_swing_scythe(0, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier)
-			_swing_scythe(1, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier)
+			_swing_scythe(0, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier, Color("ff8c42"))
+			_swing_scythe(1, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier, Color("ff8c42"))
 		"astral_covenant":
 			for player in players:
 				player.heal(8.0)
@@ -74,38 +76,38 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 		"frozen_tether":
 			_damage_along_chain(82.0, 36.0 * damage_multiplier, 0.32)
 		"comet_shower":
-			_fire_flame_nova(0, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier)
-			_fire_flame_nova(1, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier)
+			_fire_flame_nova(0, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier, Color("8ecae6"))
+			_fire_flame_nova(1, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier, Color("8ecae6"))
 		"starbound_trajectory":
 			_fire_lightning(players[0].global_position, 6, 30.0 * damage_multiplier, 560.0, Color("43d9ff"))
 			_fire_lightning(players[1].global_position, 6, 30.0 * damage_multiplier, 560.0, Color("43d9ff"))
 		"storm_core":
 			_fire_lightning(midpoint, 10, 34.0 * damage_multiplier, 820.0, Color("b892ff"))
 		"inferno_storm":
-			_fire_flame_nova(0, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier)
-			_fire_flame_nova(1, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier)
+			_fire_flame_nova(0, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier, Color("ff8c42"))
+			_fire_flame_nova(1, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier, Color("ff8c42"))
 			_damage_area(midpoint, 210.0, 34.0 * damage_multiplier)
 		"absolute_zero":
 			_damage_area(players[0].global_position, 220.0, 30.0 * damage_multiplier, 0.3)
 			_damage_area(players[1].global_position, 220.0, 30.0 * damage_multiplier, 0.3)
 			_draw_ring(midpoint, 260.0, Color("8ecae6"), 10.0)
 		"bright_moon_flurry":
-			_swing_scythe(0, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier)
-			_swing_scythe(1, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier)
+			_swing_scythe(0, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier, Color("ef476f"))
+			_swing_scythe(1, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier, Color("ef476f"))
 		"bonded_mantra":
 			for player in players:
 				player.heal(10.0)
 			_damage_along_chain(78.0, 34.0 * damage_multiplier, 1.0)
 		"guided_bombardment":
-			_fire_flame_nova(0, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier)
-			_fire_flame_nova(1, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier)
+			_fire_flame_nova(0, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier, Color("ff8c42"))
+			_fire_flame_nova(1, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier, Color("ff8c42"))
 			_fire_lightning(midpoint, 4, 22.0 * damage_multiplier, 520.0, Color("fff275"))
 		"twilight_pursuit":
 			_fire_lightning(players[0].global_position, 5, 26.0 * damage_multiplier, 600.0, Color("43d9ff"))
-			_swing_scythe(1, {"range": 250.0, "arc": 2.2}, 40.0 * damage_multiplier)
+			_swing_scythe(1, {"range": 250.0, "arc": 2.2}, 40.0 * damage_multiplier, Color("ef476f"))
 		"storm_cut_crescent":
-			_swing_scythe(0, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier)
-			_swing_scythe(1, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier)
+			_swing_scythe(0, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier, Color("b892ff"))
+			_swing_scythe(1, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier, Color("b892ff"))
 			_fire_lightning(midpoint, 4, 20.0 * damage_multiplier, 480.0, Color("b892ff"))
 		"sacred_flame_vow":
 			for player in players:
@@ -113,8 +115,8 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 			_damage_area(midpoint, 240.0, 32.0 * damage_multiplier)
 			_draw_ring(midpoint, 240.0, Color("ff8c42"), 9.0)
 		"frost_shade":
-			_swing_scythe(0, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier)
-			_swing_scythe(1, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier)
+			_swing_scythe(0, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
+			_swing_scythe(1, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
 			_damage_area(midpoint, 200.0, 20.0 * damage_multiplier, 0.35)
 
 
@@ -142,7 +144,7 @@ func _on_projectile_released(projectile: HomingProjectile) -> void:
 		projectile_pool.append(projectile)
 
 
-func _fire_homing(player_index: int, state: Dictionary, damage: float) -> void:
+func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var target := spatial_grid.nearest(players[player_index].global_position, 700.0)
 	if target == null:
 		return
@@ -155,7 +157,7 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float) -> void:
 		projectile.spatial_grid = spatial_grid
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
-		projectile.projectile_color = Color(selected_characters[player_index]["color"])
+		projectile.projectile_color = color
 
 
 func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: float, color: Color) -> void:
@@ -173,7 +175,7 @@ func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: fl
 		search_range = 210.0
 
 
-func _fire_flame_nova(player_index: int, state: Dictionary, damage: float) -> void:
+func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var count := int(state["count"])
 	var phase := elapsed * 0.7
 	for shot in count:
@@ -186,11 +188,11 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float) -> vo
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
 		projectile.radius = 7.0
-		projectile.projectile_color = Color(selected_characters[player_index]["color"])
-	_draw_ring(players[player_index].global_position, 40.0, Color(selected_characters[player_index]["color"]), 4.0)
+		projectile.projectile_color = color
+	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
 
 
-func _fire_frost_ring(player_index: int, state: Dictionary, damage: float) -> void:
+func _fire_frost_ring(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var origin := players[player_index].global_position
 	var radius := float(state["radius"])
 	for enemy in spatial_grid.query_radius(origin, radius + 40.0):
@@ -198,10 +200,10 @@ func _fire_frost_ring(player_index: int, state: Dictionary, damage: float) -> vo
 			enemy.take_damage(damage)
 			if is_instance_valid(enemy) and not enemy.dead:
 				enemy.apply_slow(1.25, float(state["slow"]))
-	_draw_ring(origin, radius, Color(selected_characters[player_index]["color"]), 7.0)
+	_draw_ring(origin, radius, color, 7.0)
 
 
-func _swing_scythe(player_index: int, state: Dictionary, damage: float) -> void:
+func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var origin := players[player_index].global_position
 	var direction := players[player_index].last_input.normalized()
 	var attack_range := float(state["range"])
@@ -210,7 +212,7 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float) -> void:
 		var to_enemy := enemy.global_position - origin
 		if to_enemy.length() <= attack_range + enemy.radius and absf(direction.angle_to(to_enemy.normalized())) <= arc * 0.5:
 			enemy.take_damage(damage)
-	_draw_scythe_arc(origin, direction.angle(), attack_range, arc, Color(selected_characters[player_index]["color"]))
+	_draw_scythe_arc(origin, direction.angle(), attack_range, arc, color)
 
 
 func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
