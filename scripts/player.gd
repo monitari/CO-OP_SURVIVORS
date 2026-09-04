@@ -179,7 +179,12 @@ func _draw() -> void:
 	var color := Color.WHITE if flash else body_color
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
 	draw_circle(Vector2.ZERO, radius, color)
-	draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.3))
+	# The identity colour used to survive only as a 6px ring: the inner disc
+	# was darkened hard and a near-black weapon glyph covered the rest, so a
+	# character read as a dark disc rather than as "the orange one". The disc
+	# now keeps most of its colour and the glyph picks an ink that contrasts
+	# with it.
+	draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
 	var badge_color := Color("43d9ff") if player_index == 1 else Color("b892ff")
 	draw_circle(Vector2(0.0, radius + 13.0), 10.0, Color("07111f"))
 	draw_string(ThemeDB.fallback_font, Vector2(-7.0, radius + 19.0), str(player_index), HORIZONTAL_ALIGNMENT_CENTER, 14.0, 15, badge_color)
@@ -216,7 +221,10 @@ func _draw_dash_state() -> void:
 
 
 func _draw_weapon_mark() -> void:
-	var ink := Color("07111f")
+	# get_luminance() works in linear space, where this palette lands between
+	# roughly 0.24 and 0.70 — an sRGB-shaped threshold put white ink on bright
+	# orange and turned Ignis into a dark disc.
+	var ink := Color("07111f") if body_color.get_luminance() > 0.30 else Color("f2f9ff")
 	match weapon_id:
 		"homing":
 			draw_line(Vector2(-8, 7), Vector2(8, -7), ink, 3.0, true)
@@ -225,8 +233,10 @@ func _draw_weapon_mark() -> void:
 			var points := PackedVector2Array([Vector2(-4, -11), Vector2(4, -3), Vector2(-2, 1), Vector2(6, 10)])
 			draw_polyline(points, ink, 3.0, true)
 		"flame":
-			draw_circle(Vector2(0, 2), 7.0, ink)
-			draw_colored_polygon(PackedVector2Array([Vector2(-6, 1), Vector2(0, -12), Vector2(6, 1)]), ink)
+			# Smaller than it was: filled at the old size the flame covered most
+			# of the disc and swallowed the character's colour.
+			draw_circle(Vector2(0, 3), 5.0, ink)
+			draw_colored_polygon(PackedVector2Array([Vector2(-4, 2), Vector2(0, -9), Vector2(4, 2)]), ink)
 		"frost":
 			for angle in [0.0, PI / 3.0, PI * 2.0 / 3.0]:
 				draw_line(Vector2.from_angle(angle) * -10.0, Vector2.from_angle(angle) * 10.0, ink, 2.5, true)

@@ -17,7 +17,12 @@ const LATE_GAME_DIFFICULTY := 4.0
 const LATE_HEALTH_PER_STEP := 0.35
 const LATE_DAMAGE_PER_STEP := 0.20
 
-const BOSS_SLAM_RADIUS := 95.0 ## Shared by the emitted hit radius and the drawn telegraph so they can never drift apart.
+const BOSS_SLAM_RADIUS := 95.0
+## A hit used to be a scale tween allocated per call, which at a few hundred
+## hits a second is a lot of short-lived objects. It is now a plain timer
+## stepped with everything else, and it drives a colour flash too — a dark
+## enemy taking damage on a dark field was previously almost invisible.
+const HIT_FLASH_TIME := 0.12 ## Shared by the emitted hit radius and the drawn telegraph so they can never drift apart.
 
 var archetype := "chaser"
 var active := false
@@ -47,6 +52,7 @@ var boss_attack_timer := 0.0
 var boss_slam_windup := 0.0
 var boss_slam_point := Vector2.ZERO
 var boss_enraged := false
+var hit_flash := 0.0
 
 
 func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false) -> void:
@@ -73,6 +79,8 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	boss_slam_windup = 0.0
 	boss_slam_point = Vector2.ZERO
 	boss_enraged = false
+	hit_flash = 0.0
+	scale = Vector2.ONE
 
 	match archetype:
 		"charger":
@@ -107,7 +115,9 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			max_health = 260.0
 			contact_damage = 26.0
 			xp_value = 28
-			enemy_color = Color("9b5de5")
+			# Not purple: P2 and 볼타 are purple, and a boss that shares the
+			# player palette is the worst possible read in a crowded field.
+			enemy_color = Color("c1121f")
 		_:
 			move_speed = 78.0
 			radius = randf_range(14.0, 22.0)
@@ -160,6 +170,10 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		target_position = (players[0].global_position + players[1].global_position) * 0.5
 	var speed_scale := slow_multiplier if slow_timer > 0.0 else 1.0
 	var had_telegraph := charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0
+	var had_flash := hit_flash > 0.0
+	if had_flash:
+		hit_flash = maxf(0.0, hit_flash - delta / HIT_FLASH_TIME)
+		scale = Vector2.ONE * (1.0 + hit_flash * 0.22)
 
 	match archetype:
 		"charger":
@@ -192,7 +206,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# of leaving a stale frame on screen. Skipping it the rest of the time is
 	# what keeps a few hundred pooled enemies from redrawing every physics tick
 	# regardless of whether anything they draw actually changed.
-	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
+	if had_telegraph or had_flash or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
 		queue_redraw()
 
 
@@ -358,9 +372,9 @@ func take_damage(amount: float) -> bool:
 		return false
 	health -= amount
 	damage_taken.emit(self, amount)
+	hit_flash = 1.0
 	scale = Vector2(1.22, 1.22)
-	var tween := create_tween()
-	tween.tween_property(self, "scale", Vector2.ONE, 0.12)
+	queue_redraw()
 	if health <= 0.0:
 		dead = true
 		died.emit(self)
@@ -394,17 +408,20 @@ func _draw() -> void:
 		var local_point := (boss_slam_point - global_position).rotated(-rotation)
 		draw_line(Vector2.ZERO, local_point, Color(1.0, 0.35, 0.42, 0.4), 3.0, true)
 		draw_arc(local_point, BOSS_SLAM_RADIUS, 0.0, TAU, 32, Color(1.0, 0.25, 0.35, slam_alpha), 6.0, true)
+	# The flash lightens the body only; the glow ring keeps the archetype
+	# colour so a flashing enemy is still identifiable.
+	var body := enemy_color.lerp(Color.WHITE, hit_flash * 0.8)
 	draw_circle(Vector2.ZERO, radius + 6.0, Color(enemy_color, 0.13))
 	match archetype:
 		"charger":
-			draw_colored_polygon(PackedVector2Array([Vector2(radius, 0), Vector2(-radius * 0.75, radius * 0.72), Vector2(-radius * 0.75, -radius * 0.72)]), enemy_color)
+			draw_colored_polygon(PackedVector2Array([Vector2(radius, 0), Vector2(-radius * 0.75, radius * 0.72), Vector2(-radius * 0.75, -radius * 0.72)]), body)
 		"shooter":
-			draw_rect(Rect2(-radius, -radius, radius * 2.0, radius * 2.0), enemy_color)
+			draw_rect(Rect2(-radius, -radius, radius * 2.0, radius * 2.0), body)
 		"chain_hunter":
-			draw_circle(Vector2.ZERO, radius, enemy_color, false, 7.0)
-			draw_line(Vector2(-radius, 0), Vector2(radius, 0), enemy_color, 4.0)
+			draw_circle(Vector2.ZERO, radius, body, false, 7.0)
+			draw_line(Vector2(-radius, 0), Vector2(radius, 0), body, 4.0)
 		_:
-			draw_circle(Vector2.ZERO, radius, enemy_color)
+			draw_circle(Vector2.ZERO, radius, body)
 	if elite:
 		draw_arc(Vector2.ZERO, radius + 7.0, 0.0, TAU, 24, Color("fff275"), 3.0, true)
 	if boss:

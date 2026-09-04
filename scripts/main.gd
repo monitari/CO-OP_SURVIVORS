@@ -9,6 +9,7 @@ const ProgressionScript := preload("res://scripts/systems/progression_system.gd"
 const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
+const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
@@ -54,6 +55,8 @@ var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
 var chain_glow: Line2D
+var bursts: BurstField
+var modal_dim: ColorRect
 var world_camera: Camera2D
 var spatial_grid: EnemySpatialGrid
 var progression: SharedProgression
@@ -103,8 +106,6 @@ var lobby_p1_label: Label
 var lobby_p2_label: Label
 var tutorial_label: Label
 var team_stats_label: Label
-var p1_edge_indicator: Label
-var p2_edge_indicator: Label
 var threat_edge_indicator: Label
 
 var elapsed := 0.0
@@ -255,6 +256,17 @@ func _input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# Derived from the state flags every tick rather than toggled at each of
+	# the dozen places an overlay opens or closes, so it cannot drift out of
+	# sync with what is actually on screen.
+	var modal := (lobby_active or character_select_active or level_up_active
+		or resonance_vote_active or pause_active or game_over)
+	modal_dim.visible = modal
+	if modal:
+		# Both of these live above the dim, so a fading banner or an off-screen
+		# arrow would otherwise sit on top of the overlay panel.
+		threat_edge_indicator.visible = false
+		message_label.modulate.a = 0.0
 	if lobby_active:
 		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
 		if lobby_input_cooldown <= 0.0 and Input.is_action_just_pressed("pause") and (lobby_joined[0] or lobby_joined[1]):
@@ -305,6 +317,8 @@ func _physics_process(delta: float) -> void:
 			continue
 		enemy.step(players, delta)
 	spatial_grid.rebuild(enemies)
+	bursts.step(delta)
+	_update_threat_indicator()
 	experience_system.step(players, delta)
 	field_items.step(players, delta)
 
@@ -357,6 +371,9 @@ func _create_world() -> void:
 	resonance_system = ResonanceScript.new() as ResonanceSystem
 	add_child(resonance_system)
 
+	bursts = BurstFieldScript.new() as BurstField
+	add_child(bursts)
+
 	chain_glow = Line2D.new()
 	chain_glow.width = 18.0
 	chain_glow.default_color = Color(0.25, 0.75, 1.0, 0.12)
@@ -375,8 +392,11 @@ func _create_world() -> void:
 
 	world_camera = Camera2D.new()
 	world_camera.enabled = true
-	world_camera.position_smoothing_enabled = true
-	world_camera.position_smoothing_speed = 7.0
+	# Godot's built-in smoothing used to run on top of the manual lerp in
+	# _update_camera, so every camera move was damped twice and the view
+	# lagged the pair. The manual lerp is the one that also applies shake, so
+	# it stays and this one goes.
+	world_camera.position_smoothing_enabled = false
 	add_child(world_camera)
 
 
@@ -392,7 +412,7 @@ func _create_players() -> void:
 	players.append(player_one)
 
 	var player_two := PlayerScene.new() as ChainPlayer
-	player_two.setup(2, Color("9b5de5"))
+	player_two.setup(2, Color("b892ff"))
 	player_two.position = Vector2(105.0, 0.0)
 	add_child(player_two)
 	player_two.damaged.connect(_on_player_damaged)
@@ -406,6 +426,17 @@ func _create_hud() -> void:
 	var layer := CanvasLayer.new()
 	hud_layer = layer
 	add_child(layer)
+
+	# Every overlay was a floating panel with live gameplay running around it,
+	# so a level-up card sat on top of moving enemies and drifting message
+	# text. This sits under the HUD and over the world: the panels get a
+	# quiet backdrop and the health bars stay legible on top of it.
+	modal_dim = ColorRect.new()
+	modal_dim.position = Vector2.ZERO
+	modal_dim.size = Vector2(1280.0, 720.0)
+	modal_dim.color = Color(0.01, 0.015, 0.035, 0.88)
+	modal_dim.visible = false
+	layer.add_child(modal_dim)
 
 	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 96.0), Color(0.02, 0.04, 0.09, 0.88))
 	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 96.0), Color(0.02, 0.04, 0.09, 0.88))
@@ -456,6 +487,7 @@ func _create_hud() -> void:
 	resonance_status_label.add_theme_color_override("font_color", Color("e4c1f9"))
 	layer.add_child(resonance_status_label)
 
+	_make_hud_panel(layer, Vector2(378.0, 130.0), Vector2(524.0, 60.0), Color(0.02, 0.04, 0.09, 0.9))
 	boss_label = Label.new()
 	boss_label.position = Vector2(390.0, 138.0)
 	boss_label.size = Vector2(500.0, 28.0)
@@ -483,32 +515,37 @@ func _create_hud() -> void:
 	layer.add_child(help_label)
 
 	message_label = Label.new()
-	message_label.position = Vector2(0.0, 248.0)
-	message_label.size = Vector2(1280.0, 60.0)
+	# y=248 at 31px put the largest text on screen directly over the two
+	# survivors — the boss warning covered the boss. It now sits in the HUD
+	# band under the bars, clear of everything that moves.
+	message_label.position = Vector2(340.0, 596.0)
+	message_label.size = Vector2(600.0, 38.0)
 	message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	message_label.add_theme_font_size_override("font_size", 31)
+	message_label.add_theme_font_size_override("font_size", 24)
+	message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	message_label.modulate.a = 0.0
+	_make_label_background(message_label, Color(0.02, 0.03, 0.07, 0.9))
 	layer.add_child(message_label)
 
 	level_overlay = ColorRect.new()
-	level_overlay.position = Vector2(110.0, 95.0)
-	level_overlay.size = Vector2(1060.0, 525.0)
+	level_overlay.position = Vector2(60.0, 95.0)
+	level_overlay.size = Vector2(1160.0, 525.0)
 	level_overlay.color = Color(0.025, 0.035, 0.075, 0.97)
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
 
 	level_title = Label.new()
 	level_title.position = Vector2(0.0, 24.0)
-	level_title.size = Vector2(1060.0, 55.0)
+	level_title.size = Vector2(1160.0, 55.0)
 	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	level_title.add_theme_font_size_override("font_size", 31)
 	level_title.add_theme_color_override("font_color", Color("fff275"))
 	level_overlay.add_child(level_title)
 
-	level_card_labels[0] = _create_level_cards(level_overlay, 50.0, Color("43d9ff"))
-	level_card_labels[1] = _create_level_cards(level_overlay, 545.0, Color("b892ff"))
-	p1_level_footer = _create_level_footer(level_overlay, 50.0, Color("43d9ff"))
-	p2_level_footer = _create_level_footer(level_overlay, 545.0, Color("b892ff"))
+	level_card_labels[0] = _create_level_cards(level_overlay, 40.0, Color("43d9ff"))
+	level_card_labels[1] = _create_level_cards(level_overlay, 596.0, Color("b892ff"))
+	p1_level_footer = _create_level_footer(level_overlay, 40.0, Color("43d9ff"))
+	p2_level_footer = _create_level_footer(level_overlay, 596.0, Color("b892ff"))
 
 	resonance_overlay = ColorRect.new()
 	resonance_overlay.position = Vector2(180.0, 105.0)
@@ -637,7 +674,7 @@ func _create_hud() -> void:
 	team_stats_label = Label.new()
 	# One shared line under the cards. The personal build sits in each
 	# player’s own footer; only the pooled stats belong in the middle.
-	team_stats_label.position = Vector2(300.0, 482.0)
+	team_stats_label.position = Vector2(350.0, 482.0)
 	team_stats_label.size = Vector2(460.0, 32.0)
 	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -647,8 +684,6 @@ func _create_hud() -> void:
 	_make_label_background(team_stats_label, Color(0.02, 0.03, 0.07, 0.9))
 	level_overlay.add_child(team_stats_label)
 
-	p1_edge_indicator = _create_edge_indicator(layer, Color("43d9ff"))
-	p2_edge_indicator = _create_edge_indicator(layer, Color("b892ff"))
 	threat_edge_indicator = _create_edge_indicator(layer, Color("ff5d8f"))
 
 
@@ -717,9 +752,9 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 	return bar
 
 
-const LEVEL_CARD_WIDTH := 142.0
+const LEVEL_CARD_WIDTH := 168.0
 const LEVEL_CARD_HEIGHT := 285.0
-const LEVEL_CARD_GAP := 13.0
+const LEVEL_CARD_GAP := 10.0
 const LEVEL_CARD_Y := 105.0
 
 
@@ -945,6 +980,7 @@ func _start_selected_run() -> void:
 	team_luck = 0
 	_apply_team_magnet()
 	field_items.clear_all()
+	bursts.clear_all()
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
@@ -1066,6 +1102,38 @@ func _update_chain_visual() -> void:
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 4.0)
 	previous_chain_stage = stage
+
+
+## An elite or the boss can be off screen while it closes in; a partner
+## cannot, because the chain caps the pair at a fraction of a screen. So one
+## indicator, pointed at whichever heavy enemy is nearest and outside the
+## view, clamped to the screen edge along that bearing.
+func _update_threat_indicator() -> void:
+	var view := Vector2(1280.0, 720.0)
+	var centre := world_camera.position
+	var nearest: ChaserEnemy = null
+	var nearest_distance := 0.0
+	for candidate in enemies:
+		var enemy := candidate as ChaserEnemy
+		if not is_instance_valid(enemy) or enemy.dead or not (enemy.elite or enemy.boss):
+			continue
+		var offset := enemy.global_position - centre
+		if absf(offset.x) < view.x * 0.5 - 40.0 and absf(offset.y) < view.y * 0.5 - 40.0:
+			continue
+		var distance := offset.length()
+		if nearest == null or distance < nearest_distance:
+			nearest = enemy
+			nearest_distance = distance
+	if nearest == null:
+		threat_edge_indicator.visible = false
+		return
+	var direction := (nearest.global_position - centre).normalized()
+	var half := view * 0.5 - Vector2(80.0, 52.0)
+	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
+	threat_edge_indicator.position = view * 0.5 + direction * reach - threat_edge_indicator.size * 0.5
+	threat_edge_indicator.text = "%s %dm" % ["보스" if nearest.boss else "정예", int(nearest_distance / 10.0)]
+	threat_edge_indicator.add_theme_color_override("font_color", Color("fff275") if nearest.boss else Color("ff5d8f"))
+	threat_edge_indicator.visible = true
 
 
 func _update_camera(delta: float) -> void:
@@ -1251,6 +1319,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	enemies.erase(enemy)
 	kills += 1
 	experience_system.spawn_gem(death_position, dropped_xp)
+	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
 	feedback.play_cue("kill")
 	wave_director.release_enemy(enemy)
 	if defeated_boss:
