@@ -30,12 +30,13 @@ func _run() -> void:
 	main.set_physics_process(false)
 	await process_frame
 
+	await _test_input_delay(main)
 	await _test_cursor_and_deferred_apply(main)
 	await _test_reroll(main)
 	await _test_no_immediate_repeat(main)
 
 	if failures.is_empty():
-		print("LEVEL_UP_CARD_PASS: cursor, deferred apply, cancel-before-partner, reroll budget, no repeat set")
+		print("LEVEL_UP_CARD_PASS: open delay, cursor, deferred apply, cancel-before-partner, reroll budget, no repeat set")
 		quit(0)
 	else:
 		for failure in failures:
@@ -46,6 +47,7 @@ func _run() -> void:
 func _open_level_up(main: Node) -> void:
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
+	main.level_up_input_delay = 0.0 # most tests want the screen immediately live
 
 
 ## Presses an action, runs one pass of the level-up input handler, releases.
@@ -80,6 +82,41 @@ func _stat_snapshot(main: Node) -> Array:
 	snapshot.append("%.3f|%.3f|%d" % [main.team_magnet, main.team_growth, main.team_luck])
 	return snapshot
 
+
+
+## P1 confirms with W and P2 with the up arrow — the very keys they move with.
+## Opening the screen mid-stride used to read that held movement as a card
+## confirmation, so the screen ignores input for a beat after it appears.
+func _test_input_delay(main: Node) -> void:
+	main.progression.add_experience(main.progression.required_experience)
+	main._begin_level_up()
+	_check(main.level_up_input_delay > 0.0, "opening the screen arms an input delay")
+
+	var cursor_before: int = main.upgrade_cursors[0]
+	await _tap(main, "p1_select_next")
+	_check(main.upgrade_cursors[0] == cursor_before, "cursor input is ignored during the delay")
+	await _tap(main, "p1_select_confirm")
+	_check(main.selected_upgrade_indices[0] == -1, "a confirm arriving during the delay does not pick a card")
+	await _tap(main, "p1_reroll")
+	_check(main.rerolls_remaining[0] == 1, "a reroll arriving during the delay is not spent")
+
+	# Burn the delay down the way the paused physics loop does.
+	for tick in 60:
+		if main.level_up_input_delay <= 0.0:
+			break
+		main._handle_level_up_input()
+		await process_frame
+	_check(main.level_up_input_delay <= 0.0, "the delay expires on its own")
+
+	await _tap(main, "p1_select_confirm")
+	_check(main.selected_upgrade_indices[0] >= 0, "input works normally once the delay has passed")
+
+	await _tap(main, "p2_select_confirm")
+	main.resonance_vote_active = false
+	main.resonance_overlay.visible = false
+	main.level_up_active = false
+	paused = false
+	await process_frame
 
 func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_open_level_up(main)

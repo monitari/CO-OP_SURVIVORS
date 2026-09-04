@@ -20,6 +20,11 @@ const RUN_BOSS_TIME := 120.0
 const DOWNED_TOW_SHARE := 0.88
 const WEAPON_LOADOUT_CAP := 3
 
+## P1 confirms with W and P2 with the up arrow — the same keys they move
+## with. Without a beat of dead time the screen appearing mid-stride reads
+## a movement key as a card confirmation and picks for them.
+const LEVEL_UP_INPUT_DELAY := 0.45
+
 # Overcharge is a loan against the chain, not a free damage bonus. Holding the
 # survivors apart past CHAIN_WARNING_RATIO burns integrity; only closing back
 # inside CHAIN_RESIST_RATIO pays it back. The gap between the two ratios is a
@@ -90,7 +95,7 @@ var lobby_title: Label
 var lobby_p1_label: Label
 var lobby_p2_label: Label
 var tutorial_label: Label
-var build_inspect_label: Label
+var team_stats_label: Label
 var p1_edge_indicator: Label
 var p2_edge_indicator: Label
 var threat_edge_indicator: Label
@@ -116,9 +121,9 @@ var lobby_input_cooldown := 0.0
 var upgrade_cursors: Array[int] = [0, 0]
 var selected_upgrade_indices: Array[int] = [-1, -1] ## -1 = still choosing; >=0 = locked in but not yet applied until both players lock
 var rerolls_remaining: Array[int] = [1, 1] ## Spent across the whole run, not refilled per level-up
-var last_upgrade_choice_keys: Array = [[], []] ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
+var last_upgrade_choice_keys: Array = [[], []]
+var level_up_input_delay := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
 var resonance_cursors: Array[int] = [0, 0]
-var build_inspect_active := false
 var tutorial_active := false
 var tutorial_step := 0
 var tutorial_start_kills := 0
@@ -374,7 +379,7 @@ func _create_hud() -> void:
 
 	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 96.0), Color(0.02, 0.04, 0.09, 0.88))
 	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 96.0), Color(0.02, 0.04, 0.09, 0.88))
-	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 182.0), Color(0.02, 0.04, 0.09, 0.82))
+	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0), Color(0.02, 0.04, 0.09, 0.82))
 
 	p1_status_label = Label.new()
 	p1_status_label.position = Vector2(34.0, 24.0)
@@ -394,35 +399,35 @@ func _create_hud() -> void:
 	p2_health_bar = _create_bar(layer, Vector2(913.0, 80.0), Vector2(330.0, 13.0), Color("b892ff"))
 
 	hud_label = Label.new()
-	hud_label.position = Vector2(440.0, 23.0)
-	hud_label.size = Vector2(400.0, 70.0)
+	hud_label.position = Vector2(440.0, 22.0)
+	hud_label.size = Vector2(400.0, 30.0)
 	hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud_label.add_theme_font_size_override("font_size", 22)
 	hud_label.add_theme_color_override("font_color", Color("e7f6ff"))
 	layer.add_child(hud_label)
 
-	chain_bar = _create_bar(layer, Vector2(455.0, 111.0), Vector2(370.0, 12.0), Color("43d9ff"))
+	chain_bar = _create_bar(layer, Vector2(455.0, 58.0), Vector2(370.0, 12.0), Color("43d9ff"))
 	chain_bar.max_value = 100.0
-	chain_integrity_bar = _create_bar(layer, Vector2(455.0, 127.0), Vector2(370.0, 6.0), Color("80ed99"))
+	chain_integrity_bar = _create_bar(layer, Vector2(455.0, 74.0), Vector2(370.0, 6.0), Color("80ed99"))
 	chain_integrity_bar.max_value = CHAIN_INTEGRITY_MAX
 	chain_integrity_bar.value = CHAIN_INTEGRITY_MAX
 	chain_status_label = Label.new()
-	chain_status_label.position = Vector2(415.0, 140.0)
-	chain_status_label.size = Vector2(450.0, 32.0)
+	chain_status_label.position = Vector2(415.0, 86.0)
+	chain_status_label.size = Vector2(450.0, 24.0)
 	chain_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	chain_status_label.add_theme_font_size_override("font_size", 17)
 	layer.add_child(chain_status_label)
 
 	resonance_status_label = Label.new()
-	resonance_status_label.position = Vector2(415.0, 169.0)
-	resonance_status_label.size = Vector2(450.0, 32.0)
+	resonance_status_label.position = Vector2(415.0, 106.0)
+	resonance_status_label.size = Vector2(450.0, 24.0)
 	resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	resonance_status_label.add_theme_font_size_override("font_size", 17)
 	resonance_status_label.add_theme_color_override("font_color", Color("e4c1f9"))
 	layer.add_child(resonance_status_label)
 
 	boss_label = Label.new()
-	boss_label.position = Vector2(390.0, 200.0)
+	boss_label.position = Vector2(390.0, 138.0)
 	boss_label.size = Vector2(500.0, 28.0)
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_label.add_theme_font_size_override("font_size", 19)
@@ -430,7 +435,7 @@ func _create_hud() -> void:
 	boss_label.text = "결속 파괴자"
 	boss_label.visible = false
 	layer.add_child(boss_label)
-	boss_bar = _create_bar(layer, Vector2(390.0, 228.0), Vector2(500.0, 12.0), Color("ef476f"))
+	boss_bar = _create_bar(layer, Vector2(390.0, 166.0), Vector2(500.0, 12.0), Color("ef476f"))
 	boss_bar.visible = false
 
 	xp_bar = _create_bar(layer, Vector2(20.0, 695.0), Vector2(1240.0, 17.0), Color("80ed99"))
@@ -599,19 +604,18 @@ func _create_hud() -> void:
 	_make_label_background(tutorial_label, Color(0.02, 0.03, 0.07, 0.9))
 	layer.add_child(tutorial_label)
 
-	build_inspect_label = Label.new()
-	# Sits over the level-up cards rather than under them: this is a
-	# hold-to-peek panel, so covering the cards while it is up is clearer than
-	# crowding into the footer row they already occupy.
-	build_inspect_label.position = Vector2(270.0, 225.0)
-	build_inspect_label.size = Vector2(740.0, 270.0)
-	build_inspect_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	build_inspect_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	build_inspect_label.add_theme_font_size_override("font_size", 17)
-	build_inspect_label.add_theme_color_override("font_color", Color("dbe7ff"))
-	build_inspect_label.visible = false
-	_make_label_background(build_inspect_label, Color(0.02, 0.03, 0.07, 0.96))
-	layer.add_child(build_inspect_label)
+	team_stats_label = Label.new()
+	# One shared line under the cards. The personal build sits in each
+	# player’s own footer; only the pooled stats belong in the middle.
+	team_stats_label.position = Vector2(300.0, 482.0)
+	team_stats_label.size = Vector2(460.0, 32.0)
+	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	team_stats_label.add_theme_font_size_override("font_size", 16)
+	team_stats_label.add_theme_color_override("font_color", Color("dbe7ff"))
+	team_stats_label.visible = false
+	_make_label_background(team_stats_label, Color(0.02, 0.03, 0.07, 0.9))
+	level_overlay.add_child(team_stats_label)
 
 	p1_edge_indicator = _create_edge_indicator(layer, Color("43d9ff"))
 	p2_edge_indicator = _create_edge_indicator(layer, Color("b892ff"))
@@ -684,7 +688,7 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 
 
 const LEVEL_CARD_WIDTH := 142.0
-const LEVEL_CARD_HEIGHT := 345.0
+const LEVEL_CARD_HEIGHT := 285.0
 const LEVEL_CARD_GAP := 13.0
 const LEVEL_CARD_Y := 105.0
 
@@ -719,7 +723,7 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 	var footer := Label.new()
 	footer.position = Vector2(half_x, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 8.0)
-	footer.size = Vector2(LEVEL_CARD_WIDTH * 3.0 + LEVEL_CARD_GAP * 2.0, 55.0)
+	footer.size = Vector2(LEVEL_CARD_WIDTH * 3.0 + LEVEL_CARD_GAP * 2.0, 78.0)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	footer.add_theme_font_size_override("font_size", 16)
@@ -912,7 +916,9 @@ func _start_selected_run() -> void:
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
-	help_label.text = "P1 WASD     P2 방향키     금빛 과충전: +25% (사슬 내구 소모)     ESC / START: 일시정지"
+	# Controls already appear on the lobby and character-select screens;
+	# repeating them under the play field forever is noise.
+	help_label.visible = false
 	_show_message("목표: 02:00에 나타나는 결속 파괴자를 처치하세요", Color("80ed99"))
 
 
@@ -1234,10 +1240,9 @@ func _begin_level_up() -> void:
 	if not progression.consume_level_up():
 		return
 	level_up_active = true
+	level_up_input_delay = LEVEL_UP_INPUT_DELAY
 	selected_upgrade_indices = [-1, -1]
 	upgrade_cursors = [0, 0]
-	build_inspect_active = false
-	build_inspect_label.visible = false
 	p1_choices = _get_upgrade_choices(1)
 	p2_choices = _get_upgrade_choices(2)
 	level_overlay.visible = true
@@ -1456,15 +1461,11 @@ func _attribute_preview(slot: int, upgrade_id: String) -> String:
 
 
 func _handle_level_up_input() -> void:
-	if Input.is_action_pressed("build_inspect"):
-		if not build_inspect_active:
-			build_inspect_active = true
-			_refresh_build_inspect_ui()
+	if level_up_input_delay > 0.0:
+		level_up_input_delay = maxf(0.0, level_up_input_delay - get_physics_process_delta_time())
+		if level_up_input_delay <= 0.0:
+			_refresh_level_up_ui()
 		return
-	elif build_inspect_active:
-		build_inspect_active = false
-		build_inspect_label.visible = false
-
 	for slot in 2:
 		var player_index := slot + 1
 		var prefix := "p1_select_" if player_index == 1 else "p2_select_"
@@ -1605,8 +1606,7 @@ func _refresh_level_up_ui() -> void:
 	level_title.text = "공유 레벨 %d — 좌우로 고르고 확정하세요" % progression.level
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
-	if build_inspect_active:
-		_refresh_build_inspect_ui()
+	_refresh_team_stats_ui()
 
 
 func _refresh_player_cards(player_index: int) -> void:
@@ -1630,7 +1630,13 @@ func _refresh_player_cards(player_index: int) -> void:
 			card.text = "✦ " + card.text
 
 		var border := Color("fff275") if is_unlock else accent
-		if is_chosen:
+		if level_up_input_delay > 0.0:
+			# Visibly inert until input opens, so the pause reads as deliberate
+			# rather than as the game ignoring a keypress.
+			style.bg_color = Color(border, 0.05)
+			style.border_color = Color(border, 0.18)
+			style.set_border_width_all(2)
+		elif is_chosen:
 			style.bg_color = Color(border, 0.28)
 			style.border_color = border
 			style.set_border_width_all(3)
@@ -1642,31 +1648,34 @@ func _refresh_player_cards(player_index: int) -> void:
 			style.bg_color = Color(border, 0.08)
 			style.border_color = Color(border, 0.35)
 			style.set_border_width_all(2)
-		card.scale = Vector2(1.05, 1.05) if is_focused else Vector2.ONE
+		card.scale = Vector2(1.05, 1.05) if is_focused and level_up_input_delay <= 0.0 else Vector2.ONE
 
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
 	var character := selected_characters[slot]
-	var heading := "P%d  %s" % [player_index, String(character["name"])]
-	if locked:
-		footer.text = heading + "\n✓ 확정 — 상대를 기다리는 중 (취소하려면 다시 시도)"
+	# The play field deliberately shows none of this, so the level-up screen is
+	# where a player actually reads what they have built so far.
+	var lines: Array[String] = [
+		"P%d  %s  ·  %s" % [player_index, String(character["name"]), _loadout_summary(slot)],
+		_attribute_summary(slot)
+	]
+	if level_up_input_delay > 0.0:
+		lines.append("잠시 후 선택할 수 있습니다")
+	elif locked:
+		lines.append("✓ 확정 — 상대를 기다리는 중 (취소 가능)")
 	else:
 		var keys := ["LB/RB", "A", "B"] if last_input_gamepad[slot] else (["A/D", "W", "S"] if player_index == 1 else ["←/→", "↑", "↓"])
-		var reroll_hint := "  ·  재추첨 %d회 남음" % rerolls_remaining[slot]
-		footer.text = heading + "\n%s 이동 · %s 확정 · %s 취소%s" % [keys[0], keys[1], keys[2], reroll_hint]
+		lines.append("%s 이동 · %s 확정 · %s 취소  ·  재추첨 %d회" % [keys[0], keys[1], keys[2], rerolls_remaining[slot]])
+	footer.text = "\n".join(lines)
 
 
-func _refresh_build_inspect_ui() -> void:
-	var lines: Array[String] = []
-	for slot in 2:
-		var player_index := slot + 1
-		var names: Array[String] = []
-		for weapon in weapon_loadouts[slot]:
-			names.append("%s T%d" % [String(weapon["weapon_name"]), int(weapon.get("tier", 1))])
-		lines.append("P%d  %s  ·  %s" % [player_index, String(selected_characters[slot]["name"]), " / ".join(names)])
-		lines.append("     %s" % _attribute_summary(slot))
-	lines.append("공유  자석 %.0f%%  ·  성장 %.0f%%  ·  행운 %d" % [team_magnet * 100.0, team_growth * 100.0, team_luck])
-	build_inspect_label.text = "현재 빌드\n\n" + "\n".join(lines)
-	build_inspect_label.visible = true
+## The shared attributes act on the pooled experience both survivors draw
+## from, so they get one line of their own instead of being repeated under
+## each player next to their personal stats.
+func _refresh_team_stats_ui() -> void:
+	team_stats_label.text = "공유   자석 %.0f%%   ·   성장 %.0f%%   ·   행운 %d" % [
+		team_magnet * 100.0, team_growth * 100.0, team_luck
+	]
+	team_stats_label.visible = true
 
 
 ## One-line personal attribute readout. Only non-neutral values are listed so
@@ -1697,8 +1706,6 @@ func _attribute_summary(slot: int) -> String:
 func _finish_level_up() -> void:
 	level_up_active = false
 	level_overlay.visible = false
-	build_inspect_active = false
-	build_inspect_label.visible = false
 	get_tree().paused = false
 	_show_message("레벨 %d — 두 테크가 강화되었습니다" % progression.level, Color("fff275"))
 	if progression.can_level_up():
@@ -1800,7 +1807,7 @@ func _update_hud() -> void:
 	var distance := players[0].position.distance_to(players[1].position)
 	var tension := clampf(distance / chain_max_length, 0.0, 1.0)
 	var objective := "보스 격파" if wave_director.boss_spawned else "보스 %02d:%02d" % [int(maxf(0.0, RUN_BOSS_TIME - elapsed)) / 60, int(maxf(0.0, RUN_BOSS_TIME - elapsed)) % 60]
-	hud_label.text = "%02d:%02d  ·  처치 %d\n공유 LV.%d  ·  %s" % [minutes, seconds, kills, progression.level, objective]
+	hud_label.text = "%02d:%02d   ·   LV.%d   ·   처치 %d   ·   %s" % [minutes, seconds, progression.level, kills, objective]
 	p1_status_label.text = _player_status_text(0)
 	p2_status_label.text = _player_status_text(1)
 	p1_health_bar.max_value = players[0].max_health
@@ -1808,7 +1815,7 @@ func _update_hud() -> void:
 	p2_health_bar.max_value = players[1].max_health
 	p2_health_bar.value = players[1].health
 	chain_bar.value = tension * 100.0
-	var chain_state := "안정"
+	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
 		chain_state = "과부하 · 공격력 -20% · 붙어서 복구"
@@ -1822,7 +1829,8 @@ func _update_hud() -> void:
 	elif tension >= CHAIN_RESIST_RATIO:
 		chain_state = "팽팽함"
 		chain_color = Color("8ecae6")
-	chain_status_label.text = "사슬 %d%%  ·  내구 %d%%  ·  %s" % [int(tension * 100.0), int(round(chain_integrity)), chain_state]
+	chain_status_label.text = chain_state
+	chain_status_label.visible = not chain_state.is_empty()
 	chain_status_label.add_theme_color_override("font_color", chain_color)
 	var fill := chain_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if fill != null:
@@ -1836,8 +1844,9 @@ func _update_hud() -> void:
 			integrity_fill.bg_color = Color("fff275")
 		else:
 			integrity_fill.bg_color = Color("80ed99")
+	resonance_status_label.visible = not resonance_system.active_resonances.is_empty()
 	if resonance_system.active_resonances.is_empty():
-		resonance_status_label.text = "공명 대기 · 두 무기 T3 필요"
+		resonance_status_label.text = ""
 	else:
 		var resonance_names: Array[String] = []
 		for active in resonance_system.active_resonances:
@@ -1847,15 +1856,14 @@ func _update_hud() -> void:
 		]
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
-	help_label.text = "공유 XP  %d / %d     ·     P1 WASD     P2 방향키     ·     ESC / START 일시정지" % [progression.experience, progression.required_experience]
 
 
 func _player_status_text(player_index: int) -> String:
 	var player := players[player_index]
-	var prefix := "P%d  %s  %d/%d HP" % [player_index + 1, player.character_name, int(player.health), int(player.max_health)]
+	var prefix := "P%d  %s   %d / %d" % [player_index + 1, player.character_name, int(player.health), int(player.max_health)]
 	if player.downed:
 		return prefix + "\nDOWN %.1f초 · 구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
-	return prefix + "\n" + _loadout_summary(player_index)
+	return prefix
 
 
 ## Compact HUD summary of a player's whole loadout: the weapon name when they
@@ -1933,7 +1941,6 @@ func _setup_input_map() -> void:
 	_add_key_action("p2_select_cancel", KEY_DOWN)
 	_add_key_action("p1_reroll", KEY_Q)
 	_add_key_action("p2_reroll", KEY_SLASH)
-	_add_key_action("build_inspect", KEY_TAB)
 	_add_joy_axis("p1_left", 0, JOY_AXIS_LEFT_X, -1.0)
 	_add_joy_axis("p1_right", 0, JOY_AXIS_LEFT_X, 1.0)
 	_add_joy_axis("p1_up", 0, JOY_AXIS_LEFT_Y, -1.0)
@@ -1962,8 +1969,6 @@ func _setup_input_map() -> void:
 	_add_joy_button("restart", 1, JOY_BUTTON_A)
 	_add_joy_button("p1_reroll", 0, JOY_BUTTON_Y)
 	_add_joy_button("p2_reroll", 1, JOY_BUTTON_Y)
-	_add_joy_button("build_inspect", 0, JOY_BUTTON_BACK)
-	_add_joy_button("build_inspect", 1, JOY_BUTTON_BACK)
 
 
 func _add_key_action(action: StringName, physical_keycode: int) -> void:

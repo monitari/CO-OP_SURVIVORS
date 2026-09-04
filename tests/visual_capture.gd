@@ -54,6 +54,8 @@ func _run() -> void:
 
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
+	main.level_up_input_delay = 0.0 # capture the interactive state, not the opening beat
+	main._refresh_level_up_ui()
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/level-up.png")
@@ -69,11 +71,10 @@ func _run() -> void:
 	main.team_magnet = 1.5
 	main.team_growth = 1.15
 	main.team_luck = 2
-	main._refresh_build_inspect_ui()
+	main._refresh_level_up_ui()
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/build-inspect.png")
-	main.build_inspect_label.visible = false
 
 	main.level_up_active = false
 	main.level_overlay.visible = false

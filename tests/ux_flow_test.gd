@@ -26,7 +26,8 @@ func _run() -> void:
 	main._update_hud()
 	_check(main.p1_status_label.text.contains("P1"), "split HUD identifies P1")
 	_check(main.p2_status_label.text.contains("P2"), "split HUD identifies P2")
-	_check(main.help_label.text.contains("공유 XP"), "shared XP is labeled at the XP bar")
+	_check(not main.help_label.visible, "the permanent controls strip stays off the play field")
+	_check(main.xp_bar.max_value == main.progression.required_experience, "the XP bar tracks the shared requirement on its own")
 
 	main.players[0].position = Vector2(-main.chain_max_length * 0.43, 0.0)
 	main.players[1].position = Vector2(main.chain_max_length * 0.43, 0.0)
@@ -34,6 +35,11 @@ func _run() -> void:
 	main._update_hud()
 	_check(main._tension_damage_multiplier() > 1.0, "gold overcharge stage grants the advertised bonus")
 	_check(main.chain_status_label.text.contains("과충전"), "HUD names the beneficial chain stage")
+	_check(main.chain_status_label.visible, "a chain state worth acting on is shown")
+	main.players[0].position = Vector2(-20.0, 0.0)
+	main.players[1].position = Vector2(20.0, 0.0)
+	main._update_hud()
+	_check(not main.chain_status_label.visible, "a neutral chain says nothing at all")
 
 	await _test_chain_integrity(main)
 
@@ -101,7 +107,7 @@ func _test_chain_integrity(main: Node) -> void:
 	_check(main._tension_damage_multiplier() < 1.0, "an overloaded chain penalises damage instead of boosting it")
 	main._update_hud()
 	_check(main.chain_status_label.text.contains("과부하"), "HUD names the overload state")
-	_check(main.chain_status_label.text.contains("내구"), "HUD exposes the integrity reading")
+	_check(main.chain_integrity_bar.value <= 0.0, "the integrity bar bottoms out rather than repeating the number in text")
 
 	# Closing up is the only way back, and it must actually clear the penalty.
 	_hold_chain(main, 0.5, 4.0)
