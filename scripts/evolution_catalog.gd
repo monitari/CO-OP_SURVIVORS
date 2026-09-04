@@ -15,8 +15,12 @@ extends RefCounted
 ## once, a cone becomes a full circle, a single mine becomes a ring of them —
 ## and only fused weapons can reach resonance.
 
-const WEAPON_MAX_TIER := 5
-const REQUIRED_TREASURE_TIER := 3
+## Six weapon upgrades and four treasure picks stand between a starting
+## weapon and its fusion. At T5/T3 a fusion arrived while the pair was still
+## learning the run and resonance followed almost immediately after, which
+## left the whole top of the tree with nothing to be the climax of.
+const WEAPON_MAX_TIER := 7
+const REQUIRED_TREASURE_TIER := 4
 
 
 static func all_evolutions() -> Array[Dictionary]:

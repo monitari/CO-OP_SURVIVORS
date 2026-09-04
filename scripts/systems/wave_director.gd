@@ -26,10 +26,14 @@ const OPENING_SPAWN_INTERVAL := 0.78
 const SECOND_WAVE_SPAWN_INTERVAL := 0.68
 const FIRST_REINFORCEMENT_COUNT := 3
 const CHARGER_UNLOCK_TIME := 30.0
+const BULWARK_UNLOCK_TIME := 75.0
+const SWARM_UNLOCK_TIME := 45.0
+const SWARM_INTERVAL := 22.0
 
 var enemy_pool: Array[ChaserEnemy] = []
 var spawn_timer := 0.0
 var elite_timer := 35.0
+var swarm_timer := SWARM_UNLOCK_TIME
 var boss_spawned := false
 var enemy_cap := 420
 
@@ -97,6 +101,17 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		elite_timer = 38.0
 		spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, true, false))
 
+	# A swarm pack is its own event on its own clock, and it ignores the lull
+	# for the same reason elites do: the calm is a breather from pressure, not
+	# a window where nothing at all happens.
+	swarm_timer -= delta
+	if swarm_timer <= 0.0 and elapsed >= SWARM_UNLOCK_TIME:
+		swarm_timer = SWARM_INTERVAL
+		for index in _swarm_pack_size(elapsed):
+			if active_count + spawned.size() >= enemy_cap:
+				break
+			spawned.append(_acquire_enemy("swarm", difficulty, center, false, false))
+
 	if in_calm:
 		return spawned
 
@@ -133,10 +148,18 @@ func _acquire_enemy(archetype: String, difficulty: float, center: Vector2, elite
 
 func _pick_archetype(elapsed: float) -> String:
 	var roll := randf()
-	if elapsed >= 55.0 and roll < 0.16:
+	if elapsed >= BULWARK_UNLOCK_TIME and roll < 0.09:
+		return "bulwark"
+	if elapsed >= 55.0 and roll < 0.22:
 		return "chain_hunter"
-	if elapsed >= 36.0 and roll < 0.34:
+	if elapsed >= 36.0 and roll < 0.40:
 		return "shooter"
-	if elapsed >= CHARGER_UNLOCK_TIME and roll < 0.55:
+	if elapsed >= CHARGER_UNLOCK_TIME and roll < 0.60:
 		return "charger"
 	return "chaser"
+
+
+## Swarms do not trickle. They arrive as a pack or not at all, which is what
+## makes them a farming opportunity rather than background noise.
+func _swarm_pack_size(elapsed: float) -> int:
+	return 7 + int(elapsed / 90.0) * 3

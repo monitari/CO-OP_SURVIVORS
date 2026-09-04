@@ -20,6 +20,12 @@ const EARLY_GAME_DIFFICULTY := 1.0
 const OPENING_CONTACT_DAMAGE_MULTIPLIER := 0.75
 
 const BOSS_SLAM_RADIUS := 95.0
+## 0.7s of warning against a 95px circle is not a dodge, it is a reaction
+## test — and the pair is tied together, so getting out means agreeing where
+## to go first. The telegraph is now long enough to be a decision.
+const BOSS_SLAM_WINDUP := 1.5
+const BOSS_SLAM_WINDUP_ENRAGED := 1.1
+const BOSS_CHARGE_WINDUP := 0.85
 ## A hit used to be a scale tween allocated per call, which at a few hundred
 ## hits a second is a lot of short-lived objects. It is now a plain timer
 ## stepped with everything else, and it drives a colour flash too — a dark
@@ -85,6 +91,26 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	scale = Vector2.ONE
 
 	match archetype:
+		"swarm":
+			# Individually harmless and worth almost nothing; the point is that
+			# they arrive by the dozen. A wave of these is the pair's chance to
+			# convert a good position into levels rather than a threat to it.
+			move_speed = 128.0
+			radius = 9.0
+			max_health = 10.0
+			contact_damage = 4.0
+			xp_value = 3
+			enemy_color = Color("9bf6ff")
+		"bulwark":
+			# The opposite pressure: it will not die quickly, and while it is
+			# alive it is walking straight at the chain. Worth real XP because
+			# committing damage to it is a real cost.
+			move_speed = 44.0
+			radius = 30.0
+			max_health = 190.0
+			contact_damage = 22.0
+			xp_value = 26
+			enemy_color = Color("8d99ae")
 		"charger":
 			move_speed = 68.0
 			radius = 20.0
@@ -313,11 +339,11 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 		if boss_enraged and randf() < 0.5:
 			charge_direction = direction
 			telegraph_direction = direction
-			charge_windup = 0.5
+			charge_windup = BOSS_CHARGE_WINDUP
 		else:
 			boss_slam_point = _closest_point_on_chain(players)
 			telegraph_direction = global_position.direction_to(boss_slam_point)
-			boss_slam_windup = 0.7
+			boss_slam_windup = BOSS_SLAM_WINDUP_ENRAGED if boss_enraged else BOSS_SLAM_WINDUP
 
 
 ## The point on the players' current chain segment closest to the boss right
@@ -422,10 +448,19 @@ func _draw() -> void:
 	if chain_windup > 0.0:
 		draw_arc(Vector2.ZERO, radius + 14.0, 0.0, TAU, 28, Color("ff5d8f"), 6.0, true)
 	if boss_slam_windup > 0.0:
-		var slam_alpha := 0.32 + sin(boss_slam_windup * 22.0) * 0.16
+		var total := BOSS_SLAM_WINDUP_ENRAGED if boss_enraged else BOSS_SLAM_WINDUP
+		var progress := clampf(1.0 - boss_slam_windup / total, 0.0, 1.0)
 		var local_point := (boss_slam_point - global_position).rotated(-rotation)
 		draw_line(Vector2.ZERO, local_point, Color(1.0, 0.35, 0.42, 0.4), 3.0, true)
-		draw_arc(local_point, BOSS_SLAM_RADIUS, 0.0, TAU, 32, Color(1.0, 0.25, 0.35, slam_alpha), 6.0, true)
+		# Outline plus a filling disc: the ring says where, and how full it is
+		# says when. A pulsing outline alone gave the pair no way to time the
+		# dodge, only to guess at it.
+		draw_circle(local_point, BOSS_SLAM_RADIUS * progress, Color(1.0, 0.25, 0.35, 0.22))
+		draw_arc(local_point, BOSS_SLAM_RADIUS, 0.0, TAU, 32, Color(1.0, 0.3, 0.4, 0.75), 5.0, true)
+		draw_arc(
+			local_point, BOSS_SLAM_RADIUS - 6.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 32,
+			Color(1.0, 0.85, 0.4, 0.9), 4.0, true
+		)
 	# The flash lightens the body only; the glow ring keeps the archetype
 	# colour so a flashing enemy is still identifiable.
 	var body := enemy_color.lerp(Color.WHITE, hit_flash * 0.8)
@@ -438,6 +473,17 @@ func _draw() -> void:
 		"chain_hunter":
 			draw_circle(Vector2.ZERO, radius, body, false, 7.0)
 			draw_line(Vector2(-radius, 0), Vector2(radius, 0), body, 4.0)
+		"swarm":
+			draw_circle(Vector2.ZERO, radius, body)
+			draw_circle(Vector2(radius * 0.3, -radius * 0.3), radius * 0.35, body.lightened(0.4))
+		"bulwark":
+			# A plated hexagon: slow, and obviously the thing you cannot simply
+			# walk through.
+			var plate := PackedVector2Array()
+			for corner in 6:
+				plate.append(Vector2.from_angle(TAU * float(corner) / 6.0) * radius)
+			draw_colored_polygon(plate, body)
+			draw_polyline(plate + PackedVector2Array([plate[0]]), body.darkened(0.45), 4.0, true)
 		_:
 			draw_circle(Vector2.ZERO, radius, body)
 	if elite:

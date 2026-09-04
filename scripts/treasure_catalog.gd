@@ -13,7 +13,7 @@ extends RefCounted
 ## the order of GameIconCatalog.UPGRADE_ORDER, so every treasure has an icon and
 ## an effect without either being defined twice.
 
-const MAX_TIER := 5
+const MAX_TIER := 6
 
 
 static func all_treasures() -> Array[Dictionary]:
