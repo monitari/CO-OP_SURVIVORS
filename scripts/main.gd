@@ -140,7 +140,18 @@ var chain_combo_cooldown := 0.0
 var boss_chain_damage_cooldown := 0.0
 var pacing_announced: Dictionary = {}
 var last_countdown_second := -1
-var run_stats := {"revives": 0, "pings": 0, "overcharge_time": 0.0, "chain_bursts": 0, "resonance_casts": 0}
+## Run-long tally shown on the result screen. "pings" and "chain_bursts"
+## named features that were never built; these six are events the game
+## actually raises, and each is counted at the one place it happens so the
+## screen cannot drift from play.
+var run_stats := {
+	"revives": 0,
+	"dashes": 0,
+	"overcharge_time": 0.0,
+	"overloads": 0,
+	"resonance_casts": 0,
+	"items": 0,
+}
 
 var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
@@ -311,6 +322,7 @@ func _physics_process(delta: float) -> void:
 				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
 	for resonance in resonance_system.step(delta):
 		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
+		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
 		boss_bar.value = boss_enemy.health
 
@@ -376,6 +388,7 @@ func _create_players() -> void:
 	player_one.damaged.connect(_on_player_damaged)
 	player_one.downed_started.connect(_on_player_downed)
 	player_one.revived_player.connect(_on_player_revived)
+	player_one.dashed.connect(_on_player_dashed)
 	players.append(player_one)
 
 	var player_two := PlayerScene.new() as ChainPlayer
@@ -385,6 +398,7 @@ func _create_players() -> void:
 	player_two.damaged.connect(_on_player_damaged)
 	player_two.downed_started.connect(_on_player_downed)
 	player_two.revived_player.connect(_on_player_revived)
+	player_two.dashed.connect(_on_player_dashed)
 	players.append(player_two)
 
 
@@ -923,6 +937,8 @@ func _start_selected_run() -> void:
 	chain_integrity = CHAIN_INTEGRITY_MAX
 	chain_overloaded = false
 	rerolls_remaining = [1, 1] ## Spent across the run, not refilled per level-up
+	for key in run_stats:
+		run_stats[key] = 0.0 if key == "overcharge_time" else 0
 	last_upgrade_choice_keys = [[], []]
 	team_magnet = 1.0
 	team_growth = 1.0
@@ -1003,6 +1019,7 @@ func _update_chain_integrity(delta: float) -> void:
 		var strain := inverse_lerp(CHAIN_WARNING_RATIO, 1.0, minf(ratio, 1.0))
 		var drain := lerpf(CHAIN_DRAIN_AT_WARNING, CHAIN_DRAIN_AT_LIMIT, strain)
 		chain_integrity = maxf(0.0, chain_integrity - drain * delta)
+		run_stats["overcharge_time"] = float(run_stats["overcharge_time"]) + delta
 		if chain_integrity <= 0.0 and not chain_overloaded:
 			_trigger_chain_overload()
 	elif ratio < CHAIN_RESIST_RATIO:
@@ -1015,6 +1032,7 @@ func _update_chain_integrity(delta: float) -> void:
 
 func _trigger_chain_overload() -> void:
 	chain_overloaded = true
+	run_stats["overloads"] = int(run_stats["overloads"]) + 1
 	for player in players:
 		player.hurt(CHAIN_OVERLOAD_DAMAGE)
 	camera_shake = maxf(camera_shake, 14.0)
@@ -1148,7 +1166,13 @@ func _on_player_downed(player: ChainPlayer) -> void:
 	_show_message("%s 다운 — 18초 안에 가까이 머물러 구조하세요!" % player.character_name, Color("ff5d8f"))
 
 
+func _on_player_dashed(_player: ChainPlayer) -> void:
+	run_stats["dashes"] = int(run_stats["dashes"]) + 1
+	feedback.play_cue("dash")
+
+
 func _on_player_revived(player: ChainPlayer) -> void:
+	run_stats["revives"] = int(run_stats["revives"]) + 1
 	feedback.play_cue("revive")
 	_show_message("%s 부활 — 사슬이 다시 이어집니다" % player.character_name, Color("80ed99"))
 
@@ -1194,7 +1218,7 @@ func _persist_settings() -> void:
 
 
 func _update_pause_text() -> void:
-	pause_label.text = "일시정지\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F4] 음악: %s\n[F11] 전체 화면" % [
+	pause_label.text = "일시정지\n\nP1 대시 SPACE / RT   ·   P2 대시 . / RT\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F4] 음악: %s\n[F11] 전체 화면" % [
 		"켜짐" if screen_shake_enabled else "꺼짐",
 		"켜짐" if feedback.damage_numbers_enabled else "꺼짐",
 		"켜짐" if feedback.sound_enabled else "꺼짐",
@@ -1285,7 +1309,8 @@ func _on_field_item_collected(item_id: String) -> void:
 					burned += 1
 			camera_shake = maxf(camera_shake, 9.0)
 			label += " — 적 %d체 정화" % burned
-	feedback.play_cue("revive")
+	run_stats["items"] = int(run_stats["items"]) + 1
+	feedback.play_item_cue(item_id)
 	_show_message(label, color)
 
 
@@ -1940,6 +1965,16 @@ func _loadout_summary(player_index: int) -> String:
 	return "무기 %d종 · %s" % [loadout.size(), "/".join(tiers)]
 
 
+## The co-op line of the result screen: what the pair did together, next to
+## the survival numbers above it. These are the counters run_stats has been
+## carrying unused; nothing else reads them.
+func _run_stats_summary() -> String:
+	return "구조 %d회  ·  대시 %d회  ·  공명 %d회  ·  아이템 %d개  ·  과충전 %.0f초  ·  과부하 %d회" % [
+		int(run_stats["revives"]), int(run_stats["dashes"]), int(run_stats["resonance_casts"]),
+		int(run_stats["items"]), float(run_stats["overcharge_time"]), int(run_stats["overloads"])
+	]
+
+
 func _show_message(text: String, color: Color) -> void:
 	message_label.text = text
 	message_label.add_theme_color_override("font_color", color)
@@ -1962,10 +1997,11 @@ func _end_run(victory: bool = false) -> void:
 	get_tree().paused = true
 	var heading := "결속을 지켜냈습니다!" if victory else "사슬이 끊어졌습니다"
 	var reason := "결속 파괴자를 쓰러뜨렸습니다." if victory else "두 명이 모두 다운되었거나 구조 시간이 끝났습니다."
-	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1  %s  ·  %s\nP2  %s  ·  %s\n\nENTER / A  다시 결속하기" % [
+	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1  %s  ·  %s\nP2  %s  ·  %s\n\n%s\n\nENTER / A  다시 결속하기" % [
 		heading, reason, int(elapsed) / 60, int(elapsed) % 60, kills, progression.level,
 		players[0].character_name, _loadout_summary(0),
-		players[1].character_name, _loadout_summary(1)
+		players[1].character_name, _loadout_summary(1),
+		_run_stats_summary()
 	]
 	result_label.add_theme_color_override("font_color", Color("fff275") if victory else Color("ff8fab"))
 	feedback.stop_music()
@@ -2004,6 +2040,8 @@ func _setup_input_map() -> void:
 	_add_key_action("p2_select_cancel", KEY_DOWN)
 	_add_key_action("p1_reroll", KEY_Q)
 	_add_key_action("p2_reroll", KEY_SLASH)
+	_add_key_action("p1_dash", KEY_SPACE)
+	_add_key_action("p2_dash", KEY_PERIOD)
 	_add_joy_axis("p1_left", 0, JOY_AXIS_LEFT_X, -1.0)
 	_add_joy_axis("p1_right", 0, JOY_AXIS_LEFT_X, 1.0)
 	_add_joy_axis("p1_up", 0, JOY_AXIS_LEFT_Y, -1.0)
@@ -2032,6 +2070,10 @@ func _setup_input_map() -> void:
 	_add_joy_button("restart", 1, JOY_BUTTON_A)
 	_add_joy_button("p1_reroll", 0, JOY_BUTTON_Y)
 	_add_joy_button("p2_reroll", 1, JOY_BUTTON_Y)
+	# The right trigger is the only pad control still free, and it is where a
+	# dash sits on most games anyway.
+	_add_joy_axis("p1_dash", 0, JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	_add_joy_axis("p2_dash", 1, JOY_AXIS_TRIGGER_RIGHT, 1.0)
 
 
 func _add_key_action(action: StringName, physical_keycode: int) -> void:

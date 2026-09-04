@@ -33,6 +33,8 @@ const CUE_PARAMS := {
 	"warning": {"freq": 210.0, "to": 150.0, "dur": 0.16, "vol": 0.16, "wave": "saw"},
 	"down": {"freq": 150.0, "to": 70.0, "dur": 0.36, "vol": 0.24, "wave": "saw"},
 	"revive": {"freq": 440.0, "to": 880.0, "dur": 0.24, "vol": 0.20, "wave": "sine"},
+	# Short and downward so it reads as a movement, not as a hit.
+	"dash": {"freq": 720.0, "to": 300.0, "dur": 0.13, "vol": 0.13, "wave": "sine"},
 	"resonance": {"freq": 780.0, "to": 1560.0, "dur": 0.30, "vol": 0.22, "wave": "sine"},
 	"boss": {"freq": 96.0, "to": 62.0, "dur": 0.50, "vol": 0.28, "wave": "saw"},
 	"victory": {"freq": 880.0, "to": 1320.0, "dur": 0.45, "vol": 0.22, "wave": "sine"},

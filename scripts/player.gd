@@ -4,6 +4,18 @@ extends Node2D
 signal damaged(player: ChainPlayer, amount: float)
 signal downed_started(player: ChainPlayer)
 signal revived_player(player: ChainPlayer)
+signal dashed(player: ChainPlayer)
+
+## A short burst along the last movement direction with brief invulnerability.
+## Until now the only way to avoid a telegraphed attack was to walk out of
+## it, which the pressure measurement showed is not enough. The chain is
+## what bounds the dash: burst distance is well under the leash length, so
+## dashing away from a partner runs into the constraint and repositions the
+## pair rather than letting one survivor break off alone.
+const DASH_DURATION := 0.18
+const DASH_SPEED_MULTIPLIER := 3.2
+const DASH_COOLDOWN := 1.4
+const DASH_INVULNERABILITY := 0.26
 
 var player_index := 0
 var move_speed := 230.0
@@ -32,6 +44,9 @@ var amount := 0 ## extra projectiles per volley
 var haste := 1.0 ## cooldown multiplier, lower is faster
 var armor := 0.0 ## flat damage subtracted from every hit
 var recovery := 0.0 ## health per second regenerated while standing
+var dash_timer := 0.0 ## remaining burst time
+var dash_cooldown := 0.0
+var dash_direction := Vector2.RIGHT
 
 
 func setup(index: int, color: Color) -> void:
@@ -57,23 +72,57 @@ func apply_character(character: Dictionary) -> void:
 	haste = 1.0
 	armor = 0.0
 	recovery = 0.0
+	dash_timer = 0.0
+	dash_cooldown = 0.0
 	queue_redraw()
 
 
 func step_movement(delta: float) -> void:
 	var was_invulnerable := invulnerability > 0.0
 	invulnerability = maxf(0.0, invulnerability - delta)
-	if was_invulnerable:
+	var was_dashing := dash_timer > 0.0
+	dash_cooldown = maxf(0.0, dash_cooldown - delta)
+	if was_invulnerable or was_dashing or dash_cooldown > 0.0:
 		queue_redraw()
 	var prefix := "p1_" if player_index == 1 else "p2_"
 	var input_vector := Input.get_vector(
 		prefix + "left", prefix + "right", prefix + "up", prefix + "down"
 	)
-	current_input = input_vector
 	if input_vector.length_squared() > 0.01:
 		last_input = input_vector.normalized()
+	if Input.is_action_just_pressed(prefix + "dash"):
+		try_dash()
+
+	if dash_timer > 0.0:
+		dash_timer = maxf(0.0, dash_timer - delta)
+		# The chain resolves by who is straining outward, so a dashing survivor
+		# has to read as pushing that way or the leash would settle the wrong
+		# player back.
+		current_input = dash_direction
+		position += dash_direction * move_speed * DASH_SPEED_MULTIPLIER * delta
+		return
+
+	current_input = input_vector
 	var speed_multiplier := 0.28 if downed else 1.0
 	position += input_vector * move_speed * speed_multiplier * delta
+
+
+## Starts a dash if one is available. Returns whether it actually began, so
+## callers can spend a cue on it only when something happened.
+func try_dash() -> bool:
+	if downed or dash_timer > 0.0 or dash_cooldown > 0.0:
+		return false
+	dash_timer = DASH_DURATION
+	dash_cooldown = DASH_COOLDOWN
+	dash_direction = last_input.normalized()
+	invulnerability = maxf(invulnerability, DASH_INVULNERABILITY)
+	dashed.emit(self)
+	queue_redraw()
+	return true
+
+
+func dash_ready() -> bool:
+	return not downed and dash_timer <= 0.0 and dash_cooldown <= 0.0
 
 
 ## Armor subtracts flat damage but can never fully negate a hit — a chip
@@ -143,7 +192,24 @@ func _draw() -> void:
 		return
 	draw_line(Vector2.ZERO, last_input * 17.0, Color.WHITE, 5.0, true)
 	draw_circle(last_input * 17.0, 4.0, Color.WHITE)
+	_draw_dash_state()
 	_draw_weapon_mark()
+
+
+## The dash readout lives on the character rather than in the HUD: the play
+## screen was deliberately stripped of text, and a cooldown is only useful where
+## the player is already looking.
+func _draw_dash_state() -> void:
+	if dash_timer > 0.0:
+		var trail := -dash_direction * (radius + 26.0)
+		draw_line(Vector2.ZERO, trail, Color(Color.WHITE, 0.5), 8.0, true)
+		draw_arc(Vector2.ZERO, radius + 4.0, 0.0, TAU, 30, Color(Color.WHITE, 0.65), 3.0, true)
+		return
+	if dash_cooldown > 0.0:
+		var filled := 1.0 - dash_cooldown / DASH_COOLDOWN
+		draw_arc(Vector2.ZERO, radius + 5.0, -PI * 0.5, -PI * 0.5 + TAU * filled, 24, Color(body_color, 0.55), 2.5, true)
+		return
+	draw_arc(Vector2.ZERO, radius + 5.0, 0.0, TAU, 28, Color(Color.WHITE, 0.35), 2.0, true)
 	if health < max_health:
 		draw_rect(Rect2(-25.0, -36.0, 50.0, 5.0), Color("351d3c"))
 		draw_rect(Rect2(-25.0, -36.0, 50.0 * health / max_health, 5.0), Color("80ed99"))
