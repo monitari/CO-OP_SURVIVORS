@@ -33,6 +33,7 @@ func _run() -> void:
 	main.set_physics_process(false)
 	await process_frame
 
+	_test_tag_translations(main)
 	await _test_weapon_cap(main)
 	await _test_independent_cooldowns(main)
 	_test_loadout_resonance(main)
@@ -46,6 +47,20 @@ func _run() -> void:
 		quit(1)
 
 
+
+## Unlock cards print a weapon's tags to explain what it can resonate with, so
+## an untranslated tag leaks raw English into that card. _tag_name() falls back
+## to returning the key itself, which fails silently — this catches a tag added
+## to the catalog without a matching translation.
+func _test_tag_translations(main: Node) -> void:
+	var untranslated: Array[String] = []
+	for character in main.character_catalog:
+		for tag in (character["tags"] as Array):
+			var tag_name := String(main._tag_name(String(tag)))
+			if tag_name == String(tag) and not (String(tag) in untranslated):
+				untranslated.append(String(tag))
+	_check(untranslated.is_empty(), "every catalog tag has a display name: " + ", ".join(untranslated))
+
 func _test_weapon_cap(main: Node) -> void:
 	_check(main.weapon_loadouts[0].size() == 1, "a run starts with exactly one weapon")
 
@@ -57,12 +72,15 @@ func _test_weapon_cap(main: Node) -> void:
 	_check(main.weapon_loadouts[0].size() == main.WEAPON_LOADOUT_CAP, "two unlock picks bring a player to the weapon cap")
 	_check(main.attack_timers[0].size() == main.weapon_loadouts[0].size(), "attack_timers stays 1:1 with weapon_loadouts")
 
-	var pool_at_cap: Array[Dictionary] = main._get_upgrade_choices(1)
-	var has_unlock_at_cap := false
-	for option in pool_at_cap:
-		if String(option["id"]) == "unlock_weapon":
-			has_unlock_at_cap = true
-	_check(not has_unlock_at_cap, "no more unlock candidates are offered once the cap is reached")
+	# Each draw shuffles a ~16-option pool down to 3, so a single draw missing an
+	# unlock card proves nothing. Sample repeatedly: if the cap guard were gone,
+	# 20 draws would surface one with ~99.98% probability.
+	var unlock_sightings := 0
+	for draw in 20:
+		for option in main._get_upgrade_choices(1):
+			if String(option["id"]) == "unlock_weapon":
+				unlock_sightings += 1
+	_check(unlock_sightings == 0, "no unlock candidate appears in 20 draws once the cap is reached (saw %d)" % unlock_sightings)
 	await process_frame
 
 
@@ -100,7 +118,7 @@ func _test_independent_cooldowns(main: Node) -> void:
 
 
 func _test_loadout_resonance(main: Node) -> void:
-	main.resonance_system.active_resonances = []
+	main.resonance_system.active_resonances.clear()
 	var moro: Dictionary = main.character_catalog[4]
 	var lyra: Dictionary = main.character_catalog[0]
 	var volta: Dictionary = main.character_catalog[1]
@@ -112,14 +130,26 @@ func _test_loadout_resonance(main: Node) -> void:
 	var volta_weapon: Dictionary = main._build_weapon_state(volta)
 	volta_weapon["tier"] = 3
 
-	var solo_check: Array = main.resonance_system.get_candidates_for_loadouts([moro_weapon], [lyra_weapon])
-	_check(solo_check.is_empty(), "moro alone and lyra alone do not resonate (sanity check on this test's premise)")
+	# Every character pair already resolves to at least one resonance (that was
+	# the point of the catalog coverage pass), so the property worth proving
+	# here is not "zero becomes one" but "a bigger loadout strictly widens the
+	# reachable set": guided_thunder needs lightning, which moro simply does
+	# not have until volta's weapon is picked up.
+	var solo_ids := _candidate_ids(main, [moro_weapon], [lyra_weapon])
+	var loadout_ids := _candidate_ids(main, [moro_weapon, volta_weapon], [lyra_weapon])
 
-	var loadout_check: Array = main.resonance_system.get_candidates_for_loadouts([moro_weapon, volta_weapon], [lyra_weapon])
+	_check(not solo_ids.is_empty(), "moro and lyra already resonate through their own weapons")
+	_check(not ("guided_thunder" in solo_ids), "moro's own weapon cannot reach guided_thunder — it needs a lightning tag")
+	_check("guided_thunder" in loadout_ids, "picking up volta's lightning weapon opens guided_thunder")
+	_check(loadout_ids.size() > solo_ids.size(), "a three-weapon-capable loadout strictly widens the candidate set (%d -> %d)" % [solo_ids.size(), loadout_ids.size()])
+
+
+func _candidate_ids(main: Node, loadout_a: Array, loadout_b: Array) -> Array[String]:
+	var candidates: Array = main.resonance_system.get_candidates_for_loadouts(loadout_a, loadout_b)
 	var ids: Array[String] = []
-	for candidate in loadout_check:
+	for candidate in candidates:
 		ids.append(String(candidate["id"]))
-	_check("guided_thunder" in ids, "a second picked-up weapon (volta's lightning) reaches a resonance the player's own weapon alone could not")
+	return ids
 
 
 func _check(condition: bool, label: String) -> void:

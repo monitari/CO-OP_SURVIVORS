@@ -53,13 +53,21 @@ func _run() -> void:
 	_check(not reoffered, "an already-active resonance id is not offered again")
 	_check(not still_available.is_empty(), "activating one resonance does not block the rest while under the cap")
 
-	while resonance.active_resonances.size() < resonance.MAX_ACTIVE_RESONANCES:
-		resonance.activate(resonance.catalog[resonance.active_resonances.size()])
+	# Fill the cap with resonances this pair could never match anyway (they need
+	# fire/frost/melee tags lyra and volta do not have), so that an empty result
+	# can only be the cap talking — not the already-active-id filter, which
+	# would otherwise mask a broken cap entirely.
+	resonance.active_resonances.clear()
+	for unreachable_id in ["frost_shade", "sacred_flame_vow", "inferno_crescent"]:
+		for entry in resonance.catalog:
+			if String(entry["id"]) == unreachable_id:
+				resonance.activate(entry)
+	_check(resonance.active_resonances.size() == resonance.MAX_ACTIVE_RESONANCES, "the cap test actually reached MAX_ACTIVE_RESONANCES")
 	var locked := resonance.get_candidates_for_loadouts(loadout_a, loadout_b)
 	_check(locked.is_empty(), "reaching MAX_ACTIVE_RESONANCES blocks all new candidates")
 
 	# Below tier 3 nothing should ever surface, even for a covered pair.
-	resonance.active_resonances = []
+	resonance.active_resonances.clear()
 	var undertiered := resonance.get_candidates_for_loadouts([_weapon_dict(characters[0], 2)], loadout_b)
 	_check(undertiered.is_empty(), "sub-tier-3 weapons never produce a candidate")
 

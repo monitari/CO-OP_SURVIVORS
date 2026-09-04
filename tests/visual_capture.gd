@@ -63,7 +63,7 @@ func _run() -> void:
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
 	main.weapon_loadouts[0][0]["tier"] = 3
 	main.weapon_loadouts[1][0]["tier"] = 3
-	main.resonance_system.active_resonances = []
+	main.resonance_system.active_resonances.clear()
 	main.level_up_active = true
 	paused = true
 	main._after_personal_upgrade_choices()

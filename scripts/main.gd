@@ -1540,7 +1540,7 @@ func _tag_name(tag: String) -> String:
 		"tracking": "추적", "lightning": "번개", "projectile": "투사체", "storm": "폭풍",
 		"arcane": "비전", "chain": "연쇄", "fire": "화염", "frost": "서리",
 		"shadow": "그림자", "tether": "결속", "aura": "오라", "melee": "근접",
-		"holy": "성휘", "control": "제어"
+		"holy": "성휘", "control": "제어", "burst": "폭발", "arc": "호격"
 	}
 	return String(names.get(tag, tag))
 
