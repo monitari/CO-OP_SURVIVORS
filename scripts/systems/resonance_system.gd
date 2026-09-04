@@ -37,7 +37,15 @@ var catalog: Array[Dictionary] = [
 	{"id": "twilight_pursuit", "name": "황혼 추적", "description": "유도 마력이 그림자 낫의 궤적을 밝혀 급소를 베어냅니다.", "requires": ["tracking", "shadow"], "cooldown": 6.2},
 	{"id": "storm_cut_crescent", "name": "폭뢰 참월", "description": "번개를 두른 낫이 넓은 호를 그리며 감전시킵니다.", "requires": ["storm", "melee"], "cooldown": 6.5},
 	{"id": "sacred_flame_vow", "name": "성화의 서약", "description": "두 사람을 회복시키는 성스러운 불길이 주변을 정화합니다.", "requires": ["fire", "holy"], "cooldown": 7.6},
-	{"id": "frost_shade", "name": "서리 그림자", "description": "얼어붙은 그림자 낫이 넓은 범위를 베고 얼립니다.", "requires": ["frost", "shadow"], "cooldown": 6.8}
+	{"id": "frost_shade", "name": "서리 그림자", "description": "얼어붙은 그림자 낫이 넓은 범위를 베고 얼립니다.", "requires": ["frost", "shadow"], "cooldown": 6.8},
+
+	# Added when resonance became fusion-only. The fused weapons carry tag sets
+	# the base roster never produced, and these four close the last uncovered
+	# pairs — verified pair by pair in resonance_coverage_test.
+	{"id": "umbral_communion", "name": "명암의 계약", "description": "그림자 참격과 성흔이 겹쳐 적을 베고 두 사람을 되살립니다.", "requires": ["shadow", "holy"], "cooldown": 7.0},
+	{"id": "arcing_tempest", "name": "참격 폭풍", "description": "중심에서 여섯 갈래 심판이 동시에 뻗어 나갑니다.", "requires": ["arc", "burst"], "cooldown": 6.6},
+	{"id": "warding_garden", "name": "봉쇄 결계", "description": "두 사람을 둘러싼 결계밭이 깔리고 주변이 통째로 얼어붙습니다.", "requires": ["control", "aura"], "cooldown": 7.4},
+	{"id": "singularity", "name": "특이점", "description": "사슬 한가운데가 무너져 모든 것을 끌어당긴 뒤 소멸시킵니다.", "requires": ["arcane", "storm"], "cooldown": 8.2}
 ]
 
 
@@ -54,12 +62,15 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 	for active in active_resonances:
 		active_ids[String(active["id"])] = true
 	var seen_ids: Dictionary = {}
+	# Resonance is the top of the tree, not a mid-run bonus: only fused weapons
+	# reach it. A tier-3 base weapon used to qualify, which meant the pair hit
+	# their supposed final mechanic before they had finished either build.
 	for weapon_a in loadout_a:
-		if int(weapon_a.get("tier", 1)) < 3:
+		if not bool(weapon_a.get("evolved", false)):
 			continue
 		var tags_a: Array = weapon_a["tags"]
 		for weapon_b in loadout_b:
-			if int(weapon_b.get("tier", 1)) < 3:
+			if not bool(weapon_b.get("evolved", false)):
 				continue
 			var tags_b: Array = weapon_b["tags"]
 			for resonance in catalog:

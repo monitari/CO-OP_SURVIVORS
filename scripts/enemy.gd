@@ -340,7 +340,8 @@ func _try_contact_damage(players: Array[ChainPlayer]) -> void:
 		return
 	for player in players:
 		if global_position.distance_to(player.global_position) <= radius + player.radius:
-			if player.hurt(contact_damage):
+			# Passing our position lets 가시의 견장 send part of the hit back.
+			if player.hurt(contact_damage, global_position):
 				contact_cooldown = 0.75
 			break
 
@@ -358,7 +359,7 @@ func _try_damage_chain(players: Array[ChainPlayer], delta: float) -> void:
 			return
 		var damaged := false
 		for player in players:
-			damaged = player.hurt(contact_damage) or damaged
+			damaged = player.hurt(contact_damage, global_position) or damaged
 		if damaged:
 			contact_cooldown = 0.9
 	else:

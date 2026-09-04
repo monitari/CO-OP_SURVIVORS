@@ -16,6 +16,13 @@ const DASH_DURATION := 0.18
 const DASH_SPEED_MULTIPLIER := 3.2
 const DASH_COOLDOWN := 1.4
 const DASH_INVULNERABILITY := 0.26
+## A critical hit is worth taking a treasure slot for, so it is a doubling
+## rather than a nudge.
+const CRIT_MULTIPLIER := 2.0
+const BLEEDOUT_BASE := 18.0
+## Thorns answer the one damage source the pair cannot shoot back at: an
+## enemy that has already reached them.
+signal reflected(attacker_position: Vector2, amount: float)
 
 var player_index := 0
 var move_speed := 230.0
@@ -44,6 +51,10 @@ var amount := 0 ## extra projectiles per volley
 var haste := 1.0 ## cooldown multiplier, lower is faster
 var armor := 0.0 ## flat damage subtracted from every hit
 var recovery := 0.0 ## health per second regenerated while standing
+var crit_chance := 0.0 ## chance a hit deals CRIT_MULTIPLIER damage
+var pierce := 0 ## extra enemies a projectile passes through
+var thorns := 0.0 ## fraction of contact damage returned to the attacker
+var resolve := 0.0 ## extra bleedout seconds, and faster rescues
 var dash_timer := 0.0 ## remaining burst time
 var dash_cooldown := 0.0
 var dash_direction := Vector2.RIGHT
@@ -63,7 +74,7 @@ func apply_character(character: Dictionary) -> void:
 	health = max_health
 	move_speed = float(character["speed"])
 	downed = false
-	bleedout_remaining = 18.0
+	bleedout_remaining = BLEEDOUT_BASE + resolve
 	revive_progress = 0.0
 	might = 1.0
 	area = 1.0
@@ -72,6 +83,10 @@ func apply_character(character: Dictionary) -> void:
 	haste = 1.0
 	armor = 0.0
 	recovery = 0.0
+	crit_chance = 0.0
+	pierce = 0
+	thorns = 0.0
+	resolve = 0.0
 	dash_timer = 0.0
 	dash_cooldown = 0.0
 	queue_redraw()
@@ -127,15 +142,20 @@ func dash_ready() -> bool:
 
 ## Armor subtracts flat damage but can never fully negate a hit — a chip
 ## minimum keeps stacked armor from making a survivor untouchable.
-func hurt(amount: float) -> bool:
+## `source_position` lets a contact hit be reflected back at whatever landed
+## it. Attacks with no attacker on the field (the chain overload, a boss slam)
+## simply leave it empty and reflect nothing.
+func hurt(amount: float, source_position := Vector2.INF) -> bool:
 	if invulnerability > 0.0 or downed:
 		return false
+	if thorns > 0.0 and source_position != Vector2.INF:
+		reflected.emit(source_position, amount * thorns)
 	health = maxf(0.0, health - maxf(1.0, amount - armor))
 	invulnerability = 0.55
 	damaged.emit(self, amount)
 	if health <= 0.0:
 		downed = true
-		bleedout_remaining = 18.0
+		bleedout_remaining = BLEEDOUT_BASE + resolve
 		revive_progress = 0.0
 		downed_started.emit(self)
 	queue_redraw()
@@ -167,7 +187,7 @@ func step_bleedout(delta: float) -> void:
 func revive() -> void:
 	downed = false
 	health = max_health * 0.4
-	bleedout_remaining = 18.0
+	bleedout_remaining = BLEEDOUT_BASE + resolve
 	revive_progress = 0.0
 	invulnerability = 1.5
 	revived_player.emit(self)

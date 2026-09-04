@@ -122,5 +122,59 @@ static func all_characters() -> Array[Dictionary]:
 			"health": 115.0,
 			"speed": 205.0,
 			"weapon": {"damage": 24.0, "cooldown": 0.95, "width": 58.0, "reach": 1.5, "tier": 1}
+		},
+		{
+			"id": "kael",
+			"name": "카일",
+			"title": "궤도지기",
+			"weapon_id": "orbit",
+			"weapon_name": "궤도 파편",
+			"tags": ["arcane", "aura", "control"],
+			"description": "몸 주위를 도는 파편으로 달려드는 적을 스스로 갈아냅니다.",
+			"color": Color("ffd166"),
+			"health": 108.0,
+			"speed": 218.0,
+			# Orbiting shards hit whatever walks into them without any aiming at
+			# all, so the per-shard number is small and reach carries the weight.
+			"weapon": {"damage": 11.0, "cooldown": 1.0, "count": 3, "radius": 96.0, "speed": 2.4, "reach": 3.2, "tier": 1}
+		},
+		{
+			"id": "rian",
+			"name": "리안",
+			"title": "관통사",
+			"weapon_id": "lance",
+			"weapon_name": "관통 광선",
+			"tags": ["projectile", "holy", "burst"],
+			"description": "바라보는 방향으로 모든 것을 꿰뚫는 빛의 창을 쏩니다.",
+			"color": Color("caffbf"),
+			"health": 92.0,
+			"speed": 242.0,
+			"weapon": {"damage": 34.0, "cooldown": 1.15, "range": 520.0, "width": 34.0, "reach": 1.25, "tier": 1}
+		},
+		{
+			"id": "tera",
+			"name": "테라",
+			"title": "결계공",
+			"weapon_id": "mine",
+			"weapon_name": "지뢰 결계",
+			"tags": ["control", "burst", "shadow"],
+			"description": "발밑에 결계를 심어 두 사람이 지나온 길을 함정으로 만듭니다.",
+			"color": Color("bdb2ff"),
+			"health": 112.0,
+			"speed": 212.0,
+			"weapon": {"damage": 26.0, "cooldown": 1.35, "count": 1, "radius": 84.0, "reach": 1.9, "tier": 1}
+		},
+		{
+			"id": "nova",
+			"name": "노바",
+			"title": "붕괴술사",
+			"weapon_id": "gravity",
+			"weapon_name": "중력 붕괴",
+			"tags": ["arcane", "storm", "control"],
+			"description": "적을 한 점으로 끌어모은 뒤 그 자리를 무너뜨립니다.",
+			"color": Color("ff7bd5"),
+			"health": 96.0,
+			"speed": 232.0,
+			"weapon": {"damage": 19.0, "cooldown": 1.7, "radius": 210.0, "pull": 160.0, "reach": 3.3, "tier": 1}
 		}
 	]

@@ -123,15 +123,22 @@ func _test_input_delay(main: Node) -> void:
 
 func _test_recommendation_and_build_readout(main: Node) -> void:
 	main.resonance_system.active_resonances.clear()
-	main.weapon_loadouts[0][0]["tier"] = 2
-	main.weapon_loadouts[1][0]["tier"] = 3
+	# The partner is already fused, so P1's fusion is the card that completes the
+	# pair's resonance. Nothing short of a fusion can do that any more, which is
+	# exactly what the recommendation has to be able to see.
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	var partner: Dictionary = main.weapon_loadouts[1][0]
+	main.weapon_loadouts[1][0] = EvolutionCatalog.build_state(
+		EvolutionCatalog.for_base(String(partner["weapon_id"])), partner
+	)
+	var evolution := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
 	var choices: Array[Dictionary] = [
-		{"id": "weapon_power", "weapon_slot": 0, "title": "공명 직전 강화"},
-		{"id": "vitality", "weapon_slot": -1, "title": "생명력"},
-		{"id": "move", "weapon_slot": -1, "title": "이동"},
+		{"id": "evolve_weapon", "weapon_slot": 0, "evolution": evolution, "title": "합성"},
+		{"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id("vitality"), "title": "생명의 결정"},
+		{"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id("move"), "title": "경보의 장화"},
 	]
 	main._annotate_recommendations(0, choices)
-	_check(bool(choices[0]["recommended"]), "a tier-3 upgrade that unlocks a resonance is recommended")
+	_check(bool(choices[0]["recommended"]), "a fusion that completes a resonance is recommended")
 	_check(String(choices[0]["recommendation_reason"]).contains("공명 해금"), "the recommendation explains its tech-graph reason")
 	var recommendation_count := 0
 	for option in choices:

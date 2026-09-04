@@ -16,6 +16,7 @@ const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
 const SettingsScript := preload("res://scripts/systems/settings_system.gd")
 const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
 const Treasures := preload("res://scripts/treasure_catalog.gd")
+const Evolutions := preload("res://scripts/evolution_catalog.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
@@ -169,6 +170,7 @@ var run_stats := {
 	"overloads": 0,
 	"resonance_casts": 0,
 	"items": 0,
+	"reflected": 0.0,
 }
 
 var chain_max_length := 370.0
@@ -193,7 +195,13 @@ const FIELD_ITEM_PURGE_RADIUS := 620.0
 const EXPERIENCE_MAGNET_BASE := 155.0
 var team_magnet := 1.0 ## multiplier on the shared XP pickup radius
 var team_growth := 1.0 ## multiplier on all shared XP gained
-var team_luck := 0 ## extra weight toward new-tech and special upgrade cards
+var team_luck := 0
+var team_overcharge := 0.0
+var team_greed := 0.0
+## Set the first time either survivor fuses a weapon. Until then the level-up
+## screen says nothing about fusion requirements: the first one is meant to be
+## discovered, and every one after that is meant to be plannable.
+var fusion_discovered := false ## extra weight toward new-tech and special upgrade cards
 
 var character_catalog: Array[Dictionary] = []
 var selected_character_indices: Array[int] = [0, 1]
@@ -426,6 +434,7 @@ func _create_players() -> void:
 	player_one.downed_started.connect(_on_player_downed)
 	player_one.revived_player.connect(_on_player_revived)
 	player_one.dashed.connect(_on_player_dashed)
+	player_one.reflected.connect(_on_damage_reflected)
 	players.append(player_one)
 
 	var player_two := PlayerScene.new() as ChainPlayer
@@ -436,6 +445,7 @@ func _create_players() -> void:
 	player_two.downed_started.connect(_on_player_downed)
 	player_two.revived_player.connect(_on_player_revived)
 	player_two.dashed.connect(_on_player_dashed)
+	player_two.reflected.connect(_on_damage_reflected)
 	players.append(player_two)
 
 
@@ -779,8 +789,8 @@ func _create_hud() -> void:
 	team_stats_label = Label.new()
 	# One shared line under the cards. The personal build sits in each
 	# player’s own footer; only the pooled stats belong in the middle.
-	team_stats_label.position = Vector2(390.0, 486.0)
-	team_stats_label.size = Vector2(460.0, 32.0)
+	team_stats_label.position = Vector2(150.0, 480.0)
+	team_stats_label.size = Vector2(940.0, 58.0)
 	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	team_stats_label.add_theme_font_size_override("font_size", 16)
@@ -1211,11 +1221,14 @@ func _start_selected_run() -> void:
 	chain_overloaded = false
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	for key in run_stats:
-		run_stats[key] = 0.0 if key == "overcharge_time" else 0
+		run_stats[key] = 0.0 if key in ["overcharge_time", "reflected"] else 0
 	last_upgrade_choice_keys = [[], []]
 	team_magnet = 1.0
 	team_growth = 1.0
 	team_luck = 0
+	team_overcharge = 0.0
+	team_greed = 0.0
+	fusion_discovered = false
 	_apply_team_magnet()
 	field_items.clear_all()
 	bursts.clear_all()
@@ -1275,7 +1288,9 @@ func _update_revives(delta: float) -> void:
 			continue
 		var rescuer := players[1 - downed_index]
 		if not rescuer.downed and downed_player.global_position.distance_to(rescuer.global_position) <= 105.0:
-			downed_player.revive_progress += delta
+			# 불굴 buys time on both sides of a rescue: a longer bleedout to be
+			# reached in, and a faster rescue once the partner arrives.
+			downed_player.revive_progress += delta * (1.0 + rescuer.resolve * 0.05)
 		else:
 			downed_player.revive_progress = maxf(0.0, downed_player.revive_progress - delta * 0.55)
 		if downed_player.revive_progress >= 2.6:
@@ -1291,7 +1306,11 @@ func _update_chain_integrity(delta: float) -> void:
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
 	if ratio >= CHAIN_WARNING_RATIO:
 		var strain := inverse_lerp(CHAIN_WARNING_RATIO, 1.0, minf(ratio, 1.0))
+		# 과충전 코어 makes the overcharge window both stronger and cheaper to
+		# hold, which is the one upgrade that rewards playing the chain badly on
+		# purpose.
 		var drain := lerpf(CHAIN_DRAIN_AT_WARNING, CHAIN_DRAIN_AT_LIMIT, strain)
+		drain *= maxf(0.25, 1.0 - team_overcharge * 1.2)
 		chain_integrity = maxf(0.0, chain_integrity - drain * delta)
 		run_stats["overcharge_time"] = float(run_stats["overcharge_time"]) + delta
 		if chain_integrity <= 0.0 and not chain_overloaded:
@@ -1476,6 +1495,24 @@ func _on_player_downed(player: ChainPlayer) -> void:
 	_show_message("%s 다운 — 18초 안에 가까이 머물러 구조하세요!" % player.character_name, Color("ff5d8f"))
 
 
+## 가시의 견장 sends a share of a contact hit back into whatever was standing
+## where it came from. Resolved through the spatial grid rather than kept as a
+## reference on the player, so a reflected hit cannot outlive its attacker.
+func _on_damage_reflected(attacker_position: Vector2, amount: float) -> void:
+	if amount <= 0.0:
+		return
+	var hit := false
+	for candidate in spatial_grid.query_radius(attacker_position, 46.0):
+		var enemy := candidate as ChaserEnemy
+		if not is_instance_valid(enemy) or enemy.dead:
+			continue
+		enemy.take_damage(amount)
+		hit = true
+		break
+	if hit:
+		run_stats["reflected"] = float(run_stats["reflected"]) + amount
+
+
 func _on_player_dashed(_player: ChainPlayer) -> void:
 	run_stats["dashes"] = int(run_stats["dashes"]) + 1
 	feedback.play_cue("dash")
@@ -1584,7 +1621,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 ## team luck raises. The boss is excluded because defeating it ends the run,
 ## so a pickup nobody can reach would just be noise.
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
-	var chance := FIELD_ITEM_BASE_CHANCE + FIELD_ITEM_LUCK_CHANCE * float(team_luck)
+	var chance := (FIELD_ITEM_BASE_CHANCE + FIELD_ITEM_LUCK_CHANCE * float(team_luck)) * (1.0 + team_greed)
 	if not was_elite and randf() >= chance:
 		return
 	field_items.spawn_item(drop_position, field_items.roll_item_id())
@@ -1682,6 +1719,30 @@ func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
 
 ## Treasures this player does not already carry, shuffled and capped. Mirrors
 ## _pick_unowned_characters so both halves of a build are offered the same way.
+## The fusion a weapon slot could perform right now, or an empty dictionary.
+## Both halves have to be satisfied: the weapon maxed, and the treasure it
+## wants carried deep enough.
+func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
+	var weapon: Dictionary = weapon_loadouts[slot][weapon_slot]
+	if bool(weapon.get("evolved", false)):
+		return {}
+	if int(weapon.get("tier", 1)) < Evolutions.WEAPON_MAX_TIER:
+		return {}
+	var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+	if evolution.is_empty():
+		return {}
+	if _treasure_tier(slot, String(evolution["treasure_id"])) < Evolutions.REQUIRED_TREASURE_TIER:
+		return {}
+	return evolution
+
+
+func _treasure_tier(slot: int, treasure_id: String) -> int:
+	for treasure in treasure_loadouts[slot]:
+		if String(treasure["id"]) == treasure_id:
+			return int(treasure["tier"])
+	return 0
+
+
 func _pick_unowned_treasures(slot: int, count: int) -> Array[Dictionary]:
 	var owned_ids: Dictionary = {}
 	for treasure in treasure_loadouts[slot]:
@@ -1750,6 +1811,17 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			"chain":
 				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "넓은 파동"})
 				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "느슨한 족쇄"})
+	# A fusion is the biggest single step in the tree, so its card is added
+	# unconditionally whenever one is available rather than competing for a
+	# slot in the shuffle.
+	for weapon_slot in loadout.size():
+		var evolution := _available_evolution(slot, weapon_slot)
+		if evolution.is_empty():
+			continue
+		pool.append({
+			"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
+			"title": "합성: %s" % String(evolution["weapon_name"]),
+		})
 	if loadout.size() < WEAPON_LOADOUT_CAP:
 		for character in _pick_unowned_characters(slot, 2):
 			pool.append({
@@ -1903,6 +1975,11 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"unlock_weapon":
 			score = 44.0 + (WEAPON_LOADOUT_CAP - loadout.size()) * 4.0
 			reason = "공격 축 추가"
+		"evolve_weapon":
+			# Nothing else on the screen is close: a fusion reworks the attack and
+			# is the only route to resonance.
+			score = 200.0
+			reason = "합성 — 최종 단계"
 
 	if upgrade_id == "unlock_treasure":
 		# Slots are finite now, so committing one is worth more while several
@@ -1928,9 +2005,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		reason = "공명 해금 · %s" % new_resonance
 	elif int(option.get("weapon_slot", -1)) >= 0:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
-		if int(weapon.get("tier", 1)) == 2:
+		if int(weapon.get("tier", 1)) == Evolutions.WEAPON_MAX_TIER - 1:
 			score += 34.0
-			reason = "T3 · 공명 탐색"
+			reason = "T%d · 합성 직전" % Evolutions.WEAPON_MAX_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -1940,8 +2017,14 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 	for candidate in before:
 		known[String(candidate["id"])] = true
 	var preview: Array = [weapon_loadouts[0].duplicate(true), weapon_loadouts[1].duplicate(true)]
-	if String(option["id"]) == "unlock_weapon":
+	var option_id := String(option["id"])
+	if option_id == "unlock_weapon":
 		preview[slot].append(_build_weapon_state(option["character"] as Dictionary))
+	elif option_id == "evolve_weapon":
+		# The only card that can actually open a resonance now that the gate is
+		# fusion: a tier bump on an unfused weapon never reaches it.
+		var fusing_slot := int(option["weapon_slot"])
+		preview[slot][fusing_slot] = Evolutions.build_state(option["evolution"], preview[slot][fusing_slot])
 	else:
 		var weapon_slot := int(option.get("weapon_slot", -1))
 		if weapon_slot < 0:
@@ -1961,6 +2044,9 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		for tag in (character["tags"] as Array):
 			tag_names.append(_tag_name(String(tag)))
 		return "%s의 기술\n%s" % [String(character["name"]), " · ".join(tag_names)]
+	if upgrade_id == "evolve_weapon":
+		var evolution: Dictionary = option["evolution"]
+		return "%s\n최종 단계 도달" % String(evolution["description"])
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		return "%s
@@ -1976,7 +2062,10 @@ T%d → T%d" % [
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
-	var tier_hint := "  ·  T%d → T%d" % [int(state.get("tier", 1)), int(state.get("tier", 1)) + 1]
+	var tier := int(state.get("tier", 1))
+	var tier_hint := "  ·  T%d → T%d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
+	if tier + 1 >= Evolutions.WEAPON_MAX_TIER and not bool(state.get("evolved", false)):
+		tier_hint = "  ·  T%d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
 	match upgrade_id:
 		"weapon_power":
 			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.25, tier_hint]
@@ -2069,6 +2158,14 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		weapon_loadouts[player_slot].append(_build_weapon_state(character))
 		attack_timers[player_slot].append(0.2)
 		return
+	if upgrade_id == "evolve_weapon":
+		var weapon_slot := int(option["weapon_slot"])
+		var base_state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
+		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(option["evolution"], base_state)
+		fusion_discovered = true
+		feedback.play_cue("resonance")
+		_show_message("합성 완성 — %s" % String((option["evolution"] as Dictionary)["weapon_name"]), Color("fff275"))
+		return
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		var state := Treasures.build_state(treasure)
@@ -2115,7 +2212,7 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 				"chain":
 					chain_max_length += 30.0
 	if upgrade_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
-		state["tier"] = int(state.get("tier", 1)) + 1
+		state["tier"] = mini(Evolutions.WEAPON_MAX_TIER, int(state.get("tier", 1)) + 1)
 
 
 ## Applies an attribute card and reports whether it handled the id, so
@@ -2142,6 +2239,18 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 			player.armor += 2.0
 		"recovery":
 			player.recovery += 0.8
+		"crit":
+			player.crit_chance = minf(0.85, player.crit_chance + 0.08)
+		"pierce":
+			player.pierce += 1
+		"thorns":
+			player.thorns += 0.15
+		"resolve":
+			player.resolve += 4.0
+		"overcharge":
+			team_overcharge += 0.10
+		"greed":
+			team_greed += 0.40
 		"magnet":
 			team_magnet += 0.25
 			_apply_team_magnet()
@@ -2276,8 +2385,48 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 		tier.visible = true
 		tier.text = "T%d" % int(entry.get("tier", 1))
 func _refresh_team_stats_ui() -> void:
-	team_stats_label.text = "★ 추천 계산  ·  현재 체력 · 예상 효율 · T3 공명 경로"
+	# Before the pair has fused anything this strip explains the recommendation
+	# star. After the first fusion it becomes the tech tree, because at that
+	# point they know fusion exists and the useful thing to show is how far each
+	# build is from the next one.
+	if not fusion_discovered:
+		team_stats_label.text = "★ 추천 계산  ·  현재 체력 · 예상 효율 · T5 합성 경로"
+	else:
+		team_stats_label.text = "합성  P1  %s\n합성  P2  %s" % [_fusion_progress_line(0), _fusion_progress_line(1)]
 	team_stats_label.visible = true
+
+
+## The nearest fusion this survivor could reach, written as the two
+## requirements it still needs. Only the weapon closest to fusing is reported,
+## so the strip stays one line per survivor.
+func _fusion_progress_line(slot: int) -> String:
+	var best := ""
+	var best_progress := -1.0
+	var fused: Array[String] = []
+	for weapon in weapon_loadouts[slot]:
+		if bool(weapon.get("evolved", false)):
+			fused.append(String(weapon["weapon_name"]))
+			continue
+		var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+		if evolution.is_empty():
+			continue
+		var treasure_id := String(evolution["treasure_id"])
+		var treasure := Treasures.by_id(treasure_id)
+		var weapon_tier := int(weapon.get("tier", 1))
+		var treasure_tier := _treasure_tier(slot, treasure_id)
+		var progress := float(weapon_tier) / float(Evolutions.WEAPON_MAX_TIER) + float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
+		if progress <= best_progress:
+			continue
+		best_progress = progress
+		best = "%s T%d/%d + %s T%d/%d → %s" % [
+			String(weapon["weapon_name"]), weapon_tier, Evolutions.WEAPON_MAX_TIER,
+			String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
+			String(evolution["weapon_name"]),
+		]
+	if not fused.is_empty():
+		var done := "완료 " + " · ".join(fused)
+		return done if best.is_empty() else "%s   |   %s" % [done, best]
+	return best if not best.is_empty() else "대상 없음"
 
 
 func _finish_level_up() -> void:
@@ -2446,7 +2595,7 @@ func _tension_damage_multiplier() -> float:
 	if chain_overloaded:
 		return CHAIN_OVERLOAD_PENALTY
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
-	return 1.25 if ratio >= CHAIN_WARNING_RATIO else 1.0
+	return (1.25 + team_overcharge) if ratio >= CHAIN_WARNING_RATIO else 1.0
 
 
 func _update_hud() -> void:

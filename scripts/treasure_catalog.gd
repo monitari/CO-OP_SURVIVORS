@@ -81,9 +81,53 @@ static func all_treasures() -> Array[Dictionary]:
 			"stat": "체력",
 			"per_tier": "최대 체력 +15",
 		},
-		# The shared three change a team resource rather than the carrier, so one
+		# Added with the evolution pass. These are the treasures the fused weapons
+		# require, so a survivor picking one is also picking a tech tree branch.
+		{
+			"id": "crit",
+			"name": "처형자의 표식",
+			"shared": false,
+			"stat": "치명",
+			"per_tier": "치명타 확률 +8%",
+		},
+		{
+			"id": "pierce",
+			"name": "관통의 송곳",
+			"shared": false,
+			"stat": "관통",
+			"per_tier": "발사체 관통 +1",
+		},
+		{
+			"id": "thorns",
+			"name": "가시의 견장",
+			"shared": false,
+			"stat": "가시",
+			"per_tier": "접촉 피해 15% 반사",
+		},
+		{
+			"id": "resolve",
+			"name": "불굴의 부적",
+			"shared": false,
+			"stat": "불굴",
+			"per_tier": "출혈 시간 +4초 · 구조 속도 +20%",
+		},
+		# The shared ones change a team resource rather than the carrier, so one
 		# survivor holding them benefits both. They stay in the same pool on
 		# purpose: giving up a personal slot for a team effect is the trade.
+		{
+			"id": "overcharge",
+			"name": "과충전 코어",
+			"shared": true,
+			"stat": "과충전",
+			"per_tier": "과충전 피해 +10% · 내구도 소모 -12%",
+		},
+		{
+			"id": "greed",
+			"name": "탐욕의 저울",
+			"shared": true,
+			"stat": "탐욕",
+			"per_tier": "필드 아이템 확률 +40%",
+		},
 		{
 			"id": "magnet",
 			"name": "인력의 나침반",

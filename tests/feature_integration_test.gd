@@ -177,8 +177,13 @@ func _test_resonance_vote(main: Node) -> void:
 	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
 	main.weapon_loadouts[0] = [main._build_weapon_state(main.selected_characters[0])]
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
-	main.weapon_loadouts[0][0]["tier"] = 3
-	main.weapon_loadouts[1][0]["tier"] = 3
+	# Fused on both sides: resonance is the top of the tech tree now and a
+	# tier-3 base weapon no longer reaches it.
+	for slot in 2:
+		var base: Dictionary = main.weapon_loadouts[slot][0]
+		main.weapon_loadouts[slot][0] = EvolutionCatalog.build_state(
+			EvolutionCatalog.for_base(String(base["weapon_id"])), base
+		)
 	main.resonance_system.active_resonances.clear()
 	main.level_up_active = true
 	paused = true

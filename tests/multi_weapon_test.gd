@@ -129,11 +129,11 @@ func _test_loadout_resonance(main: Node) -> void:
 	var volta: Dictionary = main.character_catalog[1]
 
 	var moro_weapon: Dictionary = main._build_weapon_state(moro)
-	moro_weapon["tier"] = 3
+	moro_weapon = _fuse(main, moro_weapon)
 	var lyra_weapon: Dictionary = main._build_weapon_state(lyra)
-	lyra_weapon["tier"] = 3
+	lyra_weapon = _fuse(main, lyra_weapon)
 	var volta_weapon: Dictionary = main._build_weapon_state(volta)
-	volta_weapon["tier"] = 3
+	volta_weapon = _fuse(main, volta_weapon)
 
 	# Every character pair already resolves to at least one resonance (that was
 	# the point of the catalog coverage pass), so the property worth proving
@@ -143,10 +143,18 @@ func _test_loadout_resonance(main: Node) -> void:
 	var solo_ids := _candidate_ids(main, [moro_weapon], [lyra_weapon])
 	var loadout_ids := _candidate_ids(main, [moro_weapon, volta_weapon], [lyra_weapon])
 
-	_check(not solo_ids.is_empty(), "moro and lyra already resonate through their own weapons")
+	_check(not solo_ids.is_empty(), "two fused weapons resonate")
 	_check(not ("guided_thunder" in solo_ids), "moro's own weapon cannot reach guided_thunder — it needs a lightning tag")
 	_check("guided_thunder" in loadout_ids, "picking up volta's lightning weapon opens guided_thunder")
 	_check(loadout_ids.size() > solo_ids.size(), "a three-weapon-capable loadout strictly widens the candidate set (%d -> %d)" % [solo_ids.size(), loadout_ids.size()])
+
+
+## Resonance is fusion-only, so a loadout that wants to reach it has to be
+## fused first. This is the shortcut the tests use in place of playing out five
+## weapon upgrades and three treasure tiers.
+func _fuse(main: Node, weapon: Dictionary) -> Dictionary:
+	var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
+	return EvolutionCatalog.build_state(evolution, weapon)
 
 
 func _candidate_ids(main: Node, loadout_a: Array, loadout_b: Array) -> Array[String]:

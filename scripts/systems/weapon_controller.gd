@@ -3,6 +3,7 @@ extends Node2D
 
 const ProjectileScript := preload("res://scripts/projectile.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
+const MineScript := preload("res://scripts/proximity_mine.gd")
 
 var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
@@ -51,10 +52,33 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"frost": _fire_frost_ring(player_index, scaled, damage, color)
 		"scythe": _swing_scythe(player_index, scaled, damage, color)
 		"chain": _fire_chain_pulse(scaled, damage)
+		"orbit": _sweep_orbit(player_index, scaled, damage, color)
+		"lance": _fire_lance(player_index, scaled, damage, color)
+		"mine": _plant_mines(player_index, scaled, damage, color)
+		"gravity": _collapse_gravity(player_index, scaled, damage, color)
+		# Fused weapons. Each one changes the delivery, not just the numbers.
+		"starpiercer": _fire_starpiercer(player_index, scaled, damage, color)
+		"thunder_god": _call_thunder_god(player_index, scaled, damage, color)
+		"supernova": _fire_supernova(player_index, scaled, damage, color)
+		"absolute_zero": _freeze_absolute(player_index, scaled, damage, color)
+		"black_moon": _swing_black_moon(player_index, scaled, damage, color)
+		"stigmata": _burn_stigmata(scaled, damage)
+		"celestial": _sweep_celestial(player_index, scaled, damage, color)
+		"judgement": _fire_judgement(player_index, scaled, damage, color)
+		"ruin_garden": _plant_ruin_garden(player_index, scaled, damage, color)
+		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
+
+
+## Resonance now sits behind two fused weapons rather than two tier-3 base
+## ones, so it fires far later in a run and against far tougher enemies. The
+## per-effect numbers below were written for the old gate; this scales all of
+## them at once rather than rewriting twenty-five of them by hand.
+const ENDGAME_SCALE := 2.2
 
 
 func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 	var resonance_id := String(resonance["id"])
+	damage_multiplier *= ENDGAME_SCALE
 	var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 	_play_resonance_flare(midpoint, resonance)
 	match resonance_id:
@@ -127,6 +151,39 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 				player.heal(9.0)
 			_damage_area(midpoint, 240.0, 32.0 * damage_multiplier)
 			_draw_ring(midpoint, 240.0, Color("ff8c42"), 9.0)
+		"umbral_communion":
+			for index in 2:
+				_swing_scythe(index, {"range": 300.0, "arc": TAU}, 52.0 * damage_multiplier, Color("c77dff"))
+				players[index].heal(12.0)
+			_damage_along_chain(88.0, 40.0 * damage_multiplier, 1.0)
+		"arcing_tempest":
+			# Six lances from the midpoint, so there is no safe bearing at all.
+			for step in 6:
+				var heading := Vector2.from_angle(TAU * float(step) / 6.0)
+				_lance_from(midpoint, heading, 620.0, 40.0, 46.0 * damage_multiplier, Color("caffbf"))
+		"warding_garden":
+			for index in 2:
+				var centre := players[index].global_position
+				for step in 5:
+					var mine := MineScript.new() as ProximityMine
+					mine.configure(38.0 * damage_multiplier, 110.0, Color("bdb2ff"))
+					mine.spatial_grid = spatial_grid
+					mine.detonated.connect(_on_mine_detonated)
+					mine.global_position = centre + Vector2.from_angle(TAU * float(step) / 5.0) * 120.0
+					add_child(mine)
+				_damage_area(centre, 230.0, 26.0 * damage_multiplier, 0.2)
+			_draw_ring(midpoint, 300.0, Color("bdb2ff"), 8.0)
+		"singularity":
+			for enemy in spatial_grid.query_radius(midpoint, 420.0):
+				var offset := midpoint - enemy.global_position
+				if offset.length() > 420.0 + enemy.radius:
+					continue
+				if not enemy.boss:
+					enemy.position += offset.normalized() * minf(320.0, offset.length())
+				enemy.take_damage(30.0 * damage_multiplier)
+			_damage_area(midpoint, 190.0, 58.0 * damage_multiplier)
+			_draw_ring(midpoint, 420.0, Color("ff7bd5"), 4.0)
+			_draw_ring(midpoint, 190.0, Color("ff7bd5"), 12.0)
 		"frost_shade":
 			_swing_scythe(0, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
 			_swing_scythe(1, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
@@ -161,6 +218,12 @@ func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radi
 func clear_transients() -> void:
 	for projectile in active_projectiles.duplicate():
 		projectile.release()
+	# Planted mines outlive the cast that placed them, so a restart or a test
+	# teardown has to sweep them or they detonate into the next run.
+	for child in get_children():
+		var mine := child as ProximityMine
+		if mine != null:
+			mine.queue_free()
 
 
 func _acquire_projectile() -> HomingProjectile:
@@ -196,6 +259,7 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
 		projectile.projectile_color = color
+		projectile.remaining_hits = 1 + players[player_index].pierce
 
 
 func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: float, color: Color) -> void:
@@ -223,6 +287,7 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		projectile.setup(direction, null)
 		projectile.spatial_grid = spatial_grid
 		projectile.homing_enabled = false
+		projectile.remaining_hits = 1 + players[player_index].pierce
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
 		# A narrow ember could pass cleanly through the gaps in the opening
@@ -259,6 +324,231 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: C
 
 func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
 	_damage_along_chain(float(state["width"]), damage, 1.0)
+
+
+## Shards riding a circle around their owner. The angle comes from run time
+## rather than from a stored rotation, so the ring keeps turning between casts
+## and two consecutive sweeps never hit the same arc — which is what makes it
+## read as an orbit rather than as a pulsing ring.
+func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var centre := players[player_index].global_position
+	var radius := float(state["radius"])
+	var shards := maxi(1, int(state["count"]))
+	var phase := elapsed * float(state.get("speed", 2.4))
+	for index in shards:
+		var angle := phase + TAU * float(index) / float(shards)
+		var point := centre + Vector2.from_angle(angle) * radius
+		_damage_area(point, 26.0, damage)
+		_draw_ring(point, 15.0, color, 5.0)
+	_draw_ring(centre, radius, Color(color, 0.5), 2.0)
+
+
+## A straight line that reaches much further than anything else in the roster
+## and does not care how many bodies are between the two ends of it.
+func _fire_lance(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_lance_from(
+		players[player_index].global_position,
+		players[player_index].last_input,
+		float(state["range"]), float(state["width"]), damage, color
+	)
+
+
+## Ordnance left behind rather than fired forward: the pair's own path becomes
+## the trap. Mines arm on a delay so they cannot be used as an instant nova.
+func _plant_mines(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var count := maxi(1, int(state["count"]))
+	var radius := float(state["radius"])
+	for index in count:
+		var offset := Vector2.ZERO if index == 0 else Vector2.from_angle(randf() * TAU) * randf_range(30.0, 90.0)
+		var mine := MineScript.new() as ProximityMine
+		mine.configure(damage, radius, color)
+		mine.detonated.connect(_on_mine_detonated)
+		mine.spatial_grid = spatial_grid
+		mine.global_position = players[player_index].global_position + offset
+		add_child(mine)
+
+
+func _on_mine_detonated(centre: Vector2, damage: float, radius: float, color: Color) -> void:
+	_damage_area(centre, radius, damage)
+	_draw_ring(centre, radius, color, 6.0)
+	_spawn_combat_flare(centre, color, color.lightened(0.4), radius * 0.5, 0.22)
+
+
+## Drags everything in range toward one point before hitting it, which turns a
+## spread-out ring of enemies into a single cluster the rest of the pair's
+## weapons can then clear.
+func _collapse_gravity(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var centre := players[player_index].global_position
+	var radius := float(state["radius"])
+	var pull := float(state.get("pull", 160.0))
+	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
+		var offset := centre - enemy.global_position
+		var distance := offset.length()
+		if distance > radius + enemy.radius:
+			continue
+		if enemy.boss:
+			# A boss that can be vacuumed across the arena would trivialise the
+			# one fight the whole run builds toward.
+			enemy.take_damage(damage)
+			continue
+		enemy.position += offset.normalized() * minf(pull, distance)
+		enemy.take_damage(damage)
+		if is_instance_valid(enemy) and not enemy.dead:
+			enemy.apply_slow(1.2, 0.55)
+	_draw_ring(centre, radius, color, 3.0)
+	_draw_ring(centre, radius * 0.35, Color(color, 0.85), 5.0)
+
+
+## --- fused weapons -------------------------------------------------------
+##
+## The base forms all answer "how do I hit the thing in front of me". The fused
+## forms answer "how do I stop being surrounded", which is the problem the late
+## game actually poses.
+
+
+## Homing volley plus the lance it grew out of: the bolts still seek, and the
+## line they are fired along is itself lethal.
+func _fire_starpiercer(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_fire_homing(player_index, state, damage, color)
+	_fire_lance(player_index, state, damage * 0.75, color.lightened(0.3))
+
+
+## The chain is gone. Everything inside the radius is struck in the same
+## instant, which is what a chain lightning weapon has always wanted to be.
+func _call_thunder_god(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var origin := players[player_index].global_position
+	var reach := float(state["range"])
+	var struck := 0
+	for enemy in spatial_grid.query_radius(origin, reach):
+		if origin.distance_to(enemy.global_position) > reach:
+			continue
+		_draw_lightning(origin, enemy.global_position, color, 3.0)
+		enemy.take_damage(damage)
+		struck += 1
+		if struck >= 24:
+			# A cap on the drawn bolts only; a screenful of lines stops reading
+			# as lightning and starts reading as static.
+			break
+	_draw_ring(origin, reach, Color(color, 0.35), 3.0)
+
+
+## Scatter, then collapse: the embers go out and the ground they left goes up.
+func _fire_supernova(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_fire_flame_nova(player_index, state, damage, color)
+	var centre := players[player_index].global_position
+	var radius := float(state["radius"])
+	var blast := func() -> void:
+		if not is_inside_tree():
+			return
+		_damage_area(centre, radius, damage * 1.6)
+		_draw_ring(centre, radius, color.lightened(0.2), 10.0)
+		_spawn_combat_flare(centre, color, color.lightened(0.5), radius * 0.6, 0.3)
+	get_tree().create_timer(0.45).timeout.connect(blast)
+
+
+## Freezes rather than slows, and anything already frozen is shattered instead
+## of merely hit again.
+func _freeze_absolute(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var centre := players[player_index].global_position
+	var radius := float(state["radius"])
+	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
+		if centre.distance_to(enemy.global_position) > radius + enemy.radius:
+			continue
+		var already_frozen := enemy.slow_timer > 0.0
+		enemy.take_damage(damage * (2.4 if already_frozen else 1.0))
+		if is_instance_valid(enemy) and not enemy.dead:
+			enemy.apply_slow(2.4, float(state["slow"]))
+	_draw_ring(centre, radius, color, 9.0)
+	_draw_ring(centre, radius * 0.55, Color(color, 0.7), 4.0)
+
+
+## No facing requirement any more: two full circles around the swinger.
+func _swing_black_moon(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var full := state.duplicate()
+	full["arc"] = TAU
+	_swing_scythe(player_index, full, damage, color)
+	var second := func() -> void:
+		if is_inside_tree():
+			_swing_scythe(player_index, full, damage, color.darkened(0.2))
+	get_tree().create_timer(0.18).timeout.connect(second)
+
+
+## The chain itself burns, and what it burns feeds both survivors.
+func _burn_stigmata(state: Dictionary, damage: float) -> void:
+	_damage_along_chain(float(state["width"]), damage, 1.0)
+	for player in players:
+		player.heal(float(state.get("heal", 3.0)))
+
+
+## Two rings turning opposite ways, so there is no gap to walk through.
+func _sweep_celestial(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_sweep_orbit(player_index, state, damage, color)
+	var inner := state.duplicate()
+	inner["radius"] = float(state["radius"]) * 0.55
+	inner["speed"] = -float(state.get("speed", 2.9)) * 1.4
+	_sweep_orbit(player_index, inner, damage, color.lightened(0.25))
+
+
+## Forward and both flanks at once, so being flanked stops being a problem.
+func _fire_judgement(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var heading := players[player_index].last_input.normalized()
+	for offset in [0.0, TAU * 0.33, -TAU * 0.33]:
+		var aimed := state.duplicate()
+		players[player_index].last_input = heading.rotated(offset)
+		_fire_lance(player_index, aimed, damage, color)
+	players[player_index].last_input = heading
+
+
+## A whole minefield in one cast, laid in a ring around the planter.
+func _plant_ruin_garden(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var count := maxi(1, int(state["count"]))
+	var centre := players[player_index].global_position
+	for index in count:
+		var angle := TAU * float(index) / float(count) + randf() * 0.3
+		var mine := MineScript.new() as ProximityMine
+		mine.configure(damage, float(state["radius"]), color)
+		mine.spatial_grid = spatial_grid
+		mine.detonated.connect(_on_mine_detonated)
+		mine.global_position = centre + Vector2.from_angle(angle) * 105.0
+		add_child(mine)
+
+
+## Pull, collapse, and then collapse again on the cluster the first one made.
+func _collapse_event_horizon(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_collapse_gravity(player_index, state, damage, color)
+	var centre := players[player_index].global_position
+	var radius := float(state["radius"])
+	var implode := func() -> void:
+		if not is_inside_tree():
+			return
+		_damage_area(centre, radius * 0.7, damage * 2.0)
+		_draw_ring(centre, radius * 0.7, color.lightened(0.35), 11.0)
+		_spawn_combat_flare(centre, color, Color.WHITE, radius * 0.4, 0.26)
+	get_tree().create_timer(0.35).timeout.connect(implode)
+
+
+## The lance shape decoupled from a survivor, so resonances can fire one from
+## anywhere in any direction.
+func _lance_from(origin: Vector2, heading: Vector2, reach: float, width: float, damage: float, color: Color) -> void:
+	var tip := origin + heading.normalized() * reach
+	var midpoint := (origin + tip) * 0.5
+	var half_width := width * 0.5
+	for enemy in spatial_grid.query_radius(midpoint, reach * 0.5 + half_width + 45.0):
+		if _distance_to_segment(enemy.global_position, origin, tip) <= half_width + enemy.radius:
+			enemy.take_damage(damage)
+	_draw_beam(origin, tip, color, width)
+
+
+func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
+	var beam := Line2D.new()
+	beam.width = width
+	beam.default_color = Color(color, 0.7)
+	beam.z_index = 2
+	beam.antialiased = true
+	beam.add_point(from)
+	beam.add_point(to)
+	add_child(beam)
+	_fade_and_free(beam, 0.16)
 
 
 func _damage_area(center: Vector2, radius: float, damage: float, slow_multiplier: float = 1.0) -> void:
