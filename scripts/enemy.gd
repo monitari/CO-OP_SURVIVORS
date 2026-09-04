@@ -7,6 +7,16 @@ signal damage_taken(enemy: ChaserEnemy, amount: float)
 signal chain_slam(impact_point: Vector2, damage: float, radius: float)
 signal enraged(enemy: ChaserEnemy)
 
+## Difficulty is elapsed/30, so 4.0 is the boss timer. Past that point a
+## pair can be carrying three weapons each, stacked personal attributes and
+## up to three active resonances, while enemies were still only gaining a
+## flat +5 health per difficulty step. The ramp below is deliberately zero
+## until this threshold: the early game is already the lethal part, and
+## making it harder is not what the late curve needs.
+const LATE_GAME_DIFFICULTY := 4.0
+const LATE_HEALTH_PER_STEP := 0.35
+const LATE_DAMAGE_PER_STEP := 0.20
+
 const BOSS_SLAM_RADIUS := 95.0 ## Shared by the emitted hit radius and the drawn telegraph so they can never drift apart.
 
 var archetype := "chaser"
@@ -108,6 +118,10 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 
 	move_speed += difficulty * 2.6 + randf_range(-7.0, 9.0)
 	max_health += difficulty * 5.0 + radius * 0.3
+	if difficulty > LATE_GAME_DIFFICULTY:
+		var late := difficulty - LATE_GAME_DIFFICULTY
+		max_health *= 1.0 + late * LATE_HEALTH_PER_STEP
+		contact_damage *= 1.0 + late * LATE_DAMAGE_PER_STEP
 	if elite:
 		max_health *= 2.7
 		move_speed *= 1.08

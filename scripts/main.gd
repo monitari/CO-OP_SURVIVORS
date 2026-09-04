@@ -20,6 +20,13 @@ const RUN_BOSS_TIME := 120.0
 const DOWNED_TOW_SHARE := 0.88
 const WEAPON_LOADOUT_CAP := 3
 
+## Enemies spawn 610-760px out and never stopped chasing, so anything that
+## drifted off — a shooter backing away, a charger that overshot — stayed
+## alive forever and ate a slot in the 420 cap. Recycling them keeps the
+## cap filled with enemies that are actually part of the fight. Comfortably
+## beyond the spawn ring so nothing is culled the moment it arrives.
+const ENEMY_CULL_RADIUS := 1500.0
+
 ## P1 confirms with W and P2 with the up arrow — the same keys they move
 ## with. Without a beat of dead time the screen appearing mid-stride reads
 ## a movement key as a card confirmation and picks for them.
@@ -276,10 +283,16 @@ func _physics_process(delta: float) -> void:
 	_update_chain_visual()
 	_update_camera(delta)
 
+	var cull_origin := (players[0].position + players[1].position) * 0.5
 	for candidate in enemies.duplicate():
 		var enemy := candidate as ChaserEnemy
-		if is_instance_valid(enemy) and not enemy.dead:
-			enemy.step(players, delta)
+		if not is_instance_valid(enemy) or enemy.dead:
+			continue
+		# The boss is the objective — it is never recycled for wandering off.
+		if not enemy.boss and enemy.global_position.distance_to(cull_origin) > ENEMY_CULL_RADIUS:
+			_cull_enemy(enemy)
+			continue
+		enemy.step(players, delta)
 	spatial_grid.rebuild(enemies)
 	experience_system.step(players, delta)
 	field_items.step(players, delta)
@@ -326,6 +339,8 @@ func _create_world() -> void:
 	field_items.item_collected.connect(_on_field_item_collected)
 	add_child(field_items)
 	wave_director = WaveDirectorScript.new() as WaveDirector
+	wave_director.wave_started.connect(_on_wave_started)
+	wave_director.wave_calm_started.connect(_on_wave_calm_started)
 	add_child(wave_director)
 	resonance_system = ResonanceScript.new() as ResonanceSystem
 	add_child(resonance_system)
@@ -1044,6 +1059,23 @@ func _update_camera(delta: float) -> void:
 	world_camera.position = world_camera.position.lerp(midpoint, minf(1.0, delta * 8.0)) + shake_offset
 
 
+## A wave only reads as a wave if it is announced. The surge waves get their
+## own wording and a heavier cue so the difference is audible as well as
+## visible before the enemies actually arrive.
+func _on_wave_started(wave_index: int, is_surge: bool) -> void:
+	if is_surge:
+		_show_message("제 %d파 — 대규모 공세!" % wave_index, Color("ff5d8f"))
+		feedback.play_cue("warning")
+		camera_shake = maxf(camera_shake, 7.0)
+	else:
+		_show_message("제 %d파" % wave_index, Color("fff275"))
+		feedback.play_cue("kill")
+
+
+func _on_wave_calm_started(_wave_index: int) -> void:
+	_show_message("잠시 숫을 돌리세요", Color("80ed99"))
+
+
 func _register_enemy(enemy: ChaserEnemy) -> void:
 	if not enemy.died.is_connected(_on_enemy_died):
 		enemy.died.connect(_on_enemy_died)
@@ -1177,6 +1209,14 @@ func _update_pause_text() -> void:
 func _perform_character_attack(player_index: int) -> void:
 	for weapon_slot in weapon_loadouts[player_index].size():
 		weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
+
+
+## Recycles an enemy that wandered out of the fight. Deliberately not the
+## death path: nothing was killed, so there is no experience gem, no field
+## drop and no kill counted.
+func _cull_enemy(enemy: ChaserEnemy) -> void:
+	enemies.erase(enemy)
+	wave_director.release_enemy(enemy)
 
 
 func _on_enemy_died(enemy: ChaserEnemy) -> void:
@@ -1827,7 +1867,8 @@ func _update_hud() -> void:
 	var distance := players[0].position.distance_to(players[1].position)
 	var tension := clampf(distance / chain_max_length, 0.0, 1.0)
 	var objective := "보스 격파" if wave_director.boss_spawned else "보스 %02d:%02d" % [int(maxf(0.0, RUN_BOSS_TIME - elapsed)) / 60, int(maxf(0.0, RUN_BOSS_TIME - elapsed)) % 60]
-	hud_label.text = "%02d:%02d   ·   LV.%d   ·   처치 %d   ·   %s" % [minutes, seconds, progression.level, kills, objective]
+	var wave_text := "휴식" if wave_director.in_calm else "%d파" % maxi(1, wave_director.wave_index + 1)
+	hud_label.text = "%02d:%02d   ·   %s   ·   LV.%d   ·   처치 %d   ·   %s" % [minutes, seconds, wave_text, progression.level, kills, objective]
 	p1_status_label.text = _player_status_text(0)
 	p2_status_label.text = _player_status_text(1)
 	p1_health_bar.max_value = players[0].max_health
