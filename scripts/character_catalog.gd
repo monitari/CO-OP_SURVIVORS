@@ -1,6 +1,41 @@
 class_name CharacterCatalog
 extends RefCounted
 
+## Every survivor is budgeted rather than hand-tuned, because the roster is
+## meant to grow and "does the new one feel fair?" is not a question anyone can
+## answer by staring at six dictionaries.
+##
+## Two budgets, both checked by tests/survivor_balance_test.gd:
+##
+##   survival = health / 100 + speed / 220
+##       Toughness and mobility trade against each other. Serin is the wall,
+##       Lyra is the runner, and they cost the same.
+##
+##   power = damage / cooldown * reach
+##       `reach` is declared per weapon and says how much of a cast actually
+##       lands: a frost aura hits everything around both survivors, a homing
+##       bolt hits one thing, a scythe only hits what you are facing. Without
+##       it raw DPS makes the aura weapons look worthless and the melee ones
+##       look broken.
+##
+## A new survivor is balanced when both budgets land inside the bands the test
+## asserts. Adjust `reach` only when a weapon's delivery actually changes.
+
+const SURVIVAL_BUDGET_MIN := 1.95
+const SURVIVAL_BUDGET_MAX := 2.15
+const POWER_BUDGET_MIN := 33.0
+const POWER_BUDGET_MAX := 41.0
+
+
+static func survival_budget(character: Dictionary) -> float:
+	return float(character["health"]) / 100.0 + float(character["speed"]) / 220.0
+
+
+static func power_budget(character: Dictionary) -> float:
+	var weapon: Dictionary = character["weapon"]
+	return float(weapon["damage"]) / float(weapon["cooldown"]) * float(weapon["reach"])
+
+
 
 static func all_characters() -> Array[Dictionary]:
 	return [
@@ -15,7 +50,7 @@ static func all_characters() -> Array[Dictionary]:
 			"color": Color("43d9ff"),
 			"health": 95.0,
 			"speed": 240.0,
-			"weapon": {"damage": 22.0, "cooldown": 0.62, "count": 1, "speed": 470.0, "tier": 1}
+			"weapon": {"damage": 22.0, "cooldown": 0.62, "count": 1, "speed": 470.0, "reach": 1.0, "tier": 1}
 		},
 		{
 			"id": "volta",
@@ -26,9 +61,10 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["lightning", "storm", "chain"],
 			"description": "가까운 적들을 연달아 타고 흐르는 번개를 방출합니다.",
 			"color": Color("b892ff"),
-			"health": 90.0,
+			# 90 health put Volta under the survival budget every other survivor sits on.
+			"health": 95.0,
 			"speed": 235.0,
-			"weapon": {"damage": 18.0, "cooldown": 1.08, "jumps": 3, "range": 440.0, "tier": 1}
+			"weapon": {"damage": 18.0, "cooldown": 1.08, "jumps": 3, "range": 440.0, "reach": 2.2, "tier": 1}
 		},
 		{
 			"id": "ignis",
@@ -44,7 +80,7 @@ static func all_characters() -> Array[Dictionary]:
 			# Radial shots trade reliability for coverage. Nine slightly stronger
 			# embers give the starting version enough intersections to finish a
 			# basic enemy before the ring has already closed on both survivors.
-			"weapon": {"damage": 17.0, "cooldown": 1.2, "count": 9, "speed": 315.0, "tier": 1}
+			"weapon": {"damage": 17.0, "cooldown": 1.2, "count": 9, "speed": 315.0, "reach": 2.6, "tier": 1}
 		},
 		{
 			"id": "neve",
@@ -57,7 +93,7 @@ static func all_characters() -> Array[Dictionary]:
 			"color": Color("8ecae6"),
 			"health": 100.0,
 			"speed": 225.0,
-			"weapon": {"damage": 14.0, "cooldown": 1.55, "radius": 185.0, "slow": 0.52, "tier": 1}
+			"weapon": {"damage": 14.0, "cooldown": 1.55, "radius": 185.0, "slow": 0.52, "reach": 4.0, "tier": 1}
 		},
 		{
 			"id": "moro",
@@ -68,11 +104,11 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["melee", "shadow", "arc"],
 			"description": "바라보는 방향의 넓은 부채꼴을 한 번에 베어냅니다.",
 			"color": Color("ef476f"),
-			"health": 105.0,
+			"health": 102.0,
 			"speed": 230.0,
-			# A committed melee swing should clear a basic chaser in one hit; the
-			# short range and facing requirement already supply its risk.
-			"weapon": {"damage": 38.0, "cooldown": 0.98, "range": 220.0, "arc": 2.1, "tier": 1}
+			# Melee carries a low reach factor because it only hits what you face,
+			# so it is allowed a much higher per-swing number than the auras.
+			"weapon": {"damage": 33.0, "cooldown": 0.98, "range": 220.0, "arc": 2.1, "reach": 1.15, "tier": 1}
 		},
 		{
 			"id": "serin",
@@ -83,8 +119,8 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["tether", "holy", "aura"],
 			"description": "두 사람 사이의 사슬 전체를 공격 판정으로 바꿉니다.",
 			"color": Color("80ed99"),
-			"health": 120.0,
+			"health": 115.0,
 			"speed": 205.0,
-			"weapon": {"damage": 24.0, "cooldown": 0.95, "width": 58.0, "tier": 1}
+			"weapon": {"damage": 24.0, "cooldown": 0.95, "width": 58.0, "reach": 1.5, "tier": 1}
 		}
 	]

@@ -220,11 +220,18 @@ func _test_card_rules(main: Node) -> void:
 			draws_without_weapon += 1
 	_check(draws_without_weapon == 0, "every level-up still offers at least one weapon upgrade (%d draws missed)" % draws_without_weapon)
 
+	# Measured against a filled-out build on purpose. With one weapon and no
+	# treasures nearly every option in the pool is already build-defining, so
+	# luck has nothing to shift and the comparison reads as noise.
+	for character in main._pick_unowned_characters(0, 2):
+		main._apply_upgrade(0, {"id": "unlock_weapon", "weapon_slot": -1, "character": character})
+	for treasure in main._pick_unowned_treasures(0, 3):
+		main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
 	main.team_luck = 0
 	var unlucky := _count_interesting(main, 40)
 	main.team_luck = 4
 	var lucky := _count_interesting(main, 40)
-	_check(lucky > unlucky, "luck raises how often new-tech and special cards show up (%d -> %d over 40 draws)" % [unlucky, lucky])
+	_check(lucky > unlucky, "luck raises how often build-defining cards show up (%d -> %d over 40 draws)" % [unlucky, lucky])
 	print("ATTRIBUTE_METRICS: interesting cards luck0=%d luck4=%d" % [unlucky, lucky])
 	main.team_luck = 0
 
@@ -234,7 +241,9 @@ func _count_interesting(main: Node, draws: int) -> int:
 	for draw in draws:
 		for option in main._get_upgrade_choices(1):
 			var option_id := String(option["id"])
-			if option_id == "unlock_weapon" or option_id == "special_a" or option_id == "special_b":
+			# Must match the set main.gd actually weights, or the measurement
+			# counts three of the four categories luck moves and reads as noise.
+			if option_id in ["unlock_weapon", "unlock_treasure", "special_a", "special_b"]:
 				total += 1
 	return total
 

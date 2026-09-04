@@ -34,6 +34,10 @@ const CUE_PARAMS := {
 	"down": {"freq": 150.0, "to": 70.0, "dur": 0.36, "vol": 0.24, "wave": "saw"},
 	"revive": {"freq": 440.0, "to": 880.0, "dur": 0.24, "vol": 0.20, "wave": "sine"},
 	# Short and downward so it reads as a movement, not as a hit.
+	# Browsing and committing need to sound different, or a menu that two
+	# people drive at once gives no feedback about which of them just acted.
+	"select": {"freq": 620.0, "to": 880.0, "dur": 0.09, "vol": 0.12, "wave": "sine"},
+	"reroll": {"freq": 300.0, "to": 700.0, "dur": 0.18, "vol": 0.15, "wave": "square"},
 	"dash": {"freq": 720.0, "to": 300.0, "dur": 0.13, "vol": 0.13, "wave": "sine"},
 	"resonance": {"freq": 780.0, "to": 1560.0, "dur": 0.30, "vol": 0.22, "wave": "sine"},
 	"boss": {"freq": 96.0, "to": 62.0, "dur": 0.50, "vol": 0.28, "wave": "saw"},

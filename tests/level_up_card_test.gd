@@ -34,6 +34,7 @@ func _run() -> void:
 	_test_recommendation_and_build_readout(main)
 	await _test_cursor_and_deferred_apply(main)
 	await _test_reroll(main)
+	_test_reroll_refill(main)
 	await _test_no_immediate_repeat(main)
 
 	if failures.is_empty():
@@ -99,7 +100,7 @@ func _test_input_delay(main: Node) -> void:
 	await _tap(main, "p1_select_confirm")
 	_check(main.selected_upgrade_indices[0] == -1, "a confirm arriving during the delay does not pick a card")
 	await _tap(main, "p1_reroll")
-	_check(main.rerolls_remaining[0] == 1, "a reroll arriving during the delay is not spent")
+	_check(main.rerolls_remaining[0] == main.REROLL_START, "a reroll arriving during the delay is not spent")
 
 	# Burn the delay down the way the paused physics loop does.
 	for tick in 60:
@@ -151,9 +152,21 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 		_check(icon.texture != null, "every upgrade card renders a mapped icon")
 		recommended_cards += 1 if badge.visible else 0
 	_check(recommended_cards == 1, "the recommendation badge is visible on one dealt card")
-	_check(main.p1_level_footer.text.contains("공격") and main.p1_level_footer.text.contains("탄속")
-		and main.p1_level_footer.text.contains("재생") and main.p1_level_footer.text.contains("이동"),
-		"the level-up build readout always lists the full personal stat set")
+	# The build readout used to be two lines of attribute numbers. It is now two
+	# rows of icons with empty slots left visible, because "무기 2/4 · 보물 1/4"
+	# and four empty sockets say more mid-decision than eight numbers do.
+	_check(main.p1_level_footer.text.contains("무기") and main.p1_level_footer.text.contains("보물"),
+		"the build readout names both slot kinds")
+	_check(main.level_weapon_icons[0].size() == main.WEAPON_LOADOUT_CAP,
+		"the weapon row draws one slot per weapon the cap allows")
+	_check(main.level_treasure_icons[0].size() == main.TREASURE_LOADOUT_CAP,
+		"the treasure row draws one slot per treasure the cap allows")
+	var carried_weapons: int = main.weapon_loadouts[0].size()
+	for index in main.level_weapon_icons[0].size():
+		var icon := main.level_weapon_icons[0][index] as TextureRect
+		var filled := icon.texture != null
+		_check(filled == (index < carried_weapons),
+			"weapon slot %d is %s" % [index, "filled" if index < carried_weapons else "an empty socket"])
 	_check(main.level_weapon_icons[0][0].visible and main.level_weapon_icons[0][0].texture != null,
 		"owned weapons render as tiered icons")
 
@@ -253,3 +266,38 @@ func _keys(main: Node, choices: Array) -> Array[String]:
 func _check(condition: bool, label: String) -> void:
 	if not condition:
 		failures.append(label)
+
+
+## One reroll for a whole run is a resource nobody spends: there is never a
+## level-up worth the last one you will ever get. It refills on a schedule
+## instead, so spending one is an ordinary move.
+func _test_reroll_refill(main: Node) -> void:
+	main.rerolls_remaining[0] = 0
+	main.rerolls_remaining[1] = 0
+	# Land the next level-up exactly on a refill boundary.
+	main.progression.level = main.REROLL_PER_LEVELS - 1
+	_open_level_up(main)
+	_check(main.progression.level % main.REROLL_PER_LEVELS == 0,
+		"the test reached a refill level (%d)" % main.progression.level)
+	_check(main.rerolls_remaining[0] == 1, "a refill level restores a spent reroll (%d)" % main.rerolls_remaining[0])
+	_check(main.rerolls_remaining[1] == 1, "both survivors are refilled")
+	_close_level_up(main)
+
+	# And it must stop at the cap, or a long run hands out an unbounded supply.
+	main.rerolls_remaining[0] = main.REROLL_CAP
+	main.rerolls_remaining[1] = main.REROLL_CAP
+	main.progression.level = main.REROLL_PER_LEVELS * 2 - 1
+	_open_level_up(main)
+	_check(main.rerolls_remaining[0] == main.REROLL_CAP,
+		"refills stop at the cap (%d of %d)" % [main.rerolls_remaining[0], main.REROLL_CAP])
+	_close_level_up(main)
+
+
+func _close_level_up(main: Node) -> void:
+	main.selected_upgrade_indices[0] = -1
+	main.selected_upgrade_indices[1] = -1
+	main.level_up_active = false
+	main.level_overlay.visible = false
+	main.resonance_vote_active = false
+	main.resonance_overlay.visible = false
+	paused = false

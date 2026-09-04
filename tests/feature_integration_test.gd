@@ -26,7 +26,7 @@ func _run() -> void:
 	_test_downed_revive(main)
 	_test_downed_tow(main)
 	_test_enemy_pool_and_archetypes(main)
-	_test_resonance_vote(main)
+	await _test_resonance_vote(main)
 
 	if failures.is_empty():
 		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive/tow, resonance vote")
@@ -185,17 +185,46 @@ func _test_resonance_vote(main: Node) -> void:
 	main._after_personal_upgrade_choices()
 	_check(main.resonance_vote_active, "eligible tag pair opens resonance vote")
 	_check(not main.resonance_candidates.is_empty(), "resonance candidates are generated")
-	Input.action_press("p1_choice_1")
-	Input.action_press("p2_choice_1")
-	main._handle_resonance_vote_input()
-	Input.action_release("p1_choice_1")
-	Input.action_release("p2_choice_1")
+	# The vote is a card grid driven by the same cursor controls as the level-up
+	# screen now, not three digit keys. What makes it a co-op screen is that each
+	# survivor's cursor is visible to the other before anyone commits.
+	_check(main.resonance_cursors == [0, 0], "both cursors start on the first candidate")
+	if main.resonance_candidates.size() > 1:
+		await _tap(main, "p2_select_next")
+		_check(main.resonance_cursors[1] == 1, "P2 can browse independently of P1")
+		_check(main.resonance_cursors[0] == 0, "browsing does not move the other cursor")
+
+		# A split vote must clear both locks rather than silently picking one.
+		await _tap(main, "p1_select_confirm")
+		await _tap(main, "p2_select_confirm")
+		_check(main.resonance_system.active_resonances.is_empty(), "a split vote activates nothing")
+		_check(main.resonance_votes == [-1, -1], "a split vote releases both locks")
+		_check(main.resonance_cursors == [0, 1], "a split vote leaves both cursors where they were")
+		_check(main.resonance_vote_active, "the pair stays on the screen to try again")
+		await _tap(main, "p2_select_previous")
+
+	await _tap(main, "p1_select_confirm")
+	_check(main.resonance_votes[0] == 0, "confirm locks a vote")
+	_check(main.resonance_vote_active, "one lock is not enough to resolve the vote")
+	await _tap(main, "p1_select_cancel")
+	_check(main.resonance_votes[0] == -1, "a lock can be taken back while the pair disagrees")
+	await _tap(main, "p1_select_confirm")
+	await _tap(main, "p2_select_confirm")
 	_check(not main.resonance_system.active_resonances.is_empty(), "matching votes activate resonance")
 	_check(String(main.resonance_system.active_resonances[0]["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
 	_check(not main.resonance_vote_active and not paused, "resonance vote returns to combat")
 	for resonance in main.resonance_system.catalog:
 		main.weapon_controller.perform_resonance(resonance, 1.0)
 	main.weapon_controller.clear_transients()
+
+
+## is_action_just_pressed stays true for the rest of the frame, so consecutive
+## taps without a frame between them all read as the same press.
+func _tap(main: Node, action: String) -> void:
+	Input.action_press(action)
+	main._handle_resonance_vote_input()
+	Input.action_release(action)
+	await process_frame
 
 
 func _check(condition: bool, label: String) -> void:

@@ -15,12 +15,16 @@ const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
 const SettingsScript := preload("res://scripts/systems/settings_system.gd")
 const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
+const Treasures := preload("res://scripts/treasure_catalog.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
-const RUN_BOSS_TIME := 120.0
+const RUN_BOSS_TIME := 300.0
 const DOWNED_TOW_SHARE := 0.88
-const WEAPON_LOADOUT_CAP := 3
+const WEAPON_LOADOUT_CAP := 4
+## Treasures are the other half of a build. Attributes used to be unlimited
+## free-floating cards; a survivor now commits to four and deepens those.
+const TREASURE_LOADOUT_CAP := 4
 
 ## Enemies spawn 610-760px out and never stopped chasing, so anything that
 ## drifted off — a shooter backing away, a charger that overshot — stayed
@@ -97,6 +101,7 @@ var p1_level_footer: Label
 var p2_level_footer: Label
 var level_portrait_icons: Array[TextureRect] = []
 var level_weapon_icons: Array = [[], []]
+var level_treasure_icons: Array = [[], []]
 var character_overlay: ColorRect
 var character_title: Label
 var character_p1_label: Label
@@ -104,7 +109,8 @@ var character_p2_label: Label
 var character_portrait_icons: Array[TextureRect] = []
 var resonance_overlay: ColorRect
 var resonance_title: Label
-var resonance_choices_label: Label
+var resonance_cards: Array = []
+var resonance_status: Label
 var character_roster_label: Label
 var character_synergy_label: Label
 var result_overlay: ColorRect
@@ -139,7 +145,7 @@ var lobby_device_names: Array[String] = ["키보드", "키보드"]
 var lobby_input_cooldown := 0.0
 var upgrade_cursors: Array[int] = [0, 0]
 var selected_upgrade_indices: Array[int] = [-1, -1] ## -1 = still choosing; >=0 = locked in but not yet applied until both players lock
-var rerolls_remaining: Array[int] = [1, 1] ## Spent across the whole run, not refilled per level-up
+var rerolls_remaining: Array[int] = [REROLL_START, REROLL_START]
 var last_upgrade_choice_keys: Array = [[], []]
 var level_up_input_delay := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
 var resonance_cursors: Array[int] = [0, 0]
@@ -201,6 +207,7 @@ var selected_characters: Array[Dictionary] = [{}, {}]
 ## from, not to the player's own character, so it can't borrow those fields
 ## from selected_characters[i] the way the single starting weapon used to.
 var weapon_loadouts: Array = [[], []]
+var treasure_loadouts: Array = [[], []] ## Per player, Array[Dictionary] of carried treasures
 var attack_timers: Array = [[], []] ## attack_timers[player_index][weapon_slot], 1:1 with weapon_loadouts
 
 var p1_choices: Array[Dictionary] = []
@@ -580,11 +587,13 @@ func _create_hud() -> void:
 	level_card_labels[0] = _create_level_cards(level_overlay, 8.0, Color("43d9ff"))
 	level_card_labels[1] = _create_level_cards(level_overlay, 624.0, Color("b892ff"))
 	level_portrait_icons = [
-		_create_icon_rect(level_overlay, Vector2(8.0, 378.0), Vector2(68.0, 68.0)),
-		_create_icon_rect(level_overlay, Vector2(624.0, 378.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(8.0, 392.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(624.0, 392.0), Vector2(68.0, 68.0)),
 	]
-	level_weapon_icons[0] = _create_weapon_icon_row(level_overlay, 84.0)
-	level_weapon_icons[1] = _create_weapon_icon_row(level_overlay, 700.0)
+	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 384.0, WEAPON_LOADOUT_CAP)
+	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 384.0, WEAPON_LOADOUT_CAP)
+	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 428.0, TREASURE_LOADOUT_CAP)
+	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 428.0, TREASURE_LOADOUT_CAP)
 	p1_level_footer = _create_level_footer(level_overlay, 8.0, Color("43d9ff"))
 	p2_level_footer = _create_level_footer(level_overlay, 624.0, Color("b892ff"))
 
@@ -605,15 +614,53 @@ func _create_hud() -> void:
 	_confine_label(resonance_title)
 	resonance_overlay.add_child(resonance_title)
 
-	resonance_choices_label = Label.new()
-	resonance_choices_label.position = Vector2(55.0, 92.0)
-	resonance_choices_label.size = Vector2(810.0, 370.0)
-	resonance_choices_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	resonance_choices_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	resonance_choices_label.add_theme_font_size_override("font_size", 21)
-	resonance_choices_label.add_theme_color_override("font_color", Color("e4c1f9"))
-	_confine_label(resonance_choices_label, true)
-	resonance_overlay.add_child(resonance_choices_label)
+	# Voting used to be a wall of text and two number keys, which reads as a
+	# quiz rather than a decision. It is now the same card grid as the level-up
+	# screen, and both survivors' cursors are drawn live on it — you can see
+	# what your partner is pointing at before either of you commits, which is
+	# the whole negotiation the mechanic is asking for.
+	resonance_cards = []
+	for index in RESONANCE_CARD_SLOTS:
+		var card := Label.new()
+		card.position = Vector2(
+			RESONANCE_CARD_MARGIN + (RESONANCE_CARD_WIDTH + RESONANCE_CARD_GAP) * index,
+			RESONANCE_CARD_Y
+		)
+		card.size = Vector2(RESONANCE_CARD_WIDTH, RESONANCE_CARD_HEIGHT)
+		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		card.add_theme_font_size_override("font_size", 16)
+		card.add_theme_color_override("font_color", Color("f0e2ff"))
+		_confine_label(card, true)
+		var style := StyleBoxFlat.new()
+		style.set_border_width_all(2)
+		style.set_corner_radius_all(10)
+		style.set_content_margin_all(14)
+		style.content_margin_bottom = 44.0
+		card.add_theme_stylebox_override("normal", style)
+		var pips := Label.new()
+		pips.name = "Pips"
+		pips.position = Vector2(10.0, RESONANCE_CARD_HEIGHT - 38.0)
+		pips.size = Vector2(RESONANCE_CARD_WIDTH - 20.0, 28.0)
+		pips.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		pips.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		pips.add_theme_font_size_override("font_size", 15)
+		_confine_label(pips)
+		_make_label_background(pips, Color(0.03, 0.02, 0.06, 0.85))
+		card.add_child(pips)
+		resonance_overlay.add_child(card)
+		resonance_cards.append(card)
+
+	resonance_status = Label.new()
+	resonance_status.position = Vector2(40.0, 424.0)
+	resonance_status.size = Vector2(840.0, 56.0)
+	resonance_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	resonance_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	resonance_status.add_theme_font_size_override("font_size", 17)
+	resonance_status.add_theme_color_override("font_color", Color("e4c1f9"))
+	_confine_label(resonance_status, true)
+	resonance_overlay.add_child(resonance_status)
 
 	character_overlay = ColorRect.new()
 	character_overlay.position = Vector2(90.0, 65.0)
@@ -732,7 +779,7 @@ func _create_hud() -> void:
 	team_stats_label = Label.new()
 	# One shared line under the cards. The personal build sits in each
 	# player’s own footer; only the pooled stats belong in the middle.
-	team_stats_label.position = Vector2(390.0, 508.0)
+	team_stats_label.position = Vector2(390.0, 486.0)
 	team_stats_label.size = Vector2(460.0, 32.0)
 	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -850,10 +897,20 @@ func _create_icon_rect(parent: Node, icon_position: Vector2, icon_size: Vector2)
 	return icon
 
 
-func _create_weapon_icon_row(parent: Node, start_x: float) -> Array:
+## One row of small badged icons — the build ribbon uses two of them, weapons
+## and treasures, in place of the two dense lines of attribute numbers that used
+## to sit here. A row of icons says "this is what you are carrying" at a glance;
+## "공격 100 · 범위 100 · 탄량 +0 · 신속 100" did not.
+func _create_badged_icon_row(parent: Node, start_x: float, row_y: float, count: int) -> Array:
 	var icons: Array = []
-	for index in WEAPON_LOADOUT_CAP:
-		var icon := _create_icon_rect(parent, Vector2(start_x + index * 42.0, 391.0), Vector2(38.0, 38.0))
+	for index in count:
+		var socket := Panel.new()
+		socket.position = Vector2(start_x + index * 42.0, row_y)
+		socket.size = Vector2(38.0, 38.0)
+		socket.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		socket.add_theme_stylebox_override("panel", _slot_placeholder_style())
+		parent.add_child(socket)
+		var icon := _create_icon_rect(socket, Vector2.ZERO, Vector2(38.0, 38.0))
 		var tier := Label.new()
 		tier.name = "Tier"
 		tier.position = Vector2(15.0, 21.0)
@@ -868,12 +925,43 @@ func _create_weapon_icon_row(parent: Node, start_x: float) -> Array:
 	return icons
 
 
+## An empty treasure slot still shows as a slot: the pair can see how many
+## commitments they have left without opening anything.
+func _slot_placeholder_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.14, 0.22, 0.45)
+	style.border_color = Color(0.32, 0.42, 0.58, 0.55)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(6)
+	return style
+
+
 ## Widened twice now. The recommendation lines added to card copy made the
 ## old width break Korean words mid-syllable on nearly every card.
 const LEVEL_CARD_WIDTH := 196.0
 const LEVEL_CARD_HEIGHT := 262.0
 const LEVEL_CARD_GAP := 10.0
 const LEVEL_CARD_Y := 105.0
+
+const RESONANCE_CARD_SLOTS := 3
+const RESONANCE_CARD_WIDTH := 268.0
+const RESONANCE_CARD_HEIGHT := 306.0
+const RESONANCE_CARD_GAP := 14.0
+const RESONANCE_CARD_Y := 100.0
+const RESONANCE_CARD_MARGIN := 30.0
+
+## One reroll for a whole run meant nobody ever spent it: a resource you can
+## never get back is a resource you hoard. It now refills on a schedule, so
+## spending one is a normal thing to do rather than a decision about the
+## entire run.
+const REROLL_START := 2
+const REROLL_PER_LEVELS := 3
+const REROLL_CAP := 3
+
+## Extra shuffle entries each point of luck gives a build-defining option.
+## At one entry per point luck moved the odds by about two cards in a
+## hundred, which is not a stat worth a treasure slot.
+const LUCK_WEIGHT_PER_POINT := 2
 
 
 ## Builds the three card slots for one player's level-up choices. Each card is
@@ -888,21 +976,25 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		card.position = Vector2(half_x + (LEVEL_CARD_WIDTH + LEVEL_CARD_GAP) * index, LEVEL_CARD_Y)
 		card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
 		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		card.add_theme_font_size_override("font_size", 16)
 		card.add_theme_color_override("font_color", Color("e7f6ff"))
 		_confine_label(card, true)
-		var icon := _create_icon_rect(card, Vector2(10.0, 10.0), Vector2(54.0, 54.0))
+		# The icon sits above the text rather than beside it, and the stylebox's
+		# top margin is what makes room for it — the card used to open with three
+		# blank lines, which is a layout expressed as content.
+		var icon := _create_icon_rect(card, Vector2((LEVEL_CARD_WIDTH - 64.0) * 0.5, 16.0), Vector2(64.0, 64.0))
 		icon.name = "Icon"
 		var recommendation := Label.new()
 		recommendation.name = "Recommendation"
-		recommendation.position = Vector2(70.0, 15.0)
-		recommendation.size = Vector2(88.0, 26.0)
+		recommendation.position = Vector2(10.0, LEVEL_CARD_HEIGHT - 40.0)
+		recommendation.size = Vector2(LEVEL_CARD_WIDTH - 20.0, 30.0)
 		recommendation.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		recommendation.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		recommendation.text = "★ 추천"
 		recommendation.add_theme_font_size_override("font_size", 13)
 		recommendation.add_theme_color_override("font_color", Color("fff275"))
+		_confine_label(recommendation)
 		_make_label_background(recommendation, Color(0.22, 0.16, 0.02, 0.95))
 		card.add_child(recommendation)
 		var style := StyleBoxFlat.new()
@@ -910,7 +1002,9 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		style.border_color = Color(accent, 0.4)
 		style.set_border_width_all(2)
 		style.set_corner_radius_all(10)
-		style.set_content_margin_all(10)
+		style.set_content_margin_all(12)
+		style.content_margin_top = 92.0
+		style.content_margin_bottom = 48.0
 		card.add_theme_stylebox_override("normal", style)
 		parent.add_child(card)
 		cards.append(card)
@@ -924,8 +1018,8 @@ func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 	# because clip_text does not complain. That fifth line is the status line:
 	# "잠시 후 선택할 수 있습니다" is the only thing explaining why input is
 	# ignored during the anti-misclick delay, and nobody had ever seen it.
-	footer.position = Vector2(half_x + 207.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 8.0)
-	footer.size = Vector2(400.0, 128.0)
+	footer.position = Vector2(half_x + 270.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 6.0)
+	footer.size = Vector2(338.0, 100.0)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	footer.add_theme_font_size_override("font_size", 13)
@@ -1109,12 +1203,13 @@ func _start_selected_run() -> void:
 		weapon_loadouts[player_index] = [_build_weapon_state(selected_characters[player_index])]
 		players[player_index].apply_character(selected_characters[player_index])
 		attack_timers[player_index] = [0.15 + player_index * 0.12]
+		treasure_loadouts[player_index] = []
 		hud_portrait_icons[player_index].texture = IconCatalog.survivor(String(selected_characters[player_index]["id"]))
 	character_select_active = false
 	character_overlay.visible = false
 	chain_integrity = CHAIN_INTEGRITY_MAX
 	chain_overloaded = false
-	rerolls_remaining = [1, 1] ## Spent across the run, not refilled per level-up
+	rerolls_remaining = [REROLL_START, REROLL_START]
 	for key in run_stats:
 		run_stats[key] = 0.0 if key == "overcharge_time" else 0
 	last_upgrade_choice_keys = [[], []]
@@ -1541,6 +1636,9 @@ func _gain_shared_xp(amount: int) -> void:
 func _begin_level_up() -> void:
 	if not progression.consume_level_up():
 		return
+	if progression.level % REROLL_PER_LEVELS == 0:
+		for slot in 2:
+			rerolls_remaining[slot] = mini(REROLL_CAP, rerolls_remaining[slot] + 1)
 	level_up_active = true
 	level_up_input_delay = LEVEL_UP_INPUT_DELAY
 	selected_upgrade_indices = [-1, -1]
@@ -1558,9 +1656,14 @@ func _begin_level_up() -> void:
 ## e.g. "weapon_power" exists once per owned weapon) so _get_upgrade_choices
 ## can avoid repeating the exact same 3-card set the very next level-up.
 func _option_key(option: Dictionary) -> String:
-	if String(option["id"]) == "unlock_weapon":
+	var option_id := String(option["id"])
+	if option_id == "unlock_weapon":
 		return "unlock_weapon:" + String((option["character"] as Dictionary)["id"])
-	return "%s:%d" % [String(option["id"]), int(option.get("weapon_slot", -1))]
+	if option_id == "unlock_treasure":
+		return "unlock_treasure:" + String((option["treasure"] as Dictionary)["id"])
+	if option_id == "treasure_upgrade":
+		return "treasure_upgrade:%d" % int(option["treasure_slot"])
+	return "%s:%d" % [option_id, int(option.get("weapon_slot", -1))]
 
 
 ## Characters whose weapon this player does not already carry, shuffled and
@@ -1577,6 +1680,20 @@ func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
 	return candidates.slice(0, count)
 
 
+## Treasures this player does not already carry, shuffled and capped. Mirrors
+## _pick_unowned_characters so both halves of a build are offered the same way.
+func _pick_unowned_treasures(slot: int, count: int) -> Array[Dictionary]:
+	var owned_ids: Dictionary = {}
+	for treasure in treasure_loadouts[slot]:
+		owned_ids[String(treasure["id"])] = true
+	var candidates: Array[Dictionary] = []
+	for treasure in Treasures.all_treasures():
+		if not owned_ids.has(String(treasure["id"])):
+			candidates.append(treasure)
+	candidates.shuffle()
+	return candidates.slice(0, count)
+
+
 ## Builds the pool of everything this level-up could offer: two generic
 ## options, four per owned weapon (power/rate/special_a/special_b), and — if
 ## the player has room under WEAPON_LOADOUT_CAP — a couple of "learn this
@@ -1585,20 +1702,30 @@ func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
 func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var slot := player_index - 1
 	var loadout: Array = weapon_loadouts[slot]
-	var pool: Array[Dictionary] = [
-		{"id": "move", "weapon_slot": -1, "title": "가벼운 발걸음"},
-		{"id": "vitality", "weapon_slot": -1, "title": "생명력"},
-		{"id": "might", "weapon_slot": -1, "title": "위력"},
-		{"id": "area", "weapon_slot": -1, "title": "확장 범위"},
-		{"id": "amount", "weapon_slot": -1, "title": "탄량"},
-		{"id": "haste", "weapon_slot": -1, "title": "신속"},
-		{"id": "projectile_speed", "weapon_slot": -1, "title": "가속 탄도"},
-		{"id": "armor", "weapon_slot": -1, "title": "방어"},
-		{"id": "recovery", "weapon_slot": -1, "title": "재생"},
-		{"id": "magnet", "weapon_slot": -1, "title": "자석 · 공유"},
-		{"id": "growth", "weapon_slot": -1, "title": "성장 · 공유"},
-		{"id": "luck", "weapon_slot": -1, "title": "행운 · 공유"}
-	]
+	var treasures: Array = treasure_loadouts[slot]
+	var pool: Array[Dictionary] = []
+
+	# Carried treasures can be deepened; the twelve that are not carried are
+	# only reachable while there is still a free slot. That gating is the whole
+	# point of the system — an unlimited stat pool has no decisions in it.
+	for treasure_slot in treasures.size():
+		var treasure: Dictionary = treasures[treasure_slot]
+		if int(treasure["tier"]) >= Treasures.MAX_TIER:
+			continue
+		pool.append({
+			"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot,
+			"title": String(treasure["name"]),
+		})
+	if treasures.size() < TREASURE_LOADOUT_CAP:
+		# A fixed number of candidates: luck acts on the weighting below and
+		# nowhere else. Scaling the candidate count as well pulled the other
+		# way — more unlock entries in the pool means each one is drawn less
+		# often — and left luck with no measurable direction at all.
+		for treasure in _pick_unowned_treasures(slot, 3):
+			pool.append({
+				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
+				"title": "새 보물: %s" % String(treasure["name"]),
+			})
 	for weapon_slot in loadout.size():
 		var weapon_name := String(loadout[weapon_slot]["weapon_name"])
 		var weapon_id := String(loadout[weapon_slot]["weapon_id"])
@@ -1624,7 +1751,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "넓은 파동"})
 				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "느슨한 족쇄"})
 	if loadout.size() < WEAPON_LOADOUT_CAP:
-		for character in _pick_unowned_characters(slot, 2 + team_luck):
+		for character in _pick_unowned_characters(slot, 2):
 			pool.append({
 				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
 				"title": "신규 기술: %s" % String(character["weapon_name"])
@@ -1640,13 +1767,14 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	if fresh_pool.size() >= 3:
 		pool = fresh_pool
 
-	# Luck re-enters the weapon-defining options (a new tech, or a weapon's
-	# unique special rather than a flat number) so they are drawn more often.
+	# Luck's one job: build-defining options — a new weapon, a new treasure, or
+	# a weapon's unique special rather than a flat number — get an extra entry
+	# in the shuffle per point, so they come up more often.
 	var weighted: Array[Dictionary] = pool.duplicate()
-	for extra in team_luck:
+	for extra in team_luck * LUCK_WEIGHT_PER_POINT:
 		for option in pool:
 			var option_id := String(option["id"])
-			if option_id == "unlock_weapon" or option_id == "special_a" or option_id == "special_b":
+			if option_id in ["unlock_weapon", "unlock_treasure", "special_a", "special_b"]:
 				weighted.append(option)
 
 	weighted.shuffle()
@@ -1708,62 +1836,91 @@ func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
 		choices[best_index]["recommended"] = true
 
 
+## Scores one card so the level-up screen can star the strongest. Treasures are
+## scored on the attribute they actually grant rather than on the wrapper id, so
+## the same table serves "take this treasure" and "deepen the one you hold" —
+## the difference between them is the slot pressure and depth adjustments after
+## the table, not a second copy of it.
+##
+## Reasons are deliberately short. They sit on a card that already carries a
+## title, an effect line and a tier line, and a sentence there is noise.
 func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 	var upgrade_id := String(option["id"])
 	var loadout: Array = weapon_loadouts[slot]
+	var treasures: Array = treasure_loadouts[slot]
 	var player := players[slot]
 	var health_ratio := player.health / maxf(1.0, player.max_health)
+	var is_treasure := upgrade_id in ["unlock_treasure", "treasure_upgrade"]
+	var effect_id := _option_icon_id(slot, option) if is_treasure else upgrade_id
 	var score := 20.0
 	var reason := "균형 성장"
-	match upgrade_id:
+	match effect_id:
 		"weapon_power":
 			score = 50.0
-			reason = "주력 피해 +25%"
+			reason = "주력 피해"
 		"weapon_rate":
 			score = 47.0
-			reason = "실전 발동 빈도 증가"
+			reason = "발동 빈도"
 		"special_a", "special_b":
 			score = 49.0
-			reason = "고유 기능 강화"
+			reason = "고유 기능"
 		"might":
 			score = 39.0 + loadout.size() * 7.0
-			reason = "무기 %d종 전체 강화" % loadout.size()
+			reason = "무기 %d종 강화" % loadout.size()
 		"area":
 			score = 38.0 + loadout.size() * 4.0
-			reason = "다중 무기 범위 강화"
+			reason = "전체 범위"
 		"amount":
 			score = 45.0
-			reason = "투사체 화력 증가"
+			reason = "투사체 화력"
 		"haste":
 			score = 43.0 + loadout.size() * 5.0
-			reason = "모든 발동 간격 단축"
+			reason = "전체 발동"
 		"projectile_speed":
 			score = 36.0
-			reason = "원거리 명중 안정화"
+			reason = "명중 안정화"
 		"vitality":
 			score = 34.0 + (1.0 - health_ratio) * 48.0
-			reason = "체력 여유 확보" if health_ratio >= 0.5 else "위기 생존력 우선"
+			reason = "체력 여유" if health_ratio >= 0.5 else "위기 생존"
 		"armor":
 			score = 35.0 + minf(20.0, elapsed / 6.0) + (1.0 - health_ratio) * 18.0
-			reason = "누적 접촉 피해 절감"
+			reason = "접촉 피해 절감"
 		"recovery":
 			score = 34.0 + (1.0 - health_ratio) * 30.0
-			reason = "장기 생존 회복"
+			reason = "장기 생존"
 		"move":
 			score = 34.0
-			reason = "회피·구조 기동성"
+			reason = "회피·구조 기동"
 		"magnet":
 			score = 32.0 + maxf(0.0, 12.0 - progression.level)
-			reason = "공유 XP 회수 안정화"
+			reason = "XP 회수"
 		"growth":
 			score = 52.0 - progression.level * 3.0
-			reason = "초반 성장 가속"
+			reason = "성장 가속"
 		"luck":
 			score = 40.0 - progression.level * 1.5
-			reason = "고유 테크 출현 증가"
+			reason = "희귀 카드 확률"
 		"unlock_weapon":
 			score = 44.0 + (WEAPON_LOADOUT_CAP - loadout.size()) * 4.0
 			reason = "공격 축 추가"
+
+	if upgrade_id == "unlock_treasure":
+		# Slots are finite now, so committing one is worth more while several
+		# are open and less when it would spend the last of them on a whim.
+		var free_slots := TREASURE_LOADOUT_CAP - treasures.size()
+		score += 6.0 if free_slots > 1 else -8.0
+		reason = "%s · 슬롯 %d칸" % [reason, free_slots]
+	elif upgrade_id == "treasure_upgrade":
+		# Deepening is the payoff for having committed, and a treasure one step
+		# from its cap is the cheapest remaining power in the pool.
+		var carried: Dictionary = treasures[int(option["treasure_slot"])]
+		var tier := int(carried["tier"])
+		score += float(tier) * 3.0
+		if tier + 1 >= Treasures.MAX_TIER:
+			score += 10.0
+			reason = "%s · 최종 티어" % reason
+		else:
+			reason = "%s · T%d" % [reason, tier + 1]
 
 	var new_resonance := _new_resonance_from_option(slot, option)
 	if not new_resonance.is_empty():
@@ -1773,7 +1930,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
 		if int(weapon.get("tier", 1)) == 2:
 			score += 34.0
-			reason = "T3 도달 · 공명 탐색"
+			reason = "T3 · 공명 탐색"
 	return {"score": score, "reason": reason}
 
 
@@ -1803,14 +1960,19 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		var tag_names: Array[String] = []
 		for tag in (character["tags"] as Array):
 			tag_names.append(_tag_name(String(tag)))
-		return "%s의 %s 습득\n태그: %s" % [String(character["name"]), String(character["weapon_name"]), " · ".join(tag_names)]
-	if upgrade_id == "move":
-		return "이동 속도 %.0f → %.0f" % [players[slot].move_speed, players[slot].move_speed * 1.08]
-	if upgrade_id == "vitality":
-		return "최대 체력 %.0f → %.0f · 즉시 15 회복" % [players[slot].max_health, players[slot].max_health + 15.0]
-	var attribute_preview := _attribute_preview(slot, upgrade_id)
-	if not attribute_preview.is_empty():
-		return attribute_preview
+		return "%s의 기술\n%s" % [String(character["name"]), " · ".join(tag_names)]
+	if upgrade_id == "unlock_treasure":
+		var treasure: Dictionary = option["treasure"]
+		return "%s
+보물 %d/%d칸" % [
+			String(treasure["per_tier"]), treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP
+		]
+	if upgrade_id == "treasure_upgrade":
+		var carried: Dictionary = treasure_loadouts[slot][int(option["treasure_slot"])]
+		return "%s
+T%d → T%d" % [
+			String(carried["per_tier"]), int(carried["tier"]), int(carried["tier"]) + 1
+		]
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
@@ -1838,38 +2000,6 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	return "현재 능력을 강화합니다."
 
 
-## Attribute cards read as "every weapon you own gets this", so their preview
-## shows the multiplier rather than one weapon's numbers. Shared attributes say
-## so explicitly — they act on the pooled experience both survivors draw from.
-func _attribute_preview(slot: int, upgrade_id: String) -> String:
-	var player := players[slot]
-	match upgrade_id:
-		"might":
-			return "모든 무기 피해 %.0f%% → %.0f%%" % [player.might * 100.0, (player.might + 0.15) * 100.0]
-		"area":
-			return "모든 무기 범위 %.0f%% → %.0f%%" % [player.area * 100.0, (player.area + 0.15) * 100.0]
-		"amount":
-			return "모든 투사체 +%d → +%d발" % [player.amount, player.amount + 1]
-		"haste":
-			return "모든 무기 발동 간격 %.0f%% → %.0f%%" % [player.haste * 100.0, maxf(0.4, player.haste - 0.1) * 100.0]
-		"projectile_speed":
-			return "투사체 속도 %.0f%% → %.0f%%" % [player.projectile_speed * 100.0, (player.projectile_speed + 0.15) * 100.0]
-		"armor":
-			return "피격당 피해 감소 %.0f → %.0f" % [player.armor, player.armor + 2.0]
-		"recovery":
-			return "초당 회복 %.1f → %.1f" % [player.recovery, player.recovery + 0.8]
-		"magnet":
-			return "공유 획득 범위 %.0f%% → %.0f%%
-두 사람 모두에게 적용" % [team_magnet * 100.0, (team_magnet + 0.25) * 100.0]
-		"growth":
-			return "공유 경험치 %.0f%% → %.0f%%
-두 사람 모두에게 적용" % [team_growth * 100.0, (team_growth + 0.15) * 100.0]
-		"luck":
-			return "행운 %d → %d
-신규 기술과 고유 강화가 더 자주 등장" % [team_luck, team_luck + 1]
-	return ""
-
-
 func _handle_level_up_input() -> void:
 	if level_up_input_delay > 0.0:
 		level_up_input_delay = maxf(0.0, level_up_input_delay - get_physics_process_delta_time())
@@ -1892,14 +2022,19 @@ func _handle_level_up_input() -> void:
 			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] + 1, 0, choices.size())
 			_refresh_level_up_ui()
 		elif Input.is_action_just_pressed(prefix + "confirm"):
+			feedback.play_cue("select")
 			_select_upgrade(player_index, upgrade_cursors[slot])
 		elif Input.is_action_just_pressed("p%d_reroll" % player_index) and rerolls_remaining[slot] > 0:
 			_reroll_choices(player_index)
 
 
+## The previous draw's keys are already excluded by _get_upgrade_choices, so a
+## reroll is guaranteed to move — a reroll that can hand back the same three
+## cards is worse than no reroll at all.
 func _reroll_choices(player_index: int) -> void:
 	var slot := player_index - 1
 	rerolls_remaining[slot] -= 1
+	feedback.play_cue("reroll")
 	if player_index == 1:
 		p1_choices = _get_upgrade_choices(1)
 	else:
@@ -1934,14 +2069,16 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		weapon_loadouts[player_slot].append(_build_weapon_state(character))
 		attack_timers[player_slot].append(0.2)
 		return
-	if upgrade_id == "move":
-		players[player_slot].move_speed *= 1.08
+	if upgrade_id == "unlock_treasure":
+		var treasure: Dictionary = option["treasure"]
+		var state := Treasures.build_state(treasure)
+		treasure_loadouts[player_slot].append(state)
+		_apply_attribute(player_slot, String(state["id"]))
 		return
-	if upgrade_id == "vitality":
-		players[player_slot].max_health += 15.0
-		players[player_slot].heal(15.0)
-		return
-	if _apply_attribute(player_slot, upgrade_id):
+	if upgrade_id == "treasure_upgrade":
+		var carried: Dictionary = treasure_loadouts[player_slot][int(option["treasure_slot"])]
+		carried["tier"] = int(carried["tier"]) + 1
+		_apply_attribute(player_slot, String(carried["id"]))
 		return
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
@@ -1986,6 +2123,11 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 	var player := players[player_slot]
 	match upgrade_id:
+		"move":
+			player.move_speed *= 1.08
+		"vitality":
+			player.max_health += 15.0
+			player.heal(15.0)
 		"might":
 			player.might += 0.15
 		"area":
@@ -2036,12 +2178,14 @@ func _refresh_player_cards(player_index: int) -> void:
 		var is_recommended := bool(option.get("recommended", false))
 
 		card.visible = (not locked) or is_chosen
-		var recommendation_line := "\n추천 이유: %s" % String(option.get("recommendation_reason", "")) if is_recommended else ""
-		card.text = "\n\n\n%s\n%s%s" % [String(option.get("title", "")), String(option.get("description", "")), recommendation_line]
+		card.text = "%s\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
 		var icon := card.get_node("Icon") as TextureRect
-		icon.texture = IconCatalog.upgrade(String(option.get("id", "")), _option_weapon_id(slot, option))
+		icon.texture = IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
+		# The reason lives on the badge instead of as a fourth line of body copy:
+		# it explains the star, so it belongs to the star.
 		var recommendation := card.get_node("Recommendation") as Label
 		recommendation.visible = is_recommended
+		recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
 
 		var border := Color("fff275") if is_unlock or is_recommended else accent
 		if level_up_input_delay > 0.0:
@@ -2068,9 +2212,11 @@ func _refresh_player_cards(player_index: int) -> void:
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
 	var character := selected_characters[slot]
 	var lines: Array[String] = [
-		"P%d %s  ·  무기 %d/%d" % [player_index, String(character["name"]), weapon_loadouts[slot].size(), WEAPON_LOADOUT_CAP],
-		_full_attribute_summary(slot),
-		"공유  자석 %.0f%% · 성장 %.0f%% · 행운 %d" % [team_magnet * 100.0, team_growth * 100.0, team_luck],
+		"P%d %s" % [player_index, String(character["name"])],
+		"무기 %d/%d  ·  보물 %d/%d" % [
+			weapon_loadouts[slot].size(), WEAPON_LOADOUT_CAP,
+			treasure_loadouts[slot].size(), TREASURE_LOADOUT_CAP,
+		],
 	]
 	if level_up_input_delay > 0.0:
 		lines.append("잠시 후 선택할 수 있습니다")
@@ -2078,8 +2224,24 @@ func _refresh_player_cards(player_index: int) -> void:
 		lines.append("✓ 확정 — 상대를 기다리는 중 (취소 가능)")
 	else:
 		var keys := ["LB/RB", "A", "B"] if last_input_gamepad[slot] else (["A/D", "W", "S"] if player_index == 1 else ["←/→", "↑", "↓"])
-		lines.append("%s 이동 · %s 확정 · %s 취소  ·  재추첨 %d회" % [keys[0], keys[1], keys[2], rerolls_remaining[slot]])
+		var reroll_key := "Y" if last_input_gamepad[slot] else ("Q" if player_index == 1 else "/")
+		lines.append("%s 이동 · %s 확정 · %s 취소" % [keys[0], keys[1], keys[2]])
+		lines.append("%s 재추첨 %d/%d회  ·  %d레벨마다 충전" % [
+			reroll_key, rerolls_remaining[slot], REROLL_CAP, REROLL_PER_LEVELS,
+		])
 	footer.text = "\n".join(lines)
+
+
+## Which atlas entry a card should show. Treasure ids are deliberately the same
+## strings the upgrade atlas is ordered by, so a treasure needs no special case
+## beyond naming itself.
+func _option_icon_id(slot: int, option: Dictionary) -> String:
+	var option_id := String(option.get("id", ""))
+	if option_id == "unlock_treasure":
+		return String((option["treasure"] as Dictionary)["id"])
+	if option_id == "treasure_upgrade":
+		return String((treasure_loadouts[slot][int(option["treasure_slot"])] as Dictionary)["id"])
+	return option_id
 
 
 func _option_weapon_id(slot: int, option: Dictionary) -> String:
@@ -2091,60 +2253,31 @@ func _option_weapon_id(slot: int, option: Dictionary) -> String:
 	return ""
 
 
+## Draws what this survivor is carrying as two rows of icons: weapons on top,
+## treasures under them, empty slots shown as empty. This replaced two lines of
+## attribute numbers that nobody could read mid-decision.
 func _refresh_level_build_icons(slot: int) -> void:
 	level_portrait_icons[slot].texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
-	var icons: Array = level_weapon_icons[slot]
+	_refresh_icon_row(level_weapon_icons[slot], weapon_loadouts[slot], true)
+	_refresh_icon_row(level_treasure_icons[slot], treasure_loadouts[slot], false)
+
+
+func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 	for index in icons.size():
 		var icon := icons[index] as TextureRect
-		if index >= weapon_loadouts[slot].size():
-			icon.visible = false
-			continue
-		var weapon: Dictionary = weapon_loadouts[slot][index]
-		icon.visible = true
-		icon.texture = IconCatalog.weapon(String(weapon["weapon_id"]))
 		var tier := icon.get_node("Tier") as Label
-		tier.text = "T%d" % int(weapon.get("tier", 1))
-
-
-func _full_attribute_summary(slot: int) -> String:
-	var player := players[slot]
-	return "공격 %.0f · 범위 %.0f · 탄량 +%d · 신속 %.0f\n탄속 %.0f · 방어 %.0f · 재생 %.1f · 이동 %.0f" % [
-		player.might * 100.0, player.area * 100.0, player.amount, player.haste * 100.0,
-		player.projectile_speed * 100.0, player.armor, player.recovery, player.move_speed,
-	]
-
-
-## The shared values are already listed in both build ribbons. This centre
-## strip explains what the recommendation badge actually measured, keeping
-## the algorithm legible instead of presenting a mysterious gold star.
+		if index >= carried.size():
+			# An empty slot is information: it is how many commitments are left.
+			icon.texture = null
+			tier.visible = false
+			continue
+		var entry: Dictionary = carried[index]
+		icon.texture = IconCatalog.weapon(String(entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(entry["id"]))
+		tier.visible = true
+		tier.text = "T%d" % int(entry.get("tier", 1))
 func _refresh_team_stats_ui() -> void:
 	team_stats_label.text = "★ 추천 계산  ·  현재 체력 · 예상 효율 · T3 공명 경로"
 	team_stats_label.visible = true
-
-
-## One-line personal attribute readout. Only non-neutral values are listed so
-## an early-run player sees a short line instead of ten stats all sitting at
-## their starting value.
-func _attribute_summary(slot: int) -> String:
-	var player := players[slot]
-	var parts: Array[String] = []
-	if not is_equal_approx(player.might, 1.0):
-		parts.append("위력 %.0f%%" % (player.might * 100.0))
-	if not is_equal_approx(player.area, 1.0):
-		parts.append("범위 %.0f%%" % (player.area * 100.0))
-	if player.amount > 0:
-		parts.append("탄량 +%d" % player.amount)
-	if not is_equal_approx(player.haste, 1.0):
-		parts.append("신속 %.0f%%" % (player.haste * 100.0))
-	if not is_equal_approx(player.projectile_speed, 1.0):
-		parts.append("탄속 %.0f%%" % (player.projectile_speed * 100.0))
-	if player.armor > 0.0:
-		parts.append("방어 %.0f" % player.armor)
-	if player.recovery > 0.0:
-		parts.append("재생 %.1f/s" % player.recovery)
-	if parts.is_empty():
-		return ""
-	return " · ".join(parts)
 
 
 func _finish_level_up() -> void:
@@ -2168,22 +2301,36 @@ func _after_personal_upgrade_choices() -> void:
 	resonance_vote_active = true
 	resonance_votes[0] = -1
 	resonance_votes[1] = -1
+	resonance_cursors = [0, 0]
 	resonance_vote_message = ""
 	level_overlay.visible = false
 	resonance_overlay.visible = true
 	_refresh_resonance_vote_ui()
 
 
+## Both survivors browse the same three cards with the same controls the
+## level-up screen uses, and each one's cursor is visible to the other the whole
+## time. A vote locks only on confirm and can be taken back until the pair
+## actually agrees — a disagreement is a conversation, not a failure state.
 func _handle_resonance_vote_input() -> void:
-	for player_index in 2:
-		if resonance_votes[player_index] >= 0:
-			continue
-		var prefix := "p1_choice_" if player_index == 0 else "p2_choice_"
-		for choice_index in resonance_candidates.size():
-			if Input.is_action_just_pressed(prefix + str(choice_index + 1)):
-				resonance_votes[player_index] = choice_index
+	for slot in 2:
+		var prefix := "p1_select_" if slot == 0 else "p2_select_"
+		if resonance_votes[slot] >= 0:
+			if Input.is_action_just_pressed(prefix + "cancel"):
+				resonance_votes[slot] = -1
 				_refresh_resonance_vote_ui()
-				break
+			continue
+		if Input.is_action_just_pressed(prefix + "previous"):
+			resonance_cursors[slot] = wrapi(resonance_cursors[slot] - 1, 0, resonance_candidates.size())
+			_refresh_resonance_vote_ui()
+		elif Input.is_action_just_pressed(prefix + "next"):
+			resonance_cursors[slot] = wrapi(resonance_cursors[slot] + 1, 0, resonance_candidates.size())
+			_refresh_resonance_vote_ui()
+		elif Input.is_action_just_pressed(prefix + "confirm"):
+			resonance_votes[slot] = resonance_cursors[slot]
+			feedback.play_cue("select")
+			_refresh_resonance_vote_ui()
+
 	if resonance_votes[0] < 0 or resonance_votes[1] < 0:
 		return
 	if resonance_votes[0] == resonance_votes[1]:
@@ -2194,25 +2341,82 @@ func _handle_resonance_vote_input() -> void:
 		_show_message("공명 완성 — %s" % String(chosen["name"]), Color("fff275"))
 		feedback.play_cue("resonance")
 		_finish_level_up()
-	else:
-		resonance_votes[0] = -1
-		resonance_votes[1] = -1
-		resonance_vote_message = "선택이 달랐습니다. 대화한 뒤 다시 투표하세요."
-		_refresh_resonance_vote_ui()
+		return
+	# Only the disagreement is cleared, not the browsing position: both cursors
+	# stay where they were so the pair argues from where they actually are.
+	resonance_votes[0] = -1
+	resonance_votes[1] = -1
+	resonance_vote_message = "선택이 갈렸습니다 — 상대의 커서를 보고 다시 고르세요"
+	feedback.play_cue("warning")
+	_refresh_resonance_vote_ui()
 
 
 func _refresh_resonance_vote_ui() -> void:
-	var text := ""
-	for index in resonance_candidates.size():
-		var resonance := resonance_candidates[index]
+	for index in resonance_cards.size():
+		var card: Label = resonance_cards[index]
+		if index >= resonance_candidates.size():
+			card.visible = false
+			continue
+		card.visible = true
+		var resonance: Dictionary = resonance_candidates[index]
 		var requirements: Array = resonance["requires"]
-		text += "[%d]  %s  ·  %s + %s\n%s\n\n" % [index + 1, String(resonance["name"]), _tag_name(String(requirements[0])), _tag_name(String(requirements[1])), String(resonance["description"])]
-	var p1_vote := "대기" if resonance_votes[0] < 0 else String(resonance_candidates[resonance_votes[0]]["name"])
-	var p2_vote := "대기" if resonance_votes[1] < 0 else String(resonance_candidates[resonance_votes[1]]["name"])
-	var p1_keys := "X/A/B" if last_input_gamepad[0] else "A/S/D"
-	var p2_keys := "X/A/B" if last_input_gamepad[1] else "←/↓/→"
-	text += "P1 %s: %s     P2 %s: %s\n%s" % [p1_keys, p1_vote, p2_keys, p2_vote, resonance_vote_message]
-	resonance_choices_label.text = text
+		card.text = "%s\n%s + %s\n\n%s" % [
+			String(resonance["name"]),
+			_tag_name(String(requirements[0])), _tag_name(String(requirements[1])),
+			String(resonance["description"]),
+		]
+
+		var pointed_by: Array[int] = []
+		var locked_by: Array[int] = []
+		for slot in 2:
+			if resonance_votes[slot] == index:
+				locked_by.append(slot)
+			elif resonance_votes[slot] < 0 and resonance_cursors[slot] == index:
+				pointed_by.append(slot)
+		var pips: Label = card.get_node("Pips")
+		pips.text = _resonance_pip_text(pointed_by, locked_by)
+		pips.visible = not pips.text.is_empty()
+
+		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
+		var attention := locked_by.size() + pointed_by.size()
+		var accent := Color("e4c1f9")
+		if locked_by.size() == 2:
+			accent = Color("fff275")
+		elif not locked_by.is_empty():
+			accent = Color("43d9ff") if locked_by[0] == 0 else Color("b892ff")
+		elif not pointed_by.is_empty():
+			accent = Color("43d9ff") if pointed_by[0] == 0 else Color("b892ff")
+		style.bg_color = Color(accent, 0.07 + 0.09 * float(attention))
+		style.border_color = Color(accent, 0.3 + 0.32 * float(attention))
+		style.set_border_width_all(2 + attention)
+		card.scale = Vector2.ONE * (1.0 + 0.03 * float(attention))
+
+	var waiting: Array[String] = []
+	for slot in 2:
+		if resonance_votes[slot] < 0:
+			waiting.append("P%d" % (slot + 1))
+	var lines: Array[String] = []
+	if waiting.size() == 1:
+		lines.append("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다" % waiting[0])
+	elif waiting.size() == 2:
+		var p1_keys := "LB/RB · A" if last_input_gamepad[0] else "A/D 이동 · W 확정"
+		var p2_keys := "LB/RB · A" if last_input_gamepad[1] else "←/→ 이동 · ↑ 확정"
+		lines.append("P1 %s     P2 %s" % [p1_keys, p2_keys])
+	if not resonance_vote_message.is_empty():
+		lines.append(resonance_vote_message)
+	resonance_status.text = "\n".join(lines)
+
+
+## The pips are the point of this screen: a hollow marker is "P2 is looking at
+## this one", a filled one is "P2 has committed to it".
+func _resonance_pip_text(pointed_by: Array[int], locked_by: Array[int]) -> String:
+	var parts: Array[String] = []
+	for slot in 2:
+		if slot in locked_by:
+			parts.append("● P%d 확정" % (slot + 1))
+		elif slot in pointed_by:
+			parts.append("○ P%d" % (slot + 1))
+	return "   ".join(parts)
 
 
 func _tag_name(tag: String) -> String:

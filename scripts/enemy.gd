@@ -13,7 +13,7 @@ signal enraged(enemy: ChaserEnemy)
 ## flat +5 health per difficulty step. The ramp below is deliberately zero
 ## until this threshold: the early game is already the lethal part, and
 ## making it harder is not what the late curve needs.
-const LATE_GAME_DIFFICULTY := 4.0
+const LATE_GAME_DIFFICULTY := 4.0 ## 200s at the current DIFFICULTY_SECONDS
 const LATE_HEALTH_PER_STEP := 0.35
 const LATE_DAMAGE_PER_STEP := 0.20
 const EARLY_GAME_DIFFICULTY := 1.0
@@ -140,7 +140,9 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			1.0,
 			clampf(difficulty / EARLY_GAME_DIFFICULTY, 0.0, 1.0)
 		)
-	if difficulty > LATE_GAME_DIFFICULTY:
+	# The boss is excluded: it carries its own multiplier, and compounding the
+	# two is how it ended up unkillable.
+	if difficulty > LATE_GAME_DIFFICULTY and not is_boss:
 		var late := difficulty - LATE_GAME_DIFFICULTY
 		max_health *= 1.0 + late * LATE_HEALTH_PER_STEP
 		contact_damage *= 1.0 + late * LATE_DAMAGE_PER_STEP
@@ -151,9 +153,11 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		contact_damage *= 1.4
 		xp_value *= 4
 	if boss:
-		max_health *= 4.0
+		# One explicit multiplier instead of elite x boss, and a gentler contact
+		# hit: two touches killing an unupgraded survivor left no fight in it.
+		max_health *= 12.0
 		radius *= 1.45
-		contact_damage *= 1.35
+		contact_damage *= 1.15
 		xp_value = 150
 	health = max_health
 	add_to_group("enemies")

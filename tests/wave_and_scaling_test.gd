@@ -101,7 +101,10 @@ func _test_wave_clock() -> void:
 	# Step past two full wave durations without ever reaching the boss timer.
 	var delta := 1.0 / 60.0
 	var elapsed := 0.0
-	for tick in int(WaveDirector.WAVE_DURATION * 2.0 / delta):
+	# A few ticks past the boundary rather than exactly on it: accumulating
+	# 1/60 twelve hundred times lands a hair under two durations and the second
+	# wave never fires.
+	for tick in int(WaveDirector.WAVE_DURATION * 2.0 / delta) + 6:
 		elapsed += delta
 		director.step(delta, elapsed, Vector2.ZERO, 0)
 	_check(director.wave_index == 2, "two wave durations advance the counter twice (got %d)" % director.wave_index)

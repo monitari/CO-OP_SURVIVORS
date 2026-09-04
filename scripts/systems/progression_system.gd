@@ -3,7 +3,7 @@ extends Node
 
 var level := 1
 var experience := 0
-var required_experience := 30
+var required_experience := 24
 
 
 func add_experience(amount: int) -> void:
@@ -24,6 +24,6 @@ func consume_level_up() -> bool:
 	# mostly menus. At the roster's baseline kill rate this lands level-ups
 	# roughly 20-25 seconds apart instead of the ~12 seconds the shallower
 	# curve produced.
-	required_experience = int(round(float(required_experience) * 1.38 + 8.0))
+	required_experience = int(round(float(required_experience) * 1.32 + 6.0))
 	return true
 

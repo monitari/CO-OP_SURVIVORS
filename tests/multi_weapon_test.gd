@@ -64,12 +64,14 @@ func _test_tag_translations(main: Node) -> void:
 func _test_weapon_cap(main: Node) -> void:
 	_check(main.weapon_loadouts[0].size() == 1, "a run starts with exactly one weapon")
 
-	for i in 2:
+	# Derived from the cap rather than hard-coded, so raising the cap moves
+	# this test with it instead of failing it.
+	for i in main.WEAPON_LOADOUT_CAP - 1:
 		var candidates: Array = main._pick_unowned_characters(0, 1)
 		_check(not candidates.is_empty(), "an unowned character is available to unlock (iteration %d)" % i)
 		main._apply_upgrade(0, {"id": "unlock_weapon", "weapon_slot": -1, "character": candidates[0]})
 
-	_check(main.weapon_loadouts[0].size() == main.WEAPON_LOADOUT_CAP, "two unlock picks bring a player to the weapon cap")
+	_check(main.weapon_loadouts[0].size() == main.WEAPON_LOADOUT_CAP, "unlock picks bring a player to the weapon cap (%d of %d)" % [main.weapon_loadouts[0].size(), main.WEAPON_LOADOUT_CAP])
 	_check(main.attack_timers[0].size() == main.weapon_loadouts[0].size(), "attack_timers stays 1:1 with weapon_loadouts")
 
 	# Each draw shuffles a ~16-option pool down to 3, so a single draw missing an
@@ -85,13 +87,16 @@ func _test_weapon_cap(main: Node) -> void:
 
 
 func _test_independent_cooldowns(main: Node) -> void:
-	# player 0 now has 3 weapons from the cap test above. Give the first a
+	# player 0 is at the weapon cap from the test above. Give the first a
 	# very short cooldown and the rest very long ones, then step the same
 	# decrement-then-fire shape the physics loop uses and confirm only the
 	# fast weapon's timer (and the damage it deals) moves.
 	for weapon_slot in main.weapon_loadouts[0].size():
 		main.weapon_loadouts[0][weapon_slot]["cooldown"] = 0.05 if weapon_slot == 0 else 30.0
-	main.attack_timers[0] = [0.0, 30.0, 30.0]
+	var timers: Array = [0.0]
+	for extra in main.weapon_loadouts[0].size() - 1:
+		timers.append(30.0)
+	main.attack_timers[0] = timers
 
 	var enemy := EnemyScript.new() as ChaserEnemy
 	enemy.setup(0.0, "chaser")

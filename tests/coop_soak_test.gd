@@ -30,7 +30,10 @@ func _run() -> void:
 	main.players[1].health = 100000.0
 	main.experience_system.magnet_radius = 3000.0
 
-	for frame in 720:
+	# Enough frames to clear the boss timer. A soak that stops before the run's
+	# own climax cannot say anything about the part players care most about.
+	var seen_archetypes: Dictionary = {}
+	for frame in 980:
 		var angle := float(frame) * 0.025
 		var center := Vector2(cos(angle * 0.22), sin(angle * 0.22)) * 220.0
 		main.players[0].position = center + Vector2.from_angle(angle) * 145.0
@@ -44,12 +47,17 @@ func _run() -> void:
 				main._select_upgrade(1, 0)
 			if main.level_up_active and main.selected_upgrade_indices[1] < 0:
 				main._select_upgrade(2, 0)
+		# Sampled every frame rather than read off the survivors at the end: a
+		# strong pair leaves barely a dozen enemies alive, and a dozen chasers
+		# is not evidence that the other archetypes never spawned.
+		for enemy in main.enemies:
+			seen_archetypes[(enemy as ChaserEnemy).archetype] = true
 		await physics_frame
 
 	Engine.time_scale = 1.0
 	var wall_elapsed := Time.get_ticks_msec() - wall_start
 	_check(main.elapsed >= 180.0 or main.run_won, "accelerated run reaches three minutes or completes with boss victory")
-	_check(main.wave_director.boss_spawned, "120-second boss spawns")
+	_check(main.wave_director.boss_spawned, "the run's boss spawns on schedule (%.0fs of %.0fs)" % [main.elapsed, WaveDirector.BOSS_TIME])
 	_check(main.enemies.size() <= main.wave_director.enemy_cap, "active enemy count respects cap")
 	_check(main.kills > 0, "automated pair kills enemies")
 	_check(main.progression.level > 1, "automated pair collects shared XP and levels")
@@ -68,15 +76,11 @@ func _run() -> void:
 	_check(seconds_per_level >= 17.0, "level-ups are not pausing the run more often than ~17s apart")
 	_check(seconds_per_level <= 29.0, "level-ups have not drifted sparse enough to starve a run of upgrades")
 
-	var archetypes: Dictionary = {}
-	for enemy in main.enemies:
-		if is_instance_valid(enemy) and enemy.active:
-			archetypes[enemy.archetype] = true
-	_check(archetypes.size() >= 3, "long run contains multiple enemy archetypes")
+	_check(seen_archetypes.size() >= 3, "long run contains multiple enemy archetypes (%s)" % str(seen_archetypes.keys()))
 
 	print("SOAK_METRICS: simulated=%.1fs wall=%dms kills=%d level=%d sec_per_level=%.1f active=%d pooled_enemies=%d pooled_gems=%d archetypes=%d" % [
 		main.elapsed, wall_elapsed, main.kills, main.progression.level, seconds_per_level, main.enemies.size(),
-		main.wave_director.enemy_pool.size(), main.experience_system.gem_pool.size(), archetypes.size()
+		main.wave_director.enemy_pool.size(), main.experience_system.gem_pool.size(), seen_archetypes.size()
 	])
 	if failures.is_empty():
 		print("COOP_SOAK_PASS")

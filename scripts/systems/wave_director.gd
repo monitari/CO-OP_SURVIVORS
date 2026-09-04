@@ -11,10 +11,17 @@ signal wave_calm_started(wave_index: int)
 
 const EnemyScript := preload("res://scripts/enemy.gd")
 
-const WAVE_DURATION := 20.0
-const WAVE_CALM := 5.0 ## Trailing quiet stretch of each wave, for regrouping and picking up drops.
+## A run used to be two minutes, which is shorter than the content it hands
+## out: four weapon slots, four treasure slots and twenty-one resonances are
+## not reachable in six level-ups. Phases are longer so each one has room to
+## build and release, and the boss now closes a five-minute run.
+const WAVE_DURATION := 30.0
+const WAVE_CALM := 9.0 ## Trailing quiet stretch of each wave, for regrouping and picking up drops.
 const SURGE_EVERY := 3 ## Every third wave opens with a much larger surge.
-const BOSS_TIME := 120.0
+const BOSS_TIME := 300.0
+## Seconds of elapsed run per point of difficulty. Stretched with the run so
+## a five-minute fight does not simply arrive at twice the old scaling.
+const DIFFICULTY_SECONDS := 50.0
 const OPENING_SPAWN_INTERVAL := 0.78
 const SECOND_WAVE_SPAWN_INTERVAL := 0.68
 const FIRST_REINFORCEMENT_COUNT := 3
@@ -50,7 +57,7 @@ func is_surge_wave(index: int) -> bool:
 
 func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> Array[ChaserEnemy]:
 	var spawned: Array[ChaserEnemy] = []
-	var difficulty := elapsed / 30.0
+	var difficulty := elapsed / DIFFICULTY_SECONDS
 
 	# --- wave clock ---------------------------------------------------------
 	wave_elapsed += delta
@@ -80,7 +87,10 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 
 	if elapsed >= BOSS_TIME and not boss_spawned:
 		boss_spawned = true
-		spawned.append(_acquire_enemy("brute", difficulty, center, true, true))
+		# Not flagged elite: the boss multiplier already covers its stat block,
+		# and stacking both produced a boss with four times the health anyone
+		# had budgeted for.
+		spawned.append(_acquire_enemy("brute", difficulty, center, false, true))
 	# Elites and the boss ignore the lull — the calm is a break from the swarm,
 	# not a guarantee that nothing happens.
 	if elite_timer <= 0.0:
