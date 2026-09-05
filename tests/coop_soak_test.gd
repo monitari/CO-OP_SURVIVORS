@@ -7,7 +7,7 @@ var failures: Array[String] = []
 
 
 func _initialize() -> void:
-	TestHarness.arm_watchdog(self, "COOP_SOAK_FAIL", 180.0)
+	TestHarness.arm_watchdog(self, "COOP_SOAK_FAIL", 900.0)
 	call_deferred("_run")
 
 
@@ -30,10 +30,21 @@ func _run() -> void:
 	main.players[1].health = 100000.0
 	main.experience_system.magnet_radius = 3000.0
 
-	# Enough frames to clear the boss timer. A soak that stops before the run's
-	# own climax cannot say anything about the part players care most about.
+	# Enough frames to play out the whole twenty-five minutes. A soak that stops
+	# before the run's own climax cannot say anything about the part players
+	# care most about, and the climax is now four fifths of the way in.
 	var seen_archetypes: Dictionary = {}
-	for frame in 980:
+	var seen_encounters: Dictionary = {}
+	main.wave_director.encounter_started.connect(
+		func(encounter_id: String) -> void: seen_encounters[encounter_id] = true)
+	var level_marks: Array[float] = []
+	var last_level: int = main.progression.level
+	for frame in 4700:
+		if main.progression.level != last_level:
+			last_level = main.progression.level
+			level_marks.append(main.elapsed)
+		if main.run_won or main.game_over:
+			break
 		var angle := float(frame) * 0.025
 		var center := Vector2(cos(angle * 0.22), sin(angle * 0.22)) * 220.0
 		main.players[0].position = center + Vector2.from_angle(angle) * 145.0
@@ -57,7 +68,7 @@ func _run() -> void:
 	Engine.time_scale = 1.0
 	var wall_elapsed := Time.get_ticks_msec() - wall_start
 	_check(main.elapsed >= 180.0 or main.run_won, "accelerated run reaches three minutes or completes with boss victory")
-	_check(main.wave_director.boss_spawned, "the run's boss spawns on schedule (%.0fs of %.0fs)" % [main.elapsed, WaveDirector.BOSS_TIME])
+	_check(main.wave_director.boss_spawned, "the run's first boss spawns on schedule (%.0fs of %.0fs)" % [main.elapsed, WaveDirector.BOSS_INTERVAL])
 	_check(main.enemies.size() <= main.wave_director.enemy_cap, "active enemy count respects cap")
 	_check(main.kills > 0, "automated pair kills enemies")
 	_check(main.progression.level > 1, "automated pair collects shared XP and levels")
@@ -69,18 +80,52 @@ func _run() -> void:
 	# ~12s cadence on one edge and an overcorrection into a leveling drought
 	# on the other.
 	var seconds_per_level: float = main.elapsed / maxf(1.0, float(main.progression.level - 1))
-	# The band used to be 18-34, which was wide enough that the curve drifted
-	# all the way to 34s per level — three or four level-ups in a whole run —
-	# without ever failing. Measured pacing sits at 21-23s; this is a real
-	# band around that rather than a formality.
-	_check(seconds_per_level >= 17.0, "level-ups are not pausing the run more often than ~17s apart")
-	_check(seconds_per_level <= 29.0, "level-ups have not drifted sparse enough to starve a run of upgrades")
+	# The average alone cannot tell a flat cadence from a fast opening followed
+	# by a twenty-minute drought, which is exactly the failure a longer run
+	# invites. Compare the second half of the run against the first.
+	var late_gap := 0.0
+	var early_gap := 0.0
+	if level_marks.size() >= 6:
+		var half := int(level_marks.size() / 2)
+		var early_span: float = level_marks[half] - level_marks[0]
+		var late_span: float = level_marks[level_marks.size() - 1] - level_marks[half]
+		late_gap = late_span / maxf(1.0, float(level_marks.size() - 1 - half))
+		early_gap = early_span / maxf(1.0, float(half))
+		# Measured 1.6x. The old curve was at 4.7x, which is what a "twenty-five
+		# minute run" actually looked like before this: a brisk opening and
+		# then twenty minutes with almost no upgrades in them.
+		_check(late_gap <= early_gap * 2.2,
+			"level pacing does not collapse in the back half (%.1fs early, %.1fs late)" % [early_gap, late_gap])
+	# The band was 17-29, drawn around a five-minute run that ended at level 14.
+	# A twenty-five-minute run has to deliver enough level-ups to actually
+	# finish a build — four weapons to tier seven and four treasures to tier
+	# six is over fifty picks — so the cadence is slower per level and the run
+	# is far longer. Measured pacing sits at 34s average; this is a real band
+	# around that rather than a formality.
+	_check(seconds_per_level >= 26.0, "level-ups are not pausing the run more often than ~26s apart")
+	_check(seconds_per_level <= 42.0, "level-ups have not drifted sparse enough to starve a run of upgrades")
+	_check(main.progression.level >= 40,
+		"a full run reaches deep enough into the tree to finish a build (level %d)" % main.progression.level)
 
 	_check(seen_archetypes.size() >= 3, "long run contains multiple enemy archetypes (%s)" % str(seen_archetypes.keys()))
+	# A twenty-five-minute run is long enough to see the whole encounter rota;
+	# if it does not, the schedule is not actually running.
+	_check(seen_encounters.size() >= WaveDirector.ENCOUNTER_ORDER.size(),
+		"every named encounter fires over a full run (%s)" % str(seen_encounters.keys()))
+	_check(main.wave_director.bosses_spawned >= 4,
+		"the run sends its bosses on schedule (%d of %d)" % [
+			main.wave_director.bosses_spawned, WaveDirector.BOSS_COUNT])
+	# The bot circles at a fixed radius and takes whatever card is first, so
+	# this is a floor rather than a target: if even that build cannot finish
+	# three bosses, the rank scaling has outrun what a run can produce.
+	_check(int(main.run_stats["bosses"]) >= 3,
+		"bosses stay killable as their rank climbs (%d killed)" % int(main.run_stats["bosses"]))
 
-	print("SOAK_METRICS: simulated=%.1fs wall=%dms kills=%d level=%d sec_per_level=%.1f active=%d pooled_enemies=%d pooled_gems=%d archetypes=%d" % [
-		main.elapsed, wall_elapsed, main.kills, main.progression.level, seconds_per_level, main.enemies.size(),
-		main.wave_director.enemy_pool.size(), main.experience_system.gem_pool.size(), seen_archetypes.size()
+	print("SOAK_METRICS: simulated=%.1fs wall=%dms kills=%d level=%d sec_per_level=%.1f early_gap=%.1f late_gap=%.1f bosses=%d killed=%d won=%s active=%d pooled_enemies=%d pooled_gems=%d archetypes=%d encounters=%d" % [
+		main.elapsed, wall_elapsed, main.kills, main.progression.level, seconds_per_level, early_gap, late_gap,
+		main.wave_director.bosses_spawned, int(main.run_stats["bosses"]), str(main.run_won), main.enemies.size(),
+		main.wave_director.enemy_pool.size(), main.experience_system.gem_pool.size(),
+		seen_archetypes.size(), seen_encounters.size()
 	])
 	if failures.is_empty():
 		print("COOP_SOAK_PASS")

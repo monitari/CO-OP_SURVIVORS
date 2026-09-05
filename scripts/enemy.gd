@@ -18,15 +18,28 @@ signal damage_taken(enemy: ChaserEnemy, amount: float)
 signal chain_slam(impact_point: Vector2, damage: float, radius: float)
 signal enraged(enemy: ChaserEnemy)
 
-## Difficulty is elapsed/30, so 4.0 is the boss timer. Past that point a
-## pair can be carrying three weapons each, stacked personal attributes and
-## up to three active resonances, while enemies were still only gaining a
-## flat +5 health per difficulty step. The ramp below is deliberately zero
-## until this threshold: the early game is already the lethal part, and
+## Past this point a pair can be carrying four weapons each, stacked personal
+## attributes and up to three active resonances, while enemies were still only
+## gaining a flat +5 health per difficulty step. The ramp below is deliberately
+## zero until this threshold: the early game is already the lethal part, and
 ## making it harder is not what the late curve needs.
-const LATE_GAME_DIFFICULTY := 4.0 ## 200s at the current DIFFICULTY_SECONDS
+const LATE_GAME_DIFFICULTY := 4.0 ## ~250s at the current DIFFICULTY_SECONDS
 const LATE_HEALTH_PER_STEP := 0.35
 const LATE_DAMAGE_PER_STEP := 0.20
+## A twenty-five-minute run reaches difficulty ~24, and an uncapped linear ramp
+## there means a basic chaser that hits for six times its archetype value —
+## which is not "harder", it is "one touch kills anyone regardless of build".
+## Health is allowed to keep climbing because damage output climbs with it;
+## the thing a player cannot out-build is a one-shot.
+const LATE_DAMAGE_CAP := 2.8
+const LATE_HEALTH_CAP := 9.0
+## Speed is capped separately and much harder: enemies faster than the survivors
+## remove the option of leaving, and the chain already limits how far the pair
+## can go. This lands the fastest late chaser just under the slowest cat.
+const SPEED_RAMP_CAP := 34.0
+## Experience per kill rises with the run, so a level-up curve steep enough to
+## last twenty-five minutes is not paid for entirely by killing more things.
+const XP_PER_DIFFICULTY := 0.20
 const EARLY_GAME_DIFFICULTY := 1.0
 const OPENING_CONTACT_DAMAGE_MULTIPLIER := 0.75
 
@@ -71,10 +84,15 @@ var boss_attack_timer := 0.0
 var boss_slam_windup := 0.0
 var boss_slam_point := Vector2.ZERO
 var boss_enraged := false
+var boss_rank := 0 ## 1-5 for the run's bosses, 0 for everything else.
 var hit_flash := 0.0
 
 
-func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false) -> void:
+## `boss_rank` is 1-5 for the run's five bosses and 0 for everything else. Each
+## boss is a real step up rather than the same fight with a bigger timer: more
+## health, a heavier touch, and — from the third one on — the enraged patterns
+## from the start instead of only below half health.
+func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false, rank: int = 0) -> void:
 	archetype = new_archetype
 	elite = is_elite
 	boss = is_boss
@@ -98,6 +116,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	boss_slam_windup = 0.0
 	boss_slam_point = Vector2.ZERO
 	boss_enraged = false
+	boss_rank = rank if is_boss else 0
 	hit_flash = 0.0
 	scale = Vector2.ONE
 
@@ -165,8 +184,9 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 5
 			enemy_color = Color("ef476f")
 
-	move_speed += difficulty * 2.6 + randf_range(-7.0, 9.0)
+	move_speed += minf(difficulty * 2.6, SPEED_RAMP_CAP) + randf_range(-7.0, 9.0)
 	max_health += difficulty * 5.0 + radius * 0.3
+	xp_value = maxi(1, int(round(float(xp_value) * (1.0 + difficulty * XP_PER_DIFFICULTY))))
 	# Spawn pacing alone cannot protect a pair whose first ring closes from an
 	# unlucky set of angles. Let contact damage teach pressure before it fully
 	# punishes it, reaching the original value at 30 seconds. Special enemies
@@ -181,8 +201,8 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	# two is how it ended up unkillable.
 	if difficulty > LATE_GAME_DIFFICULTY and not is_boss:
 		var late := difficulty - LATE_GAME_DIFFICULTY
-		max_health *= 1.0 + late * LATE_HEALTH_PER_STEP
-		contact_damage *= 1.0 + late * LATE_DAMAGE_PER_STEP
+		max_health *= minf(LATE_HEALTH_CAP, 1.0 + late * LATE_HEALTH_PER_STEP)
+		contact_damage *= minf(LATE_DAMAGE_CAP, 1.0 + late * LATE_DAMAGE_PER_STEP)
 	if elite:
 		max_health *= 2.7
 		move_speed *= 1.08
@@ -192,10 +212,15 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	if boss:
 		# One explicit multiplier instead of elite x boss, and a gentler contact
 		# hit: two touches killing an unupgraded survivor left no fight in it.
-		max_health *= 12.0
-		radius *= 1.45
-		contact_damage *= 1.15
-		xp_value = 150
+		# The rank step is 1.42 rather than a doubling: the pair's output over
+		# five minutes of upgrades grows by roughly that much, so each boss
+		# stays about as long a fight as the one before it.
+		var rank_step := pow(1.42, float(maxi(1, boss_rank) - 1))
+		max_health *= 12.0 * rank_step
+		radius *= 1.45 + float(maxi(1, boss_rank) - 1) * 0.06
+		contact_damage *= 1.15 + float(maxi(1, boss_rank) - 1) * 0.12
+		move_speed += float(maxi(1, boss_rank) - 1) * 7.0
+		xp_value = 150 * maxi(1, boss_rank)
 	health = max_health
 	z_index = 5 # Threat telegraphs remain above friendly attack effects.
 	if not is_instance_valid(body_sprite):
@@ -328,7 +353,11 @@ func _step_shooter(target_position: Vector2, speed_scale: float, delta: float) -
 ## reads as the same kind of threat the player has learned to respect all
 ## game instead of an unfamiliar one arriving for the first time at the boss.
 func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_scale: float, delta: float) -> void:
-	if not boss_enraged and health <= max_health * 0.5:
+	# From the third boss on, the enrage threshold moves up rather than the
+	# stat block simply growing: the late bosses spend most of the fight in the
+	# pattern set the early ones only reach at half health.
+	var enrage_at := 0.5 + float(maxi(1, boss_rank) - 1) * 0.12
+	if not boss_enraged and health <= max_health * minf(0.9, enrage_at):
 		boss_enraged = true
 		move_speed *= 1.4
 		boss_attack_timer = minf(boss_attack_timer, 1.2)

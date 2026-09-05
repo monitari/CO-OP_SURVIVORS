@@ -10,39 +10,48 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 
-## The roster is meant to grow, and "is the new one fair?" is not answerable by
-## reading six dictionaries. CharacterCatalog states two budgets; this asserts
-## every survivor sits inside them, so adding a seventh either lands in the band
-## or fails here with the number it missed by.
+## Two questions, and they pull against each other on purpose.
+##
+## "Is this survivor fair?" is answered by one budget over all six axes, so a
+## cat may be extreme anywhere as long as it pays for it somewhere else.
+##
+## "Are these survivors actually different?" is the question the old test never
+## asked, which is how the roster ended up varying by 25% in health, 18% in
+## speed and nothing else at all. A budget alone is perfectly satisfied by ten
+## identical cats, so the spread floors are asserted separately — and they are
+## what fails if someone flattens the roster back out to make the budget easier
+## to hit.
 func _run() -> void:
 	var roster := CharacterCatalog.all_characters()
 	_check(roster.size() >= 2, "the roster has survivors in it")
 
 	var ids: Dictionary = {}
 	var weapon_ids: Dictionary = {}
-	var survival_line: Array[String] = []
+	var budget_line: Array[String] = []
 	var power_line: Array[String] = []
+	var difficulties: Dictionary = {}
 
 	for character in roster:
 		var name := String(character["name"])
-		var survival := CharacterCatalog.survival_budget(character)
-		var power := CharacterCatalog.power_budget(character)
-		survival_line.append("%s %.3f" % [name, survival])
-		power_line.append("%s %.1f" % [name, power])
+		var budget := CharacterCatalog.total_budget(character)
+		budget_line.append("%s %.3f" % [name, budget])
+		power_line.append("%s %.1f" % [name, CharacterCatalog.power_budget(character)])
 
-		_check(survival >= CharacterCatalog.SURVIVAL_BUDGET_MIN and survival <= CharacterCatalog.SURVIVAL_BUDGET_MAX,
-			"%s's survival budget is inside the band (%.3f, band %.2f-%.2f)" % [
-				name, survival, CharacterCatalog.SURVIVAL_BUDGET_MIN, CharacterCatalog.SURVIVAL_BUDGET_MAX])
-		_check(power >= CharacterCatalog.POWER_BUDGET_MIN and power <= CharacterCatalog.POWER_BUDGET_MAX,
-			"%s's power budget is inside the band (%.1f, band %.0f-%.0f)" % [
-				name, power, CharacterCatalog.POWER_BUDGET_MIN, CharacterCatalog.POWER_BUDGET_MAX])
+		_check(budget >= CharacterCatalog.TOTAL_BUDGET_MIN and budget <= CharacterCatalog.TOTAL_BUDGET_MAX,
+			"%s's total budget is inside the band (%.3f, band %.2f-%.2f)" % [
+				name, budget, CharacterCatalog.TOTAL_BUDGET_MIN, CharacterCatalog.TOTAL_BUDGET_MAX])
 
 		# A budget only means anything if every field it reads is actually there.
+		for field: String in ["health", "speed", "armor", "crit", "pickup", "chain"]:
+			_check(character.has(field), "%s declares %s" % [name, field])
 		var weapon: Dictionary = character["weapon"]
 		_check(weapon.has("reach"), "%s's weapon declares a reach factor" % name)
 		_check(float(weapon.get("reach", 0.0)) > 0.0, "%s's reach factor is positive" % name)
 		_check(float(weapon["cooldown"]) > 0.0, "%s's cooldown is positive" % name)
 		_check(int(weapon.get("tier", 0)) == 1, "%s starts at tier 1" % name)
+		_check(float(character["health"]) > 0.0, "%s has health" % name)
+		_check(float(character["speed"]) > 0.0, "%s can move" % name)
+		_check(float(character["armor"]) >= 0.0, "%s's armor is not negative" % name)
 
 		# Identity fields the rest of the game indexes by. A duplicate here would
 		# silently make one survivor unreachable in the roster or the icon atlas.
@@ -56,23 +65,71 @@ func _run() -> void:
 		_check(GameIconCatalog.weapon(weapon_id) != null, "%s's weapon has an icon" % name)
 		_check(not (character["tags"] as Array).is_empty(), "%s has resonance tags" % name)
 
-	print("SURVIVOR_SURVIVAL: " + "  ·  ".join(survival_line))
-	print("SURVIVOR_POWER: " + "  ·  ".join(power_line))
+		difficulties[CharacterCatalog.difficulty(character)] = true
 
-	# The bands are only useful if they are tighter than the spread they were
-	# drawn around; a band wide enough to admit anything asserts nothing.
-	var survival_spread := CharacterCatalog.SURVIVAL_BUDGET_MAX - CharacterCatalog.SURVIVAL_BUDGET_MIN
-	_check(survival_spread <= 0.25, "the survival band is tight enough to mean something (%.2f)" % survival_spread)
-	var power_spread := CharacterCatalog.POWER_BUDGET_MAX - CharacterCatalog.POWER_BUDGET_MIN
-	_check(power_spread <= 10.0, "the power band is tight enough to mean something (%.1f)" % power_spread)
+	print("SURVIVOR_BUDGET: " + "  ·  ".join(budget_line))
+	print("SURVIVOR_POWER: " + "  ·  ".join(power_line))
+	_test_axes_are_wide(roster)
+	_test_leash_is_a_real_choice(roster)
+
+	# Ten survivors spread over one or two difficulty grades is a rating nobody
+	# can choose on. The spread floors above should force this, but asserting it
+	# directly is what says the *derived* read moved, not only the inputs.
+	_check(difficulties.size() >= 4,
+		"the roster spans at least four difficulty grades (%s)" % str(difficulties.keys()))
+
+	# The band is only useful if it is tighter than the spread it was drawn
+	# around; a band wide enough to admit anything asserts nothing.
+	var band := CharacterCatalog.TOTAL_BUDGET_MAX - CharacterCatalog.TOTAL_BUDGET_MIN
+	_check(band <= 0.15, "the budget band is tight enough to mean something (%.2f)" % band)
 
 	if failures.is_empty():
-		print("SURVIVOR_BALANCE_PASS: every survivor is inside both budgets")
+		print("SURVIVOR_BALANCE_PASS: every survivor is inside the budget and the roster still spreads")
 		quit(0)
 	else:
 		for failure in failures:
 			push_error("SURVIVOR_BALANCE_FAIL: " + failure)
 		quit(1)
+
+
+## The roster has to actually use each axis. Ratio axes are checked as max/min
+## and additive ones as max-min, matching how CharacterCatalog.SPREAD_FLOORS is
+## written, and every floor is reported with the measured value so a failure
+## says how far short it fell rather than only that it did.
+func _test_axes_are_wide(roster: Array[Dictionary]) -> void:
+	var report: Array[String] = []
+	for field: String in CharacterCatalog.SPREAD_FLOORS:
+		var low := INF
+		var high := -INF
+		for character in roster:
+			var value := float(character[field])
+			low = minf(low, value)
+			high = maxf(high, value)
+		var floor_value := float(CharacterCatalog.SPREAD_FLOORS[field])
+		var ratio_axis := field in ["health", "speed", "pickup"]
+		var measured := (high / maxf(0.0001, low)) if ratio_axis else (high - low)
+		report.append("%s %.2f..%.2f (%s %.2f)" % [
+			field, low, high, "x" if ratio_axis else "d", measured])
+		_check(measured >= floor_value,
+			"the roster spreads across %s (%.2f, floor %.2f)" % [field, measured, floor_value])
+	print("SURVIVOR_SPREAD: " + "  ·  ".join(report))
+
+
+## The leash is the one stat that is decided by the pair rather than by either
+## survivor, so it is checked as a pair: the shortest possible chain and the
+## longest have to be different enough that picking for it is a real decision.
+func _test_leash_is_a_real_choice(roster: Array[Dictionary]) -> void:
+	var shortest := INF
+	var longest := -INF
+	for first in roster:
+		for second in roster:
+			var length := CharacterCatalog.chain_length_for(first, second)
+			shortest = minf(shortest, length)
+			longest = maxf(longest, length)
+	_check(shortest > 200.0, "even the shortest pairing leaves room to fight (%.0f)" % shortest)
+	_check(longest / shortest >= 1.5,
+		"the leash a pair ends up with is a real choice (%.0f to %.0f)" % [shortest, longest])
+	print("SURVIVOR_LEASH: %.0f - %.0f" % [shortest, longest])
 
 
 func _check(condition: bool, label: String) -> void:

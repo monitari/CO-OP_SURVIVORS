@@ -48,11 +48,19 @@ func _run() -> void:
 ## can come due on one frame. They used to open back to back, which turned a good
 ## moment into a stutter: stop, one frame of play, stop again.
 func _test_level_ups_queue(main: Node) -> void:
-	# Enough experience for at least three levels at once.
+	# Enough experience for at least three levels at once. Worked out on a
+	# throwaway progression rather than by adding the *current* requirement
+	# three times: the requirement grows with each level, so the naive version
+	# banked one level and two thirds of nothing, and silently stopped testing
+	# the queue the moment the curve changed.
+	var probe := SharedProgression.new()
 	var banked := 0
 	for step in 3:
-		banked += main.progression.required_experience
-		main.progression.add_experience(main.progression.required_experience)
+		banked += probe.required_experience
+		probe.add_experience(probe.required_experience)
+		probe.consume_level_up()
+	probe.free()
+	main.progression.add_experience(banked)
 	_check(main.progression.can_level_up(), "the fixture actually banked several levels")
 
 	main._begin_level_up()

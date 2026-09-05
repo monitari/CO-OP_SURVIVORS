@@ -35,7 +35,7 @@ func _run() -> void:
 	await _test_expiry_and_pooling(main)
 	_test_heal(main)
 	_test_magnet(main)
-	_test_chain_repair(main)
+	_test_chain_ward(main)
 	_test_purge(main)
 	_test_drop_rates(main)
 	_test_table_integrity(main)
@@ -132,16 +132,46 @@ func _test_magnet(main: Node) -> void:
 	paused = false
 
 
-func _test_chain_repair(main: Node) -> void:
+## 사슬 결계 replaced 사슬 정비. The old drop refunded integrity, which is a
+## number going up; this one suspends the whole chain economy for a window and
+## turns the chain into a weapon while it lasts. Each of those is checked
+## separately, because "the timer is running" is not evidence that anything is
+## actually different while it runs.
+func _test_chain_ward(main: Node) -> void:
 	main.chain_integrity = 10.0
 	main.chain_overloaded = true
-	main._on_field_item_collected("chain_repair")
-	_check(main.chain_integrity > 10.0, "the repair drop restores chain integrity")
-	_check(not main.chain_overloaded, "enough repair clears an overloaded chain")
+	main._on_field_item_collected("chain_ward")
+	_check(main.chain_warded(), "the ward drop opens a ward window")
+	_check(is_equal_approx(main.chain_integrity, main.CHAIN_INTEGRITY_MAX),
+		"the ward pins integrity at full")
+	_check(not main.chain_overloaded, "the ward clears an overloaded chain")
 
+	# Held at a gap that would normally be burning integrity fast.
+	main.players[0].position = Vector2(-main.chain_max_length * 0.5, 0.0)
+	main.players[1].position = Vector2(main.chain_max_length * 0.5, 0.0)
+	_check(main._tension_damage_multiplier() > 1.2,
+		"a warded chain pays the overcharge bonus regardless of tension")
+
+	var victim := _spawn_enemy(main, Vector2.ZERO)
+	var before := victim.health
+	for tick in 30:
+		main._update_chain_ward(1.0 / 60.0)
+		main._update_chain_integrity(1.0 / 60.0)
+	_check(victim.health < before, "the warded chain burns what stands on it")
+	_check(is_equal_approx(main.chain_integrity, main.CHAIN_INTEGRITY_MAX),
+		"and integrity does not drain while the ward holds (%.1f)" % main.chain_integrity)
+
+	# It has to end, or it is not a window.
+	for tick in int(main.CHAIN_WARD_DURATION * 61.0):
+		main._update_chain_ward(1.0 / 60.0)
+	_check(not main.chain_warded(), "the ward expires")
+	for tick in 30:
+		main._update_chain_integrity(1.0 / 60.0)
+	_check(main.chain_integrity < main.CHAIN_INTEGRITY_MAX,
+		"and the chain is strained again once it does (%.1f)" % main.chain_integrity)
+
+	victim.take_damage(999999.0)
 	main.chain_integrity = main.CHAIN_INTEGRITY_MAX
-	main._on_field_item_collected("chain_repair")
-	_check(main.chain_integrity <= main.CHAIN_INTEGRITY_MAX, "repair never overfills past the maximum")
 	main.chain_overloaded = false
 
 
@@ -195,13 +225,20 @@ func _test_drop_rates(main: Node) -> void:
 		main._try_drop_field_item(Vector2(index, 3000.0), false)
 	var lucky: int = main.field_items.active_items.size()
 
-	# The boss carries the elite flag, so an ordering slip would hand out a
-	# guaranteed drop at the same instant the run ends.
+	# An early boss is a checkpoint and leaves a guaranteed drop; the final one
+	# ends the run, so anything it left would be a pickup nobody can reach.
 	main.field_items.clear_all()
-	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2(0.0, -400.0), true, true) as ChaserEnemy
-	main._register_enemy(boss)
-	boss.take_damage(999999.0)
-	_check(main.field_items.active_items.is_empty(), "defeating the boss does not strand a drop as the run ends")
+	var early := main.wave_director._acquire_enemy("brute", 3.0, Vector2(0.0, -400.0), false, true, 1) as ChaserEnemy
+	main._register_enemy(early)
+	early.take_damage(999999.0)
+	_check(main.field_items.active_items.size() == 1, "an early boss leaves a guaranteed drop behind")
+
+	main.field_items.clear_all()
+	var last := main.wave_director._acquire_enemy(
+		"brute", 3.0, Vector2(0.0, -400.0), false, true, WaveDirector.BOSS_COUNT) as ChaserEnemy
+	main._register_enemy(last)
+	last.take_damage(999999.0)
+	_check(main.field_items.active_items.is_empty(), "the final boss does not strand a drop as the run ends")
 	main.game_over = false
 	main.run_won = false
 	main.result_overlay.visible = false
@@ -218,7 +255,7 @@ func _test_drop_rates(main: Node) -> void:
 func _test_table_integrity(main: Node) -> void:
 	# Every id the roll can produce must be handled by the pickup effects and
 	# have a name and colour, or a drop would land as an unlabelled no-op.
-	var handled := ["heal", "magnet", "chain_repair", "purge"]
+	var handled := ["heal", "magnet", "chain_ward", "purge"]
 	var table_ids: Array[String] = []
 	for entry in main.field_items.ITEM_TABLE:
 		table_ids.append(String(entry["id"]))

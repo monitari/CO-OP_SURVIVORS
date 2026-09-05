@@ -1,3 +1,4 @@
 .godot/
 builds/
 .godot_runtime/
+docs/screenshots/*.import

@@ -80,8 +80,12 @@ func _run() -> void:
 	check(Value.gain(main, 0, {"id": "special_a", "weapon_slot": 1}) < low_jump, "chain falloff reduces marginal recommendation")
 	check(not Value.benefits_loadout([main._build_weapon_state(main.character_catalog[3])], "amount"), "extra shots do not falsely benefit a frost-only build")
 	main.team_overcharge = 0.1
-	main.players[0].position = Vector2(-160, 0)
-	main.players[1].position = Vector2(160, 0)
+	# Placed as a fraction of the leash rather than at a fixed 320px: the chain
+	# length is decided by which two cats were picked now, so a hard-coded gap
+	# lands in a different chain state depending on the roster.
+	var overcharge_gap: float = main.chain_max_length * 0.88 * 0.5
+	main.players[0].position = Vector2(-overcharge_gap, 0)
+	main.players[1].position = Vector2(overcharge_gap, 0)
 	main._update_hud()
 	check(main.chain_status_label.text.contains("+35%"), "HUD reflects upgraded overcharge")
 	# Measured crit damage, not merely a stat field.

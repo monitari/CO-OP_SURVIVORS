@@ -107,7 +107,7 @@ func _test_cue_coverage() -> void:
 	for weapon_id in weapon_ids:
 		_check(feedback.CUE_PARAMS.has("weapon_" + weapon_id), "weapon %s has its own fire cue" % weapon_id)
 
-	var item_ids := ["heal", "magnet", "chain_repair", "purge"]
+	var item_ids := ["heal", "magnet", "chain_ward", "purge"]
 	for item_id in item_ids:
 		_check(feedback.CUE_PARAMS.has("item_" + item_id), "field drop %s has its own pickup cue" % item_id)
 

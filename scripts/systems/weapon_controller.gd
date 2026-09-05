@@ -9,6 +9,11 @@ var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
 var spatial_grid: EnemySpatialGrid
 var elapsed := 0.0
+## Kept current by main every physics tick. 결속 파동 is the one weapon whose
+## output depends on how the pair is standing, so it needs the same two numbers
+## the HUD reads rather than a second opinion about them.
+var chain_length := 370.0
+var chain_tension := 0.0
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
 
@@ -48,6 +53,8 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["range"] = float(state.get("range", 0.0)) * owner_player.area
 	scaled["width"] = float(state.get("width", 0.0)) * owner_player.area
 	scaled["arc"] = minf(TAU, float(state.get("arc", 0.0)) * owner_player.area)
+	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
+	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
 	match weapon_id:
 		"homing": _fire_homing(player_index, scaled, damage, color)
 		"lightning": _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color)
@@ -224,6 +231,12 @@ func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radi
 	add_child(flare)
 
 
+## The chain itself as a weapon, for 사슬 결계. Public because it is a field
+## item doing it, not a weapon cast — nothing about it belongs in the loadout.
+func burn_chain(width: float, damage: float) -> void:
+	_damage_along_chain(width, damage, 1.0)
+
+
 func clear_transients() -> void:
 	for projectile in active_projectiles.duplicate():
 		projectile.release()
@@ -268,7 +281,10 @@ func _aim_direction(player_index: int, reach: float) -> Vector2:
 	var target := spatial_grid.nearest(origin, reach)
 	if target != null:
 		return origin.direction_to(target.global_position)
-	var fallback := players[player_index].last_input
+	# The smoothed heading rather than the raw input: with nothing to shoot at,
+	# a weapon that snapped between eight compass directions as the stick moved
+	# looked like a bug even though nothing was being hit either way.
+	var fallback := players[player_index].facing
 	return fallback.normalized() if fallback.length_squared() > 0.001 else Vector2.RIGHT
 
 
@@ -349,8 +365,16 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: C
 	_draw_scythe_arc(origin, direction.angle(), attack_range, arc, color)
 
 
+## The tether weapon is the only one that cares how the pair is standing, and
+## it now says so: a slack chain is a short, weak line and a stretched one is a
+## long, hot one. That makes 느슨한 족쇄 — the upgrade that lengthens the leash —
+## a damage upgrade as well as a freedom one, and it puts the weapon on the same
+## side as the overcharge mechanic instead of ignoring it.
+const CHAIN_TENSION_BONUS := 0.6
+
+
 func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
-	_damage_along_chain(float(state["width"]), damage, 1.0)
+	_damage_along_chain(float(state["width"]), damage * (1.0 + chain_tension * CHAIN_TENSION_BONUS), 1.0)
 
 
 ## Shards riding a circle around their owner. The angle comes from run time
@@ -372,12 +396,20 @@ func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Co
 
 ## A straight line that reaches much further than anything else in the roster
 ## and does not care how many bodies are between the two ends of it.
+## A straight line that reaches much further than anything else in the roster
+## and does not care how many bodies are between the two ends of it. 분광 splits
+## it into parallel beams rather than widening one, so the upgrade covers a
+## front instead of just thickening a stripe.
 func _fire_lance(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	_lance_from(
-		players[player_index].global_position,
-		_aim_direction(player_index, float(state["range"])),
-		float(state["range"]), float(state["width"]), damage, color
-	)
+	var origin := players[player_index].global_position
+	var reach := float(state["range"])
+	var heading := _aim_direction(player_index, reach)
+	var width := float(state["width"])
+	var beams := maxi(1, int(state.get("beams", 1)))
+	var lateral := heading.orthogonal()
+	for index in beams:
+		var offset := (float(index) - float(beams - 1) * 0.5) * (width * 1.35)
+		_lance_from(origin + lateral * offset, heading, reach, width, damage, color)
 
 
 ## Ordnance left behind rather than fired forward: the pair's own path becomes
@@ -408,7 +440,10 @@ func _on_mine_detonated(centre: Vector2, damage: float, radius: float, color: Co
 ## spread-out ring of enemies into a single cluster the rest of the pair's
 ## weapons can then clear.
 func _collapse_gravity(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var centre := players[player_index].global_position
+	_collapse_gravity_at(_gravity_centre(player_index, state), player_index, state, damage, color)
+
+
+func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var radius := float(state["radius"])
 	var pull := float(state.get("pull", 160.0))
 	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
@@ -427,6 +462,25 @@ func _collapse_gravity(player_index: int, state: Dictionary, damage: float, colo
 			enemy.apply_slow(1.2, 0.55)
 	_draw_ring(centre, radius, color, 3.0)
 	_draw_ring(centre, radius * 0.35, Color(color, 0.85), 5.0)
+
+
+## Where the collapse actually lands.
+##
+## It used to be centred on the caster, which made a control weapon into a
+## panic button: it only ever helped once things had already reached you, and
+## the thing it did — drag every nearby enemy into a tight ball right on top of
+## your own body — was the last thing you wanted at that moment. It now picks
+## the nearest enemy inside `cast_range` and collapses there, so it is a tool
+## for breaking up a crowd before it arrives. With nothing in range it falls
+## back to a point out along the aim direction rather than snapping home, so
+## the weapon never behaves like the old version by accident.
+func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
+	var origin := players[player_index].global_position
+	var cast_range := float(state.get("cast_range", 520.0))
+	var target := spatial_grid.nearest(origin, cast_range)
+	if target != null:
+		return target.global_position
+	return origin + _aim_direction(player_index, cast_range) * cast_range * 0.55
 
 
 ## --- fused weapons -------------------------------------------------------
@@ -545,8 +599,11 @@ func _plant_ruin_garden(player_index: int, state: Dictionary, damage: float, col
 
 ## Pull, collapse, and then collapse again on the cluster the first one made.
 func _collapse_event_horizon(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	_collapse_gravity(player_index, state, damage, color)
-	var centre := players[player_index].global_position
+	# Resolved before the first collapse so both stages land on the same point:
+	# the pull picks its target from the field, and the second detonation has to
+	# follow the cluster it just made rather than firing back at the caster.
+	var centre := _gravity_centre(player_index, state)
+	_collapse_gravity_at(centre, player_index, state, damage, color)
 	var radius := float(state["radius"])
 	var implode := func() -> void:
 		if not is_inside_tree():

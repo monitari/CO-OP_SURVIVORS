@@ -8,20 +8,26 @@ extends Node2D
 
 signal wave_started(wave_index: int, is_surge_wave: bool)
 signal wave_calm_started(wave_index: int)
+signal boss_incoming(boss_rank: int)
+signal encounter_started(encounter_id: String)
 
 const EnemyScript := preload("res://scripts/enemy.gd")
 
-## A run used to be two minutes, which is shorter than the content it hands
-## out: four weapon slots, four treasure slots and twenty-one resonances are
-## not reachable in six level-ups. Phases are longer so each one has room to
-## build and release, and the boss now closes a five-minute run.
+## A run is now twenty-five minutes rather than five. Five minutes was shorter
+## than the content the game hands out — four weapon slots, four treasure slots,
+## a seven-tier weapon track and twenty-one resonances are not reachable in the
+## dozen level-ups a five-minute run affords, so most of the tree existed only
+## in theory. Twenty-five minutes is five boss fights with four full escalation
+## stretches between them, which is what the build actually needs to finish.
 const WAVE_DURATION := 30.0
 const WAVE_CALM := 9.0 ## Trailing quiet stretch of each wave, for regrouping and picking up drops.
 const SURGE_EVERY := 3 ## Every third wave opens with a much larger surge.
-const BOSS_TIME := 300.0
-## Seconds of elapsed run per point of difficulty. Stretched with the run so
-## a five-minute fight does not simply arrive at twice the old scaling.
-const DIFFICULTY_SECONDS := 50.0
+const BOSS_INTERVAL := 300.0
+const BOSS_COUNT := 5
+const RUN_LENGTH := BOSS_INTERVAL * float(BOSS_COUNT)
+## Seconds of elapsed run per point of difficulty. Stretched with the run so a
+## twenty-five-minute fight does not simply arrive at five times the old scaling.
+const DIFFICULTY_SECONDS := 62.0
 const OPENING_SPAWN_INTERVAL := 0.78
 const SECOND_WAVE_SPAWN_INTERVAL := 0.68
 const FIRST_REINFORCEMENT_COUNT := 3
@@ -30,16 +36,35 @@ const BULWARK_UNLOCK_TIME := 75.0
 const SWARM_UNLOCK_TIME := 45.0
 const SWARM_INTERVAL := 22.0
 
+## Named encounters, on their own clock, so a long run has events in it rather
+## than a single rising slope. Each one poses a different question: a tide is
+## free experience if the pair is positioned for it, a siege is the surrounded
+## problem with no gap to walk through, a stampede comes from one bearing and
+## has to be side-stepped, and a squad is four elites at once.
+const ENCOUNTER_FIRST := 105.0
+const ENCOUNTER_INTERVAL := 78.0
+const ENCOUNTER_ORDER := ["swarm_tide", "stampede", "ring_siege", "elite_squad"]
+const ENCOUNTER_NAMES := {
+	"swarm_tide": "군체 해일",
+	"stampede": "돌진 폭주",
+	"ring_siege": "포위 진형",
+	"elite_squad": "정예 편대",
+}
+
 var enemy_pool: Array[ChaserEnemy] = []
 var spawn_timer := 0.0
 var elite_timer := 35.0
 var swarm_timer := SWARM_UNLOCK_TIME
-var boss_spawned := false
+var boss_spawned := false ## True once the first boss of the run has arrived.
+var bosses_spawned := 0
+var boss_active := false ## Kept current by main; holds the next boss back while one is still alive.
 var enemy_cap := 420
 
 var wave_index := 0
 var wave_elapsed := 0.0
 var in_calm := false
+var encounter_timer := ENCOUNTER_FIRST
+var encounters_run := 0
 
 
 ## The assault stretch tightens as waves go on, but never below a floor — the
@@ -57,6 +82,25 @@ func spawn_interval() -> float:
 
 func is_surge_wave(index: int) -> bool:
 	return index > 0 and index % SURGE_EVERY == 0
+
+
+## When the next boss is due, or RUN_LENGTH once all five have been sent.
+func next_boss_time() -> float:
+	if bosses_spawned >= BOSS_COUNT:
+		return RUN_LENGTH
+	return BOSS_INTERVAL * float(bosses_spawned + 1)
+
+
+func bosses_remaining() -> int:
+	return maxi(0, BOSS_COUNT - bosses_spawned)
+
+
+func is_final_boss(rank: int) -> bool:
+	return rank >= BOSS_COUNT
+
+
+func encounter_name(encounter_id: String) -> String:
+	return String(ENCOUNTER_NAMES.get(encounter_id, encounter_id))
 
 
 func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> Array[ChaserEnemy]:
@@ -89,12 +133,19 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 	if active_count >= enemy_cap:
 		return spawned
 
-	if elapsed >= BOSS_TIME and not boss_spawned:
+	# --- bosses -------------------------------------------------------------
+	# One every five minutes, each stronger than the last, and never two at
+	# once: if the pair is still fighting boss three when boss four comes due,
+	# the schedule waits rather than stacking two health bars on one HUD.
+	if bosses_spawned < BOSS_COUNT and not boss_active and elapsed >= next_boss_time():
+		bosses_spawned += 1
 		boss_spawned = true
+		boss_active = true
+		boss_incoming.emit(bosses_spawned)
 		# Not flagged elite: the boss multiplier already covers its stat block,
 		# and stacking both produced a boss with four times the health anyone
 		# had budgeted for.
-		spawned.append(_acquire_enemy("brute", difficulty, center, false, true))
+		spawned.append(_acquire_enemy("brute", difficulty, center, false, true, bosses_spawned))
 	# Elites and the boss ignore the lull — the calm is a break from the swarm,
 	# not a guarantee that nothing happens.
 	if elite_timer <= 0.0:
@@ -112,6 +163,15 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 				break
 			spawned.append(_acquire_enemy("swarm", difficulty, center, false, false))
 
+	# --- named encounters ---------------------------------------------------
+	encounter_timer -= delta
+	if encounter_timer <= 0.0:
+		encounter_timer = ENCOUNTER_INTERVAL
+		var encounter_id: String = ENCOUNTER_ORDER[encounters_run % ENCOUNTER_ORDER.size()]
+		encounters_run += 1
+		encounter_started.emit(encounter_id)
+		_run_encounter(encounter_id, difficulty, center, active_count, spawned)
+
 	if in_calm:
 		return spawned
 
@@ -125,6 +185,52 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 	return spawned
 
 
+## Appends this encounter's arrivals to `spawned`. Written as one function per
+## shape rather than as data, because what makes each encounter distinct is
+## where the enemies appear relative to the pair, not how many of them there are.
+func _run_encounter(
+	encounter_id: String, difficulty: float, center: Vector2,
+	active_count: int, spawned: Array[ChaserEnemy]
+) -> void:
+	var budget := func() -> bool: return active_count + spawned.size() < enemy_cap
+	match encounter_id:
+		"swarm_tide":
+			# Free experience for a pair that is standing somewhere it can
+			# clear a crowd, and a wall for one that is not.
+			for index in _swarm_pack_size(difficulty * DIFFICULTY_SECONDS) * 2:
+				if not budget.call():
+					return
+				spawned.append(_acquire_enemy("swarm", difficulty, center, false, false))
+		"stampede":
+			# One bearing, one line. The answer is to move sideways, which the
+			# chain makes a decision rather than a reflex.
+			var bearing := randf() * TAU
+			for index in 12:
+				if not budget.call():
+					return
+				var enemy := _acquire_enemy("charger", difficulty, center, false, false)
+				var lateral := float(index - 6) * 62.0
+				enemy.position = (center + Vector2.from_angle(bearing) * 780.0
+					+ Vector2.from_angle(bearing + PI * 0.5) * lateral)
+				spawned.append(enemy)
+		"ring_siege":
+			# The surrounded problem stated plainly: a closed circle with no
+			# gap, which is what the wide-reach weapons and the fused forms
+			# exist to answer.
+			var count := 16
+			for index in count:
+				if not budget.call():
+					return
+				var enemy := _acquire_enemy(_pick_archetype(difficulty * DIFFICULTY_SECONDS), difficulty, center, false, false)
+				enemy.position = center + Vector2.from_angle(TAU * float(index) / float(count)) * 640.0
+				spawned.append(enemy)
+		"elite_squad":
+			for index in 4:
+				if not budget.call():
+					return
+				spawned.append(_acquire_enemy(_pick_archetype(difficulty * DIFFICULTY_SECONDS), difficulty, center, true, false))
+
+
 func release_enemy(enemy: ChaserEnemy) -> void:
 	if enemy in enemy_pool:
 		return
@@ -132,14 +238,17 @@ func release_enemy(enemy: ChaserEnemy) -> void:
 	enemy_pool.append(enemy)
 
 
-func _acquire_enemy(archetype: String, difficulty: float, center: Vector2, elite: bool, boss: bool) -> ChaserEnemy:
+func _acquire_enemy(
+	archetype: String, difficulty: float, center: Vector2,
+	elite: bool, boss: bool, boss_rank: int = 0
+) -> ChaserEnemy:
 	var enemy: ChaserEnemy
 	if enemy_pool.is_empty():
 		enemy = EnemyScript.new() as ChaserEnemy
 		add_child(enemy)
 	else:
 		enemy = enemy_pool.pop_back()
-	enemy.setup(difficulty, archetype, elite, boss)
+	enemy.setup(difficulty, archetype, elite, boss, boss_rank)
 	var angle := randf() * TAU
 	var distance := randf_range(610.0, 760.0) if not boss else 820.0
 	enemy.position = center + Vector2.from_angle(angle) * distance
@@ -160,6 +269,8 @@ func _pick_archetype(elapsed: float) -> String:
 
 
 ## Swarms do not trickle. They arrive as a pack or not at all, which is what
-## makes them a farming opportunity rather than background noise.
+## makes them a farming opportunity rather than background noise. Capped so the
+## back half of a twenty-five-minute run does not spend its whole enemy budget
+## on things worth three experience each.
 func _swarm_pack_size(elapsed: float) -> int:
-	return 7 + int(elapsed / 90.0) * 3
+	return mini(28, 7 + int(elapsed / 90.0) * 3)

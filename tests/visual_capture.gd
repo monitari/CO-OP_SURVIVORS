@@ -37,7 +37,7 @@ func _run() -> void:
 		main._register_enemy(enemy)
 	main.experience_system.spawn_gem(Vector2(0.0, 115.0), 5)
 	# One of each field drop so the capture shows all four icons.
-	var drop_ids := ["heal", "magnet", "chain_repair", "purge"]
+	var drop_ids := ["heal", "magnet", "chain_ward", "purge"]
 	for drop_index in drop_ids.size():
 		main.field_items.spawn_item(Vector2(-165.0 + drop_index * 110.0, 175.0), drop_ids[drop_index])
 	main.spatial_grid.rebuild(main.enemies)
@@ -146,10 +146,15 @@ func _run() -> void:
 		main._cull_enemy(enemy)
 	main.players[0].position = Vector2(-100, 40)
 	main.players[1].position = Vector2(100, 40)
-	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, false, true) as ChaserEnemy
+	# The last of the five, so the victory shot at the end of this sequence is a
+	# real one: an earlier boss hands the run back rather than ending it.
+	var boss := main.wave_director._acquire_enemy(
+		"brute", 3.0, Vector2.ZERO, false, true, WaveDirector.BOSS_COUNT) as ChaserEnemy
 	boss.position = Vector2(0.0, -170.0)
 	main._register_enemy(boss)
 	main.wave_director.boss_spawned = true
+	main.wave_director.bosses_spawned = WaveDirector.BOSS_COUNT
+	main.wave_director.boss_active = true
 	for frame in 35:
 		main._update_camera(1.0 / 60.0)
 	main._update_hud()

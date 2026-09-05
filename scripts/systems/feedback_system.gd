@@ -54,7 +54,7 @@ const CUE_PARAMS := {
 	# --- one per field drop, so a pickup says which pickup it was ------------
 	"item_heal": {"freq": 523.0, "to": 784.0, "dur": 0.28, "vol": 0.20, "wave": "sine"},
 	"item_magnet": {"freq": 300.0, "to": 1200.0, "dur": 0.30, "vol": 0.18, "wave": "sine"},
-	"item_chain_repair": {"freq": 400.0, "to": 620.0, "dur": 0.26, "vol": 0.18, "wave": "square"},
+	"item_chain_ward": {"freq": 400.0, "to": 880.0, "dur": 0.42, "vol": 0.22, "wave": "square"},
 	"item_purge": {"freq": 300.0, "to": 90.0, "dur": 0.40, "vol": 0.24, "wave": "noise"},
 
 	# --- chain and boss state changes ---------------------------------------

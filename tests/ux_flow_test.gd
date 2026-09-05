@@ -61,13 +61,26 @@ func _run() -> void:
 	main._set_pause(false)
 	_check(not main.pause_active and not paused, "pause overlay resumes combat")
 
-	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, true, true) as ChaserEnemy
-	main._register_enemy(boss)
+	# A run is five bosses now, so "a boss died" and "the run is over" are no
+	# longer the same event, and both halves of that need pinning: an early
+	# boss has to hand the run back, and only the last one may end it.
+	var first_boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, false, true, 1) as ChaserEnemy
+	main._register_enemy(first_boss)
 	_check(main.boss_bar.visible and main.boss_label.visible, "boss arrival exposes name and health bar")
+	_check(main.boss_label.text.contains("1/%d" % WaveDirector.BOSS_COUNT),
+		"the boss bar says which of the five this is (%s)" % main.boss_label.text)
 	_check(main.boss_health_text_label.visible and main.boss_health_text_label.text.contains("/"),
 		"boss health is written inside its bar")
-	boss.take_damage(999999.0)
-	_check(main.run_won and main.result_overlay.visible and paused, "boss defeat opens a persistent victory result")
+	first_boss.take_damage(999999.0)
+	_check(not main.run_won and not main.result_overlay.visible,
+		"defeating an early boss returns the pair to the run")
+	_check(not main.boss_bar.visible, "and takes the boss bar back down")
+
+	var final_boss := main.wave_director._acquire_enemy(
+		"brute", 3.0, Vector2.ZERO, false, true, WaveDirector.BOSS_COUNT) as ChaserEnemy
+	main._register_enemy(final_boss)
+	final_boss.take_damage(999999.0)
+	_check(main.run_won and main.result_overlay.visible and paused, "the final boss opens a persistent victory result")
 
 	if failures.is_empty():
 		print("UX_FLOW_PASS: HUD, chain states, overcharge cost, telegraphs, pause/settings, boss victory")

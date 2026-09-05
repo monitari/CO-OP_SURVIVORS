@@ -10,6 +10,7 @@ const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
+const ParticleFieldScript := preload("res://scripts/systems/particle_field.gd")
 const ArenaFloorScript := preload("res://scripts/arena_floor.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
@@ -24,7 +25,10 @@ const Evolutions := preload("res://scripts/evolution_catalog.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
-const RUN_BOSS_TIME := 300.0
+## The run is five boss fights, not one. WaveDirector owns the schedule; this
+## is the total length so the UI can say how far along a run is without
+## recomputing the interval.
+const RUN_LENGTH := WaveDirectorScript.RUN_LENGTH
 const DOWNED_TOW_SHARE := 0.88
 const WEAPON_LOADOUT_CAP := 4
 ## Treasures are the other half of a build. Attributes used to be unlimited
@@ -72,6 +76,7 @@ var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
 var chain_glow: Line2D
 var bursts: BurstField
+var particles: ParticleField
 var arena_floor: ArenaFloor
 var modal_dim: ColorRect
 var world_camera: Camera2D
@@ -185,6 +190,7 @@ var last_countdown_second := -1
 ## actually raises, and each is counted at the one place it happens so the
 ## screen cannot drift from play.
 var run_stats := {
+	"bosses": 0,
 	"revives": 0,
 	"dashes": 0,
 	"overcharge_time": 0.0,
@@ -197,6 +203,8 @@ var run_stats := {
 var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
+var chain_ward_remaining := 0.0
+var chain_ward_pulse_timer := 0.0
 
 ## Team attributes. Experience is a shared pool and both survivors level
 ## together, so the stats that act on that pool are shared too — one player
@@ -209,7 +217,17 @@ var chain_overloaded := false
 const FIELD_ITEM_BASE_CHANCE := 0.015
 const FIELD_ITEM_LUCK_CHANCE := 0.005
 const FIELD_ITEM_HEAL_RATIO := 0.3
-const FIELD_ITEM_CHAIN_REPAIR := 45.0
+## 사슬 결계 used to be 사슬 정비: it topped up the integrity bar and did
+## nothing else, which made the rarest-but-one drop in the game a number going
+## up. It is now a window instead of a refund — for its duration the chain
+## cannot be strained, cannot overload, pays the full overcharge damage bonus
+## no matter how the pair is standing, and burns everything that crosses it.
+## Long enough to change what a fight is worth attempting, short enough that
+## the pair has to decide when to spend it.
+const CHAIN_WARD_DURATION := 8.0
+const CHAIN_WARD_PULSE := 0.22 ## Seconds between chain burn ticks while warded.
+const CHAIN_WARD_PULSE_DAMAGE := 26.0
+const CHAIN_WARD_WIDTH := 74.0
 const FIELD_ITEM_PURGE_DAMAGE := 120.0
 const FIELD_ITEM_PURGE_RADIUS := 620.0
 
@@ -373,6 +391,7 @@ func _physics_process(delta: float) -> void:
 		player.step_recovery(delta)
 	_apply_chain_constraint()
 	_update_revives(delta)
+	_update_chain_ward(delta)
 	_update_chain_integrity(delta)
 	_update_chain_visual()
 	_update_camera(delta)
@@ -396,6 +415,7 @@ func _physics_process(delta: float) -> void:
 			_begin_level_up()
 			return
 	bursts.step(delta)
+	particles.step(delta)
 	_update_threat_indicator()
 	experience_system.step(players, delta)
 	field_items.step(players, delta)
@@ -412,6 +432,11 @@ func _physics_process(delta: float) -> void:
 			if attack_timers[player_index][weapon_slot] <= 0.0:
 				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
+	weapon_controller.chain_length = chain_max_length
+	weapon_controller.chain_tension = clampf(
+		players[0].position.distance_to(players[1].position) / chain_max_length, 0.0, 1.0
+	)
+	wave_director.boss_active = is_instance_valid(boss_enemy) and not boss_enemy.dead
 	for resonance in resonance_system.step(delta):
 		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
@@ -437,6 +462,7 @@ func _create_world() -> void:
 	wave_director = WaveDirectorScript.new() as WaveDirector
 	wave_director.wave_started.connect(_on_wave_started)
 	wave_director.wave_calm_started.connect(_on_wave_calm_started)
+	wave_director.encounter_started.connect(_on_encounter_started)
 	add_child(wave_director)
 	resonance_system = ResonanceScript.new() as ResonanceSystem
 	add_child(resonance_system)
@@ -446,6 +472,9 @@ func _create_world() -> void:
 
 	bursts = BurstFieldScript.new() as BurstField
 	add_child(bursts)
+
+	particles = ParticleFieldScript.new() as ParticleField
+	add_child(particles)
 
 	chain_glow = Line2D.new()
 	chain_glow.width = 18.0
@@ -483,6 +512,7 @@ func _create_players() -> void:
 	player_one.revived_player.connect(_on_player_revived)
 	player_one.dashed.connect(_on_player_dashed)
 	player_one.reflected.connect(_on_damage_reflected)
+	player_one.footfall.connect(_on_footfall)
 	players.append(player_one)
 
 	var player_two := PlayerScene.new() as ChainPlayer
@@ -494,6 +524,7 @@ func _create_players() -> void:
 	player_two.revived_player.connect(_on_player_revived)
 	player_two.dashed.connect(_on_player_dashed)
 	player_two.reflected.connect(_on_damage_reflected)
+	player_two.footfall.connect(_on_footfall)
 	players.append(player_two)
 
 
@@ -1288,16 +1319,32 @@ func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
 	var weapon: Dictionary = character["weapon"]
 	var profile := CharacterCatalog.difficulty_profile(character)
+	# The six numbers live in the icon row above this label; what belongs here
+	# is the part a number cannot say. The leash line is called out separately
+	# because it is the one stat that changes how both players have to move.
 	var lines: Array[String] = [
 		String(character["weapon_name"]),
-		"피해 %.0f      %.2f초마다" % [float(weapon["damage"]), float(weapon["cooldown"])],
-		"",
+		"피해 %.0f      %.2f초마다      %s" % [
+			float(weapon["damage"]), float(weapon["cooldown"]),
+			_chain_note(character),
+		],
 		"난이도  %s" % CharacterCatalog.difficulty_stars(character),
 		String(profile["headline"]),
 		"",
 		_character_select_status(player_index),
 	]
 	return "\n".join(lines)
+
+
+## What this survivor does to the pair's leash, in plain language. The number
+## itself is in the stat row; this says what it means.
+func _chain_note(character: Dictionary) -> String:
+	var contribution := float(character["chain"])
+	if contribution >= 40.0:
+		return "사슬 길게"
+	if contribution <= -15.0:
+		return "사슬 짧게"
+	return "사슬 보통"
 
 
 func _character_select_status(player_index: int) -> String:
@@ -1307,11 +1354,6 @@ func _character_select_status(player_index: int) -> String:
 	if last_input_gamepad[player_index]:
 		return "LB / RB 선택      A 확정"
 	return "A / D 선택      W 확정" if player_index == 0 else "← / → 선택      ↑ 확정"
-
-
-func _stat_blocks(value: float) -> String:
-	var filled := clampi(int(round(value)), 1, 5)
-	return "■".repeat(filled) + "□".repeat(5 - filled)
 
 
 ## The pair's shared read on their two picks, without naming anything they have
@@ -1347,8 +1389,14 @@ func _start_selected_run() -> void:
 		hud_portrait_icons[player_index].texture = IconCatalog.survivor(String(selected_characters[player_index]["id"]))
 	character_select_active = false
 	character_overlay.visible = false
+	# The leash is decided by who was picked. Two claw-range cats fight on a
+	# 275px rope, two anchors on 480px, and that single number changes more
+	# about how a run plays than any stat on the card above it.
+	chain_max_length = CharacterCatalog.chain_length_for(selected_characters[0], selected_characters[1])
 	chain_integrity = CHAIN_INTEGRITY_MAX
 	chain_overloaded = false
+	chain_ward_remaining = 0.0
+	chain_ward_pulse_timer = 0.0
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
 	for key in run_stats:
@@ -1360,9 +1408,13 @@ func _start_selected_run() -> void:
 	team_overcharge = 0.0
 	team_greed = 0.0
 	fusion_discovered = false
+	# The shared magnet is the average of what the two cats bring to it, so a
+	# Nova pair really does sweep a screen the other pairs have to walk across.
+	team_magnet = (float(selected_characters[0]["pickup"]) + float(selected_characters[1]["pickup"])) * 0.5
 	_apply_team_magnet()
 	field_items.clear_all()
 	bursts.clear_all()
+	particles.clear_all()
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
@@ -1370,10 +1422,10 @@ func _start_selected_run() -> void:
 	# Controls already appear on the lobby and character-select screens;
 	# repeating them under the play field forever is noise.
 	help_label.visible = false
-	# Derived from the constant rather than written out, which is how it came
-	# to still say 02:00 after the boss moved to five minutes.
-	_show_message("%02d:%02d 생존 후 · 청소 로봇 격파" % [
-		int(RUN_BOSS_TIME) / 60, int(RUN_BOSS_TIME) % 60
+	# Derived from the schedule rather than written out, which is how it came to
+	# still say 02:00 after the boss moved to five minutes.
+	_show_message("청소 로봇 %d대 격파 · 총 %02d:%02d" % [
+		WaveDirectorScript.BOSS_COUNT, int(RUN_LENGTH) / 60, int(RUN_LENGTH) % 60
 	], Color("80ed99"))
 
 
@@ -1437,7 +1489,40 @@ func _update_revives(delta: float) -> void:
 ## back only once they close inside the resist ratio. Running the bar to zero
 ## overloads the chain: the damage bonus inverts into a penalty until they have
 ## spent long enough together to repair it.
+## Runs the 사슬 결계 window: the chain is untouchable and lethal for its
+## duration. Ticked before _update_chain_integrity so the integrity pass sees
+## the ward and skips itself entirely rather than draining and being topped
+## back up, which would leave the bar visibly stuttering.
+func _update_chain_ward(delta: float) -> void:
+	if chain_ward_remaining <= 0.0:
+		return
+	var was_active := chain_ward_remaining > 0.0
+	chain_ward_remaining = maxf(0.0, chain_ward_remaining - delta)
+	chain_integrity = CHAIN_INTEGRITY_MAX
+	chain_overloaded = false
+	chain_ward_pulse_timer -= delta
+	if chain_ward_pulse_timer <= 0.0:
+		chain_ward_pulse_timer = CHAIN_WARD_PULSE
+		weapon_controller.burn_chain(CHAIN_WARD_WIDTH, CHAIN_WARD_PULSE_DAMAGE * _tension_damage_multiplier())
+		var midpoint := (players[0].global_position + players[1].global_position) * 0.5
+		particles.emit_sparks(midpoint, Color("fff275"), 5, 240.0)
+	if was_active and chain_ward_remaining <= 0.0:
+		_show_message("사슬 결계 해제", Color("8ecae6"))
+		feedback.play_cue("warning")
+
+
+func chain_warded() -> bool:
+	return chain_ward_remaining > 0.0
+
+
 func _update_chain_integrity(delta: float) -> void:
+	if chain_warded():
+		# Overcharge time still counts: the pair is holding the gap, they are
+		# simply not paying for it this once. Hiding that would understate what
+		# the drop actually bought them on the result screen.
+		if players[0].position.distance_to(players[1].position) / chain_max_length >= CHAIN_WARNING_RATIO:
+			run_stats["overcharge_time"] = float(run_stats["overcharge_time"]) + delta
+		return
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
 	if ratio >= CHAIN_WARNING_RATIO:
 		var strain := inverse_lerp(CHAIN_WARNING_RATIO, 1.0, minf(ratio, 1.0))
@@ -1487,9 +1572,14 @@ func _update_chain_visual() -> void:
 		chain_color = Color("8ecae6")
 	if chain_overloaded:
 		chain_color = Color("6b2338")
+	# A warded chain reads as one thing regardless of tension, because for its
+	# duration tension has stopped meaning anything.
+	if chain_warded():
+		stage = 0
+		chain_color = Color("fff275").lerp(Color.WHITE, 0.35 + sin(elapsed * 22.0) * 0.25)
 	chain_line.default_color = chain_color
-	chain_line.width = 2.5 if chain_overloaded else 5.0
-	chain_glow.default_color = Color(chain_color, 0.05 if chain_overloaded else 0.12 + ratio * 0.13)
+	chain_line.width = (10.0 + sin(elapsed * 16.0) * 2.0) if chain_warded() else (2.5 if chain_overloaded else 5.0)
+	chain_glow.default_color = Color(chain_color, 0.30 if chain_warded() else (0.05 if chain_overloaded else 0.12 + ratio * 0.13))
 	if stage == 3 and previous_chain_stage < 3:
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 4.0)
@@ -1584,13 +1674,42 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		boss_bar.value = enemy.health
 		boss_bar.visible = true
 		boss_label.visible = true
+		boss_label.text = "%s   %d/%d" % [
+			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
+		]
 		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
 		boss_health_text_label.visible = true
-		_show_message("폭주 청소 로봇 출현", Color("ff5d8f"))
+		_show_message("%s 출현   %d / %d" % [
+			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
+		], Color("ff5d8f"))
 		weapon_controller.play_boss_flare(enemy.global_position)
 		feedback.play_cue("boss")
 		feedback.play_music("boss")
 		camera_shake = 10.0
+
+
+## The five bosses are one escalating machine rather than the same fight five
+## times, and naming them is most of what makes that legible during play — the
+## stat block is behind a health bar the player never sees the number on.
+const BOSS_NAMES := [
+	"폭주 청소 로봇", "경비 드론 모함", "옥상 관리자", "구역 통제기", "최종 관제 코어",
+]
+
+
+func boss_name(rank: int) -> String:
+	return String(BOSS_NAMES[clampi(rank - 1, 0, BOSS_NAMES.size() - 1)])
+
+
+## A named encounter has arrived. These are announced rather than merely
+## spawned: the point of a stampede or a siege is that the pair gets to decide
+## how to stand before it lands, and that requires a beat of warning.
+func _on_encounter_started(encounter_id: String) -> void:
+	var title := wave_director.encounter_name(encounter_id)
+	var friendly := encounter_id == "swarm_tide"
+	_show_message("%s" % title, Color("9bf6ff") if friendly else Color("ff5d8f"))
+	feedback.play_cue("select" if friendly else "warning")
+	if not friendly:
+		camera_shake = maxf(camera_shake, 6.0)
 
 
 func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float) -> void:
@@ -1625,6 +1744,10 @@ func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) ->
 
 func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	feedback.show_damage(enemy.global_position, amount, Color("fff4cf"))
+	# Sparks scale with the hit rather than being constant, so a chip and a
+	# critical do not look identical, and a screenful of swarm hits does not
+	# spend the whole particle budget on chip damage.
+	particles.emit_sparks(enemy.global_position, Color("fff4cf"), 2 if amount < 40.0 else 5, 150.0 + amount)
 	feedback.play_cue("hit")
 
 
@@ -1661,7 +1784,23 @@ func _on_damage_reflected(attacker_position: Vector2, amount: float) -> void:
 
 func _on_player_dashed(_player: ChainPlayer) -> void:
 	run_stats["dashes"] = int(run_stats["dashes"]) + 1
+	# Three afterimages laid back along the burst, so a dash leaves a readable
+	# streak rather than teleporting the survivor a body-length sideways.
+	for step in 3:
+		particles.emit_ring(
+			_player.global_position - _player.dash_direction * float(step) * 26.0,
+			_player.body_color, _player.radius + 6.0, 0.26 + float(step) * 0.05
+		)
+	particles.emit_sparks(_player.global_position, _player.body_color, 6, 260.0)
+	camera_shake = maxf(camera_shake, 3.0)
 	feedback.play_cue("dash")
+
+
+## Dust under a running cat. Emitted from the player on its own cadence rather
+## than every frame, because at two survivors times sixty frames the field
+## would be nothing but dust.
+func _on_footfall(at: Vector2, color: Color) -> void:
+	particles.emit_dust(at, color.lerp(Color("d9c9b0"), 0.55))
 
 
 func _on_player_revived(player: ChainPlayer) -> void:
@@ -1792,7 +1931,28 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		boss_bar.visible = false
 		boss_label.visible = false
 		boss_health_text_label.visible = false
-		_end_run(true)
+		boss_enemy = null
+		wave_director.boss_active = false
+		run_stats["bosses"] = int(run_stats["bosses"]) + 1
+		weapon_controller.play_boss_flare(death_position, true)
+		particles.emit_motes(death_position, Color("fff275"), 20)
+		camera_shake = maxf(camera_shake, 18.0)
+		# Only the last one ends the run. Every other kill is a checkpoint: the
+		# pair is patched up, handed a guaranteed drop, and put back on the
+		# clock for the next one.
+		if enemy.boss_rank >= WaveDirectorScript.BOSS_COUNT:
+			_end_run(true)
+			return
+		for player in players:
+			player.heal(player.max_health * 0.5)
+		chain_integrity = CHAIN_INTEGRITY_MAX
+		chain_overloaded = false
+		field_items.spawn_item(death_position, field_items.roll_item_id())
+		feedback.play_music("field")
+		feedback.play_cue("victory")
+		_show_message("%s 격파   남은 청소 로봇 %d대" % [
+			boss_name(enemy.boss_rank), wave_director.bosses_remaining()
+		], Color("80ed99"))
 		return
 	# Rolled after the boss branch on purpose: the boss carries the elite flag,
 	# so rolling before it would hand out a guaranteed drop at the exact moment
@@ -1833,11 +1993,19 @@ func _on_field_item_collected(item_id: String) -> void:
 			weapon_controller.play_shockwave(centre, 900.0, color, 0.55, true)
 			camera_shake = maxf(camera_shake, 4.0)
 			label += " — 맵 전체 경험치 %d개 견인" % pulled
-		"chain_repair":
-			chain_integrity = minf(CHAIN_INTEGRITY_MAX, chain_integrity + FIELD_ITEM_CHAIN_REPAIR)
-			if chain_overloaded and chain_integrity >= CHAIN_OVERLOAD_CLEAR:
-				chain_overloaded = false
-			label += " — 사슬 내구도 회복"
+		"chain_ward":
+			chain_ward_remaining = CHAIN_WARD_DURATION
+			chain_ward_pulse_timer = 0.0
+			chain_integrity = CHAIN_INTEGRITY_MAX
+			chain_overloaded = false
+			var span := players[0].global_position.distance_to(players[1].global_position)
+			var centre := (players[0].global_position + players[1].global_position) * 0.5
+			weapon_controller.play_shockwave(centre, maxf(320.0, span * 0.75), color, 0.5, false)
+			particles.emit_motes(centre, color, 14)
+			for player in players:
+				particles.emit_ring(player.global_position, color, 60.0, 0.45)
+			camera_shake = maxf(camera_shake, 10.0)
+			label += " — %d초간 사슬 무적·과충전" % int(CHAIN_WARD_DURATION)
 		"purge":
 			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 			var burned := 0
@@ -1857,6 +2025,8 @@ func _on_field_item_collected(item_id: String) -> void:
 			camera_shake = maxf(camera_shake, 22.0)
 			label += " — 적 %d체 정화" % burned
 	run_stats["items"] = int(run_stats["items"]) + 1
+	var pickup_centre := (players[0].global_position + players[1].global_position) * 0.5
+	particles.emit_motes(pickup_centre, color, 8)
 	feedback.play_item_cue(item_id)
 	_show_message(label, color)
 
@@ -1994,25 +2164,14 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 		var weapon_id := String(loadout[weapon_slot]["weapon_id"])
 		pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
 		pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전\n%s" % weapon_name})
-		match weapon_id:
-			"homing":
-				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "다중 유도"})
-				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "마력 추진"})
-			"lightning":
-				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "연쇄 전도"})
-				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "확장 도체"})
-			"flame":
-				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "불씨 범람"})
-				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "열풍 추진"})
-			"frost":
-				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "혹한 영역"})
-				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "동상"})
-			"scythe":
-				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "긴 자루"})
-				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "보름베기"})
-			"chain":
-				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "넓은 파동"})
-				pool.append({"id": "special_b", "weapon_slot": weapon_slot, "title": "느슨한 족쇄"})
+		for key: String in ["a", "b"]:
+			var spec := _special_spec(weapon_id, key)
+			if spec.is_empty():
+				continue
+			pool.append({
+				"id": "special_" + key, "weapon_slot": weapon_slot,
+				"title": "%s\n%s" % [String(spec["title"]), weapon_name],
+			})
 	# A fusion is the biggest single step in the tree, so its card is added
 	# unconditionally whenever one is available rather than competing for a
 	# slot in the shuffle.
@@ -2089,6 +2248,125 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	last_upgrade_choice_keys[slot] = choice_keys
 	_annotate_recommendations(slot, choices)
 	return choices
+
+
+## Every base weapon's two unique upgrades, in one table.
+##
+## Four of the ten weapons — 궤도 파편, 관통 광선, 지뢰 결계, 중력 붕괴 — had no
+## specials at all: they could only ever be handed flat damage and cooldown,
+## which is exactly the "every weapon plays the same" problem. They have them
+## now, and the table is the reason all ten stay in step: the card pool, the
+## application and the preview text are all generated from these entries, so a
+## weapon cannot end up offerable but inert, or upgraded but silent about it.
+##
+## `target: "run"` marks the one upgrade that changes something outside the
+## weapon — 느슨한 족쇄 lengthens the pair's leash, which is both a freedom
+## upgrade and, since 결속 파동 scales with tension, a damage one.
+const WEAPON_SPECIALS := {
+	"homing": {
+		"a": {"title": "다중 유도", "label": "동시 발사", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "마력 추진", "label": "투사체 속도", "field": "speed", "delta": 70.0},
+	},
+	"lightning": {
+		"a": {"title": "연쇄 전도", "label": "연쇄", "field": "jumps", "delta": 1, "integer": true},
+		"b": {"title": "확장 도체", "label": "첫 타격 사거리", "field": "range", "delta": 55.0},
+	},
+	"flame": {
+		"a": {"title": "불씨 범람", "label": "화염탄", "field": "count", "delta": 2, "integer": true},
+		"b": {"title": "열풍 추진", "label": "투사체 속도", "field": "speed", "delta": 55.0},
+	},
+	"frost": {
+		"a": {"title": "혹한 영역", "label": "반경", "field": "radius", "delta": 30.0},
+		"b": {"title": "동상", "label": "감속 배율", "field": "slow", "delta": -0.08, "floor": 0.25, "percent": true},
+	},
+	"scythe": {
+		"a": {"title": "긴 자루", "label": "사거리", "field": "range", "delta": 30.0},
+		"b": {"title": "보름베기", "label": "공격 각도", "field": "arc", "delta": 0.25, "cap": PI * 1.75, "degrees": true},
+	},
+	"chain": {
+		"a": {"title": "넓은 파동", "label": "파동 폭", "field": "width", "delta": 14.0},
+		"b": {"title": "느슨한 족쇄", "label": "사슬 한계", "field": "chain_length", "delta": 45.0, "target": "run"},
+	},
+	"orbit": {
+		"a": {"title": "파편 증식", "label": "파편 수", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "확장 궤도", "label": "궤도 반경", "field": "radius", "delta": 22.0},
+	},
+	"lance": {
+		"a": {"title": "장사정", "label": "사거리", "field": "range", "delta": 90.0},
+		"b": {"title": "분광", "label": "광선 수", "field": "beams", "delta": 1, "integer": true},
+	},
+	"mine": {
+		"a": {"title": "다중 매설", "label": "매설 수", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "광역 결계", "label": "폭발 반경", "field": "radius", "delta": 22.0},
+	},
+	"gravity": {
+		"a": {"title": "사건 확대", "label": "붕괴 반경", "field": "radius", "delta": 35.0},
+		"b": {"title": "강한 인력", "label": "인력", "field": "pull", "delta": 70.0,
+			"extra_field": "cast_range", "extra_delta": 60.0},
+	},
+}
+
+
+## The spec for one weapon's special, or an empty dictionary if it has none —
+## fused weapons are already at the top of their track and take neither.
+func _special_spec(weapon_id: String, key: String) -> Dictionary:
+	var entry: Dictionary = WEAPON_SPECIALS.get(weapon_id, {})
+	return entry.get(key, {})
+
+
+func _special_current(spec: Dictionary, state: Dictionary) -> float:
+	if String(spec.get("target", "weapon")) == "run":
+		return chain_max_length
+	return float(state.get(String(spec["field"]), 0.0))
+
+
+## The value this special would move its field to, floors and caps applied.
+func _special_next(spec: Dictionary, current: float) -> float:
+	var moved := current + float(spec["delta"])
+	if spec.has("floor"):
+		moved = maxf(float(spec["floor"]), moved)
+	if spec.has("cap"):
+		moved = minf(float(spec["cap"]), moved)
+	return moved
+
+
+## Whether taking this special would actually change anything. Only the two
+## bounded specials can ever answer no, but asking generically is what keeps a
+## future bounded one from quietly becoming a dead card.
+func _special_has_room(slot: int, weapon_slot: int, key: String) -> bool:
+	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
+	var spec := _special_spec(String(state["weapon_id"]), key)
+	if spec.is_empty():
+		return false
+	var current := _special_current(spec, state)
+	return not is_equal_approx(_special_next(spec, current), current)
+
+
+## Applies a special to a weapon state dictionary in place. Takes the state
+## rather than a loadout index so the recommendation scorer can run it against
+## a throwaway copy without touching the real build.
+func apply_special_to_state(state: Dictionary, key: String) -> void:
+	var spec := _special_spec(String(state["weapon_id"]), key)
+	if spec.is_empty() or String(spec.get("target", "weapon")) == "run":
+		return
+	var field := String(spec["field"])
+	var next := _special_next(spec, float(state.get(field, 0.0)))
+	state[field] = int(round(next)) if bool(spec.get("integer", false)) else next
+	if spec.has("extra_field"):
+		var extra := String(spec["extra_field"])
+		state[extra] = float(state.get(extra, 0.0)) + float(spec["extra_delta"])
+
+
+func _special_preview(spec: Dictionary, state: Dictionary) -> String:
+	var current := _special_current(spec, state)
+	var next := _special_next(spec, current)
+	if bool(spec.get("integer", false)):
+		return "%s %d → %d" % [String(spec["label"]), int(round(current)), int(round(next))]
+	if bool(spec.get("percent", false)):
+		return "%s %.0f%% → %.0f%%" % [String(spec["label"]), current * 100.0, next * 100.0]
+	if bool(spec.get("degrees", false)):
+		return "%s %.0f° → %.0f°" % [String(spec["label"]), rad_to_deg(current), rad_to_deg(next)]
+	return "%s %.0f → %.0f" % [String(spec["label"]), current, next]
 
 
 func _has_weapon_upgrade(options: Array) -> bool:
@@ -2358,21 +2636,10 @@ T%d → T%d" % [
 			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.25, tier_hint]
 		"weapon_rate":
 			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.2, float(state["cooldown"]) * 0.88), tier_hint]
-		"special_a":
-			match weapon_id:
-				"homing": return "동시 발사 %d → %d%s" % [int(state["count"]), int(state["count"]) + 1, tier_hint]
-				"flame": return "화염탄 %d → %d%s" % [int(state["count"]), int(state["count"]) + 2, tier_hint]
-				"lightning": return "연쇄 %d → %d%s" % [int(state["jumps"]), int(state["jumps"]) + 1, tier_hint]
-				"frost": return "반경 %.0f → %.0f%s" % [float(state["radius"]), float(state["radius"]) + 30.0, tier_hint]
-				"scythe": return "사거리 %.0f → %.0f%s" % [float(state["range"]), float(state["range"]) + 30.0, tier_hint]
-				"chain": return "파동 폭 %.0f → %.0f%s" % [float(state["width"]), float(state["width"]) + 14.0, tier_hint]
-		"special_b":
-			match weapon_id:
-				"homing", "flame": return "투사체 속도 %.0f → %.0f%s" % [float(state["speed"]), float(state["speed"]) + (70.0 if weapon_id == "homing" else 55.0), tier_hint]
-				"lightning": return "첫 타격 사거리 %.0f → %.0f%s" % [float(state["range"]), float(state["range"]) + 55.0, tier_hint]
-				"frost": return "감속 배율 %.0f%% → %.0f%%%s" % [float(state["slow"]) * 100.0, maxf(0.25, float(state["slow"]) - 0.08) * 100.0, tier_hint]
-				"scythe": return "공격 각도 %.0f° → %.0f°%s" % [rad_to_deg(float(state["arc"])), rad_to_deg(minf(PI * 1.75, float(state["arc"]) + 0.25)), tier_hint]
-				"chain": return "사슬 한계 %.0f → %.0f%s" % [chain_max_length, chain_max_length + 30.0, tier_hint]
+		"special_a", "special_b":
+			var spec := _special_spec(weapon_id, upgrade_id.substr(upgrade_id.length() - 1))
+			if not spec.is_empty():
+				return _special_preview(spec, state) + tier_hint
 	return "현재 능력을 강화합니다."
 
 
@@ -2472,32 +2739,13 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 			state["damage"] = float(state["damage"]) * 1.25
 		"weapon_rate":
 			state["cooldown"] = maxf(0.2, float(state["cooldown"]) * 0.88)
-		"special_a":
-			match weapon_id:
-				"homing", "flame":
-					state["count"] = int(state["count"]) + (1 if weapon_id == "homing" else 2)
-				"lightning":
-					state["jumps"] = int(state["jumps"]) + 1
-				"frost":
-					state["radius"] = float(state["radius"]) + 30.0
-				"scythe":
-					state["range"] = float(state["range"]) + 30.0
-				"chain":
-					state["width"] = float(state["width"]) + 14.0
-		"special_b":
-			match weapon_id:
-				"homing":
-					state["speed"] = float(state["speed"]) + 70.0
-				"lightning":
-					state["range"] = float(state["range"]) + 55.0
-				"flame":
-					state["speed"] = float(state["speed"]) + 55.0
-				"frost":
-					state["slow"] = maxf(0.25, float(state["slow"]) - 0.08)
-				"scythe":
-					state["arc"] = minf(PI * 1.75, float(state["arc"]) + 0.25)
-				"chain":
-					chain_max_length += 30.0
+		"special_a", "special_b":
+			var key := upgrade_id.substr(upgrade_id.length() - 1)
+			var spec := _special_spec(weapon_id, key)
+			if not spec.is_empty() and String(spec.get("target", "weapon")) == "run":
+				chain_max_length = _special_next(spec, chain_max_length)
+			else:
+				apply_special_to_state(state, key)
 	if upgrade_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
 		state["tier"] = mini(Evolutions.WEAPON_MAX_TIER, int(state.get("tier", 1)) + 1)
 
@@ -2880,6 +3128,11 @@ func _weapon_interval(player_index: int, weapon_slot: int) -> float:
 
 
 func _tension_damage_multiplier() -> float:
+	# The ward pays the overcharge bonus unconditionally. That is the whole
+	# reason to pick the drop up at a moment when the pair is fighting close
+	# together rather than only when the chain is already in trouble.
+	if chain_warded():
+		return 1.25 + team_overcharge
 	if chain_overloaded:
 		return CHAIN_OVERLOAD_PENALTY
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
@@ -2976,9 +3229,10 @@ func _loadout_summary(player_index: int) -> String:
 ## the survival numbers above it. These are the counters run_stats has been
 ## carrying unused; nothing else reads them.
 func _run_stats_summary() -> String:
-	return "구조 %d회    대시 %d회    공명 %d회    아이템 %d개    과충전 %.0f초    과부하 %d회" % [
-		int(run_stats["revives"]), int(run_stats["dashes"]), int(run_stats["resonance_casts"]),
-		int(run_stats["items"]), float(run_stats["overcharge_time"]), int(run_stats["overloads"])
+	return "보스 %d대    구조 %d회    대시 %d회    공명 %d회    아이템 %d개    과충전 %.0f초    과부하 %d회" % [
+		int(run_stats["bosses"]), int(run_stats["revives"]), int(run_stats["dashes"]),
+		int(run_stats["resonance_casts"]), int(run_stats["items"]),
+		float(run_stats["overcharge_time"]), int(run_stats["overloads"])
 	]
 
 

@@ -143,13 +143,20 @@ static func _characters(main: Node) -> void:
 		var role := label(screen, "", Rect2(x + 156, 261, 344, 48), 15, Palette.MUTED)
 		role.name = "CatRole%d" % slot
 		role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		for stat in 3:
-			var ids := ["vitality", "move", "might"]
-			icon(screen, Icons.upgrade(ids[stat]), Rect2(x + 20 + stat * 166, 326, 32, 32))
-			var value := label(screen, "", Rect2(x + 58 + stat * 166, 325, 106, 34), 16)
+		# Two rows of three. The roster used to differ only in health and speed,
+		# so three numbers said everything there was to say; there are six axes
+		# now and leaving three of them off the screen would hide exactly the
+		# ones that make the picks feel different.
+		for stat in CharacterCatalog.DISPLAYED_STATS.size():
+			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
+			var column := stat % 3
+			var row := stat / 3
+			icon(screen, Icons.upgrade(String(entry["icon"])),
+				Rect2(x + 20 + column * 166, 318 + row * 36, 28, 28))
+			var value := label(screen, "", Rect2(x + 52 + column * 166, 316 + row * 36, 112, 32), 15)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
-		place(body, Rect2(x + 24, 374, 480, 180), 16)
+		place(body, Rect2(x + 24, 396, 480, 158), 16)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	place(main.character_synergy_label, Rect2(32, 593, 1076, 42), 15, Palette.MUTED)
 
@@ -162,9 +169,9 @@ static func refresh_characters(main: Node) -> void:
 		screen.get_node("CatName%d" % slot).text = String(cat["name"]) + "   ·   " + main.CharacterData.difficulty_label(cat)
 		screen.get_node("CatRole%d" % slot).text = PLAYSTYLE.get(String(cat["weapon_id"]), cat["title"])
 		screen.get_node("CatRole%d" % slot).tooltip_text = cat["description"]
-		var stats := ["체력 %.0f" % float(cat["health"]), "이속 %.0f" % float(cat["speed"]), "화력 %.0f" % main.CharacterData.power_budget(cat)]
-		for stat in 3:
-			screen.get_node("CatStat%d_%d" % [slot, stat]).text = stats[stat]
+		for stat in CharacterCatalog.DISPLAYED_STATS.size():
+			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
+			screen.get_node("CatStat%d_%d" % [slot, stat]).text = CharacterCatalog.stat_text(cat, String(entry["field"]))
 	for index in main.character_catalog.size():
 		var tile: Panel = screen.get_node("Roster%d" % index)
 		var style := tile.get_theme_stylebox("panel") as StyleBoxFlat
@@ -273,8 +280,25 @@ static func _hud(main: Node) -> void:
 static func refresh_hud(main: Node) -> void:
 	main.hud_label.text = "%02d:%02d" % [int(main.elapsed) / 60, int(main.elapsed) % 60]
 	main.combat_hud.get_node("WaveReadout").text = "%s · %d 처치" % ["휴식" if main.wave_director.in_calm else "%d파" % maxi(1, main.wave_director.wave_index + 1), main.kills]
-	var remaining := maxi(0, int(main.RUN_BOSS_TIME - main.elapsed))
-	main.combat_hud.get_node("ObjectiveReadout").text = "보스 전투" if main.wave_director.boss_spawned else "보스 %02d:%02d" % [remaining / 60, remaining % 60]
+	# Five bosses, so the readout has to say which one is coming and how many
+	# are left rather than counting down to a single event once and then being
+	# permanently wrong for the remaining twenty minutes.
+	var director: WaveDirector = main.wave_director
+	var readout: String
+	if main.chain_warded():
+		readout = "사슬 결계  %.1f초" % main.chain_ward_remaining
+	elif director.boss_active:
+		readout = "%s  %d/%d" % [
+			main.boss_name(director.bosses_spawned), director.bosses_spawned, WaveDirector.BOSS_COUNT
+		]
+	elif director.bosses_remaining() <= 0:
+		readout = "최종 격파"
+	else:
+		var remaining := maxi(0, int(director.next_boss_time() - main.elapsed))
+		readout = "%d번째 보스  %02d:%02d" % [
+			director.bosses_spawned + 1, remaining / 60, remaining % 60
+		]
+	main.combat_hud.get_node("ObjectiveReadout").text = readout
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
 		holder.visible = not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)

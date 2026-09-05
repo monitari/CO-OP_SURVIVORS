@@ -14,7 +14,7 @@ const FieldItemScript := preload("res://scripts/field_item.gd")
 const ITEM_TABLE := [
 	{"id": "heal", "weight": 4, "color": "80ed99", "name": "결속의 양식"},
 	{"id": "magnet", "weight": 3, "color": "43d9ff", "name": "자력 파동"},
-	{"id": "chain_repair", "weight": 2, "color": "fff275", "name": "사슬 정비"},
+	{"id": "chain_ward", "weight": 2, "color": "fff275", "name": "사슬 결계"},
 	{"id": "purge", "weight": 1, "color": "ff5d8f", "name": "정화의 불꽃"},
 ]
 

@@ -65,9 +65,12 @@ func _draw() -> void:
 			draw_arc(Vector2(0.0, 2.0), 6.0, PI, TAU, 14, ink, 3.0, true)
 			draw_line(Vector2(-6.0, 2.0), Vector2(-6.0, 7.0), ink, 3.0, true)
 			draw_line(Vector2(6.0, 2.0), Vector2(6.0, 7.0), ink, 3.0, true)
-		"chain_repair":
-			draw_circle(Vector2(-4.0, 0.0), 4.5, ink, false, 2.0)
-			draw_circle(Vector2(4.0, 0.0), 4.5, ink, false, 2.0)
+		"chain_ward":
+			# Two chain links inside a closed ward, so it reads as protection
+			# rather than as the repair kit it used to be.
+			draw_arc(Vector2.ZERO, 9.0, 0.0, TAU, 20, ink, 2.0, true)
+			draw_circle(Vector2(-3.5, 0.0), 3.6, ink, false, 2.0)
+			draw_circle(Vector2(3.5, 0.0), 3.6, ink, false, 2.0)
 		"purge":
 			for index in 6:
 				var angle := TAU * float(index) / 6.0

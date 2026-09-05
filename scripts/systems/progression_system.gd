@@ -3,7 +3,7 @@ extends Node
 
 var level := 1
 var experience := 0
-var required_experience := 24
+var required_experience := 32
 
 
 func add_experience(amount: int) -> void:
@@ -21,9 +21,16 @@ func consume_level_up() -> bool:
 	level += 1
 	# Every level-up pauses the run for both players to pick an upgrade, so the
 	# curve has to be steep enough that the game is mostly combat rather than
-	# mostly menus. At the roster's baseline kill rate this lands level-ups
-	# roughly 20-25 seconds apart instead of the ~12 seconds the shallower
-	# curve produced.
-	required_experience = int(round(float(required_experience) * 1.32 + 6.0))
+	# mostly menus, and shallow enough that a run actually reaches the top of
+	# its own tech tree.
+	#
+	# The 1.32 curve was drawn for a five-minute run and put level 20 at 8,400
+	# experience — unreachable, which is why the whole back half of the tree
+	# was theoretical. A twenty-five-minute run has to deliver roughly forty
+	# level-ups, so the curve is gentler and enemies now also carry more
+	# experience as the run goes on (see ChaserEnemy.XP_PER_DIFFICULTY); the
+	# two together are what keeps the cadence flat instead of collapsing into
+	# a drought after ten minutes.
+	required_experience = int(round(float(required_experience) * 1.04 + 95.0))
 	return true
 

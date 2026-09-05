@@ -25,6 +25,18 @@ const BLEEDOUT_BASE := 18.0
 ## Thorns answer the one damage source the pair cannot shoot back at: an
 ## enemy that has already reached them.
 signal reflected(attacker_position: Vector2, amount: float)
+## Raised on a cadence while this survivor is actually moving, so the scene can
+## leave dust behind without the player node knowing what a ParticleField is.
+signal footfall(at: Vector2, color: Color)
+
+## How fast the drawn heading catches up to the pressed direction. The input
+## itself is still instant — movement must never feel filtered — but everything
+## that shows which way the cat is facing (tail, lean, aim mark) turns over a
+## few frames instead of snapping, which is the difference between a cat turning
+## around and a sprite being replaced with a mirrored copy.
+const TURN_SPEED := 13.0
+const LEAN_MAX := 0.34 ## radians of body tilt at a full-speed turn
+const FOOTFALL_INTERVAL := 0.11
 
 var player_index := 0
 var move_speed := 230.0
@@ -61,6 +73,9 @@ var dash_timer := 0.0 ## remaining burst time
 var dash_cooldown := 0.0
 var dash_direction := Vector2.RIGHT
 var tail_phase := 0.0 ## Drives the tail sway; advanced by step_movement.
+var facing := Vector2.RIGHT ## Smoothed heading; drawing reads this, movement does not.
+var lean := 0.0 ## Signed turn rate, smoothed. Drives the body tilt.
+var footfall_timer := 0.0
 
 
 func setup(index: int, color: Color) -> void:
@@ -94,6 +109,13 @@ func apply_character(character: Dictionary) -> void:
 	resolve = 0.0
 	dash_timer = 0.0
 	dash_cooldown = 0.0
+	# Six axes rather than two, and two of them start non-zero: armor and crit
+	# are part of who a survivor is, not only something treasures grant.
+	armor = float(character.get("armor", 0.0))
+	crit_chance = float(character.get("crit", 0.0))
+	facing = Vector2.RIGHT
+	lean = 0.0
+	footfall_timer = 0.0
 	queue_redraw()
 
 
@@ -117,6 +139,7 @@ func step_movement(delta: float) -> void:
 		last_input = input_vector.normalized()
 	if Input.is_action_just_pressed(prefix + "dash"):
 		try_dash()
+	_step_facing(delta, input_vector)
 
 	if dash_timer > 0.0:
 		dash_timer = maxf(0.0, dash_timer - delta)
@@ -130,6 +153,35 @@ func step_movement(delta: float) -> void:
 	current_input = input_vector
 	var speed_multiplier := 0.28 if downed else 1.0
 	position += input_vector * move_speed * speed_multiplier * delta
+	if not downed and input_vector.length_squared() > 0.04:
+		footfall_timer -= delta
+		if footfall_timer <= 0.0:
+			footfall_timer = FOOTFALL_INTERVAL
+			footfall.emit(global_position + Vector2(0.0, radius * 0.6), body_color)
+	else:
+		footfall_timer = 0.0
+
+
+## Turns the drawn heading toward wherever the survivor is going and records how
+## hard that turn was, which is what the body tilt reads. The dash overrides the
+## target because a dash is a committed direction — the cat should already be
+## pointing that way when it launches, not catching up through the burst.
+func _step_facing(delta: float, input_vector: Vector2) -> void:
+	var target := dash_direction if dash_timer > 0.0 else (
+		input_vector.normalized() if input_vector.length_squared() > 0.01 else facing
+	)
+	var previous := facing
+	var weight := minf(1.0, delta * (TURN_SPEED * (2.4 if dash_timer > 0.0 else 1.0)))
+	facing = previous.slerp(target, weight)
+	if facing.length_squared() < 0.001:
+		facing = target
+	facing = facing.normalized()
+	var turned := previous.angle_to(facing)
+	# Smoothed rather than taken raw, so the lean settles out of a turn instead
+	# of snapping upright the frame the stick centres.
+	lean = lerpf(lean, clampf(turned / maxf(0.0001, delta) / 12.0, -1.0, 1.0), minf(1.0, delta * 9.0))
+	if absf(turned) > 0.006 or absf(lean) > 0.01:
+		queue_redraw()
 
 
 ## Starts a dash if one is available. Returns whether it actually began, so
@@ -209,6 +261,14 @@ func _draw() -> void:
 	var color := Color.WHITE if flash else body_color
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
 	_draw_tail(color)
+	# The body tilts into a turn and stretches slightly along the direction of
+	# travel. Both are small on purpose: the read has to be "that cat is turning",
+	# not "that sprite is wobbling".
+	var tilt := lean * LEAN_MAX
+	# A running bob rather than a constant squash: tail_phase already speeds up
+	# with movement, so reusing it keeps the body and the tail on one rhythm.
+	var bob := sin(tail_phase * 2.0) * 0.05 * minf(1.0, current_input.length())
+	draw_set_transform(Vector2.ZERO, tilt, Vector2(1.0 + bob, 1.0 - bob))
 	if portrait == null:
 		draw_circle(Vector2.ZERO, radius, color)
 		_draw_ears(color)
@@ -221,6 +281,7 @@ func _draw() -> void:
 		draw_texture_rect(portrait, Rect2(-34, -37, 68, 68), false, Color(1.8, 1.8, 1.8) if flash else Color.WHITE)
 	else:
 		draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var badge_color := Color("43d9ff") if player_index == 1 else Color("b892ff")
 	draw_circle(Vector2(0.0, radius + 13.0), 10.0, Color("07111f"))
 	draw_string(ThemeDB.fallback_font, Vector2(-7.0, radius + 19.0), str(player_index), HORIZONTAL_ALIGNMENT_CENTER, 14.0, 15, badge_color)
@@ -231,7 +292,7 @@ func _draw() -> void:
 		var down_text := "구조 중 %.0f%%" % (revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else "가까이 와서 구조 · %.0f초" % bleedout_remaining
 		draw_string(ThemeDB.fallback_font, Vector2(-92.0, -43.0), down_text, HORIZONTAL_ALIGNMENT_CENTER, 184.0, 16, Color("ffcfdf"))
 		return
-	draw_circle(last_input * (radius + 5.0), 2.5, Color.WHITE)
+	draw_circle(facing * (radius + 5.0), 2.5, Color.WHITE)
 	_draw_dash_state()
 	if portrait == null:
 		_draw_weapon_mark()
@@ -275,9 +336,11 @@ func _draw_ears(color: Color) -> void:
 ## The tail sweeps opposite the way the cat is facing, so a survivor reads as
 ## turning even though the body is a circle.
 func _draw_tail(color: Color) -> void:
-	var facing := last_input if last_input.length_squared() > 0.001 else Vector2.RIGHT
-	var back := -facing.normalized()
-	var sway := sin(tail_phase) * 0.55
+	var heading := facing if facing.length_squared() > 0.001 else Vector2.RIGHT
+	var back := -heading.normalized()
+	# The tail trails the turn: it sways on its own clock and is bent further by
+	# however hard the cat is currently turning, so a hard corner whips it.
+	var sway := sin(tail_phase) * 0.55 + lean * 0.9
 	var points := PackedVector2Array()
 	for step in 6:
 		var along := float(step) / 5.0

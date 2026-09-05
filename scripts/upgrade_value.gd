@@ -11,9 +11,13 @@ static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 		var w: Dictionary = main.weapon_loadouts[slot][index]
 		if id == "weapon_rate":
 			return maxf(0.12, maxf(0.2, float(w["cooldown"]) * 0.88) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
-		if id == "special_b":
-			if w["weapon_id"] == "frost": return float(w["slow"]) > 0.25001
-			if w["weapon_id"] == "scythe": return float(w["arc"]) * main.players[slot].area < TAU and float(w["arc"]) < PI * 1.75 - 0.00001
+		if id in ["special_a", "special_b"]:
+			# 보름베기 has a second way of being useless that the spec itself
+			# cannot see: a survivor whose area multiplier has already pushed
+			# the arc to a full circle gains nothing from a wider one.
+			if w["weapon_id"] == "scythe" and id == "special_b":
+				if float(w["arc"]) * main.players[slot].area >= TAU: return false
+			return main._special_has_room(slot, index, id.substr(id.length() - 1))
 	if id in ["unlock_treasure", "treasure_upgrade"]:
 		var effect: String = main._option_icon_id(slot, option)
 		if effect == "haste": return main.players[slot].haste > 0.40001
@@ -53,6 +57,10 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 	var coverage := float(base.get("reach", 1.0))
 	if w.has("count"):
 		coverage *= (float(w["count"]) + float(a["amount"])) / maxf(1.0, float(base["count"]))
+	# 분광 splits the lance into parallel beams, which is a straight multiple of
+	# what one cast covers.
+	if w.has("beams"):
+		coverage *= float(w["beams"]) / maxf(1.0, float(base.get("beams", 1)))
 	if id == "lightning":
 		coverage *= (1.0 - pow(0.82, float(w["jumps"]))) / (1.0 - pow(0.82, float(base["jumps"])))
 	if id in ["homing", "flame", "starpiercer", "supernova"]:
@@ -92,16 +100,11 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 		match id:
 			"weapon_power": w["damage"] *= 1.25
 			"weapon_rate": w["cooldown"] = maxf(0.2, w["cooldown"] * 0.88)
-			"special_a":
-				match w["weapon_id"]:
-					"homing": w["count"] += 1
-					"flame": w["count"] += 2
-					"lightning": w["jumps"] += 1
-					"frost": w["radius"] += 30.0
-					"scythe": w["range"] += 30.0
-					"chain": w["width"] += 14.0
-			"special_b":
-				if w["weapon_id"] == "scythe": w["arc"] = minf(PI * 1.75, w["arc"] + 0.25)
+			# Both specials run through the same table the real upgrade does, on
+			# this throwaway copy of the loadout. The old version listed six of
+			# the twenty specials by hand, so the scorer was silently pricing
+			# the other fourteen at zero and never recommending them.
+			"special_a", "special_b": main.apply_special_to_state(w, id.substr(id.length() - 1))
 	var after := 0.0
 	for w: Dictionary in loadout: after += output(w, a)
 	return maxf(0.0, after / maxf(0.001, before) - 1.0)
