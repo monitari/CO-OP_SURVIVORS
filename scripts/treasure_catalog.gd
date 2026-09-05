@@ -109,7 +109,7 @@ static func all_treasures() -> Array[Dictionary]:
 			"name": "불굴의 부적",
 			"shared": false,
 			"stat": "불굴",
-			"per_tier": "출혈 시간 +4초 · 구조 속도 +20%",
+			"per_tier": "출혈 시간 +4초, 구조 속도 +20%",
 		},
 		# The shared ones change a team resource rather than the carrier, so one
 		# survivor holding them benefits both. They stay in the same pool on
@@ -119,7 +119,7 @@ static func all_treasures() -> Array[Dictionary]:
 			"name": "과충전 코어",
 			"shared": true,
 			"stat": "과충전",
-			"per_tier": "과충전 피해 +10% · 내구도 소모 -12%",
+			"per_tier": "과충전 피해 +10%, 내구도 소모 -12%",
 		},
 		{
 			"id": "greed",

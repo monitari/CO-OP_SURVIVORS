@@ -58,6 +58,7 @@ var resolve := 0.0 ## extra bleedout seconds, and faster rescues
 var dash_timer := 0.0 ## remaining burst time
 var dash_cooldown := 0.0
 var dash_direction := Vector2.RIGHT
+var tail_phase := 0.0 ## Drives the tail sway; advanced by step_movement.
 
 
 func setup(index: int, color: Color) -> void:
@@ -96,6 +97,11 @@ func step_movement(delta: float) -> void:
 	var was_invulnerable := invulnerability > 0.0
 	invulnerability = maxf(0.0, invulnerability - delta)
 	var was_dashing := dash_timer > 0.0
+	# A moving cat's tail swings faster than a sitting one's.
+	var previous_phase := tail_phase
+	tail_phase += delta * (2.2 + current_input.length() * 4.5)
+	if absf(sin(tail_phase) - sin(previous_phase)) > 0.03:
+		queue_redraw()
 	dash_cooldown = maxf(0.0, dash_cooldown - delta)
 	if was_invulnerable or was_dashing or dash_cooldown > 0.0:
 		queue_redraw()
@@ -198,7 +204,9 @@ func _draw() -> void:
 	var flash := invulnerability > 0.0 and int(invulnerability * 18.0) % 2 == 0
 	var color := Color.WHITE if flash else body_color
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
+	_draw_tail(color)
 	draw_circle(Vector2.ZERO, radius, color)
+	_draw_ears(color)
 	# The identity colour used to survive only as a 6px ring: the inner disc
 	# was darkened hard and a near-black weapon glyph covered the rest, so a
 	# character read as a dark disc rather than as "the orange one". The disc
@@ -238,6 +246,37 @@ func _draw_dash_state() -> void:
 	if health < max_health:
 		draw_rect(Rect2(-25.0, -36.0, 50.0, 5.0), Color("351d3c"))
 		draw_rect(Rect2(-25.0, -36.0, 50.0 * health / max_health, 5.0), Color("80ed99"))
+
+
+## The survivors are cats. Ears and a tail are drawn from the body rather than
+## from a sprite so they inherit the character colour and the invulnerability
+## flash for free, and so they read at the 24px the play field actually uses.
+func _draw_ears(color: Color) -> void:
+	var inner := color.darkened(0.35)
+	for side: float in [-1.0, 1.0]:
+		var base_x := side * radius * 0.62
+		var outer := Vector2(base_x + side * radius * 0.34, -radius * 0.62)
+		var tip := Vector2(base_x + side * radius * 0.18, -radius * 1.42)
+		var inward := Vector2(base_x - side * radius * 0.24, -radius * 0.78)
+		draw_colored_polygon(PackedVector2Array([outer, tip, inward]), color)
+		draw_colored_polygon(PackedVector2Array([
+			outer.lerp(inward, 0.32), tip.lerp(inward, 0.28), inward.lerp(outer, 0.28)
+		]), inner)
+
+
+## The tail sweeps opposite the way the cat is facing, so a survivor reads as
+## turning even though the body is a circle.
+func _draw_tail(color: Color) -> void:
+	var facing := last_input if last_input.length_squared() > 0.001 else Vector2.RIGHT
+	var back := -facing.normalized()
+	var sway := sin(tail_phase) * 0.55
+	var points := PackedVector2Array()
+	for step in 6:
+		var along := float(step) / 5.0
+		var bend := back.rotated(sway * along * along)
+		points.append(back * radius * 0.7 + bend * radius * (0.55 + along * 1.35))
+	draw_polyline(points, color, 5.0, true)
+	draw_circle(points[points.size() - 1], 4.0, color.lightened(0.25))
 
 
 func _draw_weapon_mark() -> void:

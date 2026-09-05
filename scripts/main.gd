@@ -10,6 +10,7 @@ const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
+const ArenaFloorScript := preload("res://scripts/arena_floor.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
@@ -62,6 +63,7 @@ var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
 var chain_glow: Line2D
 var bursts: BurstField
+var arena_floor: ArenaFloor
 var modal_dim: ColorRect
 var world_camera: Camera2D
 var spatial_grid: EnemySpatialGrid
@@ -372,13 +374,6 @@ func _physics_process(delta: float) -> void:
 		_end_run()
 
 
-func _draw() -> void:
-	var grid_color := Color(0.15, 0.22, 0.35, 0.24)
-	for coordinate in range(-2400, 2401, 96):
-		draw_line(Vector2(coordinate, -2400), Vector2(coordinate, 2400), grid_color, 1.0)
-		draw_line(Vector2(-2400, coordinate), Vector2(2400, coordinate), grid_color, 1.0)
-
-
 func _create_world() -> void:
 	spatial_grid = SpatialGridScript.new() as EnemySpatialGrid
 	progression = ProgressionScript.new() as SharedProgression
@@ -395,6 +390,9 @@ func _create_world() -> void:
 	add_child(wave_director)
 	resonance_system = ResonanceScript.new() as ResonanceSystem
 	add_child(resonance_system)
+
+	arena_floor = ArenaFloorScript.new() as ArenaFloor
+	add_child(arena_floor)
 
 	bursts = BurstFieldScript.new() as BurstField
 	add_child(bursts)
@@ -449,9 +447,39 @@ func _create_players() -> void:
 	players.append(player_two)
 
 
+## The HUD ran on Godot's built-in fallback font, which has no Korean weight
+## worth the name — every label was the same flat grey shape. SystemFont picks a
+## real family off the machine at runtime, so the game gets proper type without a
+## font binary in the repository or a licence question attached to it. The list
+## is ordered by preference and falls through common Korean UI families before
+## giving up and taking whatever the platform offers.
+const UI_FONT_FAMILIES := [
+	"Pretendard", "Malgun Gothic", "Apple SD Gothic Neo",
+	"NanumBarunGothic", "Noto Sans KR", "Segoe UI",
+]
+
+
+func _build_ui_theme_host() -> Control:
+	var font := SystemFont.new()
+	font.font_names = UI_FONT_FAMILIES
+	font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
+
+	var theme := Theme.new()
+	theme.default_font = font
+	# Every HUD label already sets its own size, so only the family is supplied
+	# here; the sizes stay where each screen put them.
+	var host := Control.new()
+	host.name = "ThemeHost"
+	host.theme = theme
+	host.set_anchors_preset(Control.PRESET_FULL_RECT)
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return host
+
+
 func _create_hud() -> void:
 	var layer := CanvasLayer.new()
 	hud_layer = layer
+	layer.add_child(_build_ui_theme_host())
 	add_child(layer)
 
 	# Every overlay was a floating panel with live gameplay running around it,
@@ -673,23 +701,23 @@ func _create_hud() -> void:
 	resonance_overlay.add_child(resonance_status)
 
 	character_overlay = ColorRect.new()
-	character_overlay.position = Vector2(90.0, 65.0)
-	character_overlay.size = Vector2(1100.0, 585.0)
+	character_overlay.position = Vector2(70.0, 30.0)
+	character_overlay.size = Vector2(1140.0, 655.0)
 	character_overlay.color = Color(0.018, 0.028, 0.065, 0.985)
 	layer.add_child(character_overlay)
 
 	character_title = Label.new()
-	character_title.position = Vector2(0.0, 24.0)
-	character_title.size = Vector2(1100.0, 60.0)
-	character_title.text = "사슬에 묶일 두 생존자를 선택하세요"
+	character_title.position = Vector2(0.0, 16.0)
+	character_title.size = Vector2(1140.0, 52.0)
+	character_title.text = "사슬에 묶일 두 고양이를 고르세요"
 	character_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	character_title.add_theme_font_size_override("font_size", 32)
+	character_title.add_theme_font_size_override("font_size", 28)
 	character_title.add_theme_color_override("font_color", Color("fff275"))
 	_confine_label(character_title)
 	character_overlay.add_child(character_title)
 	character_roster_label = Label.new()
-	character_roster_label.position = Vector2(45.0, 78.0)
-	character_roster_label.size = Vector2(1010.0, 32.0)
+	character_roster_label.position = Vector2(65.0, 62.0)
+	character_roster_label.size = Vector2(1010.0, 26.0)
 	character_roster_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_roster_label.add_theme_font_size_override("font_size", 17)
 	character_roster_label.add_theme_color_override("font_color", Color("a9b8d4"))
@@ -697,16 +725,16 @@ func _create_hud() -> void:
 	character_overlay.add_child(character_roster_label)
 
 	character_portrait_icons = [
-		_create_icon_rect(character_overlay, Vector2(247.0, 108.0), Vector2(96.0, 96.0)),
-		_create_icon_rect(character_overlay, Vector2(762.0, 108.0), Vector2(96.0, 96.0)),
+		_create_icon_rect(character_overlay, Vector2(258.0, 92.0), Vector2(84.0, 84.0)),
+		_create_icon_rect(character_overlay, Vector2(798.0, 92.0), Vector2(84.0, 84.0)),
 	]
-	character_p1_label = _create_character_label(Vector2(55.0, 205.0), Color("43d9ff"))
-	character_p2_label = _create_character_label(Vector2(570.0, 205.0), Color("b892ff"))
+	character_p1_label = _create_character_label(Vector2(38.0, 184.0), Color("43d9ff"))
+	character_p2_label = _create_character_label(Vector2(578.0, 184.0), Color("b892ff"))
 	character_overlay.add_child(character_p1_label)
 	character_overlay.add_child(character_p2_label)
 	character_synergy_label = Label.new()
-	character_synergy_label.position = Vector2(100.0, 522.0)
-	character_synergy_label.size = Vector2(900.0, 40.0)
+	character_synergy_label.position = Vector2(90.0, 596.0)
+	character_synergy_label.size = Vector2(960.0, 44.0)
 	character_synergy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_synergy_label.add_theme_font_size_override("font_size", 18)
 	character_synergy_label.add_theme_color_override("font_color", Color("fff275"))
@@ -721,7 +749,7 @@ func _create_hud() -> void:
 	lobby_title = Label.new()
 	lobby_title.position = Vector2(0.0, 48.0)
 	lobby_title.size = Vector2(1100.0, 110.0)
-	lobby_title.text = "CO-OP SURVIVORS\n두 생존자가 모두 참가해야 결속할 수 있습니다"
+	lobby_title.text = "CO-OP SURVIVORS\n사슬로 묶인 두 고양이 — 둘 다 참가해야 시작합니다"
 	lobby_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_title.add_theme_font_size_override("font_size", 30)
 	lobby_title.add_theme_color_override("font_color", Color("fff275"))
@@ -734,7 +762,7 @@ func _create_hud() -> void:
 	var lobby_help := Label.new()
 	lobby_help.position = Vector2(60.0, 500.0)
 	lobby_help.size = Vector2(980.0, 65.0)
-	lobby_help.text = "키보드 P1: WASD     ·     키보드 P2: 방향키\n게임패드 1번 → P1     ·     게임패드 2번 → P2\n참가 후 ESC / START로 취소"
+	lobby_help.text = "키보드      P1 WASD      P2 방향키\n게임패드   1번 → P1      2번 → P2\n\n참가 후 ESC / START로 취소"
 	lobby_help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_help.add_theme_font_size_override("font_size", 20)
 	lobby_help.add_theme_color_override("font_color", Color("a9b8d4"))
@@ -1042,11 +1070,11 @@ func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 func _create_character_label(label_position: Vector2, color: Color) -> Label:
 	var label := Label.new()
 	label.position = label_position
-	label.size = Vector2(475.0, 310.0)
+	label.size = Vector2(524.0, 400.0)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.add_theme_font_size_override("font_size", 23)
+	label.add_theme_font_size_override("font_size", 16)
 	label.add_theme_color_override("font_color", color)
 	_confine_label(label, true)
 	return label
@@ -1151,28 +1179,63 @@ func _refresh_character_select_ui() -> void:
 	var roster: Array[String] = []
 	for character in character_catalog:
 		roster.append(String(character["name"]))
-	character_roster_label.text = "전체 생존자  ·  " + "   ".join(roster)
+	character_roster_label.text = "   ".join(roster)
 	character_synergy_label.text = _synergy_preview()
 
 
+## The select screen used to show a name, two bars and a sentence, which is not
+## enough to choose with — especially now that the weapon you pick also decides
+## which fusion and which treasure your whole run is aimed at. It now shows the
+## full stat block, where the weapon ends up, and a plain-language difficulty
+## read so the choice can be made without knowing the catalog by heart.
 func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
-	var player_name := "P1" if player_index == 0 else "P2"
-	var controls := "LB / RB 선택 · A 확정" if last_input_gamepad[player_index] else ("A / D 선택 · W 확정" if player_index == 0 else "← / → 선택 · ↑ 확정")
-	var cancel_hint := "B로 변경" if last_input_gamepad[player_index] else ("S로 변경" if player_index == 0 else "↓로 변경")
-	var status := "✓ 선택 완료 · " + cancel_hint if character_confirmed[player_index] else controls
-	var health_blocks := _stat_blocks(remap(float(character["health"]), 90.0, 120.0, 2.0, 5.0))
-	var speed_blocks := _stat_blocks(remap(float(character["speed"]), 205.0, 240.0, 2.0, 5.0))
-	return "%s\n<  %s  >  ·  %s\n\n고유 무기: %s\n%s\n\n체력 %s  %.0f\n속도 %s  %.0f\n\n%s" % [
-		player_name,
-		String(character["name"]),
+	var weapon: Dictionary = character["weapon"]
+	var evolution := Evolutions.for_base(String(character["weapon_id"]))
+	var required := Treasures.by_id(String(evolution.get("treasure_id", "")))
+
+	var tag_names: Array[String] = []
+	for tag in (character["tags"] as Array):
+		tag_names.append(_tag_name(String(tag)))
+
+	# Grouped rather than spaced out: the card holds nineteen lines of content in
+	# a box that fits about sixteen, and blank separator lines were the cheapest
+	# three to give up.
+	var lines: Array[String] = [
+		"%s   %s" % [String(character["name"]), CharacterCatalog.difficulty_label(character)],
 		String(character["title"]),
-		String(character["weapon_name"]),
+		"",
 		String(character["description"]),
-		health_blocks, float(character["health"]),
-		speed_blocks, float(character["speed"]),
-		status
+		"",
+		"체력 %s %.0f" % [_stat_blocks(remap(float(character["health"]), 90.0, 120.0, 2.0, 5.0)), float(character["health"])],
+		"속도 %s %.0f" % [_stat_blocks(remap(float(character["speed"]), 205.0, 240.0, 2.0, 5.0)), float(character["speed"])],
+		"제압 %s %.0f" % [
+			_stat_blocks(remap(CharacterCatalog.power_budget(character), 33.0, 41.0, 2.0, 5.0)),
+			CharacterCatalog.power_budget(character),
+		],
+		"",
+		"무기   %s" % String(character["weapon_name"]),
+		"피해 %.0f      주기 %.2f초      태그 %s" % [
+			float(weapon["damage"]), float(weapon["cooldown"]), "  ".join(tag_names),
+		],
+		"합성   %s   ←   %s T%d" % [
+			String(evolution.get("weapon_name", "없음")),
+			String(required.get("name", "-")), Evolutions.REQUIRED_TREASURE_TIER,
+		],
+		"",
+		CharacterCatalog.difficulty_reason(character),
+		_character_select_status(player_index),
 	]
+	return "\n".join(lines)
+
+
+func _character_select_status(player_index: int) -> String:
+	if character_confirmed[player_index]:
+		var cancel := "B로 변경" if last_input_gamepad[player_index] else ("S로 변경" if player_index == 0 else "↓로 변경")
+		return "선택 완료      %s" % cancel
+	if last_input_gamepad[player_index]:
+		return "LB / RB 선택      A 확정"
+	return "A / D 선택      W 확정" if player_index == 0 else "← / → 선택      ↑ 확정"
 
 
 func _stat_blocks(value: float) -> String:
@@ -1190,7 +1253,7 @@ func _synergy_preview() -> String:
 		var tags_b: Array = second["tags"]
 		if (requirements[0] in tags_a and requirements[1] in tags_b) or (requirements[1] in tags_a and requirements[0] in tags_b):
 			names.append(String(resonance["name"]))
-	return "예상 공명: " + (" · ".join(names) if not names.is_empty() else "직접적인 조합 없음 — 각자의 강점을 활용하세요")
+	return "합성 후 예상 공명   " + ("   ".join(names) if not names.is_empty() else "직접 조합 없음 — 각자의 강점을 살리세요")
 
 
 ## Builds a self-contained weapon-loadout entry from a character's catalog
@@ -1239,7 +1302,11 @@ func _start_selected_run() -> void:
 	# Controls already appear on the lobby and character-select screens;
 	# repeating them under the play field forever is noise.
 	help_label.visible = false
-	_show_message("목표: 02:00에 나타나는 결속 파괴자를 처치하세요", Color("80ed99"))
+	# Derived from the constant rather than written out, which is how it came
+	# to still say 02:00 after the boss moved to five minutes.
+	_show_message("목표 — %02d:%02d에 나타나는 결속 파괴자를 처치하세요" % [
+		int(RUN_BOSS_TIME) / 60, int(RUN_BOSS_TIME) % 60
+	], Color("80ed99"))
 
 
 func _apply_chain_constraint() -> void:
@@ -1565,7 +1632,7 @@ func _persist_settings() -> void:
 
 
 func _update_pause_text() -> void:
-	pause_label.text = "일시정지\n\nP1 대시 SPACE / RT   ·   P2 대시 . / RT\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F4] 음악: %s\n[F11] 전체 화면" % [
+	pause_label.text = "일시정지\n\n대시   P1 SPACE / RT      P2 . / RT\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F4] 음악: %s\n[F11] 전체 화면" % [
 		"켜짐" if screen_shake_enabled else "꺼짐",
 		"켜짐" if feedback.damage_numbers_enabled else "꺼짐",
 		"켜짐" if feedback.sound_enabled else "꺼짐",
@@ -1790,8 +1857,8 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	for weapon_slot in loadout.size():
 		var weapon_name := String(loadout[weapon_slot]["weapon_name"])
 		var weapon_id := String(loadout[weapon_slot]["weapon_id"])
-		pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭 · %s" % weapon_name})
-		pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전 · %s" % weapon_name})
+		pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
+		pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전\n%s" % weapon_name})
 		match weapon_id:
 			"homing":
 				pool.append({"id": "special_a", "weapon_slot": weapon_slot, "title": "다중 유도"})
@@ -1962,7 +2029,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			reason = "장기 생존"
 		"move":
 			score = 34.0
-			reason = "회피·구조 기동"
+			reason = "회피와 구조 기동"
 		"magnet":
 			score = 32.0 + maxf(0.0, 12.0 - progression.level)
 			reason = "XP 회수"
@@ -1986,7 +2053,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		# are open and less when it would spend the last of them on a whim.
 		var free_slots := TREASURE_LOADOUT_CAP - treasures.size()
 		score += 6.0 if free_slots > 1 else -8.0
-		reason = "%s · 슬롯 %d칸" % [reason, free_slots]
+		reason = "%s   슬롯 %d칸" % [reason, free_slots]
 	elif upgrade_id == "treasure_upgrade":
 		# Deepening is the payoff for having committed, and a treasure one step
 		# from its cap is the cheapest remaining power in the pool.
@@ -1995,19 +2062,19 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		score += float(tier) * 3.0
 		if tier + 1 >= Treasures.MAX_TIER:
 			score += 10.0
-			reason = "%s · 최종 티어" % reason
+			reason = "%s   최종 티어" % reason
 		else:
-			reason = "%s · T%d" % [reason, tier + 1]
+			reason = "%s   T%d" % [reason, tier + 1]
 
 	var new_resonance := _new_resonance_from_option(slot, option)
 	if not new_resonance.is_empty():
 		score += 120.0
-		reason = "공명 해금 · %s" % new_resonance
+		reason = "공명 해금   %s" % new_resonance
 	elif int(option.get("weapon_slot", -1)) >= 0:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
 		if int(weapon.get("tier", 1)) == Evolutions.WEAPON_MAX_TIER - 1:
 			score += 34.0
-			reason = "T%d · 합성 직전" % Evolutions.WEAPON_MAX_TIER
+			reason = "T%d   합성 직전" % Evolutions.WEAPON_MAX_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -2043,7 +2110,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		var tag_names: Array[String] = []
 		for tag in (character["tags"] as Array):
 			tag_names.append(_tag_name(String(tag)))
-		return "%s의 기술\n%s" % [String(character["name"]), " · ".join(tag_names)]
+		return "%s의 기술\n%s" % [String(character["name"]), "  ".join(tag_names)]
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
 		return "%s\n최종 단계 도달" % String(evolution["description"])
@@ -2063,9 +2130,9 @@ T%d → T%d" % [
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
 	var tier := int(state.get("tier", 1))
-	var tier_hint := "  ·  T%d → T%d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
+	var tier_hint := "\nT%d → T%d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER and not bool(state.get("evolved", false)):
-		tier_hint = "  ·  T%d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
+		tier_hint = "\nT%d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
 	match upgrade_id:
 		"weapon_power":
 			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.25, tier_hint]
@@ -2264,7 +2331,7 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 
 
 func _refresh_level_up_ui() -> void:
-	level_title.text = "레벨 %d  ·  각자 하나 선택" % progression.level
+	level_title.text = "레벨 %d — 각자 하나 선택" % progression.level
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
 	_refresh_team_stats_ui()
@@ -2322,7 +2389,7 @@ func _refresh_player_cards(player_index: int) -> void:
 	var character := selected_characters[slot]
 	var lines: Array[String] = [
 		"P%d %s" % [player_index, String(character["name"])],
-		"무기 %d/%d  ·  보물 %d/%d" % [
+		"무기 %d/%d    보물 %d/%d" % [
 			weapon_loadouts[slot].size(), WEAPON_LOADOUT_CAP,
 			treasure_loadouts[slot].size(), TREASURE_LOADOUT_CAP,
 		],
@@ -2334,8 +2401,8 @@ func _refresh_player_cards(player_index: int) -> void:
 	else:
 		var keys := ["LB/RB", "A", "B"] if last_input_gamepad[slot] else (["A/D", "W", "S"] if player_index == 1 else ["←/→", "↑", "↓"])
 		var reroll_key := "Y" if last_input_gamepad[slot] else ("Q" if player_index == 1 else "/")
-		lines.append("%s 이동 · %s 확정 · %s 취소" % [keys[0], keys[1], keys[2]])
-		lines.append("%s 재추첨 %d/%d회  ·  %d레벨마다 충전" % [
+		lines.append("%s 이동   %s 확정   %s 취소" % [keys[0], keys[1], keys[2]])
+		lines.append("%s 재추첨 %d/%d회   %d레벨마다 충전" % [
 			reroll_key, rerolls_remaining[slot], REROLL_CAP, REROLL_PER_LEVELS,
 		])
 	footer.text = "\n".join(lines)
@@ -2390,7 +2457,7 @@ func _refresh_team_stats_ui() -> void:
 	# point they know fusion exists and the useful thing to show is how far each
 	# build is from the next one.
 	if not fusion_discovered:
-		team_stats_label.text = "★ 추천 계산  ·  현재 체력 · 예상 효율 · T5 합성 경로"
+		team_stats_label.text = "★ 추천은 현재 체력과 예상 효율, 합성까지의 거리를 보고 고릅니다"
 	else:
 		team_stats_label.text = "합성  P1  %s\n합성  P2  %s" % [_fusion_progress_line(0), _fusion_progress_line(1)]
 	team_stats_label.visible = true
@@ -2424,7 +2491,7 @@ func _fusion_progress_line(slot: int) -> String:
 			String(evolution["weapon_name"]),
 		]
 	if not fused.is_empty():
-		var done := "완료 " + " · ".join(fused)
+		var done := "완료 " + "  ".join(fused)
 		return done if best.is_empty() else "%s   |   %s" % [done, best]
 	return best if not best.is_empty() else "대상 없음"
 
@@ -2548,8 +2615,8 @@ func _refresh_resonance_vote_ui() -> void:
 	if waiting.size() == 1:
 		lines.append("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다" % waiting[0])
 	elif waiting.size() == 2:
-		var p1_keys := "LB/RB · A" if last_input_gamepad[0] else "A/D 이동 · W 확정"
-		var p2_keys := "LB/RB · A" if last_input_gamepad[1] else "←/→ 이동 · ↑ 확정"
+		var p1_keys := "LB/RB   A" if last_input_gamepad[0] else "A/D 이동   W 확정"
+		var p2_keys := "LB/RB   A" if last_input_gamepad[1] else "←/→ 이동   ↑ 확정"
 		lines.append("P1 %s     P2 %s" % [p1_keys, p2_keys])
 	if not resonance_vote_message.is_empty():
 		lines.append(resonance_vote_message)
@@ -2605,7 +2672,7 @@ func _update_hud() -> void:
 	var tension := clampf(distance / chain_max_length, 0.0, 1.0)
 	var objective := "보스 격파" if wave_director.boss_spawned else "보스 %02d:%02d" % [int(maxf(0.0, RUN_BOSS_TIME - elapsed)) / 60, int(maxf(0.0, RUN_BOSS_TIME - elapsed)) % 60]
 	var wave_text := "휴식" if wave_director.in_calm else "%d파" % maxi(1, wave_director.wave_index + 1)
-	hud_label.text = "%02d:%02d  ·  %s  ·  처치 %d  ·  %s" % [minutes, seconds, wave_text, kills, objective]
+	hud_label.text = "%02d:%02d    %s    처치 %d    %s" % [minutes, seconds, wave_text, kills, objective]
 	p1_status_label.text = _player_status_text(0)
 	p2_status_label.text = _player_status_text(1)
 	p1_health_bar.max_value = players[0].max_health
@@ -2621,13 +2688,13 @@ func _update_hud() -> void:
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
-		chain_state = "과부하  ·  공격 -20%"
+		chain_state = "과부하   공격 -20%"
 		chain_color = Color("ff5d8f")
 	elif tension >= 0.95:
-		chain_state = "한계  ·  가까이!"
+		chain_state = "한계   가까이!"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
-		chain_state = "과충전  ·  공격 +25%"
+		chain_state = "과충전   공격 +25%"
 		chain_color = Color("fff275")
 	elif tension >= CHAIN_RESIST_RATIO:
 		chain_state = "저항"
@@ -2657,7 +2724,7 @@ func _update_hud() -> void:
 		]
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
-	xp_text_label.text = "LV.%d  ·  XP %d / %d" % [
+	xp_text_label.text = "LV.%d    XP %d / %d" % [
 		progression.level, int(progression.experience), int(progression.required_experience)
 	]
 
@@ -2670,7 +2737,7 @@ func _player_status_text(player_index: int) -> String:
 func _player_health_text(player_index: int) -> String:
 	var player := players[player_index]
 	if player.downed:
-		return "DOWN %.1f초  ·  구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
+		return "DOWN %.1f초   구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
 	return "%d / %d" % [int(player.health), int(player.max_health)]
 
 
@@ -2680,18 +2747,18 @@ func _player_health_text(player_index: int) -> String:
 func _loadout_summary(player_index: int) -> String:
 	var loadout: Array = weapon_loadouts[player_index]
 	if loadout.size() == 1:
-		return "%s · T%d" % [String(loadout[0]["weapon_name"]), int(loadout[0].get("tier", 1))]
+		return "%s T%d" % [String(loadout[0]["weapon_name"]), int(loadout[0].get("tier", 1))]
 	var tiers: Array[String] = []
 	for weapon in loadout:
 		tiers.append("T%d" % int(weapon.get("tier", 1)))
-	return "무기 %d종 · %s" % [loadout.size(), "/".join(tiers)]
+	return "무기 %d종 %s" % [loadout.size(), "/".join(tiers)]
 
 
 ## The co-op line of the result screen: what the pair did together, next to
 ## the survival numbers above it. These are the counters run_stats has been
 ## carrying unused; nothing else reads them.
 func _run_stats_summary() -> String:
-	return "구조 %d회  ·  대시 %d회  ·  공명 %d회  ·  아이템 %d개  ·  과충전 %.0f초  ·  과부하 %d회" % [
+	return "구조 %d회    대시 %d회    공명 %d회    아이템 %d개    과충전 %.0f초    과부하 %d회" % [
 		int(run_stats["revives"]), int(run_stats["dashes"]), int(run_stats["resonance_casts"]),
 		int(run_stats["items"]), float(run_stats["overcharge_time"]), int(run_stats["overloads"])
 	]
@@ -2719,7 +2786,7 @@ func _end_run(victory: bool = false) -> void:
 	get_tree().paused = true
 	var heading := "결속을 지켜냈습니다!" if victory else "사슬이 끊어졌습니다"
 	var reason := "결속 파괴자를 쓰러뜨렸습니다." if victory else "두 명이 모두 다운되었거나 구조 시간이 끝났습니다."
-	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1  %s  ·  %s\nP2  %s  ·  %s\n\n%s\n\nENTER / A  다시 결속하기" % [
+	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1   %s      %s\nP2   %s      %s\n\n%s\n\nENTER / A  다시 결속하기" % [
 		heading, reason, int(elapsed) / 60, int(elapsed) % 60, kills, progression.level,
 		players[0].character_name, _loadout_summary(0),
 		players[1].character_name, _loadout_summary(1),

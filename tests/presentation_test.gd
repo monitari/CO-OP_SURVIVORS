@@ -269,7 +269,7 @@ func _test_layout(main: Node) -> void:
 		main.p1_status_label, main.p2_status_label, main.hud_label,
 		main.chain_status_label, main.resonance_status_label,
 		main.message_label, main.character_p1_label, main.character_p2_label,
-		main.character_synergy_label, main.resonance_choices_label,
+		main.character_synergy_label, main.resonance_status,
 		main.pause_label, main.result_label, main.tutorial_label,
 	]
 	for label: Label in bounded_labels:
@@ -306,6 +306,17 @@ func _test_nothing_is_clipped(main: Node) -> void:
 	await process_frame
 	await process_frame
 	_check_fits("결과 화면", main.result_label)
+
+	# Character select carries the fullest text block in the game now — every
+	# stat, the fusion it leads to and a difficulty read — so it is the screen
+	# most likely to quietly outgrow its box.
+	main.character_overlay.visible = true
+	main._refresh_character_select_ui()
+	await process_frame
+	_check_fits("P1 선택 카드", main.character_p1_label)
+	_check_fits("P2 선택 카드", main.character_p2_label)
+	_check_fits("예상 공명", main.character_synergy_label)
+	main.character_overlay.visible = false
 	# Naming the tail explicitly: this is the line that went missing, and it is
 	# the only thing on screen telling the pair how to play again.
 	var text: String = main.result_label.text

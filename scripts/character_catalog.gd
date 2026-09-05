@@ -1,6 +1,9 @@
 class_name CharacterCatalog
 extends RefCounted
 
+## The survivors are cats bound together by a magic chain; each entry's title
+## and description carry that, while the numbers below carry the balance.
+##
 ## Every survivor is budgeted rather than hand-tuned, because the roster is
 ## meant to grow and "does the new one feel fair?" is not a question anyone can
 ## answer by staring at six dictionaries.
@@ -31,6 +34,46 @@ static func survival_budget(character: Dictionary) -> float:
 	return float(character["health"]) / 100.0 + float(character["speed"]) / 220.0
 
 
+## How hard this survivor is to play well, on a 1-3 scale, derived from the two
+## numbers that actually decide it rather than declared by hand.
+##
+## `reach` is the honest measure of positioning demand: every weapon aims itself
+## now, so the question is no longer "can you point it" but "how much of the
+## field does one cast cover". A low-reach weapon kills one thing at a time,
+## which means being surrounded is fatal and the pair has to keep moving. Low
+## health compounds that, because the same mistake costs more.
+static func difficulty(character: Dictionary) -> int:
+	var rating := 1
+	if float((character["weapon"] as Dictionary)["reach"]) < 1.4:
+		rating += 1
+	if float(character["health"]) < 100.0:
+		rating += 1
+	return rating
+
+
+static func difficulty_reason(character: Dictionary) -> String:
+	var weapon: Dictionary = character["weapon"]
+	var narrow := float(weapon["reach"]) < 1.4
+	var frail := float(character["health"]) < 100.0
+	if narrow and frail:
+		return "한 번에 적은 수만 처리하고 맷집도 얇습니다"
+	if narrow:
+		return "한 번에 적은 수만 처리해 포위에 약합니다"
+	if frail:
+		return "화력은 넓지만 맞으면 크게 아픕니다"
+	return "넓게 처리하고 맷집도 여유롭습니다"
+
+
+static func difficulty_label(character: Dictionary) -> String:
+	match difficulty(character):
+		1:
+			return "쉬움"
+		2:
+			return "보통"
+		_:
+			return "어려움"
+
+
 static func power_budget(character: Dictionary) -> float:
 	var weapon: Dictionary = character["weapon"]
 	return float(weapon["damage"]) / float(weapon["cooldown"]) * float(weapon["reach"])
@@ -42,11 +85,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "lyra",
 			"name": "라이라",
-			"title": "별길잡이",
+			"title": "별을 쫓는 러시안블루",
 			"weapon_id": "homing",
 			"weapon_name": "추적 성탄",
 			"tags": ["projectile", "tracking", "arcane"],
-			"description": "빠른 유도탄으로 멀리 떨어진 적을 안정적으로 제거합니다.",
+			"description": "밤하늘을 보고 앞발을 뻗으면 별똥이 알아서 목표를 찾아갑니다.",
 			"color": Color("43d9ff"),
 			"health": 95.0,
 			"speed": 240.0,
@@ -55,11 +98,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "volta",
 			"name": "볼타",
-			"title": "폭풍술사",
+			"title": "번개 밟는 턱시도",
 			"weapon_id": "lightning",
 			"weapon_name": "연쇄 낙뢰",
 			"tags": ["lightning", "storm", "chain"],
-			"description": "가까운 적들을 연달아 타고 흐르는 번개를 방출합니다.",
+			"description": "정전기를 잔뜩 머금은 털이 가까운 것들을 차례로 타고 흐릅니다.",
 			"color": Color("b892ff"),
 			# 90 health put Volta under the survival budget every other survivor sits on.
 			"health": 95.0,
@@ -69,11 +112,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "ignis",
 			"name": "이그니스",
-			"title": "잿불지기",
+			"title": "잿불 위의 치즈",
 			"weapon_id": "flame",
 			"weapon_name": "화염 성운",
 			"tags": ["fire", "projectile", "burst"],
-			"description": "사방으로 불씨를 뿌려 포위된 상황을 정리합니다.",
+			"description": "따뜻한 자리를 독차지하려고 사방으로 불씨를 흩뿌립니다.",
 			"color": Color("ff8c42"),
 			"health": 110.0,
 			"speed": 215.0,
@@ -85,11 +128,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "neve",
 			"name": "네베",
-			"title": "서리무녀",
+			"title": "서리 두른 하양이",
 			"weapon_id": "frost",
 			"weapon_name": "빙결 고리",
 			"tags": ["frost", "control", "aura"],
-			"description": "주변 적을 얼리는 파동으로 둘이 숨 쉴 공간을 만듭니다.",
+			"description": "숨을 뱉으면 주변이 얼어붙어 둘이 앉을 자리가 생깁니다.",
 			"color": Color("8ecae6"),
 			"health": 100.0,
 			"speed": 225.0,
@@ -98,11 +141,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "moro",
 			"name": "모로",
-			"title": "황혼사냥꾼",
+			"title": "달그림자 삼색",
 			"weapon_id": "scythe",
 			"weapon_name": "월식 낫",
 			"tags": ["melee", "shadow", "arc"],
-			"description": "바라보는 방향의 넓은 부채꼴을 한 번에 베어냅니다.",
+			"description": "노리던 쪽으로 몸을 틀어 초승달 모양으로 크게 할큅니다.",
 			"color": Color("ef476f"),
 			"health": 102.0,
 			"speed": 230.0,
@@ -113,11 +156,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "serin",
 			"name": "세린",
-			"title": "결속의 성녀",
+			"title": "사슬을 지키는 젖소",
 			"weapon_id": "chain",
 			"weapon_name": "결속 파동",
 			"tags": ["tether", "holy", "aura"],
-			"description": "두 사람 사이의 사슬 전체를 공격 판정으로 바꿉니다.",
+			"description": "골골거리는 소리가 사슬을 타고 흘러 닿는 것을 모두 태웁니다.",
 			"color": Color("80ed99"),
 			"health": 115.0,
 			"speed": 205.0,
@@ -126,11 +169,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "kael",
 			"name": "카일",
-			"title": "궤도지기",
+			"title": "궤도를 도는 노랑둥이",
 			"weapon_id": "orbit",
 			"weapon_name": "궤도 파편",
 			"tags": ["arcane", "aura", "control"],
-			"description": "몸 주위를 도는 파편으로 달려드는 적을 스스로 갈아냅니다.",
+			"description": "장난감처럼 파편 몇 개를 계속 굴려 다가오는 것을 알아서 쳐냅니다.",
 			"color": Color("ffd166"),
 			"health": 108.0,
 			"speed": 218.0,
@@ -141,11 +184,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "rian",
 			"name": "리안",
-			"title": "관통사",
+			"title": "빛을 꿰는 샴",
 			"weapon_id": "lance",
 			"weapon_name": "관통 광선",
 			"tags": ["projectile", "holy", "burst"],
-			"description": "바라보는 방향으로 모든 것을 꿰뚫는 빛의 창을 쏩니다.",
+			"description": "노린 것을 한 줄로 세워 앞발 한 번에 전부 꿰뚫습니다.",
 			"color": Color("caffbf"),
 			"health": 92.0,
 			"speed": 242.0,
@@ -154,11 +197,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "tera",
 			"name": "테라",
-			"title": "결계공",
+			"title": "결계를 놓는 고등어",
 			"weapon_id": "mine",
 			"weapon_name": "지뢰 결계",
 			"tags": ["control", "burst", "shadow"],
-			"description": "발밑에 결계를 심어 두 사람이 지나온 길을 함정으로 만듭니다.",
+			"description": "지나가는 길목마다 발자국 결계를 묻어 두고 돌아섭니다.",
 			"color": Color("bdb2ff"),
 			"health": 112.0,
 			"speed": 212.0,
@@ -167,11 +210,11 @@ static func all_characters() -> Array[Dictionary]:
 		{
 			"id": "nova",
 			"name": "노바",
-			"title": "붕괴술사",
+			"title": "무너뜨리는 카오스",
 			"weapon_id": "gravity",
 			"weapon_name": "중력 붕괴",
 			"tags": ["arcane", "storm", "control"],
-			"description": "적을 한 점으로 끌어모은 뒤 그 자리를 무너뜨립니다.",
+			"description": "한곳으로 몰아 뭉친 뒤 그 자리를 통째로 주저앉힙니다.",
 			"color": Color("ff7bd5"),
 			"health": 96.0,
 			"speed": 232.0,

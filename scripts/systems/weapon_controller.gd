@@ -245,6 +245,24 @@ func _on_projectile_released(projectile: HomingProjectile) -> void:
 		projectile_pool.append(projectile)
 
 
+## Where a directional weapon should point.
+##
+## These used to fire along the survivor's movement direction, which asked the
+## pair to steer, keep the chain in range and aim, all at once, with no separate
+## aiming control to do it with. Running away from something meant shooting away
+## from it. They now aim themselves at the nearest thing in range and only fall
+## back to the movement direction when the field is empty, so the weapon's shape
+## is still the thing that defines it — a cone is still a cone, a lance is still
+## a line — but pointing it is no longer a second job.
+func _aim_direction(player_index: int, reach: float) -> Vector2:
+	var origin := players[player_index].global_position
+	var target := spatial_grid.nearest(origin, reach)
+	if target != null:
+		return origin.direction_to(target.global_position)
+	var fallback := players[player_index].last_input
+	return fallback.normalized() if fallback.length_squared() > 0.001 else Vector2.RIGHT
+
+
 func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var target := spatial_grid.nearest(players[player_index].global_position, 700.0)
 	if target == null:
@@ -254,7 +272,7 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		var projectile := _acquire_projectile()
 		projectile.global_position = players[player_index].global_position
 		var spread := (float(shot) - float(count - 1) * 0.5) * 0.16
-		projectile.setup(players[player_index].last_input.rotated(spread), target)
+		projectile.setup(_aim_direction(player_index, 700.0).rotated(spread), target)
 		projectile.spatial_grid = spatial_grid
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
@@ -312,8 +330,8 @@ func _fire_frost_ring(player_index: int, state: Dictionary, damage: float, color
 
 func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var origin := players[player_index].global_position
-	var direction := players[player_index].last_input.normalized()
 	var attack_range := float(state["range"])
+	var direction := _aim_direction(player_index, attack_range)
 	var arc := float(state["arc"])
 	for enemy in spatial_grid.query_radius(origin, attack_range + 40.0):
 		var to_enemy := enemy.global_position - origin
@@ -348,7 +366,7 @@ func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Co
 func _fire_lance(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	_lance_from(
 		players[player_index].global_position,
-		players[player_index].last_input,
+		_aim_direction(player_index, float(state["range"])),
 		float(state["range"]), float(state["width"]), damage, color
 	)
 
@@ -358,8 +376,11 @@ func _fire_lance(player_index: int, state: Dictionary, damage: float, color: Col
 func _plant_mines(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var count := maxi(1, int(state["count"]))
 	var radius := float(state["radius"])
+	# Laid toward whatever is closing in rather than exactly underfoot: a trap
+	# you have to walk backwards over is a trap you rarely get to use.
+	var lead := _aim_direction(player_index, 460.0) * 70.0
 	for index in count:
-		var offset := Vector2.ZERO if index == 0 else Vector2.from_angle(randf() * TAU) * randf_range(30.0, 90.0)
+		var offset := lead if index == 0 else lead + Vector2.from_angle(randf() * TAU) * randf_range(30.0, 90.0)
 		var mine := MineScript.new() as ProximityMine
 		mine.configure(damage, radius, color)
 		mine.detonated.connect(_on_mine_detonated)
@@ -491,12 +512,12 @@ func _sweep_celestial(player_index: int, state: Dictionary, damage: float, color
 
 ## Forward and both flanks at once, so being flanked stops being a problem.
 func _fire_judgement(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var heading := players[player_index].last_input.normalized()
+	# Aimed once and then fanned, rather than three separate lookups: the three
+	# beams have to form one fan around the same target or it reads as noise.
+	var heading := _aim_direction(player_index, float(state["range"]))
+	var origin := players[player_index].global_position
 	for offset in [0.0, TAU * 0.33, -TAU * 0.33]:
-		var aimed := state.duplicate()
-		players[player_index].last_input = heading.rotated(offset)
-		_fire_lance(player_index, aimed, damage, color)
-	players[player_index].last_input = heading
+		_lance_from(origin, heading.rotated(offset), float(state["range"]), float(state["width"]), damage, color)
 
 
 ## A whole minefield in one cast, laid in a ring around the planter.
