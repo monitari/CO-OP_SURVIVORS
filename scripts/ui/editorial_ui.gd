@@ -156,7 +156,7 @@ static func _characters(main: Node) -> void:
 
 static func refresh_characters(main: Node) -> void:
 	var screen: Control = main.character_overlay
-	main.character_roster_label.text = "10 CATS   /   각자 하나 선택"
+	main.character_roster_label.text = "클릭 P1 · 우클릭 P2"
 	for slot in 2:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
 		screen.get_node("CatName%d" % slot).text = String(cat["name"]) + "   ·   " + main.CharacterData.difficulty_label(cat)
@@ -178,7 +178,6 @@ static func refresh_characters(main: Node) -> void:
 static func _growth(main: Node) -> void:
 	var screen: Control = main.level_overlay
 	place(main.level_title, Rect2(24, 16, 860, 42), 28)
-	label(screen, "각자 1개 선택", Rect2(1040, 25, 180, 24), 15, Palette.MUTED)
 	for slot in 2:
 		var x := 8.0 + slot * 616.0
 		var heading := label(screen, "", Rect2(x + 8, 70, 590, 26), 16, Palette.P1 if slot == 0 else Palette.P2)
@@ -204,12 +203,12 @@ static func _growth(main: Node) -> void:
 			var badge: Label = card.get_node("Recommendation")
 			badge.add_theme_color_override("font_color", Palette.P1)
 			badge.add_theme_stylebox_override("normal", Palette.surface(Color("dfebda"), 8))
-			badge.add_theme_font_size_override("font_size", 12)
+			badge.add_theme_font_size_override("font_size", 14)
 		var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 		footer.add_theme_color_override("font_color", Palette.MUTED)
 		var stats := label(screen, "", Rect2(x + 14, 472, 586, 28), 13, Palette.INK)
 		stats.name = "BuildStats%d" % slot
-	place(main.team_stats_label, Rect2(24, 501, 1192, 38), 12, Palette.MUTED)
+	place(main.team_stats_label, Rect2(24, 496, 1192, 46), 14, Palette.MUTED)
 
 
 static func refresh_growth(main: Node, slot: int) -> void:
@@ -228,12 +227,30 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		card.text = String(option["description"])
 		card.text = card.text.replace(", ", "\n").replace("출혈 시간", "구조 시간").replace("내구도 소모", "내구 소모")
 		if kind == "evolve_weapon":
-			card.text = "최종 무기로 합성\n새 공격 방식 · 공명 가능"
+			card.text = short_evolution(String(option["evolution"]["weapon_id"]))
 		card.tooltip_text = String(option["title"]) + "\n" + String(option["description"])
 		var badge: Label = card.get_node("Recommendation")
 		var reason := String(option.get("recommendation_reason", ""))
 		badge.text = "★ " + reason.split("   ")[0]
 		badge.tooltip_text = reason
+	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
+	place(footer, Rect2(278 + slot * 616, 369, 330, 52), 14, Palette.MUTED)
+	footer.text = "무기 %d/4 · 보물 %d/4 · 뽑기 %d\n%s" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size(), main.rerolls_remaining[slot], "확정 · 상대 선택 대기" if main.selected_upgrade_indices[slot] >= 0 else "클릭 / W·↑·A 확정"]
+	if main.level_up_input_delay > 0.0:
+		footer.text = "무기 %d/4 · 보물 %d/4\n잠시 후 선택 가능" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+	if screen.has_node("Reroll%d" % slot):
+		screen.get_node("Reroll%d" % slot).disabled = main.level_up_input_delay > 0.0 or main.selected_upgrade_indices[slot] >= 0 or main.rerolls_remaining[slot] <= 0
+		screen.get_node("Cancel%d" % slot).disabled = main.selected_upgrade_indices[slot] < 0
+
+
+static func short_evolution(id: String) -> String:
+	return {
+		"starpiercer": "유도탄 + 관통 광선\n공명 조합 해금", "thunder_god": "범위 안 적 동시 낙뢰\n공명 조합 해금",
+		"supernova": "불씨 뒤 2차 폭발\n공명 조합 해금", "absolute_zero": "빙결 후 파쇄\n공명 조합 해금",
+		"black_moon": "주변을 두 번 회전베기\n공명 조합 해금", "stigmata": "사슬 화상 + 공동 회복\n공명 조합 해금",
+		"celestial": "양방향 이중 궤도\n공명 조합 해금", "judgement": "세 갈래 관통 공격\n공명 조합 해금",
+		"ruin_garden": "원형 지뢰밭 설치\n공명 조합 해금", "event_horizon": "흡인 후 중심 폭발\n공명 조합 해금"
+	}.get(id, "최종 공격 · 상세 확인")
 
 
 static func _hud(main: Node) -> void:
@@ -351,7 +368,7 @@ static func refresh_pause(main: Node) -> void:
 
 
 static func connection_notice(main: Node, device: int) -> void:
-	main.pause_overlay.get_node("SettingsRows").visible = false
-	main.pause_overlay.get_node("PauseHeading").text = "컨트롤러 연결 확인"
-	place(main.pause_label, Rect2(32, 139, 596, 275), 20)
-	main.pause_label.text = "P%d 컨트롤러 연결이 끊어졌습니다.\n\n다시 연결한 뒤 ESC / START로 계속하세요.\n키보드 조작도 사용할 수 있습니다." % (device + 1)
+	# Keep the navigable menu; a disconnect must not strand mouse/pad users.
+	main._update_pause_text()
+	main.pause_overlay.get_node("PauseHeading").text = "P%d 패드 연결 끊김 · 키보드 사용 가능" % (device + 1)
+	return

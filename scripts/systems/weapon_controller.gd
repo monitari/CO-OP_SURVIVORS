@@ -35,6 +35,9 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	var weapon_id := String(state["weapon_id"])
 	var color := Color(state["color"])
 	var damage := float(state["damage"]) * damage_multiplier * owner_player.might
+	# One roll per cast also covers delayed mines and secondary explosions.
+	if owner_player.crit_chance > 0.0 and randf() < owner_player.crit_chance:
+		damage *= ChainPlayer.CRIT_MULTIPLIER
 	# The personal attributes scale the weapon's own numbers rather than
 	# replacing them, so a scaled copy is handed to the effect functions and the
 	# stored loadout entry keeps its unmodified base values.

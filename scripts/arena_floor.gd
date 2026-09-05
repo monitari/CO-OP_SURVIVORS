@@ -4,6 +4,7 @@ extends Node2D
 ## All props are cosmetic decals, not misleading movement-blocking obstacles.
 ## One static draw, deterministic placement, below the chain and every actor.
 const EXTENT := 2400
+const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
 
 
 func _ready() -> void:
@@ -17,9 +18,9 @@ func _draw() -> void:
 		for column in range(-20, 20):
 			var at := Vector2(column * 128 + (64 if row % 2 else 0), row * 64)
 			var shade := posmod(row * 7 + column * 13, 4)
-			var tint := Color("2a4045").lightened(shade * 0.013)
+			var tint := Color("2c4246").lightened(shade * 0.006)
 			draw_rect(Rect2(at + Vector2(2, 2), Vector2(124, 60)), tint)
-			draw_line(at + Vector2(4, 3), at + Vector2(122, 3), Color("3a5052"), 1, true)
+			draw_line(at + Vector2(4, 3), at + Vector2(122, 3), Color("33494c"), 1, true)
 	# Broad gutters make distances legible without creating a wall.
 	for x in range(-2304, 2400, 768):
 		draw_rect(Rect2(x - 8, -EXTENT, 16, EXTENT * 2), Color("1e333a"))
@@ -60,14 +61,10 @@ func _draw() -> void:
 
 
 func _planter(at: Vector2) -> void:
-	draw_rect(Rect2(at + Vector2(-4, 6), Vector2(94, 48)), Color("20343b"))
-	draw_rect(Rect2(at, Vector2(88, 40)), Color("66594b"))
-	draw_rect(Rect2(at + Vector2(5, 5), Vector2(78, 30)), Color("344443"))
-	for index in 4:
-		var root := at + Vector2(15 + index * 19, 20)
-		draw_circle(root, 13, Color("496052"))
-		draw_circle(root + Vector2(-4, -5), 9, Color("5d7560"))
-		draw_line(root + Vector2(-7, 5), root + Vector2(6, -7), Color("7c8866"), 2, true)
+	draw_set_transform(at + Vector2(38, 25), 0, Vector2(1.0, 0.4))
+	draw_circle(Vector2.ZERO, 42, Color(0.05, 0.12, 0.14, 0.3))
+	draw_set_transform(Vector2.ZERO)
+	draw_texture_rect(EnemyIcons.get_icon("planter"), Rect2(at + Vector2(-2, -47), Vector2(86, 86)), false, Color("829589"))
 
 
 func _box(at: Vector2) -> void:

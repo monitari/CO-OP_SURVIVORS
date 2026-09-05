@@ -140,6 +140,13 @@ var level_up_active := false
 var character_select_active := true
 var resonance_vote_active := false
 var pause_active := false
+var pause_cursor := 0
+var restart_pending := false
+var restart_armed_at := 0
+var details_overlay: Panel
+var modal_input_guard := 0
+const ReviewUI := preload("res://scripts/ui/review_ui.gd")
+const UpgradeValue := preload("res://scripts/upgrade_value.gd")
 var lobby_active := true
 var run_won := false
 var boss_enemy: ChaserEnemy
@@ -254,6 +261,7 @@ func _ready() -> void:
 	add_child(weapon_controller)
 	weapon_controller.configure(players, weapon_loadouts, spatial_grid)
 	_create_hud()
+	ReviewUI.install(self)
 	_begin_lobby()
 	queue_redraw()
 
@@ -262,12 +270,27 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 	if device < 0 or device > 1:
 		return
 	last_input_gamepad[device] = connected
-	if not connected and not character_select_active and not game_over and not level_up_active and not resonance_vote_active:
+	if not connected and not lobby_active and not character_select_active and not game_over and not level_up_active and not resonance_vote_active:
 		_set_pause(true)
 		EditorialUI.connection_notice(self, device)
 
 
 func _input(event: InputEvent) -> void:
+	if is_instance_valid(details_overlay) and event.is_pressed() and not event.is_echo():
+		if event.is_action_pressed("build_details") and (level_up_active or pause_active):
+			ReviewUI.toggle_details(self)
+			get_viewport().set_input_as_handled()
+			return
+		if details_overlay.visible and (event.is_action_pressed("pause") or event.is_action_pressed("menu_cancel")):
+			ReviewUI.toggle_details(self)
+			get_viewport().set_input_as_handled()
+			return
+		if details_overlay.visible and (event.is_action_pressed("menu_previous") or event.is_action_pressed("menu_next")):
+			for slot in 2:
+				var text: RichTextLabel = details_overlay.get_node("Details%d" % slot)
+				text.scroll_to_line(maxi(0, text.get_first_visible_line() + (2 if event.is_action_pressed("menu_next") else -2)))
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
 		var device := clampi(event.device, 0, 1)
 		last_input_gamepad[device] = true
@@ -289,6 +312,11 @@ func _input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if modal_input_guard > 0:
+		modal_input_guard -= 1
+		return
+	if is_instance_valid(details_overlay) and details_overlay.visible:
+		return
 	# Derived from the state flags every tick rather than toggled at each of
 	# the dozen places an overlay opens or closes, so it cannot drift out of
 	# sync with what is actually on screen.
@@ -1239,7 +1267,7 @@ func _format_character_card(player_index: int) -> String:
 	var weapon: Dictionary = character["weapon"]
 	var evolution := Evolutions.for_base(String(character["weapon_id"]))
 	var required := Treasures.by_id(String(evolution.get("treasure_id", "")))
-	return "%s\n피해 %.0f  ·  %.2f초마다 공격\n\n합성  %s + %s T%d\n→ %s\n\n%s" % [
+	return "%s\n피해 %.0f  ·  %.2f초마다 공격\n\n합성  %s T7 + %s T%d\n→ %s\n\n%s" % [
 		String(character["weapon_name"]), float(weapon["damage"]), float(weapon["cooldown"]),
 		String(character["weapon_name"]), String(required.get("name", "-")), Evolutions.REQUIRED_TREASURE_TIER,
 		String(evolution.get("weapon_name", "-")), _character_select_status(player_index),
@@ -1478,6 +1506,14 @@ func _update_threat_indicator() -> void:
 
 func _update_camera(delta: float) -> void:
 	var midpoint := (players[0].position + players[1].position) * 0.5
+	var bounds := Rect2(players[0].position, Vector2.ZERO).expand(players[1].position)
+	if is_instance_valid(boss_enemy) and not boss_enemy.dead and boss_enemy.position.distance_to(midpoint) < 1050.0:
+		bounds = bounds.expand(boss_enemy.position)
+		midpoint = bounds.get_center()
+	# Reserve the upper 200 px for HUD/announcements and keep actor margins.
+	var target_zoom := minf(1.0, minf(1120.0 / (bounds.size.x + 180.0), 440.0 / (bounds.size.y + 180.0)))
+	world_camera.zoom = world_camera.zoom.lerp(Vector2.ONE * maxf(0.45, target_zoom), minf(1.0, delta * 5.0))
+	midpoint.y -= 85.0 / world_camera.zoom.y
 	var shake_offset := Vector2.ZERO
 	if screen_shake_enabled and camera_shake > 0.05:
 		shake_offset = Vector2(randf_range(-camera_shake, camera_shake), randf_range(-camera_shake, camera_shake))
@@ -1609,6 +1645,8 @@ func _on_player_revived(player: ChainPlayer) -> void:
 
 func _set_pause(enabled: bool) -> void:
 	pause_active = enabled
+	restart_pending = false
+	pause_cursor = 0
 	pause_overlay.visible = enabled
 	if enabled:
 		_update_pause_text()
@@ -1616,10 +1654,23 @@ func _set_pause(enabled: bool) -> void:
 
 
 func _handle_pause_input() -> void:
-	if Input.is_action_just_pressed("pause"):
+	if restart_pending:
+		if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
+			restart_pending = false
+			_update_pause_text()
+		elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
+			pause_cursor = 1 - pause_cursor
+			_update_pause_text()
+		elif Input.is_action_just_pressed("menu_confirm"):
+			_activate_pause_item(pause_cursor)
+		return
+	if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
 		_set_pause(false)
-	elif Input.is_action_just_pressed("restart"):
-		get_tree().reload_current_scene()
+	elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
+		pause_cursor = wrapi(pause_cursor + (1 if Input.is_action_just_pressed("menu_next") else -1), 0, 6)
+		_update_pause_text()
+	elif Input.is_action_just_pressed("menu_confirm"):
+		_activate_pause_item(pause_cursor)
 	elif Input.is_action_just_pressed("toggle_shake"):
 		screen_shake_enabled = not screen_shake_enabled
 		_persist_settings()
@@ -1649,6 +1700,37 @@ func _persist_settings() -> void:
 
 func _update_pause_text() -> void:
 	EditorialUI.refresh_pause(self)
+	ReviewUI.refresh_pause(self)
+
+
+func _activate_pause_item(index: int) -> void:
+	if not pause_active:
+		return
+	if restart_pending:
+		if index == 0:
+			restart_pending = false
+			_update_pause_text()
+		elif index == 1 and Time.get_ticks_msec() >= restart_armed_at:
+			get_tree().paused = false
+			get_tree().reload_current_scene()
+		return
+	match index:
+		0:
+			_set_pause(false)
+			return
+		1: screen_shake_enabled = not screen_shake_enabled
+		2: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
+		3: feedback.sound_enabled = not feedback.sound_enabled
+		4:
+			feedback.music_enabled = not feedback.music_enabled
+			feedback.refresh_music()
+		5:
+			restart_pending = true
+			pause_cursor = 0 # Cancel is always the initial focus.
+			restart_armed_at = Time.get_ticks_msec() + 400
+	if index in [1, 2, 3, 4]:
+		_persist_settings()
+	_update_pause_text()
 
 
 ## Fires every weapon a player owns once — used by the physics loop's
@@ -1906,7 +1988,11 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
 				"title": "신규 기술: %s" % String(character["weapon_name"])
 			})
+	pool = pool.filter(func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option))
+	var ready_fusions: Array[Dictionary] = []
 	for option in pool:
+		if option["id"] == "evolve_weapon":
+			ready_fusions.append(option)
 		option["description"] = _upgrade_preview(slot, option)
 
 	var previous_keys: Array = last_upgrade_choice_keys[slot]
@@ -1930,6 +2016,9 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	weighted.shuffle()
 	var choices: Array[Dictionary] = []
 	var chosen_keys: Array = []
+	for option in ready_fusions.slice(0, 3):
+		choices.append(option)
+		chosen_keys.append(_option_key(option))
 	for option in weighted:
 		if choices.size() >= 3:
 			break
@@ -2012,8 +2101,13 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			score = 47.0
 			reason = "발동 빈도"
 		"special_a", "special_b":
-			score = 49.0
-			reason = "고유 기능"
+			score = 28.0
+			reason = "제어 · 편의 강화"
+			var w: Dictionary = loadout[int(option["weapon_slot"])]
+			if upgrade_id == "special_b" and w.has("speed"):
+				score += 30.0 * (70.0 if w["weapon_id"] == "homing" else 55.0) / maxf(1.0, float(w["speed"]))
+			if upgrade_id == "special_b" and w["weapon_id"] == "frost":
+				score += (1.0 - health_ratio) * 30.0
 		"might":
 			score = 39.0 + loadout.size() * 7.0
 			reason = "무기 %d종 강화" % loadout.size()
@@ -2059,6 +2153,23 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			score = 200.0
 			reason = "합성 — 최종 단계"
 
+	var marginal := UpgradeValue.gain(self, slot, option)
+	if marginal > 0.0 and upgrade_id != "evolve_weapon":
+		score = 25.0 + minf(110.0, marginal * 220.0)
+		reason = "예상 화력 +%d%%" % maxi(1, roundi(marginal * 100.0))
+	elif upgrade_id in ["weapon_power", "weapon_rate"]:
+		score = 0.0
+	# Reward only treasures on an owned, unfinished fusion path.
+	if is_treasure:
+		if not UpgradeValue.benefits_loadout(loadout, effect_id):
+			score = 5.0
+			reason = "후속 무기 준비"
+		for weapon: Dictionary in loadout:
+			var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+			if evolution.get("treasure_id", "") == effect_id and _treasure_tier(slot, effect_id) < Evolutions.REQUIRED_TREASURE_TIER:
+				score += 20.0 + float(weapon.get("tier", 1)) * 3.0
+				reason += "   합성 재료"
+				break
 	if upgrade_id == "unlock_treasure":
 		# Slots are finite now, so committing one is worth more while several
 		# are open and less when it would spend the last of them on a whim.
@@ -2121,7 +2232,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		var tag_names: Array[String] = []
 		for tag in (character["tags"] as Array):
 			tag_names.append(_tag_name(String(tag)))
-		return "%s의 기술\n%s" % [String(character["name"]), "  ".join(tag_names)]
+		return "%s\n피해 %.0f · %.2f초" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), float(character["weapon"]["damage"]), float(character["weapon"]["cooldown"])]
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
 		return "%s\n최종 단계 도달" % String(evolution["description"])
@@ -2467,14 +2578,8 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 		tier.visible = true
 		tier.text = "T%d" % int(entry.get("tier", 1))
 func _refresh_team_stats_ui() -> void:
-	# Before the pair has fused anything this strip explains the recommendation
-	# star. After the first fusion it becomes the tech tree, because at that
-	# point they know fusion exists and the useful thing to show is how far each
-	# build is from the next one.
-	if not fusion_discovered:
-		team_stats_label.text = "★ 추천 기준   체력 · 강화 효율 · 합성 / 공명 연계"
-	else:
-		team_stats_label.text = "합성  P1  %s\n합성  P2  %s" % [_fusion_progress_line(0), _fusion_progress_line(1)]
+	# Show the two-part commitment before the player spends limited slots.
+	team_stats_label.text = "합성  P1  %s\n합성  P2  %s" % [_fusion_progress_line(0), _fusion_progress_line(1)]
 	team_stats_label.visible = true
 
 
@@ -2507,7 +2612,7 @@ func _fusion_progress_line(slot: int) -> String:
 		]
 	if not fused.is_empty():
 		var done := "완료 " + "  ".join(fused)
-		return done if best.is_empty() else "%s   |   %s" % [done, best]
+		return done if best.is_empty() else best
 	return best if not best.is_empty() else "대상 없음"
 
 
@@ -2708,7 +2813,7 @@ func _update_hud() -> void:
 		chain_state = "한계   가까이!"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
-		chain_state = "과충전   공격 +25%"
+		chain_state = "과충전   공격 +%d%%" % roundi((0.25 + team_overcharge) * 100.0)
 		chain_color = Color("fff275")
 	elif tension >= CHAIN_RESIST_RATIO:
 		chain_state = "저항"
@@ -2810,6 +2915,19 @@ func _end_run(victory: bool = false) -> void:
 
 
 func _setup_input_map() -> void:
+	_add_key_action("build_details", KEY_TAB)
+	_add_key_action("menu_previous", KEY_UP)
+	_add_key_action("menu_previous", KEY_W)
+	_add_key_action("menu_next", KEY_DOWN)
+	_add_key_action("menu_next", KEY_S)
+	_add_key_action("menu_confirm", KEY_ENTER)
+	_add_key_action("menu_cancel", KEY_BACKSPACE)
+	for device in 2:
+		_add_joy_button("build_details", device, JOY_BUTTON_X)
+		_add_joy_button("menu_previous", device, JOY_BUTTON_DPAD_UP)
+		_add_joy_button("menu_next", device, JOY_BUTTON_DPAD_DOWN)
+		_add_joy_button("menu_confirm", device, JOY_BUTTON_A)
+		_add_joy_button("menu_cancel", device, JOY_BUTTON_B)
 	_add_key_action("p1_left", KEY_A)
 	_add_key_action("p1_right", KEY_D)
 	_add_key_action("p1_up", KEY_W)
@@ -2882,7 +3000,8 @@ func _add_key_action(action: StringName, physical_keycode: int) -> void:
 		InputMap.add_action(action)
 	var event := InputEventKey.new()
 	event.physical_keycode = physical_keycode
-	InputMap.action_add_event(action, event)
+	if not InputMap.action_has_event(action, event):
+		InputMap.action_add_event(action, event)
 
 
 func _add_joy_axis(action: StringName, device: int, axis: int, value: float) -> void:
@@ -2890,11 +3009,13 @@ func _add_joy_axis(action: StringName, device: int, axis: int, value: float) -> 
 	event.device = device
 	event.axis = axis
 	event.axis_value = value
-	InputMap.action_add_event(action, event)
+	if not InputMap.action_has_event(action, event):
+		InputMap.action_add_event(action, event)
 
 
 func _add_joy_button(action: StringName, device: int, button: int) -> void:
 	var event := InputEventJoypadButton.new()
 	event.device = device
 	event.button_index = button
-	InputMap.action_add_event(action, event)
+	if not InputMap.action_has_event(action, event):
+		InputMap.action_add_event(action, event)

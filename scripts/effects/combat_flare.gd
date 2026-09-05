@@ -15,7 +15,7 @@ func setup(effect_position: Vector2, first: Color, second: Color, effect_radius 
 	secondary = second
 	radius = effect_radius
 	lifetime = effect_lifetime
-	z_index = 5
+	z_index = 4 # Below enemies and their danger telegraphs, above friendly rings.
 	queue_redraw()
 
 

@@ -38,7 +38,7 @@ func _run() -> void:
 	_test_tech_tree_is_hidden_until_discovered(main)
 
 	if failures.is_empty():
-		print("FUSION_PASS: both gates enforced, fusion replaces in place, tech tree appears after the first one")
+		print("FUSION_PASS: both gates enforced, fusion replaces in place, tech tree visible from the start")
 		quit(0)
 	else:
 		for failure in failures:
@@ -147,13 +147,12 @@ func _test_tier_is_capped(main: Node) -> void:
 
 
 func _test_tech_tree_is_hidden_until_discovered(main: Node) -> void:
-	# The strip is the recommendation legend until the pair has fused something,
-	# because telling a first-time player about fusion requirements before they
-	# know fusion exists is noise.
+	# Even before discovery, show the next requirements. P2 is already T7 in
+	# this fixture; only the required denominator, not a T1 numerator, is fixed.
 	main.fusion_discovered = false
 	main._refresh_team_stats_ui()
-	_check(not String(main.team_stats_label.text).contains("합성  P1"),
-		"the tech tree is not shown before the first fusion")
+	_check(String(main.team_stats_label.text).contains("합성  P1") and String(main.team_stats_label.text).contains("/7"),
+		"the fusion path and weapon requirement are visible before the first fusion")
 
 	main.fusion_discovered = true
 	main._refresh_team_stats_ui()

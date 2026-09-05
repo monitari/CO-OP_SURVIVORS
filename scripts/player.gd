@@ -64,6 +64,7 @@ var tail_phase := 0.0 ## Drives the tail sway; advanced by step_movement.
 
 
 func setup(index: int, color: Color) -> void:
+	z_index = 6
 	player_index = index
 	body_color = color
 	queue_redraw()

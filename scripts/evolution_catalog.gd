@@ -7,8 +7,7 @@ extends RefCounted
 ## deep enough. That is deliberately two commitments rather than one — the
 ## treasure requirement is what makes the four treasure slots a build decision
 ## instead of a stat shop, because picking 관통의 송곳 is also picking the fusion
-## it unlocks. Nothing tells the pair which treasure a weapon wants until they
-## have fused something once; after that the level-up screen draws the tree.
+## it unlocks. Character selection and every level-up expose both requirements.
 ##
 ## A fused weapon is not the base weapon with bigger numbers. Each one changes
 ## how the attack is delivered — a chain becomes a storm that hits everything at

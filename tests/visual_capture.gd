@@ -49,6 +49,10 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/pause.png")
+	main._activate_pause_item(5)
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/restart-confirm.png")
+	main._activate_pause_item(0)
 	main._set_pause(false)
 
 	# Pin the pair in the beneficial tension band so the compact chain labels
@@ -98,6 +102,10 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/build-inspect.png")
+	main.ReviewUI.toggle_details(main)
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/build-details.png")
+	main.details_overlay.hide()
 
 	main.level_up_active = false
 	main.level_overlay.visible = false
@@ -134,9 +142,16 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/resonance-cast.png")
 
-	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, true, true) as ChaserEnemy
+	for enemy in main.enemies.duplicate():
+		main._cull_enemy(enemy)
+	main.players[0].position = Vector2(-100, 40)
+	main.players[1].position = Vector2(100, 40)
+	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, false, true) as ChaserEnemy
 	boss.position = Vector2(0.0, -170.0)
 	main._register_enemy(boss)
+	main.wave_director.boss_spawned = true
+	for frame in 35:
+		main._update_camera(1.0 / 60.0)
 	main._update_hud()
 	await process_frame
 	await RenderingServer.frame_post_draw

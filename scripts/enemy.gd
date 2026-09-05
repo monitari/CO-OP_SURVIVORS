@@ -1,6 +1,16 @@
 class_name ChaserEnemy
 extends Node2D
 const EnemyArt := preload("res://scripts/enemy_art.gd")
+const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
+var body_sprite: Sprite2D
+
+func _ready() -> void:
+	if is_instance_valid(body_sprite):
+		body_sprite.rotation = -rotation
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED and is_instance_valid(body_sprite):
+		body_sprite.rotation = -rotation
 
 signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
@@ -187,6 +197,14 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		contact_damage *= 1.15
 		xp_value = 150
 	health = max_health
+	z_index = 5 # Threat telegraphs remain above friendly attack effects.
+	if not is_instance_valid(body_sprite):
+		body_sprite = Sprite2D.new()
+		add_child(body_sprite)
+	body_sprite.texture = EnemyIcons.get_icon(archetype)
+	body_sprite.scale = Vector2.ONE * (radius * 2.65 / maxf(body_sprite.texture.get_width(), body_sprite.texture.get_height()))
+	body_sprite.modulate = Color.WHITE
+	set_notify_local_transform(true)
 	add_to_group("enemies")
 	queue_redraw()
 
@@ -203,6 +221,9 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	if dead or not active:
 		return
 	contact_cooldown = maxf(0.0, contact_cooldown - delta)
+	if is_instance_valid(body_sprite):
+		body_sprite.rotation = -rotation
+		body_sprite.modulate = Color("ffc4a1") if boss_enraged else Color.WHITE.lerp(Color("fff1b5"), hit_flash * 0.8)
 	var was_slowed := slow_timer > 0.0
 	slow_timer = maxf(0.0, slow_timer - delta)
 	if was_slowed and slow_timer <= 0.0:
@@ -462,7 +483,8 @@ func _draw() -> void:
 			local_point, BOSS_SLAM_RADIUS - 6.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 32,
 			Color(1.0, 0.85, 0.4, 0.9), 4.0, true
 		)
-	EnemyArt.draw_body(self, archetype, radius, hit_flash * 0.8, boss_enraged)
+	if not is_instance_valid(body_sprite):
+		EnemyArt.draw_body(self, archetype, radius, hit_flash * 0.8, boss_enraged)
 	if elite and not boss:
 		for side in 2:
 			draw_arc(Vector2.ZERO, radius + 7.0, side * PI - 0.65, side * PI + 0.65, 12, Color("e8c98a"), 2.5, true)
