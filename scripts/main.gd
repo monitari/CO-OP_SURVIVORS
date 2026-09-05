@@ -122,6 +122,7 @@ var boss_label: Label
 var boss_health_text_label: Label
 var help_label: Label
 var message_label: Label
+var notice_stack: Array[Label] = []
 var level_overlay: ColorRect
 var level_title: Label
 var level_card_labels: Array = [[], []] ## level_card_labels[slot] = Array[Label], one per offered choice (up to 3)
@@ -381,6 +382,8 @@ func _physics_process(delta: float) -> void:
 	var modal := (lobby_active or character_select_active or level_up_active
 		or resonance_vote_active or pause_active or game_over or cinematic_active)
 	modal_dim.visible = modal
+	for notice in notice_stack:
+		if is_instance_valid(notice): notice.visible = not modal
 	# The run is over on the result screen, so its bars are stale information
 	# drawn on top of the panel that replaced them — and the P2 panel reaches
 	# far enough right to clip the overlay's own corner.
@@ -1478,7 +1481,7 @@ func _start_selected_run() -> void:
 	help_label.visible = false
 	# Derived from the schedule rather than written out, which is how it came to
 	# still say 02:00 after the boss moved to five minutes.
-	_show_message("청소 로봇 %d대 격파 · 총 %02d:%02d" % [
+	_show_message("옥상 보스 %d명 격파 · 총 %02d:%02d" % [
 		WaveDirectorScript.BOSS_COUNT, int(RUN_LENGTH) / 60, int(RUN_LENGTH) % 60
 	], Color("80ed99"))
 
@@ -1780,7 +1783,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 ## times, and naming them is most of what makes that legible during play — the
 ## stat block is behind a health bar the player never sees the number on.
 const BOSS_NAMES := [
-	"폭주 청소 로봇", "경비 드론 모함", "옥상 관리자", "구역 통제기", "최종 관제 코어",
+	"폭주 청소 로봇", "밤사냥꾼 부엉왕", "옥상 관리자", "폭풍 부엉왕", "최종 관제 코어",
 ]
 
 
@@ -2045,18 +2048,23 @@ const CROWD_NEIGHBOURS: Array[Vector2i] = [
 ## allocations every physics tick. Cell size (192) is far wider than the largest
 ## pair of radii, so own-cell plus four forward neighbours covers every overlap.
 func _separate_crowd() -> void:
+	var phase := Engine.get_physics_frames()
 	for key in spatial_grid.cells:
 		var bucket: Array = spatial_grid.cells[key]
 		for index in bucket.size():
 			var first := bucket[index] as ChaserEnemy
-			for other_index in range(index + 1, bucket.size()):
-				_resolve_overlap(first, bucket[other_index] as ChaserEnemy)
+			# Bound work in dense cells; rotate sampled neighbours each tick so
+			# a gravity pile cannot turn separation into quadratic frame cost.
+			for sample in mini(4, bucket.size() - 1):
+				var other_index := (index + 1 + sample + phase * 4) % bucket.size()
+				if other_index != index:
+					_resolve_overlap(first, bucket[other_index] as ChaserEnemy)
 			for offset in CROWD_NEIGHBOURS:
 				var neighbour: Variant = spatial_grid.cells.get(key + offset)
 				if neighbour == null:
 					continue
-				for candidate in (neighbour as Array):
-					_resolve_overlap(first, candidate as ChaserEnemy)
+				for sample in mini(2, neighbour.size()):
+					_resolve_overlap(first, neighbour[(sample + phase * 2 + index) % neighbour.size()] as ChaserEnemy)
 	# The survivors are solid too, but only one way: an enemy is pushed out of a
 	# cat, never the other way round. Shoving the player around would take the
 	# controls away at exactly the moment they matter most.
@@ -2082,10 +2090,11 @@ func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 	if first.boss and second.boss:
 		return
 	var offset := second.global_position - first.global_position
-	var distance := offset.length()
 	var minimum := (first.radius + second.radius) * CROWD_OVERLAP_SLACK
-	if distance >= minimum:
+	var distance_squared := offset.length_squared()
+	if distance_squared >= minimum * minimum:
 		return
+	var distance := sqrt(distance_squared)
 	var direction := offset / distance if distance > 0.01 else Vector2.from_angle(randf() * TAU)
 	var push := (minimum - distance) * CROWD_PUSH
 	# Share of the correction each one takes: the smaller body moves more, and a
@@ -2679,6 +2688,14 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 ## weapon — 느슨한 족쇄 lengthens the pair's leash, which is both a freedom
 ## upgrade and, since 결속 파동 scales with tension, a damage one.
 const WEAPON_SPECIALS := {
+	"boomerang": {
+		"a": {"title": "장난감 바구니", "label": "발사 수", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "멀리 던지기", "label": "왕복 거리", "field": "range", "delta": 30.0},
+	},
+	"bell": {
+		"a": {"title": "큰 울림", "label": "파동 거리", "field": "range", "delta": 28.0},
+		"b": {"title": "맑은 울림", "label": "피해", "field": "damage", "delta": 8.0},
+	},
 	"homing": {
 		"a": {"title": "다중 유도", "label": "동시 발사", "field": "count", "delta": 1, "integer": true},
 		"b": {"title": "마력 추진", "label": "투사체 속도", "field": "speed", "delta": 46.0},
@@ -2834,7 +2851,9 @@ func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
 		# whatever they do.
 		if discouraged >= choices.size() - 1:
 			continue
-		if score <= DISCOURAGE_MAX_SCORE or score <= best_score * DISCOURAGE_RELATIVE:
+		# Relative rank alone doesn't make a useful card harmful. Require a low
+		# absolute value too; a strong fusion must not condemn every other card.
+		if score <= DISCOURAGE_MAX_SCORE and score <= best_score * DISCOURAGE_RELATIVE:
 			option["discouraged"] = true
 			option["discouragement_reason"] = _discouragement_reason(slot, option, score)
 			discouraged += 1
@@ -2864,6 +2883,7 @@ func _discouragement_reason(slot: int, option: Dictionary, score: float) -> Stri
 ## than a discovery. The mark says only that this card matters to a fusion; it
 ## never names what the fusion is.
 func _fusion_hint(slot: int, option: Dictionary) -> Dictionary:
+	if option.is_empty(): return {}
 	var upgrade_id := String(option["id"])
 	if upgrade_id == "evolve_weapon":
 		return {} ## The card already is the fusion.
@@ -3838,17 +3858,33 @@ func _run_stats_summary() -> String:
 
 
 func _show_message(text: String, color: Color) -> void:
-	var expanded := text.contains("\n") or text.length() > 38
-	message_label.position = Vector2(170.0, 574.0) if expanded else Vector2(340.0, 596.0)
-	message_label.size = Vector2(940.0, 62.0) if expanded else Vector2(600.0, 38.0)
-	message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if expanded else TextServer.AUTOWRAP_OFF
-	message_label.add_theme_font_size_override("font_size", 18 if expanded else 24)
-	message_label.text = text
-	message_label.add_theme_color_override("font_color", color)
-	message_label.modulate.a = 1.0
+	message_label.text = text # Last event remains available to accessibility/tests.
+	message_label.modulate.a = 0.0
+	for index in range(notice_stack.size() - 1, -1, -1):
+		if not is_instance_valid(notice_stack[index]) or notice_stack[index].is_queued_for_deletion():
+			notice_stack.remove_at(index)
+	if notice_stack.size() >= 4:
+		notice_stack.pop_front().queue_free()
+	var notice := Label.new()
+	notice.text = text.replace("\n", " · ")
+	notice.size = Vector2(350, 48)
+	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	notice.clip_text = true
+	notice.add_theme_font_size_override("font_size", 14)
+	notice.add_theme_color_override("font_color", color)
+	notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_make_label_background(notice, Color(0.02, 0.03, 0.07, 0.85))
+	var notice_style := notice.get_theme_stylebox("normal") as StyleBoxFlat
+	notice_style.set_content_margin_all(10.0)
+	message_label.get_parent().add_child(notice)
+	notice_stack.append(notice)
+	for index in notice_stack.size():
+		notice_stack[index].position = Vector2(906, 625 - (notice_stack.size() - index - 1) * 54)
 	var tween := create_tween()
-	tween.tween_interval(1.0)
-	tween.tween_property(message_label, "modulate:a", 0.0, 0.45)
+	tween.tween_interval(3.0)
+	tween.tween_property(notice, "modulate:a", 0.0, 0.65)
+	tween.tween_callback(notice.queue_free)
 
 
 func _end_run(victory: bool = false) -> void:

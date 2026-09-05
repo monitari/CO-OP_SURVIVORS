@@ -164,7 +164,7 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		# Not flagged elite: the boss multiplier already covers its stat block,
 		# and stacking both produced a boss with four times the health anyone
 		# had budgeted for.
-		spawned.append(_acquire_enemy("brute", difficulty, center, false, true, bosses_spawned))
+		spawned.append(_acquire_enemy("owl" if bosses_spawned == 2 or bosses_spawned == 4 else "brute", difficulty, center, false, true, bosses_spawned))
 	# Elites and the boss ignore the lull — the calm is a break from the swarm,
 	# not a guarantee that nothing happens.
 	if elite_timer <= 0.0:
@@ -294,6 +294,9 @@ func _acquire_enemy(
 
 func _pick_archetype(elapsed: float) -> String:
 	var roll := randf()
+	if elapsed >= 120.0 and roll > 0.62:
+		var unlocked := mini(5, 1 + int((elapsed - 120.0) / 60.0))
+		return ["rat_runner", "wasp", "hedgehog", "mole", "owl"][randi_range(0, unlocked - 1)]
 	if elapsed >= BULWARK_UNLOCK_TIME and roll < 0.09:
 		return "bulwark"
 	if elapsed >= 55.0 and roll < 0.22:

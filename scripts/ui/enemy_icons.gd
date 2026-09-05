@@ -4,6 +4,8 @@ const IDS := ["chaser", "swarm", "charger", "shooter", "chain_hunter", "bulwark"
 static var textures: Dictionary = {}
 
 static func get_icon(id: String) -> Texture2D:
+	if id in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]:
+		return load("res://assets/ui/icons/%s.svg" % id)
 	if textures.is_empty():
 		var pixels := ATLAS.get_image()
 		# Generated silhouettes do not obey exact cell boundaries (crow wings

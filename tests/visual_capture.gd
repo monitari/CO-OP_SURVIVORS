@@ -22,6 +22,12 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/character-select.png")
+	main.selected_character_indices[0] = 10
+	main.selected_character_indices[1] = 11
+	main._refresh_character_select_ui()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/new-characters.png")
 
 	main.selected_character_indices[0] = 2
 	main.selected_character_indices[1] = 3
@@ -49,6 +55,19 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+	main._set_pause(true)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/pause.png")
+	main._set_pause(false)
+	for index in 3: main._show_message(["방울 파동 획득", "보물 강화 · 위력 +9%", "부엉왕 접근 중"][index], Color("ffe09b"))
+	for index in 5:
+		var enemy := main.wave_director._acquire_enemy(["rat_runner", "wasp", "hedgehog", "mole", "owl"][index], 3.0, Vector2.ZERO, false, index == 4, 2) as ChaserEnemy
+		enemy.position = Vector2(-220 + index * 110, -100)
+		main._register_enemy(enemy)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/new-enemies-notices.png")
 
 	# 대범람: the late-run encounter that is supposed to bury the screen. Run
 	# through the real director so the shot shows what the schedule produces,

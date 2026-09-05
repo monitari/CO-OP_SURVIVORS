@@ -126,10 +126,11 @@ static func _characters(main: Node) -> void:
 	place(main.character_roster_label, Rect2(790, 26, 314, 24), 14, Palette.MUTED)
 	main.character_roster_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	for index in main.character_catalog.size():
-		var tile := plate(screen, Rect2(32 + index * 108, 76, 100, 82))
+		var step: float = 1080.0 / main.character_catalog.size()
+		var tile := plate(screen, Rect2(32 + index * step, 76, step - 8, 82))
 		tile.name = "Roster%d" % index
-		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2(23, 3, 54, 54))
-		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(4, 55, 92, 23), 13)
+		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2((step - 62) * 0.5, 3, 54, 54))
+		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(4, 55, step - 16, 23), 13)
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		var x := 32.0 + slot * 548.0
@@ -169,7 +170,7 @@ static func refresh_characters(main: Node) -> void:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
 		screen.get_node("CatName%d" % slot).text = String(cat["name"])
 		screen.get_node("CatWeapon%d" % slot).texture = Icons.weapon(String(cat["weapon_id"]))
-		screen.get_node("CatRole%d" % slot).text = PLAYSTYLE.get(String(cat["weapon_id"]), cat["title"])
+		screen.get_node("CatRole%d" % slot).text = "%s\n조작 난이도 %s" % [PLAYSTYLE.get(String(cat["weapon_id"]), cat["title"]), CharacterCatalog.difficulty_stars(cat)]
 		screen.get_node("CatRole%d" % slot).tooltip_text = cat["description"]
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
@@ -269,18 +270,41 @@ static func short_evolution(id: String) -> String:
 
 
 static func _hud(main: Node) -> void:
+	# Keep only the boss's explicit warning plate; ordinary HUD floats over play.
+	for child in main.combat_hud.get_children():
+		if child is ColorRect and child != main.boss_hud_panel:
+			child.hide()
+	place(main.p1_status_label, Rect2(66, 20, 140, 28), 18, Palette.P1.lightened(0.55))
+	place(main.p2_status_label, Rect2(1074, 20, 140, 28), 18, Palette.P2.lightened(0.55))
+	main.p2_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	for slot in 2:
+		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
+		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
+		bar.position = Vector2(212 if slot == 0 else 850, 22)
+		bar.size = Vector2(210, 24)
+		caption.position = bar.position
+		caption.size = bar.size
+	for item in [main.chain_bar, main.chain_distance_text_label]:
+		item.position = Vector2(480, 57)
+		item.size = Vector2(156, 18)
+	for item in [main.chain_integrity_bar, main.chain_integrity_text_label]:
+		item.position = Vector2(644, 57)
+		item.size = Vector2(156, 18)
+	place(main.chain_status_label, Rect2(480, 77, 205, 20), 12, Palette.CREAM)
+	place(main.resonance_status_label, Rect2(685, 77, 115, 20), 12, Palette.CREAM)
 	main.boss_label.add_theme_color_override("font_color", Color("f0cca2"))
 	main.tutorial_label.add_theme_color_override("font_color", Color("f0cca2"))
-	place(main.hud_label, Rect2(455, 20, 112, 32), 25, Palette.CREAM)
-	label(main.combat_hud, "", Rect2(579, 25, 126, 24), 14, Color("b9cbc8")).name = "WaveReadout"
-	label(main.combat_hud, "", Rect2(710, 25, 118, 24), 14, Color("e4c899")).name = "ObjectiveReadout"
+	place(main.hud_label, Rect2(584, 14, 112, 36), 29, Palette.CREAM)
+	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label(main.combat_hud, "", Rect2(440, 22, 138, 24), 12, Color("b9cbc8")).name = "WaveReadout"
+	label(main.combat_hud, "", Rect2(702, 22, 138, 24), 12, Color("e4c899")).name = "ObjectiveReadout"
 	# Two rows per survivor: weapons on top, treasures under them, each icon
 	# carrying its own tier. The play screen showed weapons only and showed them
 	# without tiers, so half of what a build actually is — the treasures, and how
 	# deep anything was — could only be seen by opening a menu.
 	for slot in 2:
 		var holder := Control.new()
-		holder.position = Vector2(28 if slot == 0 else 1096, 104)
+		holder.position = Vector2(28 if slot == 0 else 1096, 55)
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.name = "Carried%d" % slot
 		main.combat_hud.add_child(holder)

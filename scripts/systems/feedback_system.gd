@@ -25,6 +25,8 @@ const MAX_DAMAGE_NUMBERS_PER_FRAME := 8
 ## weapons each, six independent cooldowns can land in the same handful of
 ## frames, and without a floor between repeats the result is mush.
 const CUE_PARAMS := {
+	"weapon_boomerang": {"freq": 460.0, "to": 220.0, "dur": 0.14, "vol": 0.08, "wave": "sine", "gap": 0.2},
+	"weapon_bell": {"freq": 1320.0, "to": 880.0, "dur": 0.3, "vol": 0.08, "wave": "sine", "gap": 0.4},
 	# --- combat feedback -----------------------------------------------------
 	"hit": {"freq": 170.0, "dur": 0.045, "vol": 0.10, "wave": "square", "gap": 0.045},
 	"kill": {"freq": 290.0, "to": 200.0, "dur": 0.075, "vol": 0.15, "wave": "sine", "gap": 0.04},

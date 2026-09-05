@@ -7,6 +7,7 @@ const MineScript := preload("res://scripts/proximity_mine.gd")
 const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
 const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
 const LanceStrikeScript := preload("res://scripts/effects/lance_strike.gd")
+const ReturningToyScript := preload("res://scripts/effects/returning_toy.gd")
 
 signal cue_requested(cue_id: String)
 
@@ -64,6 +65,18 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
 	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
 	match weapon_id:
+		"boomerang", "bell":
+			for index in (1 if weapon_id == "bell" else int(scaled["count"])):
+				var toy = ReturningToyScript.new()
+				toy.anchor = owner_player
+				toy.grid = spatial_grid
+				toy.damage = damage
+				toy.reach = float(scaled["range"])
+				toy.tint = color
+				toy.ring = weapon_id == "bell"
+				toy.heading = _aim_direction(player_index, toy.reach).rotated((index - (int(scaled["count"]) - 1) * 0.5) * 0.35)
+				add_child(toy)
+				toy.global_position = owner_player.global_position
 		"homing": play_cast_cue = _fire_homing(player_index, scaled, damage, color)
 		"lightning": play_cast_cue = _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color) > 0
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
@@ -261,6 +274,9 @@ func clear_transients() -> void:
 	# Planted mines outlive the cast that placed them, so a restart or a test
 	# teardown has to sweep them or they detonate into the next run.
 	for child in get_children():
+		if child.get_script() == ReturningToyScript:
+			child.set_physics_process(false)
+			child.queue_free()
 		var mine := child as ProximityMine
 		if mine != null:
 			mine.queue_free()

@@ -156,6 +156,12 @@ static func difficulty_profile(character: Dictionary) -> Dictionary:
 		+ durability * float(DIFFICULTY_WEIGHTS["durability"])
 		+ mobility * float(DIFFICULTY_WEIGHTS["mobility"])
 	)
+	# Handling and recovery matter even when two weapons have equal coverage.
+	var handling: float = {"homing": 0.9, "lightning": 0.85, "frost": 0.8, "bell": 0.75,
+		"flame": 0.55, "lance": 0.65, "scythe": 0.35, "orbit": 0.3,
+		"chain": 0.35, "mine": 0.25, "gravity": 0.4, "boomerang": 0.3}.get(character["weapon_id"], 0.5)
+	var sustain := clampf(float(character.get("recovery", 0.0)) / 1.3, 0.0, 1.0)
+	ease = clampf(ease * 0.72 + handling * 0.22 + sustain * 0.06, 0.0, 1.0)
 	return {
 		"coverage": coverage,
 		"durability": durability,
@@ -286,7 +292,7 @@ static func _normalise(value: float, span: Vector2) -> float:
 
 
 static func all_characters() -> Array[Dictionary]:
-	return [
+	var roster: Array[Dictionary] = [
 		{
 			"id": "lyra",
 			"name": "라이라",
@@ -497,3 +503,14 @@ static func all_characters() -> Array[Dictionary]:
 			"weapon": {"damage": 30.0, "cooldown": 2.87, "radius": 182.0, "pull": 135.0, "cast_range": 460.0, "reach": 3.0, "tier": 1}
 		}
 	]
+	roster.append({"id": "mikan", "name": "미캉", "title": "장난꾸러기 치즈냥", "weapon_id": "boomerang", "weapon_name": "생선 부메랑",
+		"tags": ["projectile", "tracking"], "description": "생선 장난감을 던져 왕복으로 두 번 때립니다. 돌아오는 길에 적을 유도하세요.",
+		"color": Color("ffc67b"), "health": 95.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.2, "chain": -10.0,
+		"might": 1.06, "area": 0.95, "haste": 0.98, "recovery": 0.1,
+		"weapon": {"damage": 45.0, "cooldown": 2.5, "range": 260.0, "count": 1, "reach": 2.0, "tier": 1}})
+	roster.append({"id": "suzu", "name": "스즈", "title": "방울 지킴이 삼색냥", "weapon_id": "bell", "weapon_name": "방울 파동",
+		"tags": ["aura", "control"], "description": "방울 소리가 바깥으로 퍼집니다. 파동 가장자리가 적에게 닿으면 피해를 줍니다.",
+		"color": Color("8ee4be"), "health": 125.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
+		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
+		"weapon": {"damage": 43.0, "cooldown": 3.1, "range": 240.0, "reach": 2.5, "tier": 1}})
+	return roster

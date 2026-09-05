@@ -57,10 +57,10 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 	var coverage := float(base.get("reach", 1.0))
 	if w.has("count"):
 		coverage *= (float(w["count"]) + float(a["amount"])) / maxf(1.0, float(base["count"]))
-	# 분광 splits the lance into parallel beams, which is a straight multiple of
-	# what one cast covers.
+	# Random independent beams gain coverage with diminishing returns: several
+	# can cross the same target, so doubling beam count is not double real DPS.
 	if w.has("beams"):
-		coverage *= float(w["beams"]) / maxf(1.0, float(base.get("beams", 1)))
+		coverage *= pow(float(w["beams"]) / maxf(1.0, float(base.get("beams", 1))), 0.8)
 	if id == "lightning":
 		coverage *= (1.0 - pow(0.82, float(w["jumps"]))) / (1.0 - pow(0.82, float(base["jumps"])))
 	if id in ["homing", "flame", "starpiercer", "supernova"]:
@@ -76,6 +76,9 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 		if w.has("arc"):
 			coverage *= minf(TAU, float(w["arc"]) * float(a["area"])) / float(base["arc"])
 	if id == "thunder_god": coverage = minf(24.0, coverage)
+	# Finite enemy density limits useful coverage; enormous area upgrades stop
+	# receiving quadratic scores once they already cover the visible fight.
+	coverage = minf(coverage, float(base.get("reach", 1.0)) * 6.0)
 	return float(w["damage"]) * float(a["might"]) * (1.0 + float(a["crit"])) * coverage / maxf(0.25, float(w["cooldown"]) * float(a["haste"]))
 
 static func gain(main: Node, slot: int, option: Dictionary) -> float:

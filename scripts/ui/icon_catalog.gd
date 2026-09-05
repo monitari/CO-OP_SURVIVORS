@@ -38,11 +38,13 @@ static var _atlas_icons: Dictionary = {}
 
 
 static func survivor(character_id: String) -> Texture2D:
+	if character_id in ["mikan", "suzu"]: return load("res://assets/ui/icons/%s.svg" % character_id)
 	var atlas_icon := _by_id(SURVIVOR_ATLAS, SURVIVOR_ORDER, character_id, 5, 2)
 	return atlas_icon if atlas_icon != null else generated(character_id, "survivor")
 
 
 static func weapon(weapon_id: String) -> Texture2D:
+	if weapon_id in ["boomerang", "bell"]: return load("res://assets/ui/icons/%s.svg" % weapon_id)
 	var atlas_icon := _by_id(WEAPON_ATLAS, WEAPON_ORDER, weapon_id, 5, 4)
 	if atlas_icon != null:
 		return atlas_icon
@@ -60,6 +62,7 @@ static func upgrade(upgrade_id: String, weapon_id := "") -> Texture2D:
 ## Whether this id is covered by real art. Used by the icon test to report what
 ## still needs drawing rather than to fail the build over it.
 static func has_atlas_art(id: String, kind: String) -> bool:
+	if id in ["mikan", "suzu", "boomerang", "bell"]: return true
 	match kind:
 		"survivor":
 			return SURVIVOR_ORDER.has(id)
@@ -217,9 +220,10 @@ static func _by_id(atlas: Texture2D, order: Array, id: String, columns: int, row
 	if _atlas_icons.has(cache_key):
 		return _atlas_icons[cache_key] as Texture2D
 	var cell := Vector2(float(atlas.get_width()) / float(columns), float(atlas.get_height()) / float(rows))
-	var texture := AtlasTexture.new()
-	texture.atlas = atlas
-	texture.region = Rect2(Vector2(index % columns, index / columns) * cell, cell)
-	texture.filter_clip = true
+	# Permit small atlas-layout drift so ears/tips crossing a nominal cell edge
+	# are recovered; the central-component crop rejects adjacent silhouettes.
+	var bounds := Rect2(Vector2(index % columns, index / columns) * cell, cell)
+	bounds = bounds.grow(minf(cell.x, cell.y) * 0.06).intersection(Rect2(Vector2.ZERO, atlas.get_size()))
+	var texture := preload("res://scripts/ui/icon_crop.gd").region(atlas, bounds)
 	_atlas_icons[cache_key] = texture
 	return texture

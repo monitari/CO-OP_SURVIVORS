@@ -94,8 +94,11 @@ static func install(main: Node) -> void:
 	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(32, 250, 252, 48), func() -> void: toggle_details(main)).name = "PauseDetails"
 	var snapshot := UI.plate(main.pause_overlay, Rect2(32, 318, 756, 120), Palette.CARD)
 	snapshot.name = "RunSnapshot"
-	UI.label(snapshot, "RUN SNAPSHOT", Rect2(18, 12, 180, 22), 13, Palette.GOLD)
-	UI.label(snapshot, "", Rect2(18, 39, 720, 62), 16, Palette.INK).name = "Value"
+	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
+	for index in 4:
+		var x := 18 + index * 182
+		UI.label(snapshot, ["생존 시간", "공유 성장", "처치", "사슬 내구"][index], Rect2(x, 38, 168, 20), 13, Palette.MUTED)
+		UI.label(snapshot, "", Rect2(x, 62, 168, 34), 24, Palette.INK).name = "Metric%d" % index
 	main.details_overlay = UI.plate(main.pause_overlay.get_parent(), Rect2(20, 132, 1240, 545), Palette.PANEL)
 	main.details_overlay.name = "BuildDetails"
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -160,7 +163,9 @@ static func refresh_pause(main: Node) -> void:
 	main.pause_overlay.get_node("PauseDetails").visible = not main.restart_pending
 	main.pause_overlay.get_node("RunSnapshot").visible = not main.restart_pending
 	if not main.restart_pending:
-		main.pause_overlay.get_node("RunSnapshot/Value").text = "%02d:%02d  ·  LV.%d  ·  %d 처치\n%s / %s  ·  사슬 내구 %d%%" % [int(main.elapsed) / 60, int(main.elapsed) % 60, main.progression.level, main.kills, main.players[0].character_name, main.players[1].character_name, roundi(main.chain_integrity)]
+		var values := ["%02d:%02d" % [int(main.elapsed) / 60, int(main.elapsed) % 60], "LV.%d" % main.progression.level, str(main.kills), "%d%%" % roundi(main.chain_integrity)]
+		for index in 4:
+			main.pause_overlay.get_node("RunSnapshot/Metric%d" % index).text = values[index]
 	else:
 		main.pause_overlay.get_node("PauseAction0").position = Vector2(158, 190)
 		main.pause_overlay.get_node("PauseAction0").size = Vector2(252, 64)

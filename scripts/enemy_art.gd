@@ -3,6 +3,7 @@ extends RefCounted
 ## steering transforms also communicate facing; no extra per-frame redraws.
 const INK := Color("172530")
 const NAMES := {
+	"rat_runner": "지그재그 도둑쥐", "wasp": "옥상 말벌", "hedgehog": "가시 고슴도치", "mole": "돌진 두더지", "owl": "밤사냥 부엉이",
 	"chaser": "간식 도둑 쥐", "swarm": "벼룩 떼", "charger": "성난 경비견",
 	"shooter": "옥상 까마귀", "chain_hunter": "꼬리 도둑 너구리",
 	"bulwark": "철통 너구리", "brute": "폭주 청소 로봇",

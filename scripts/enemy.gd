@@ -193,6 +193,23 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			enemy_color = Color("ef476f")
 
 	move_speed += minf(difficulty * 2.6, SPEED_RAMP_CAP) + randf_range(-7.0, 9.0)
+	if archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]:
+		var stats: Array = {
+			"rat_runner": [110.0, 13.0, 28.0, 8.0, 7],
+			"wasp": [76.0, 13.0, 30.0, 7.0, 9],
+			"hedgehog": [48.0, 24.0, 125.0, 18.0, 20],
+			"mole": [92.0, 18.0, 60.0, 14.0, 13],
+			"owl": [66.0, 22.0, 85.0, 12.0, 17],
+		}[archetype]
+		move_speed = stats[0] + minf(difficulty * 2.6, SPEED_RAMP_CAP)
+		radius = stats[1]
+		max_health = stats[2]
+		if is_boss and archetype == "owl":
+			max_health = 260.0
+			move_speed = 88.0
+		contact_damage = stats[3]
+		xp_value = stats[4]
+		xp_grade = 2 if archetype in ["hedgehog", "owl"] else 1
 	max_health += difficulty * 5.0 + radius * 0.3
 	xp_value = maxi(1, int(round(float(xp_value) * (1.0 + difficulty * XP_PER_DIFFICULTY))))
 	# Spawn pacing alone cannot protect a pair whose first ring closes from an
@@ -279,6 +296,24 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		scale = Vector2.ONE * (1.0 + hit_flash * 0.22)
 
 	match archetype:
+		"rat_runner":
+			behavior_timer += delta
+			var toward := global_position.direction_to(target_position)
+			position += (toward + toward.orthogonal() * sin(behavior_timer * 4.0) * 0.65).normalized() * move_speed * speed_scale * delta
+		"wasp", "owl":
+			_step_shooter(target_position, speed_scale, delta)
+			if archetype == "wasp" and shooter_windup <= 0.0:
+				position += global_position.direction_to(target_position).orthogonal() * move_speed * speed_scale * delta * 0.65
+			if boss:
+				boss_attack_timer -= delta
+				if boss_attack_timer <= 0.0:
+					boss_attack_timer = 4.0
+					shooter_windup = 1.0
+					telegraph_direction = global_position.direction_to(target_position)
+		"mole":
+			_step_charger(target_position, speed_scale, delta)
+		"hedgehog":
+			position += global_position.direction_to(target_position) * move_speed * speed_scale * delta
 		"charger":
 			_step_charger(target_position, speed_scale, delta)
 		"shooter":
@@ -309,7 +344,8 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# of leaving a stale frame on screen. Skipping it the rest of the time is
 	# what keeps a few hundred pooled enemies from redrawing every physics tick
 	# regardless of whether anything they draw actually changed.
-	if had_telegraph or had_flash or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
+	# Sprite tint/scale handle hit flashes without rebuilding health/elite art.
+	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
 		queue_redraw()
 
 
@@ -348,6 +384,12 @@ func _step_shooter(target_position: Vector2, speed_scale: float, delta: float) -
 		shooter_windup -= delta
 		if shooter_windup <= 0.0:
 			ranged_attack.emit(global_position, telegraph_direction, 10.0 if not elite else 16.0)
+			if archetype == "owl":
+				for angle in [-0.32, 0.32]:
+					ranged_attack.emit(global_position, telegraph_direction.rotated(angle), 10.0)
+				if boss:
+					for index in 8:
+						ranged_attack.emit(global_position, Vector2.from_angle(index * TAU / 8.0), 12.0)
 		return
 	attack_timer -= delta
 	if attack_timer <= 0.0 and distance <= 520.0:
@@ -479,6 +521,7 @@ func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
 func take_damage(amount: float) -> bool:
 	if dead or not active:
 		return false
+	if archetype == "hedgehog": amount *= 0.72
 	health -= amount
 	damage_taken.emit(self, amount)
 	hit_flash = 1.0
@@ -510,6 +553,10 @@ func _draw() -> void:
 		draw_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 240.0, Color(1.0, 0.25, 0.2, charge_alpha), 12.0, true)
 	if shooter_windup > 0.0:
 		draw_dashed_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 320.0, Color(1.0, 0.35, 0.42, 0.8), 3.0, 10.0, true)
+		if archetype == "owl":
+			for angle in [-0.32, 0.32]:
+				draw_dashed_line(Vector2.ZERO, telegraph_direction.rotated(angle - rotation) * 320.0, Color(1.0, 0.55, 0.25, 0.6), 2.0, 12.0, true)
+			if boss: draw_arc(Vector2.ZERO, radius + 28.0, 0, TAU, 40, Color(1.0, 0.55, 0.25, 0.7), 6.0, true)
 	if chain_windup > 0.0:
 		draw_arc(Vector2.ZERO, radius + 14.0, 0.0, TAU, 28, Color("ff5d8f"), 6.0, true)
 	if boss_slam_windup > 0.0:
