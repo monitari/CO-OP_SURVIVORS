@@ -1,5 +1,6 @@
 class_name ChaserEnemy
 extends Node2D
+const EnemyArt := preload("res://scripts/enemy_art.gd")
 
 signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
@@ -461,42 +462,15 @@ func _draw() -> void:
 			local_point, BOSS_SLAM_RADIUS - 6.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 32,
 			Color(1.0, 0.85, 0.4, 0.9), 4.0, true
 		)
-	# The flash lightens the body only; the glow ring keeps the archetype
-	# colour so a flashing enemy is still identifiable.
-	var body := enemy_color.lerp(Color.WHITE, hit_flash * 0.8)
-	draw_circle(Vector2.ZERO, radius + 6.0, Color(enemy_color, 0.13))
-	match archetype:
-		"charger":
-			draw_colored_polygon(PackedVector2Array([Vector2(radius, 0), Vector2(-radius * 0.75, radius * 0.72), Vector2(-radius * 0.75, -radius * 0.72)]), body)
-		"shooter":
-			draw_rect(Rect2(-radius, -radius, radius * 2.0, radius * 2.0), body)
-		"chain_hunter":
-			draw_circle(Vector2.ZERO, radius, body, false, 7.0)
-			draw_line(Vector2(-radius, 0), Vector2(radius, 0), body, 4.0)
-		"swarm":
-			draw_circle(Vector2.ZERO, radius, body)
-			draw_circle(Vector2(radius * 0.3, -radius * 0.3), radius * 0.35, body.lightened(0.4))
-		"bulwark":
-			# A plated hexagon: slow, and obviously the thing you cannot simply
-			# walk through.
-			var plate := PackedVector2Array()
-			for corner in 6:
-				plate.append(Vector2.from_angle(TAU * float(corner) / 6.0) * radius)
-			draw_colored_polygon(plate, body)
-			draw_polyline(plate + PackedVector2Array([plate[0]]), body.darkened(0.45), 4.0, true)
-		_:
-			draw_circle(Vector2.ZERO, radius, body)
-	if elite:
-		draw_arc(Vector2.ZERO, radius + 7.0, 0.0, TAU, 24, Color("fff275"), 3.0, true)
+	EnemyArt.draw_body(self, archetype, radius, hit_flash * 0.8, boss_enraged)
+	if elite and not boss:
+		for side in 2:
+			draw_arc(Vector2.ZERO, radius + 7.0, side * PI - 0.65, side * PI + 0.65, 12, Color("e8c98a"), 2.5, true)
 	if boss:
-		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 32, Color("ff334f"), 5.0, true)
 		for quadrant in 4:
 			var start := quadrant * TAU / 4.0 + 0.16
-			draw_arc(Vector2.ZERO, radius + 19.0, start, start + 0.62, 8, Color("fff275"), 3.0, true)
-		if boss_enraged:
-			draw_arc(Vector2.ZERO, radius + 25.0, 0.0, TAU, 32, Color(1.0, 0.15, 0.25, 0.62), 7.0, true)
-		draw_colored_polygon(PackedVector2Array([Vector2(-14, -radius - 6), Vector2(-8, -radius - 19), Vector2(0, -radius - 9), Vector2(8, -radius - 19), Vector2(14, -radius - 6)]), Color("fff275"))
-	draw_circle(Vector2(radius * 0.35, -radius * 0.27), 3.0, Color.WHITE)
+			draw_arc(Vector2.ZERO, radius + 12.0, start, start + 0.8, 10,
+				Color("ff5a53") if boss_enraged else Color("e8c98a"), 4.0 if boss_enraged else 2.5, true)
 	var health_ratio := clampf(health / max_health, 0.0, 1.0)
 	if health_ratio < 0.99 or elite:
 		draw_rect(Rect2(-radius, -radius - 10.0, radius * 2.0, 4.0), Color("351d3c"))

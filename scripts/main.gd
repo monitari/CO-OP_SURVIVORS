@@ -16,6 +16,9 @@ const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
 const SettingsScript := preload("res://scripts/systems/settings_system.gd")
 const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
+const CatTheme := preload("res://scripts/ui/cat_theme.gd")
+const CatPanel := preload("res://scripts/ui/cat_panel.gd")
+const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
 const Treasures := preload("res://scripts/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/evolution_catalog.gd")
 
@@ -76,6 +79,8 @@ var weapon_controller: WeaponController
 var feedback: FeedbackSystem
 var settings: GameSettings
 var hud_layer: CanvasLayer
+var combat_hud: Control
+var boss_hud_panel: ColorRect
 var hud_label: Label
 var xp_bar: ProgressBar
 var xp_text_label: Label
@@ -259,7 +264,7 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 	last_input_gamepad[device] = connected
 	if not connected and not character_select_active and not game_over and not level_up_active and not resonance_vote_active:
 		_set_pause(true)
-		pause_label.text = "P%d 컨트롤러 연결이 끊어졌습니다.\n\n다시 연결한 뒤 ESC / START로 계속하세요.\n키보드 조작도 사용할 수 있습니다." % (device + 1)
+		EditorialUI.connection_notice(self, device)
 
 
 func _input(event: InputEvent) -> void:
@@ -290,7 +295,10 @@ func _physics_process(delta: float) -> void:
 	var modal := (lobby_active or character_select_active or level_up_active
 		or resonance_vote_active or pause_active or game_over)
 	modal_dim.visible = modal
+	combat_hud.visible = not lobby_active and not character_select_active
 	if modal:
+		for slot in 2:
+			combat_hud.get_node("Carried%d" % slot).visible = false
 		# Both of these live above the dim, so a fading banner or an off-screen
 		# arrow would otherwise sit on top of the overlay panel.
 		threat_edge_indicator.visible = false
@@ -466,8 +474,8 @@ func _build_ui_theme_host() -> Control:
 
 	var theme := Theme.new()
 	theme.default_font = font
-	# Every HUD label already sets its own size, so only the family is supplied
-	# here; the sizes stay where each screen put them.
+	theme.set_color("font_color", "Label", CatTheme.CREAM)
+	# Screens keep their own type scale; family and neutral ink are inherited.
 	var host := Control.new()
 	host.name = "ThemeHost"
 	host.theme = theme
@@ -477,25 +485,28 @@ func _build_ui_theme_host() -> Control:
 
 
 func _create_hud() -> void:
-	var layer := CanvasLayer.new()
-	hud_layer = layer
-	layer.add_child(_build_ui_theme_host())
-	add_child(layer)
+	hud_layer = CanvasLayer.new()
+	var layer := _build_ui_theme_host()
+	hud_layer.add_child(layer)
+	add_child(hud_layer)
 
-	# Every overlay was a floating panel with live gameplay running around it,
-	# so a level-up card sat on top of moving enemies and drifting message
-	# text. This sits under the HUD and over the world: the panels get a
-	# quiet backdrop and the health bars stay legible on top of it.
-	modal_dim = ColorRect.new()
+	# A quiet illustrated night behind every modal, below the combat HUD.
+	modal_dim = CatPanel.new()
+	modal_dim.backdrop = true
 	modal_dim.position = Vector2.ZERO
 	modal_dim.size = Vector2(1280.0, 720.0)
-	modal_dim.color = Color(0.01, 0.015, 0.035, 0.88)
 	modal_dim.visible = false
 	layer.add_child(modal_dim)
+	var screen_host := layer
+	combat_hud = Control.new()
+	combat_hud.name = "CombatHUD"
+	combat_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(combat_hud)
+	layer = combat_hud
 
-	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 86.0), Color(0.02, 0.04, 0.09, 0.88))
-	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 86.0), Color(0.02, 0.04, 0.09, 0.88))
-	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0), Color(0.02, 0.04, 0.09, 0.82))
+	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 86.0))
+	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 86.0))
+	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0))
 
 	hud_portrait_icons = [
 		_create_icon_rect(layer, Vector2(31.0, 20.0), Vector2(30.0, 30.0)),
@@ -529,7 +540,7 @@ func _create_hud() -> void:
 	hud_label.size = Vector2(400.0, 30.0)
 	hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud_label.add_theme_font_size_override("font_size", 19)
-	hud_label.add_theme_color_override("font_color", Color("e7f6ff"))
+	hud_label.add_theme_color_override("font_color", CatTheme.CREAM)
 	_confine_label(hud_label)
 	layer.add_child(hud_label)
 
@@ -543,14 +554,14 @@ func _create_hud() -> void:
 	chain_integrity_text_label = _create_bar_text(layer, Vector2(455.0, 81.0), Vector2(370.0, 17.0), 12)
 	chain_integrity_text_label.size = chain_integrity_bar.size
 	chain_status_label = Label.new()
-	chain_status_label.position = Vector2(455.0, 108.0)
+	chain_status_label.position = Vector2(455.0, 103.0)
 	chain_status_label.size = Vector2(255.0, 22.0)
 	chain_status_label.add_theme_font_size_override("font_size", 14)
 	_confine_label(chain_status_label)
 	layer.add_child(chain_status_label)
 
 	resonance_status_label = Label.new()
-	resonance_status_label.position = Vector2(710.0, 108.0)
+	resonance_status_label.position = Vector2(710.0, 103.0)
 	resonance_status_label.size = Vector2(115.0, 22.0)
 	resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	resonance_status_label.add_theme_font_size_override("font_size", 14)
@@ -558,15 +569,16 @@ func _create_hud() -> void:
 	_confine_label(resonance_status_label)
 	layer.add_child(resonance_status_label)
 
-	_make_hud_panel(layer, Vector2(378.0, 130.0), Vector2(524.0, 60.0), Color(0.02, 0.04, 0.09, 0.9))
+	boss_hud_panel = _make_hud_panel(layer, Vector2(378.0, 134.0), Vector2(524.0, 60.0))
+	boss_hud_panel.visible = false
 	boss_label = Label.new()
 	boss_label.position = Vector2(390.0, 138.0)
 	boss_label.size = Vector2(500.0, 28.0)
 	boss_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	boss_label.add_theme_font_size_override("font_size", 19)
-	boss_label.add_theme_color_override("font_color", Color("fff275"))
+	boss_label.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(boss_label)
-	boss_label.text = "결속 파괴자"
+	boss_label.text = "폭주 청소 로봇"
 	boss_label.visible = false
 	layer.add_child(boss_label)
 	boss_bar = _create_bar(layer, Vector2(390.0, 164.0), Vector2(500.0, 22.0), Color("ef476f"))
@@ -606,10 +618,10 @@ func _create_hud() -> void:
 	_make_label_background(message_label, Color(0.02, 0.03, 0.07, 0.9))
 	layer.add_child(message_label)
 
-	level_overlay = ColorRect.new()
+	layer = screen_host
+	level_overlay = CatPanel.new()
 	level_overlay.position = Vector2(20.0, 132.0)
 	level_overlay.size = Vector2(1240.0, 545.0)
-	level_overlay.color = Color(0.025, 0.035, 0.075, 0.97)
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
 
@@ -618,7 +630,7 @@ func _create_hud() -> void:
 	level_title.size = Vector2(1240.0, 55.0)
 	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	level_title.add_theme_font_size_override("font_size", 31)
-	level_title.add_theme_color_override("font_color", Color("fff275"))
+	level_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(level_title)
 	level_overlay.add_child(level_title)
 
@@ -635,22 +647,22 @@ func _create_hud() -> void:
 	p1_level_footer = _create_level_footer(level_overlay, 8.0, Color("43d9ff"))
 	p2_level_footer = _create_level_footer(level_overlay, 624.0, Color("b892ff"))
 
-	resonance_overlay = ColorRect.new()
+	resonance_overlay = CatPanel.new()
 	resonance_overlay.position = Vector2(180.0, 132.0)
 	resonance_overlay.size = Vector2(920.0, 500.0)
-	resonance_overlay.color = Color(0.055, 0.025, 0.09, 0.985)
 	resonance_overlay.visible = false
 	layer.add_child(resonance_overlay)
 
 	resonance_title = Label.new()
 	resonance_title.position = Vector2(0.0, 25.0)
 	resonance_title.size = Vector2(920.0, 55.0)
-	resonance_title.text = "공명 후보 발견 — 같은 기술에 투표하세요"
+	resonance_title.text = "둘이 함께, 냥이 공명"
 	resonance_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	resonance_title.add_theme_font_size_override("font_size", 29)
-	resonance_title.add_theme_color_override("font_color", Color("fff275"))
+	resonance_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(resonance_title)
 	resonance_overlay.add_child(resonance_title)
+	_add_cat_caption(resonance_overlay, "합성 무기가 만났어요. 같은 기술에 투표하면 함께 발동!", Vector2(40, 72), Vector2(840, 25), 16)
 
 	# Voting used to be a wall of text and two number keys, which reads as a
 	# quiz rather than a decision. It is now the same card grid as the level-up
@@ -669,14 +681,18 @@ func _create_hud() -> void:
 		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		card.add_theme_font_size_override("font_size", 16)
-		card.add_theme_color_override("font_color", Color("f0e2ff"))
+		card.add_theme_color_override("font_color", CatTheme.CREAM)
 		_confine_label(card, true)
 		var style := StyleBoxFlat.new()
 		style.set_border_width_all(2)
-		style.set_corner_radius_all(10)
+		style.set_corner_radius_all(18)
 		style.set_content_margin_all(14)
+		style.content_margin_top = 78.0
 		style.content_margin_bottom = 44.0
 		card.add_theme_stylebox_override("normal", style)
+		for slot in 2:
+			var icon := _create_icon_rect(card, Vector2(75 + slot * 64, 14), Vector2(54, 54))
+			icon.name = "Cat%d" % slot
 		var pips := Label.new()
 		pips.name = "Pips"
 		pips.position = Vector2(10.0, RESONANCE_CARD_HEIGHT - 38.0)
@@ -700,19 +716,18 @@ func _create_hud() -> void:
 	_confine_label(resonance_status, true)
 	resonance_overlay.add_child(resonance_status)
 
-	character_overlay = ColorRect.new()
+	character_overlay = CatPanel.new()
 	character_overlay.position = Vector2(70.0, 30.0)
 	character_overlay.size = Vector2(1140.0, 655.0)
-	character_overlay.color = Color(0.018, 0.028, 0.065, 0.985)
 	layer.add_child(character_overlay)
 
 	character_title = Label.new()
 	character_title.position = Vector2(0.0, 16.0)
 	character_title.size = Vector2(1140.0, 52.0)
-	character_title.text = "사슬에 묶일 두 고양이를 고르세요"
+	character_title.text = "오늘 밤, 함께할 두 고양이"
 	character_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_title.add_theme_font_size_override("font_size", 28)
-	character_title.add_theme_color_override("font_color", Color("fff275"))
+	character_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(character_title)
 	character_overlay.add_child(character_title)
 	character_roster_label = Label.new()
@@ -720,9 +735,17 @@ func _create_hud() -> void:
 	character_roster_label.size = Vector2(1010.0, 26.0)
 	character_roster_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_roster_label.add_theme_font_size_override("font_size", 17)
-	character_roster_label.add_theme_color_override("font_color", Color("a9b8d4"))
+	character_roster_label.add_theme_color_override("font_color", CatTheme.MUTED)
 	_confine_label(character_roster_label)
 	character_overlay.add_child(character_roster_label)
+	for slot in 2:
+		var bed := Panel.new()
+		bed.position = Vector2(24 + slot * 564, 94)
+		bed.size = Vector2(528, 477)
+		bed.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bed.add_theme_stylebox_override("panel", CatTheme.surface(CatTheme.INK, 24))
+		character_overlay.add_child(bed)
+		_add_cat_caption(character_overlay, "P%d" % (slot + 1), Vector2(46 + slot * 564, 108), Vector2(50, 30), 18)
 
 	character_portrait_icons = [
 		_create_icon_rect(character_overlay, Vector2(258.0, 92.0), Vector2(84.0, 84.0)),
@@ -737,60 +760,64 @@ func _create_hud() -> void:
 	character_synergy_label.size = Vector2(960.0, 44.0)
 	character_synergy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	character_synergy_label.add_theme_font_size_override("font_size", 18)
-	character_synergy_label.add_theme_color_override("font_color", Color("fff275"))
+	character_synergy_label.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(character_synergy_label, true)
 	character_overlay.add_child(character_synergy_label)
 
-	lobby_overlay = ColorRect.new()
+	lobby_overlay = CatPanel.new()
 	lobby_overlay.position = Vector2(90.0, 55.0)
 	lobby_overlay.size = Vector2(1100.0, 610.0)
-	lobby_overlay.color = Color(0.012, 0.022, 0.055, 0.995)
 	layer.add_child(lobby_overlay)
 	lobby_title = Label.new()
-	lobby_title.position = Vector2(0.0, 48.0)
-	lobby_title.size = Vector2(1100.0, 110.0)
-	lobby_title.text = "CO-OP SURVIVORS\n사슬로 묶인 두 고양이 — 둘 다 참가해야 시작합니다"
+	lobby_title.position = Vector2(0.0, 42.0)
+	lobby_title.size = Vector2(1100.0, 62.0)
+	lobby_title.text = "달빛 냥이 원정대"
 	lobby_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lobby_title.add_theme_font_size_override("font_size", 30)
-	lobby_title.add_theme_color_override("font_color", Color("fff275"))
+	lobby_title.add_theme_font_size_override("font_size", 42)
+	lobby_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(lobby_title, true)
 	lobby_overlay.add_child(lobby_title)
-	lobby_p1_label = _create_lobby_slot(Vector2(75.0, 210.0), Color("43d9ff"))
-	lobby_p2_label = _create_lobby_slot(Vector2(575.0, 210.0), Color("b892ff"))
+	_add_cat_caption(lobby_overlay, "CO-OP SURVIVORS   /   사슬 하나, 고양이 둘", Vector2(100, 110), Vector2(900, 32), 18)
+	_add_cat_caption(lobby_overlay, "친구와 발맞춰 옥상을 지켜요. 두 사람이 참가하면 출발!", Vector2(100, 153), Vector2(900, 32), 19)
+	lobby_p1_label = _create_lobby_slot(Vector2(75.0, 318.0), Color("43d9ff"))
+	lobby_p2_label = _create_lobby_slot(Vector2(575.0, 318.0), Color("b892ff"))
+	for slot in 2:
+		var portrait := _create_icon_rect(lobby_overlay, Vector2(241 + slot * 500, 200), Vector2(118, 118))
+		portrait.texture = IconCatalog.survivor("lyra" if slot == 0 else "volta")
 	lobby_overlay.add_child(lobby_p1_label)
 	lobby_overlay.add_child(lobby_p2_label)
 	var lobby_help := Label.new()
-	lobby_help.position = Vector2(60.0, 500.0)
-	lobby_help.size = Vector2(980.0, 65.0)
-	lobby_help.text = "키보드      P1 WASD      P2 방향키\n게임패드   1번 → P1      2번 → P2\n\n참가 후 ESC / START로 취소"
+	lobby_help.position = Vector2(60.0, 535.0)
+	lobby_help.size = Vector2(980.0, 50.0)
+	lobby_help.text = "키보드 하나 또는 게임패드 두 개로 함께해요\nESC / START  참가 취소"
 	lobby_help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lobby_help.add_theme_font_size_override("font_size", 20)
-	lobby_help.add_theme_color_override("font_color", Color("a9b8d4"))
+	lobby_help.add_theme_font_size_override("font_size", 17)
+	lobby_help.add_theme_color_override("font_color", CatTheme.MUTED)
 	_confine_label(lobby_help, true)
 	lobby_overlay.add_child(lobby_help)
 
-	pause_overlay = ColorRect.new()
-	pause_overlay.position = Vector2(330.0, 185.0)
-	pause_overlay.size = Vector2(620.0, 350.0)
-	pause_overlay.color = Color(0.02, 0.03, 0.07, 0.98)
+	pause_overlay = CatPanel.new()
+	pause_overlay.position = Vector2(310.0, 146.0)
+	pause_overlay.size = Vector2(660.0, 470.0)
 	pause_overlay.visible = false
 	layer.add_child(pause_overlay)
+	var rest_icon := _create_icon_rect(pause_overlay, Vector2(302, 20), Vector2(56, 56))
+	rest_icon.texture = IconCatalog.upgrade("recovery")
 	pause_label = Label.new()
-	pause_label.position = Vector2(30.0, 28.0)
-	pause_label.size = Vector2(560.0, 290.0)
+	pause_label.position = Vector2(30.0, 84.0)
+	pause_label.size = Vector2(600.0, 372.0)
 	pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pause_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pause_label.add_theme_font_size_override("font_size", 22)
+	pause_label.add_theme_font_size_override("font_size", 20)
 	_confine_label(pause_label, true)
 	pause_overlay.add_child(pause_label)
 
-	result_overlay = ColorRect.new()
+	result_overlay = CatPanel.new()
 	# The run summary grew (loadouts, then the co-op tally) while this panel
 	# stayed the size it was, and clip_text cuts silently — the last four
 	# lines, including "ENTER / A" and the whole tally, were simply gone.
 	result_overlay.position = Vector2(180.0, 132.0)
 	result_overlay.size = Vector2(920.0, 545.0)
-	result_overlay.color = Color(0.02, 0.03, 0.07, 0.985)
 	result_overlay.visible = false
 	layer.add_child(result_overlay)
 	result_label = Label.new()
@@ -801,6 +828,9 @@ func _create_hud() -> void:
 	result_label.add_theme_font_size_override("font_size", 22)
 	_confine_label(result_label, true)
 	result_overlay.add_child(result_label)
+	for slot in 2:
+		var portrait := _create_icon_rect(result_overlay, Vector2(55 + slot * 735, 58), Vector2(75, 75))
+		portrait.name = "ResultCat%d" % slot
 
 	tutorial_label = Label.new()
 	tutorial_label.position = Vector2(340.0, 570.0)
@@ -808,7 +838,7 @@ func _create_hud() -> void:
 	tutorial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tutorial_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	tutorial_label.add_theme_font_size_override("font_size", 19)
-	tutorial_label.add_theme_color_override("font_color", Color("fff275"))
+	tutorial_label.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(tutorial_label, true)
 	tutorial_label.visible = false
 	_make_label_background(tutorial_label, Color(0.02, 0.03, 0.07, 0.9))
@@ -822,30 +852,40 @@ func _create_hud() -> void:
 	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	team_stats_label.add_theme_font_size_override("font_size", 16)
-	team_stats_label.add_theme_color_override("font_color", Color("dbe7ff"))
+	team_stats_label.add_theme_color_override("font_color", CatTheme.MUTED)
 	_confine_label(team_stats_label)
 	team_stats_label.visible = false
 	_make_label_background(team_stats_label, Color(0.02, 0.03, 0.07, 0.9))
 	level_overlay.add_child(team_stats_label)
 
 	threat_edge_indicator = _create_edge_indicator(layer, Color("ff5d8f"))
+	EditorialUI.apply(self)
 
 
-func _make_hud_panel(parent: Node, panel_position: Vector2, panel_size: Vector2, color: Color) -> void:
-	var panel := ColorRect.new()
+func _make_hud_panel(parent: Node, panel_position: Vector2, panel_size: Vector2) -> ColorRect:
+	var panel := CatPanel.new()
 	panel.position = panel_position
 	panel.size = panel_size
-	panel.color = color
 	parent.add_child(panel)
+	return panel
+
+
+func _add_cat_caption(parent: Node, text: String, at: Vector2, bounds: Vector2, font_size: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.position = at
+	label.size = bounds
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", CatTheme.MUTED)
+	_confine_label(label)
+	parent.add_child(label)
+	return label
 
 
 func _make_label_background(label: Label, color: Color) -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.corner_radius_top_left = 10
-	style.corner_radius_top_right = 10
-	style.corner_radius_bottom_left = 10
-	style.corner_radius_bottom_right = 10
+	var style := CatTheme.surface(CatTheme.INK.lerp(color, 0.2))
 	label.add_theme_stylebox_override("normal", style)
 
 
@@ -860,10 +900,10 @@ func _confine_label(label: Label, wrap := false) -> void:
 func _create_lobby_slot(slot_position: Vector2, color: Color) -> Label:
 	var label := Label.new()
 	label.position = slot_position
-	label.size = Vector2(450.0, 220.0)
+	label.size = Vector2(450.0, 200.0)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 25)
+	label.add_theme_font_size_override("font_size", 22)
 	label.add_theme_color_override("font_color", color)
 	_confine_label(label, true)
 	_make_label_background(label, Color(color, 0.08))
@@ -889,7 +929,9 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 	bar.size = bar_size
 	bar.show_percentage = false
 	var background := StyleBoxFlat.new()
-	background.bg_color = Color(0.06, 0.08, 0.14, 0.95)
+	background.bg_color = CatTheme.INK
+	background.border_color = CatTheme.OUTLINE
+	background.set_border_width_all(1)
 	background.corner_radius_top_left = 5
 	background.corner_radius_top_right = 5
 	background.corner_radius_bottom_left = 5
@@ -900,6 +942,8 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 	fill.corner_radius_top_right = 5
 	fill.corner_radius_bottom_left = 5
 	fill.corner_radius_bottom_right = 5
+	background.set_corner_radius_all(int(bar_size.y * 0.5))
+	fill.set_corner_radius_all(int(bar_size.y * 0.5))
 	bar.add_theme_stylebox_override("background", background)
 	bar.add_theme_stylebox_override("fill", fill)
 	parent.add_child(bar)
@@ -967,8 +1011,8 @@ func _create_badged_icon_row(parent: Node, start_x: float, row_y: float, count: 
 ## commitments they have left without opening anything.
 func _slot_placeholder_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.10, 0.14, 0.22, 0.45)
-	style.border_color = Color(0.32, 0.42, 0.58, 0.55)
+	style.bg_color = CatTheme.INK
+	style.border_color = CatTheme.OUTLINE
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(6)
 	return style
@@ -1017,7 +1061,7 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		card.add_theme_font_size_override("font_size", 16)
-		card.add_theme_color_override("font_color", Color("e7f6ff"))
+		card.add_theme_color_override("font_color", CatTheme.CREAM)
 		_confine_label(card, true)
 		# The icon sits above the text rather than beside it, and the stylebox's
 		# top margin is what makes room for it — the card used to open with three
@@ -1031,7 +1075,7 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		recommendation.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		recommendation.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		recommendation.add_theme_font_size_override("font_size", 13)
-		recommendation.add_theme_color_override("font_color", Color("fff275"))
+		recommendation.add_theme_color_override("font_color", CatTheme.GOLD)
 		_confine_label(recommendation)
 		_make_label_background(recommendation, Color(0.22, 0.16, 0.02, 0.95))
 		card.add_child(recommendation)
@@ -1039,7 +1083,7 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		style.bg_color = Color(accent, 0.1)
 		style.border_color = Color(accent, 0.4)
 		style.set_border_width_all(2)
-		style.set_corner_radius_all(10)
+		style.set_corner_radius_all(18)
 		style.set_content_margin_all(12)
 		style.content_margin_top = 92.0
 		style.content_margin_bottom = 48.0
@@ -1087,6 +1131,7 @@ func _begin_lobby() -> void:
 	lobby_device_names = ["", ""]
 	lobby_input_cooldown = 0.25
 	lobby_overlay.visible = true
+	combat_hud.visible = false
 	character_overlay.visible = false
 	help_label.text = "참가 대기 중 — 두 사람이 각자 사용할 조작을 눌러 참가하세요."
 	_refresh_lobby_ui()
@@ -1130,9 +1175,9 @@ func _refresh_lobby_ui() -> void:
 func _format_lobby_slot(slot: int) -> String:
 	var heading := "P%d" % (slot + 1)
 	if lobby_joined[slot]:
-		return "%s\n\n✓ 참가 완료\n%s\n\nESC / START  참가 취소" % [heading, lobby_device_names[slot]]
-	var hint := "WASD 중 아무 키\n또는 1번 게임패드 버튼" if slot == 0 else "방향키 중 아무 키\n또는 2번 게임패드 버튼"
-	return "%s\n\n참가 대기\n\n%s" % [heading, hint]
+		return "%s  ·  ✓ 참가 완료\n%s\nESC / START  취소" % [heading, lobby_device_names[slot]]
+	var hint := "WASD  /  패드 1 아무 버튼" if slot == 0 else "방향키  /  패드 2 아무 버튼"
+	return "%s  ·  참가 대기\n\n%s" % [heading, hint]
 
 
 func _begin_character_select() -> void:
@@ -1181,6 +1226,7 @@ func _refresh_character_select_ui() -> void:
 		roster.append(String(character["name"]))
 	character_roster_label.text = "   ".join(roster)
 	character_synergy_label.text = _synergy_preview()
+	EditorialUI.refresh_characters(self)
 
 
 ## The select screen used to show a name, two bars and a sentence, which is not
@@ -1193,41 +1239,11 @@ func _format_character_card(player_index: int) -> String:
 	var weapon: Dictionary = character["weapon"]
 	var evolution := Evolutions.for_base(String(character["weapon_id"]))
 	var required := Treasures.by_id(String(evolution.get("treasure_id", "")))
-
-	var tag_names: Array[String] = []
-	for tag in (character["tags"] as Array):
-		tag_names.append(_tag_name(String(tag)))
-
-	# Grouped rather than spaced out: the card holds nineteen lines of content in
-	# a box that fits about sixteen, and blank separator lines were the cheapest
-	# three to give up.
-	var lines: Array[String] = [
-		"%s   %s" % [String(character["name"]), CharacterCatalog.difficulty_label(character)],
-		String(character["title"]),
-		"",
-		String(character["description"]),
-		"",
-		"체력 %s %.0f" % [_stat_blocks(remap(float(character["health"]), 90.0, 120.0, 2.0, 5.0)), float(character["health"])],
-		"속도 %s %.0f" % [_stat_blocks(remap(float(character["speed"]), 205.0, 240.0, 2.0, 5.0)), float(character["speed"])],
-		"제압 %s %.0f" % [
-			_stat_blocks(remap(CharacterCatalog.power_budget(character), 33.0, 41.0, 2.0, 5.0)),
-			CharacterCatalog.power_budget(character),
-		],
-		"",
-		"무기   %s" % String(character["weapon_name"]),
-		"피해 %.0f      주기 %.2f초      태그 %s" % [
-			float(weapon["damage"]), float(weapon["cooldown"]), "  ".join(tag_names),
-		],
-		"합성   %s   ←   %s T%d" % [
-			String(evolution.get("weapon_name", "없음")),
-			String(required.get("name", "-")), Evolutions.REQUIRED_TREASURE_TIER,
-		],
-		"",
-		CharacterCatalog.difficulty_reason(character),
-		_character_select_status(player_index),
+	return "%s\n피해 %.0f  ·  %.2f초마다 공격\n\n합성  %s + %s T%d\n→ %s\n\n%s" % [
+		String(character["weapon_name"]), float(weapon["damage"]), float(weapon["cooldown"]),
+		String(character["weapon_name"]), String(required.get("name", "-")), Evolutions.REQUIRED_TREASURE_TIER,
+		String(evolution.get("weapon_name", "-")), _character_select_status(player_index),
 	]
-	return "\n".join(lines)
-
 
 func _character_select_status(player_index: int) -> String:
 	if character_confirmed[player_index]:
@@ -1304,7 +1320,7 @@ func _start_selected_run() -> void:
 	help_label.visible = false
 	# Derived from the constant rather than written out, which is how it came
 	# to still say 02:00 after the boss moved to five minutes.
-	_show_message("목표 — %02d:%02d에 나타나는 결속 파괴자를 처치하세요" % [
+	_show_message("%02d:%02d 생존 후 · 청소 로봇 격파" % [
 		int(RUN_BOSS_TIME) / 60, int(RUN_BOSS_TIME) % 60
 	], Color("80ed99"))
 
@@ -1397,7 +1413,7 @@ func _trigger_chain_overload() -> void:
 		player.hurt(CHAIN_OVERLOAD_DAMAGE)
 	camera_shake = maxf(camera_shake, 14.0)
 	feedback.play_cue("down")
-	_show_message("사슬 과부하! 서로 가까워져 복구하세요", Color("ff5d8f"))
+	_show_message("사슬 과부하 · 서로 가까이!", Color("ff5d8f"))
 
 
 func _update_chain_visual() -> void:
@@ -1507,7 +1523,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		boss_label.visible = true
 		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
 		boss_health_text_label.visible = true
-		_show_message("경고 — 결속 파괴자가 사슬을 노립니다!", Color("ff5d8f"))
+		_show_message("폭주 청소 로봇 출현", Color("ff5d8f"))
 		weapon_controller.play_boss_flare(enemy.global_position)
 		feedback.play_cue("boss")
 		feedback.play_music("boss")
@@ -1530,7 +1546,7 @@ func _on_boss_enraged(_enemy: ChaserEnemy) -> void:
 	feedback.play_cue("boss_enrage")
 	weapon_controller.play_boss_flare(_enemy.global_position, true)
 	camera_shake = maxf(camera_shake, 12.0)
-	_show_message("결속 파괴자가 격노합니다 — 더 빨라졌습니다!", Color("ff5d8f"))
+	_show_message("청소 로봇 폭주 · 속도 증가", Color("ff5d8f"))
 
 
 func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) -> void:
@@ -1541,7 +1557,7 @@ func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) ->
 	chain_integrity = maxf(0.0, chain_integrity - BOSS_SLAM_INTEGRITY_DRAIN)
 	camera_shake = maxf(camera_shake, 13.0)
 	feedback.play_cue("warning")
-	_show_message("결속 파괴자가 사슬을 강타했습니다!" if hit_someone else "결속 파괴자가 사슬 내구도를 노렸습니다!", Color("ff5d8f"))
+	_show_message("사슬 강타 · 내구도 주의" if hit_someone else "충격 회피 · 내구도 주의", Color("ff5d8f"))
 
 
 func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
@@ -1632,12 +1648,7 @@ func _persist_settings() -> void:
 
 
 func _update_pause_text() -> void:
-	pause_label.text = "일시정지\n\n대시   P1 SPACE / RT      P2 . / RT\n\nESC / START   계속하기\nENTER          처음부터\n\n[F1] 화면 흔들림: %s\n[F2] 피해 숫자: %s\n[F3] 효과음: %s\n[F4] 음악: %s\n[F11] 전체 화면" % [
-		"켜짐" if screen_shake_enabled else "꺼짐",
-		"켜짐" if feedback.damage_numbers_enabled else "꺼짐",
-		"켜짐" if feedback.sound_enabled else "꺼짐",
-		"켜짐" if feedback.music_enabled else "꺼짐"
-	]
+	EditorialUI.refresh_pause(self)
 
 
 ## Fires every weapon a player owns once — used by the physics loop's
@@ -2331,7 +2342,7 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 
 
 func _refresh_level_up_ui() -> void:
-	level_title.text = "레벨 %d — 각자 하나 선택" % progression.level
+	level_title.text = "성장 선택   /   LV.%02d" % progression.level
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
 	_refresh_team_stats_ui()
@@ -2342,7 +2353,7 @@ func _refresh_player_cards(player_index: int) -> void:
 	var choices := p1_choices if player_index == 1 else p2_choices
 	var cards: Array = level_card_labels[slot]
 	var locked := selected_upgrade_indices[slot] >= 0
-	var accent := Color("43d9ff") if player_index == 1 else Color("b892ff")
+	var accent := CatTheme.P1 if player_index == 1 else CatTheme.P2
 
 	for index in cards.size():
 		var card: Label = cards[index]
@@ -2363,26 +2374,27 @@ func _refresh_player_cards(player_index: int) -> void:
 		recommendation.visible = is_recommended
 		recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
 
-		var border := Color("fff275") if is_unlock or is_recommended else accent
+		var border := CatTheme.GOLD if is_unlock or is_recommended else accent
 		if level_up_input_delay > 0.0:
 			# Visibly inert until input opens, so the pause reads as deliberate
 			# rather than as the game ignoring a keypress.
-			style.bg_color = Color(border, 0.05)
-			style.border_color = Color(border, 0.18)
+			style.bg_color = CatTheme.PANEL
+			style.border_color = CatTheme.OUTLINE
 			style.set_border_width_all(2)
 		elif is_chosen:
-			style.bg_color = Color(border, 0.28)
+			style.bg_color = CatTheme.CARD.lerp(border, 0.13)
 			style.border_color = border
 			style.set_border_width_all(3)
 		elif is_focused:
-			style.bg_color = Color(border, 0.2)
+			style.bg_color = CatTheme.CARD.lerp(border, 0.08)
 			style.border_color = Color(border, 0.9)
 			style.set_border_width_all(3)
 		else:
-			style.bg_color = Color(border, 0.08)
-			style.border_color = Color(border, 0.35)
+			style.bg_color = CatTheme.CARD
+			style.border_color = CatTheme.OUTLINE
 			style.set_border_width_all(2)
-		card.scale = Vector2(1.05, 1.05) if is_focused and level_up_input_delay <= 0.0 else Vector2.ONE
+		# Focus stays inside its grid cell: scaling used to overlap the next card.
+		card.scale = Vector2.ONE
 
 	_refresh_level_build_icons(slot)
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
@@ -2406,6 +2418,7 @@ func _refresh_player_cards(player_index: int) -> void:
 			reroll_key, rerolls_remaining[slot], REROLL_CAP, REROLL_PER_LEVELS,
 		])
 	footer.text = "\n".join(lines)
+	EditorialUI.refresh_growth(self, slot)
 
 
 ## Which atlas entry a card should show. Treasure ids are deliberately the same
@@ -2421,6 +2434,8 @@ func _option_icon_id(slot: int, option: Dictionary) -> String:
 
 
 func _option_weapon_id(slot: int, option: Dictionary) -> String:
+	if String(option.get("id", "")) == "evolve_weapon":
+		return String((option["evolution"] as Dictionary)["weapon_id"])
 	if String(option.get("id", "")) == "unlock_weapon":
 		return String((option["character"] as Dictionary)["weapon_id"])
 	var weapon_slot := int(option.get("weapon_slot", -1))
@@ -2457,7 +2472,7 @@ func _refresh_team_stats_ui() -> void:
 	# point they know fusion exists and the useful thing to show is how far each
 	# build is from the next one.
 	if not fusion_discovered:
-		team_stats_label.text = "★ 추천은 현재 체력과 예상 효율, 합성까지의 거리를 보고 고릅니다"
+		team_stats_label.text = "★ 추천 기준   체력 · 강화 효율 · 합성 / 공명 연계"
 	else:
 		team_stats_label.text = "합성  P1  %s\n합성  P2  %s" % [_fusion_progress_line(0), _fusion_progress_line(1)]
 	team_stats_label.visible = true
@@ -2500,7 +2515,7 @@ func _finish_level_up() -> void:
 	level_up_active = false
 	level_overlay.visible = false
 	get_tree().paused = false
-	_show_message("레벨 %d — 두 테크가 강화되었습니다" % progression.level, Color("fff275"))
+	_show_message("LV.%d · 둘 다 성장 완료" % progression.level, Color("fff275"))
 	if progression.can_level_up():
 		call_deferred("_begin_level_up")
 
@@ -2575,6 +2590,9 @@ func _refresh_resonance_vote_ui() -> void:
 			continue
 		card.visible = true
 		var resonance: Dictionary = resonance_candidates[index]
+		for slot in 2:
+			var icon := card.get_node("Cat%d" % slot) as TextureRect
+			icon.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
 		var requirements: Array = resonance["requires"]
 		card.text = "%s\n%s + %s\n\n%s" % [
 			String(resonance["name"]),
@@ -2602,10 +2620,10 @@ func _refresh_resonance_vote_ui() -> void:
 			accent = Color("43d9ff") if locked_by[0] == 0 else Color("b892ff")
 		elif not pointed_by.is_empty():
 			accent = Color("43d9ff") if pointed_by[0] == 0 else Color("b892ff")
-		style.bg_color = Color(accent, 0.07 + 0.09 * float(attention))
-		style.border_color = Color(accent, 0.3 + 0.32 * float(attention))
+		style.bg_color = CatTheme.CARD.lerp(CatTheme.P1, 0.035 * float(attention))
+		style.border_color = CatTheme.P1 if attention > 0 else CatTheme.OUTLINE
 		style.set_border_width_all(2 + attention)
-		card.scale = Vector2.ONE * (1.0 + 0.03 * float(attention))
+		card.scale = Vector2.ONE
 
 	var waiting: Array[String] = []
 	for slot in 2:
@@ -2666,13 +2684,9 @@ func _tension_damage_multiplier() -> float:
 
 
 func _update_hud() -> void:
-	var minutes := int(elapsed) / 60
-	var seconds := int(elapsed) % 60
+	boss_hud_panel.visible = boss_bar.visible
 	var distance := players[0].position.distance_to(players[1].position)
 	var tension := clampf(distance / chain_max_length, 0.0, 1.0)
-	var objective := "보스 격파" if wave_director.boss_spawned else "보스 %02d:%02d" % [int(maxf(0.0, RUN_BOSS_TIME - elapsed)) / 60, int(maxf(0.0, RUN_BOSS_TIME - elapsed)) % 60]
-	var wave_text := "휴식" if wave_director.in_calm else "%d파" % maxi(1, wave_director.wave_index + 1)
-	hud_label.text = "%02d:%02d    %s    처치 %d    %s" % [minutes, seconds, wave_text, kills, objective]
 	p1_status_label.text = _player_status_text(0)
 	p2_status_label.text = _player_status_text(1)
 	p1_health_bar.max_value = players[0].max_health
@@ -2727,6 +2741,7 @@ func _update_hud() -> void:
 	xp_text_label.text = "LV.%d    XP %d / %d" % [
 		progression.level, int(progression.experience), int(progression.required_experience)
 	]
+	EditorialUI.refresh_hud(self)
 
 
 func _player_status_text(player_index: int) -> String:
@@ -2783,16 +2798,13 @@ func _end_run(victory: bool = false) -> void:
 	resonance_overlay.visible = false
 	pause_overlay.visible = false
 	result_overlay.visible = true
+	for slot in 2:
+		var portrait := result_overlay.get_node("ResultCat%d" % slot) as TextureRect
+		portrait.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
 	get_tree().paused = true
-	var heading := "결속을 지켜냈습니다!" if victory else "사슬이 끊어졌습니다"
-	var reason := "결속 파괴자를 쓰러뜨렸습니다." if victory else "두 명이 모두 다운되었거나 구조 시간이 끝났습니다."
-	result_label.text = "%s\n\n%s\n\n생존 시간  %02d:%02d\n처치  %d\n공유 레벨  %d\n\nP1   %s      %s\nP2   %s      %s\n\n%s\n\nENTER / A  다시 결속하기" % [
-		heading, reason, int(elapsed) / 60, int(elapsed) % 60, kills, progression.level,
-		players[0].character_name, _loadout_summary(0),
-		players[1].character_name, _loadout_summary(1),
-		_run_stats_summary()
-	]
-	result_label.add_theme_color_override("font_color", Color("fff275") if victory else Color("ff8fab"))
+	result_label.add_theme_color_override("font_color", CatTheme.INK if victory else Color("994938"))
+	EditorialUI.refresh_result(self, victory)
+	_update_hud()
 	feedback.stop_music()
 	feedback.play_cue("victory" if victory else "down")
 

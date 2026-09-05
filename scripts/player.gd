@@ -1,5 +1,7 @@
 class_name ChainPlayer
 extends Node2D
+const Icons := preload("res://scripts/ui/icon_catalog.gd")
+var portrait: Texture2D
 
 signal damaged(player: ChainPlayer, amount: float)
 signal downed_started(player: ChainPlayer)
@@ -68,6 +70,7 @@ func setup(index: int, color: Color) -> void:
 
 
 func apply_character(character: Dictionary) -> void:
+	portrait = Icons.survivor(String(character["id"]))
 	character_name = String(character["name"])
 	weapon_id = String(character["weapon_id"])
 	body_color = Color(character["color"])
@@ -205,14 +208,18 @@ func _draw() -> void:
 	var color := Color.WHITE if flash else body_color
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
 	_draw_tail(color)
-	draw_circle(Vector2.ZERO, radius, color)
-	_draw_ears(color)
+	if portrait == null:
+		draw_circle(Vector2.ZERO, radius, color)
+		_draw_ears(color)
 	# The identity colour used to survive only as a 6px ring: the inner disc
 	# was darkened hard and a near-black weapon glyph covered the rest, so a
 	# character read as a dark disc rather than as "the orange one". The disc
 	# now keeps most of its colour and the glyph picks an ink that contrasts
 	# with it.
-	draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
+	if portrait != null:
+		draw_texture_rect(portrait, Rect2(-34, -37, 68, 68), false, Color(1.8, 1.8, 1.8) if flash else Color.WHITE)
+	else:
+		draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
 	var badge_color := Color("43d9ff") if player_index == 1 else Color("b892ff")
 	draw_circle(Vector2(0.0, radius + 13.0), 10.0, Color("07111f"))
 	draw_string(ThemeDB.fallback_font, Vector2(-7.0, radius + 19.0), str(player_index), HORIZONTAL_ALIGNMENT_CENTER, 14.0, 15, badge_color)
@@ -223,10 +230,10 @@ func _draw() -> void:
 		var down_text := "구조 중 %.0f%%" % (revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else "가까이 와서 구조 · %.0f초" % bleedout_remaining
 		draw_string(ThemeDB.fallback_font, Vector2(-92.0, -43.0), down_text, HORIZONTAL_ALIGNMENT_CENTER, 184.0, 16, Color("ffcfdf"))
 		return
-	draw_line(Vector2.ZERO, last_input * 17.0, Color.WHITE, 5.0, true)
-	draw_circle(last_input * 17.0, 4.0, Color.WHITE)
+	draw_circle(last_input * (radius + 5.0), 2.5, Color.WHITE)
 	_draw_dash_state()
-	_draw_weapon_mark()
+	if portrait == null:
+		_draw_weapon_mark()
 
 
 ## The dash readout lives on the character rather than in the HUD: the play

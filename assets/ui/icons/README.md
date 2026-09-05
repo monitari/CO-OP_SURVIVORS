@@ -1,26 +1,22 @@
-# UI 아이콘 아틀라스
+# 고양이 테마 UI 아이콘
 
-세 파일은 모두 1254×1254 PNG이며 투명 배경을 사용합니다. 런타임에서는
-`scripts/ui/icon_catalog.gd`가 원본 크기를 열/행 수로 나눠 `AtlasTexture`로
-제공하므로, 원본을 리사이즈하지 않는 한 별도의 잘라낸 파일은 필요하지 않습니다.
+큰 귀·둥근 얼굴·두꺼운 외곽선의 고양이 초상과 발바닥·방울·털실·깃털 장난감
+모티프를 사용하는 카툰 아이콘입니다. 기존 속성 색상과 기본/합성 무기의 형태 관계를 유지합니다.
+모두 내장 imagegen으로 생성한 투명 PNG이며, 정확한 프롬프트는 [제작 기록](generation-prompts.md)에 있습니다.
 
-- `survivor_atlas.png` (3×2): `lyra`, `volta`, `ignis`, `neve`, `moro`, `serin`
-- `weapon_atlas.png` (3×2): `homing`, `lightning`, `flame`, `frost`, `scythe`, `chain`
-- `upgrade_atlas.png` (4×3): `might`, `area`, `amount`, `haste`, `projectile_speed`,
-  `armor`, `recovery`, `magnet`, `growth`, `luck`, `move`, `vitality`
+| 파일 | 원본 크기 | 격자 | 항목 수 |
+| --- | --- | --- | --- |
+| survivor_atlas.png | 1983×793 | 5×2 | 고양이 10종 |
+| weapon_atlas.png | 1402×1122 | 5×4 | 기본 10종 + 합성 10종 |
+| upgrade_atlas.png | 1774×887 | 6×3 | 보물 18종 |
 
-순서는 왼쪽에서 오른쪽, 위에서 아래입니다. 새 캐릭터나 능력치를 추가할 때는
-아틀라스의 마지막 셀과 `GameIconCatalog`의 순서 배열을 함께 갱신하세요.
+셀은 왼쪽에서 오른쪽, 위에서 아래 순서입니다.
 
-## 아직 아트가 없는 항목
+- 초상: lyra, volta, ignis, neve, moro / serin, kael, rian, tera, nova
+- 기본 무기: homing, lightning, flame, frost, scythe / chain, orbit, lance, mine, gravity
+- 합성 무기: starpiercer, thunder_god, supernova, absolute_zero, black_moon / stigmata, celestial, judgement, ruin_garden, event_horizon
+- 보물: might, area, amount, haste, projectile_speed, armor / recovery, magnet, growth, luck, move, vitality / crit, pierce, thorns, resolve, overcharge, greed
 
-아틀라스는 손으로 그린 고정 크기 파일이라 이후 추가된 항목(새 생존자
-`kael`/`rian`/`tera`/`nova`, 그 무기들, 합성 무기 10종, 보물 6종)은 셀이
-없습니다. 이 항목들은 `GameIconCatalog.generated()`가 id에서 결정론적으로
-만들어 내는 임시 글리프로 그려집니다 — 색상환 위치와 도형이 id 해시에서
-나오므로 같은 id는 항상 같은 아이콘이 되고, 아이콘 없는 빈 카드가 뜨는 일은
-없습니다.
-
-진짜 아트를 그려 넣을 때는 아틀라스 격자를 넓히고 `GameIconCatalog`의 순서
-배열에 id를 추가하면 됩니다. 그 순간부터 해당 id는 임시 글리프 대신 아틀라스
-셀을 씁니다. `tests/icon_coverage_test.gd`가 어떤 id가 아직 임시인지 출력합니다.
+`scripts/ui/icon_catalog.gd`에서 원본 크기를 격자로 나눈 `AtlasTexture`를 캐시해 사용합니다.
+현재 카탈로그의 모든 항목에 전용 아트가 있으며, 향후 추가되는 미등록 ID만 임시 도형을 사용합니다.
+격자를 변경할 때는 순서 배열과 열/행 인자를 함께 변경하세요. `tests/icon_coverage_test.gd`로 누락을 확인할 수 있습니다.

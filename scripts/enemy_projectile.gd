@@ -32,3 +32,5 @@ func _physics_process(delta: float) -> void:
 func _draw() -> void:
 	draw_circle(Vector2.ZERO, 10.0, Color(1.0, 0.25, 0.35, 0.2))
 	draw_circle(Vector2.ZERO, 6.0, Color("ff5d8f"))
+	# Crow's thrown pebble: bright hostile outline remains the damage cue.
+	draw_colored_polygon(PackedVector2Array([Vector2(5, 0), Vector2(1, -4), Vector2(-4, -2), Vector2(-3, 4), Vector2(2, 4)]), Color("f5c995"))

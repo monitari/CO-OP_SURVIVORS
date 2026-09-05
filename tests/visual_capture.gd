@@ -45,6 +45,11 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+	main._set_pause(true)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/pause.png")
+	main._set_pause(false)
 
 	# Pin the pair in the beneficial tension band so the compact chain labels
 	# and action text can be reviewed together rather than only as empty bars.
@@ -102,12 +107,20 @@ func _run() -> void:
 	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
 	main.weapon_loadouts[0] = [main._build_weapon_state(main.selected_characters[0])]
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
-	main.weapon_loadouts[0][0]["tier"] = 3
-	main.weapon_loadouts[1][0]["tier"] = 3
+	# Resonance requires fused weapons now, not tier-3 starters.
+	for slot in 2:
+		var evolution: Dictionary = main.Evolutions.all_evolutions()[slot]
+		main.weapon_loadouts[slot][0].merge(evolution, true)
+		main.weapon_loadouts[slot][0]["tier"] = main.Evolutions.WEAPON_MAX_TIER
+		main.weapon_loadouts[slot][0]["evolved"] = true
 	main.resonance_system.active_resonances.clear()
 	main.level_up_active = true
 	paused = true
 	main._after_personal_upgrade_choices()
+	if not main.resonance_overlay.visible:
+		push_error("VISUAL_CAPTURE_FAIL: resonance vote did not open")
+		quit(1)
+		return
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/resonance-vote.png")
@@ -150,6 +163,7 @@ func _run() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/victory-result.png")
+	await _capture_enemy_roster(main)
 	print("VISUAL_CAPTURE_PASS")
 	quit(0)
 
@@ -159,3 +173,37 @@ func _save_viewport(path: String) -> void:
 	var error := image.save_png(ProjectSettings.globalize_path(path))
 	if error != OK:
 		push_error("Failed to save visual capture: " + path)
+
+
+func _capture_enemy_roster(main: Node) -> void:
+	# Render all silhouettes together, including types absent from the opening.
+	var layer := CanvasLayer.new()
+	layer.layer = 100
+	root.add_child(layer)
+	var screen := Control.new()
+	screen.theme = main.hud_layer.get_node("ThemeHost").theme
+	layer.add_child(screen)
+	var backdrop := ColorRect.new()
+	backdrop.color = Color("172c36")
+	backdrop.size = Vector2(1280, 720)
+	screen.add_child(backdrop)
+	var ui = main.EditorialUI
+	ui.label(screen, "옥상의 불청객", Rect2(40, 24, 1100, 44), 30, Color("fff9ea"))
+	ui.label(screen, "실루엣 / 기본 상태 · 판정과 행동은 기존 전투 규칙 유지", Rect2(40, 77, 1100, 28), 16, Color("b9cbc8"))
+	var kinds := ["chaser", "swarm", "charger", "shooter", "chain_hunter", "bulwark", "brute"]
+	var roles := ["간식을 노리는 추적자", "빠르게 몰려드는 무리", "직선 돌진", "원거리 투척", "사슬 중앙 추적", "느리지만 튼튼한 방패", "사슬 강타 · 돌진 · 폭주"]
+	for index in kinds.size():
+		var at := Vector2(40 + (index % 4) * 306, 124 + (index / 4) * 282)
+		var tile: Panel = ui.plate(screen, Rect2(at, Vector2(282, 260)))
+		var enemy := ChaserEnemy.new()
+		enemy.setup(0, kinds[index], false, index == 6)
+		enemy.position = Vector2(141, 96)
+		enemy.rotation = -PI * 0.5
+		enemy.scale = Vector2.ONE * (0.95 if index == 6 else 1.9)
+		tile.add_child(enemy)
+		ui.label(tile, enemy.EnemyArt.NAMES[kinds[index]], Rect2(20, 176, 242, 30), 20)
+		ui.label(tile, roles[index], Rect2(20, 215, 242, 24), 14, Color("66706c"))
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/enemy-roster.png")
+	layer.queue_free()

@@ -1,25 +1,25 @@
 class_name GameIconCatalog
 extends RefCounted
 
-## The three atlases are hand-made art with a fixed number of cells, so every id
-## added after they were drawn — new survivors, evolved weapons, new treasures —
-## would otherwise render as a blank card on screens that are now icon-led.
-##
-## Anything the atlases do not cover falls back to a generated glyph: a coloured
-## disc with a shape derived from the id. It is deterministic (the same id always
-## draws the same icon), cached, and visibly a placeholder rather than a pretend
-## painting. Move an id into an atlas and the fallback stops being used for it.
+## Cat-themed cartoon atlases cover the complete current roster, base/evolved
+## weapons and treasures. Unknown future ids retain a deterministic fallback.
 
 const SURVIVOR_ATLAS: Texture2D = preload("res://assets/ui/icons/survivor_atlas.png")
 const WEAPON_ATLAS: Texture2D = preload("res://assets/ui/icons/weapon_atlas.png")
 const UPGRADE_ATLAS: Texture2D = preload("res://assets/ui/icons/upgrade_atlas.png")
 
-const SURVIVOR_ORDER := ["lyra", "volta", "ignis", "neve", "moro", "serin"]
-const WEAPON_ORDER := ["homing", "lightning", "flame", "frost", "scythe", "chain"]
+const SURVIVOR_ORDER := ["lyra", "volta", "ignis", "neve", "moro", "serin", "kael", "rian", "tera", "nova"]
+const WEAPON_ORDER := [
+	"homing", "lightning", "flame", "frost", "scythe",
+	"chain", "orbit", "lance", "mine", "gravity",
+	"starpiercer", "thunder_god", "supernova", "absolute_zero", "black_moon",
+	"stigmata", "celestial", "judgement", "ruin_garden", "event_horizon",
+]
 const UPGRADE_ORDER := [
 	"might", "area", "amount", "haste",
 	"projectile_speed", "armor", "recovery", "magnet",
 	"growth", "luck", "move", "vitality",
+	"crit", "pierce", "thorns", "resolve", "overcharge", "greed",
 ]
 
 const WEAPON_PASSTHROUGH := ["unlock_weapon", "weapon_power", "weapon_rate", "special_a", "special_b", "evolve_weapon"]
@@ -30,26 +30,25 @@ const GLYPH_SHAPES := 8
 ## Generated glyphs are built once per id and reused. Without this every card
 ## refresh on the level-up screen would rasterise several 96x96 images.
 static var _generated: Dictionary = {}
+static var _atlas_icons: Dictionary = {}
 
 
 static func survivor(character_id: String) -> Texture2D:
-	var atlas_icon := _by_id(SURVIVOR_ATLAS, SURVIVOR_ORDER, character_id, 3, 2)
+	var atlas_icon := _by_id(SURVIVOR_ATLAS, SURVIVOR_ORDER, character_id, 5, 2)
 	return atlas_icon if atlas_icon != null else generated(character_id, "survivor")
 
 
 static func weapon(weapon_id: String) -> Texture2D:
-	var atlas_icon := _by_id(WEAPON_ATLAS, WEAPON_ORDER, weapon_id, 3, 2)
+	var atlas_icon := _by_id(WEAPON_ATLAS, WEAPON_ORDER, weapon_id, 5, 4)
 	if atlas_icon != null:
 		return atlas_icon
-	# An evolved weapon borrows its base form's glyph family so the tech tree
-	# reads as one line rather than two unrelated icons.
 	return generated(weapon_id, "weapon")
 
 
 static func upgrade(upgrade_id: String, weapon_id := "") -> Texture2D:
 	if upgrade_id in WEAPON_PASSTHROUGH:
 		return weapon(weapon_id)
-	var atlas_icon := _by_id(UPGRADE_ATLAS, UPGRADE_ORDER, upgrade_id, 4, 3)
+	var atlas_icon := _by_id(UPGRADE_ATLAS, UPGRADE_ORDER, upgrade_id, 6, 3)
 	return atlas_icon if atlas_icon != null else generated(upgrade_id, "upgrade")
 
 
@@ -158,9 +157,13 @@ static func _by_id(atlas: Texture2D, order: Array, id: String, columns: int, row
 	var index := order.find(id)
 	if index < 0:
 		return null
+	var cache_key := atlas.resource_path + ":" + id
+	if _atlas_icons.has(cache_key):
+		return _atlas_icons[cache_key] as Texture2D
 	var cell := Vector2(float(atlas.get_width()) / float(columns), float(atlas.get_height()) / float(rows))
 	var texture := AtlasTexture.new()
 	texture.atlas = atlas
 	texture.region = Rect2(Vector2(index % columns, index / columns) * cell, cell)
 	texture.filter_clip = true
+	_atlas_icons[cache_key] = texture
 	return texture
