@@ -72,6 +72,10 @@ func _clear_enemies(main: Node) -> void:
 func _test_might(main: Node) -> void:
 	await _clear_enemies(main)
 	main.players[0].might = 1.0
+	# This test isolates might. A critical baseline followed by a normal boosted
+	# hit produces the same number and makes a deterministic multiplier look
+	# broken.
+	main.players[0].crit_chance = 0.0
 	var enemy := _spawn_dummy(main, main.players[0].position + Vector2(105.0, 0.0))
 	var before := enemy.health
 	main.weapon_controller.perform_attack(0, 0, 1.0)

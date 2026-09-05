@@ -55,6 +55,20 @@ func _draw() -> void:
 		alpha = 0.45 + absf(sin(lifetime * 6.0)) * 0.55
 	var body := Color(item_color, alpha)
 	var ink := Color(0.03, 0.05, 0.1, alpha)
+	if item_id == "chest":
+		# A chunky cat-faced coffer breaks the circular pickup silhouette so it
+		# stays recognisable inside a carpet of experience gems.
+		draw_circle(Vector2.ZERO, 26.0, Color(item_color, 0.13 * alpha))
+		draw_rect(Rect2(-17.0, -7.0, 34.0, 22.0), body, true)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(-17.0, -7.0), Vector2(-12.0, -17.0), Vector2(-5.0, -10.0),
+			Vector2(5.0, -10.0), Vector2(12.0, -17.0), Vector2(17.0, -7.0),
+		]), body.lightened(0.12))
+		draw_line(Vector2(-17.0, 0.0), Vector2(17.0, 0.0), ink, 2.5, true)
+		draw_circle(Vector2(-6.0, -5.0), 2.0, ink)
+		draw_circle(Vector2(6.0, -5.0), 2.0, ink)
+		draw_line(Vector2(-3.0, 5.0), Vector2(3.0, 5.0), ink, 3.0, true)
+		return
 	draw_circle(Vector2.ZERO, 17.0, Color(item_color, 0.16 * alpha))
 	draw_circle(Vector2.ZERO, 12.0, body)
 	match item_id:

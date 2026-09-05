@@ -217,6 +217,10 @@ var chain_ward_pulse_timer := 0.0
 const FIELD_ITEM_BASE_CHANCE := 0.015
 const FIELD_ITEM_LUCK_CHANCE := 0.005
 const FIELD_ITEM_HEAL_RATIO := 0.3
+const CHEST_BASE_CHANCE := 0.004
+const CHEST_LUCK_CHANCE := 0.001
+const CHEST_ELITE_BONUS := 0.18
+const CHEST_MAX_REWARDS := 4
 ## 사슬 결계 used to be 사슬 정비: it topped up the integrity bar and did
 ## nothing else, which made the rarest-but-one drop in the game a number going
 ## up. It is now a window instead of a refund — for its duration the chain
@@ -289,6 +293,7 @@ func _ready() -> void:
 	weapon_controller = WeaponControllerScript.new() as WeaponController
 	add_child(weapon_controller)
 	weapon_controller.configure(players, weapon_loadouts, spatial_grid)
+	weapon_controller.cue_requested.connect(feedback.play_cue)
 	_create_hud()
 	ReviewUI.install(self)
 	_begin_lobby()
@@ -1977,8 +1982,8 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 			player.heal(player.max_health * 0.5)
 		chain_integrity = CHAIN_INTEGRITY_MAX
 		chain_overloaded = false
-		field_items.spawn_item(death_position, field_items.roll_item_id())
-		feedback.play_music("field")
+		field_items.spawn_item(death_position, "chest")
+		feedback.play_music("moonlight" if enemy.boss_rank % 2 == 1 else "field")
 		feedback.play_cue("victory")
 		_show_message("%s 격파   남은 청소 로봇 %d대" % [
 			boss_name(enemy.boss_rank), wave_director.bosses_remaining()
@@ -1998,6 +2003,12 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 ## team luck raises. The boss is excluded because defeating it ends the run,
 ## so a pickup nobody can reach would just be noise.
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
+	var chest_chance := (CHEST_BASE_CHANCE + CHEST_LUCK_CHANCE * float(team_luck)) * (1.0 + team_greed * 0.5)
+	if was_elite:
+		chest_chance += CHEST_ELITE_BONUS
+	if randf() < chest_chance:
+		field_items.spawn_item(drop_position, "chest")
+		return
 	var chance := (FIELD_ITEM_BASE_CHANCE + FIELD_ITEM_LUCK_CHANCE * float(team_luck)) * (1.0 + team_greed)
 	if not was_elite and randf() >= chance:
 		return
@@ -2011,6 +2022,14 @@ func _on_field_item_collected(item_id: String) -> void:
 	var label: String = field_items.item_display_name(item_id)
 	var color: Color = field_items.item_color(item_id)
 	match item_id:
+		"chest":
+			var rewards := _open_chest()
+			var centre := (players[0].global_position + players[1].global_position) * 0.5
+			weapon_controller.play_shockwave(centre, 260.0, color, 0.48, false)
+			particles.emit_motes(centre, color, 22)
+			feedback.play_cue("chest_open")
+			camera_shake = maxf(camera_shake, 12.0)
+			label += "  %d개 획득\n%s" % [rewards.size(), " · ".join(rewards)]
 		"heal":
 			for player in players:
 				player.heal(player.max_health * FIELD_ITEM_HEAL_RATIO)
@@ -2059,6 +2078,129 @@ func _on_field_item_collected(item_id: String) -> void:
 	particles.emit_motes(pickup_centre, color, 8)
 	feedback.play_item_cue(item_id)
 	_show_message(label, color)
+
+
+## A chest is resolved immediately so it never opens a second modal over a
+## level-up. Existing equipment is always considered before empty slots; the
+## box therefore deepens a build first and only introduces new technology when
+## nothing currently carried can still grow.
+func _open_chest() -> Array[String]:
+	var results: Array[String] = []
+	for reward_index in _roll_chest_reward_count():
+		var candidates := _chest_upgrade_candidates()
+		if candidates.is_empty():
+			candidates = _chest_unlock_candidates()
+		if candidates.is_empty():
+			results.append(_apply_chest_transcendence())
+			continue
+		var chosen := _choose_chest_candidate(candidates)
+		_apply_upgrade(int(chosen["slot"]), chosen["option"])
+		results.append("P%d %s" % [int(chosen["slot"]) + 1, String(chosen["label"])])
+	return results
+
+
+func _roll_chest_reward_count() -> int:
+	# Multiple rewards are exciting, not dependable. Luck nudges the roll but
+	# even a very lucky team cannot turn four-item jackpots into the norm.
+	var roll := maxf(0.0, randf() - minf(0.05, float(team_luck) * 0.0025))
+	if roll < 0.015:
+		return CHEST_MAX_REWARDS
+	if roll < 0.07:
+		return 3
+	if roll < 0.25:
+		return 2
+	return 1
+
+
+func _chest_upgrade_candidates() -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = []
+	for slot in 2:
+		for weapon_slot in weapon_loadouts[slot].size():
+			var state: Dictionary = weapon_loadouts[slot][weapon_slot]
+			var evolution := _available_evolution(slot, weapon_slot)
+			if not evolution.is_empty():
+				candidates.append({
+					"slot": slot, "priority": 3,
+					"option": {"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution},
+					"label": "합성 %s" % String(evolution["weapon_name"]),
+				})
+				continue
+			if bool(state.get("evolved", false)) or int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+				continue
+			for upgrade_id in ["weapon_power", "weapon_rate"]:
+				candidates.append({
+					"slot": slot, "priority": 2,
+					"option": {"id": upgrade_id, "weapon_slot": weapon_slot},
+					"label": "%s %s" % [String(state["weapon_name"]), "화력" if upgrade_id == "weapon_power" else "속도"],
+				})
+			for key in ["a", "b"]:
+				if _special_has_room(slot, weapon_slot, key):
+					candidates.append({
+						"slot": slot, "priority": 2,
+						"option": {"id": "special_" + key, "weapon_slot": weapon_slot},
+						"label": "%s 특성" % String(state["weapon_name"]),
+					})
+		for treasure_slot in treasure_loadouts[slot].size():
+			var treasure: Dictionary = treasure_loadouts[slot][treasure_slot]
+			if int(treasure["tier"]) < Treasures.MAX_TIER:
+				candidates.append({
+					"slot": slot, "priority": 2,
+					"option": {"id": "treasure_upgrade", "treasure_slot": treasure_slot},
+					"label": "%s T%d" % [String(treasure["name"]), int(treasure["tier"]) + 1],
+				})
+	return candidates
+
+
+func _chest_unlock_candidates() -> Array[Dictionary]:
+	var candidates: Array[Dictionary] = []
+	for slot in 2:
+		if weapon_loadouts[slot].size() < WEAPON_LOADOUT_CAP:
+			for character in _pick_unowned_characters(slot, character_catalog.size()):
+				candidates.append({
+					"slot": slot, "priority": 1,
+					"option": {"id": "unlock_weapon", "character": character},
+					"label": "신규 %s" % String(character["weapon_name"]),
+				})
+		if treasure_loadouts[slot].size() < TREASURE_LOADOUT_CAP:
+			for treasure in _pick_unowned_treasures(slot, Treasures.all_treasures().size()):
+				candidates.append({
+					"slot": slot, "priority": 1,
+					"option": {"id": "unlock_treasure", "treasure": treasure},
+					"label": "신규 %s" % String(treasure["name"]),
+				})
+	return candidates
+
+
+func _choose_chest_candidate(candidates: Array[Dictionary]) -> Dictionary:
+	var highest_priority := 0
+	for candidate in candidates:
+		highest_priority = maxi(highest_priority, int(candidate["priority"]))
+	var priority_pool := candidates.filter(func(candidate: Dictionary) -> bool: return int(candidate["priority"]) == highest_priority)
+	# If both players have equivalent options, the shallower build receives the
+	# gift. This stops a shared co-op chest from snowballing one survivor.
+	var shallowest := 999
+	for candidate in priority_pool:
+		shallowest = mini(shallowest, _build_depth(int(candidate["slot"])))
+	var fair_pool := priority_pool.filter(func(candidate: Dictionary) -> bool: return _build_depth(int(candidate["slot"])) == shallowest)
+	return fair_pool.pick_random()
+
+
+func _build_depth(slot: int) -> int:
+	var depth := 0
+	for weapon in weapon_loadouts[slot]:
+		depth += int((weapon as Dictionary).get("tier", 1))
+	for treasure in treasure_loadouts[slot]:
+		depth += int((treasure as Dictionary).get("tier", 1))
+	return depth
+
+
+func _apply_chest_transcendence() -> String:
+	var slot := 0 if _build_depth(0) <= _build_depth(1) else 1
+	if weapon_loadouts[slot].is_empty():
+		return "온기 회복"
+	var weapon: Dictionary = weapon_loadouts[slot].pick_random()
+	weapon["damage"] = float(weapon["damage"]) * 1.08
+	return "P%d %s 초월" % [slot + 1, String(weapon["weapon_name"])]
 
 
 func _gain_shared_xp(amount: int) -> void:
@@ -3302,6 +3444,11 @@ func _run_stats_summary() -> String:
 
 
 func _show_message(text: String, color: Color) -> void:
+	var expanded := text.contains("\n") or text.length() > 38
+	message_label.position = Vector2(170.0, 574.0) if expanded else Vector2(340.0, 596.0)
+	message_label.size = Vector2(940.0, 62.0) if expanded else Vector2(600.0, 38.0)
+	message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if expanded else TextServer.AUTOWRAP_OFF
+	message_label.add_theme_font_size_override("font_size", 18 if expanded else 24)
 	message_label.text = text
 	message_label.add_theme_color_override("font_color", color)
 	message_label.modulate.a = 1.0

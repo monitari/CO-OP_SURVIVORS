@@ -103,16 +103,21 @@ func _test_cue_coverage() -> void:
 	root.add_child(feedback)
 	await process_frame
 
-	var weapon_ids := ["homing", "lightning", "flame", "frost", "scythe", "chain"]
+	var weapon_ids := [
+		"homing", "lightning", "flame", "frost", "scythe", "chain", "orbit", "lance", "mine", "gravity",
+		"starpiercer", "thunder_god", "supernova", "absolute_zero", "black_moon",
+		"stigmata", "celestial", "judgement", "ruin_garden", "event_horizon",
+	]
 	for weapon_id in weapon_ids:
 		_check(feedback.CUE_PARAMS.has("weapon_" + weapon_id), "weapon %s has its own fire cue" % weapon_id)
 
-	var item_ids := ["heal", "magnet", "chain_ward", "purge"]
+	var item_ids := ["heal", "magnet", "chain_ward", "purge", "chest"]
 	for item_id in item_ids:
 		_check(feedback.CUE_PARAMS.has("item_" + item_id), "field drop %s has its own pickup cue" % item_id)
 
 	for cue in ["hit", "kill", "xp", "level", "warning", "down", "revive", "resonance",
-			"boss", "victory", "chain_overcharge", "chain_overload", "chain_repaired", "boss_enrage"]:
+			"boss", "victory", "chain_overcharge", "chain_overload", "chain_repaired", "boss_enrage",
+			"mine_blast", "gravity_pull", "gravity_collapse", "chain_snap", "chest_open"]:
 		_check(feedback.CUE_PARAMS.has(cue), "cue %s is defined" % cue)
 
 	# Distinct cues must actually sound different, or naming them separately
@@ -121,7 +126,7 @@ func _test_cue_coverage() -> void:
 	for weapon_id in weapon_ids:
 		var params: Dictionary = feedback.CUE_PARAMS["weapon_" + weapon_id]
 		signatures["%s|%s|%s" % [params.get("freq"), params.get("to", params.get("freq")), params.get("wave", "sine")]] = true
-	_check(signatures.size() == weapon_ids.size(), "all six weapon cues are audibly distinct (%d unique of %d)" % [signatures.size(), weapon_ids.size()])
+	_check(signatures.size() == weapon_ids.size(), "all weapon cues are audibly distinct (%d unique of %d)" % [signatures.size(), weapon_ids.size()])
 
 	# Every cue must render without error and produce actual samples.
 	for cue in feedback.CUE_PARAMS.keys():
@@ -154,6 +159,9 @@ func _test_music_slot() -> void:
 	feedback.play_music("boss")
 	_check(feedback._current_track == "boss", "the boss bed replaces the field bed")
 	_check(feedback._music_cache.has("boss"), "the boss bed renders on first use")
+	feedback.play_music("moonlight")
+	_check(feedback._current_track == "moonlight", "the alternate field theme has its own music slot")
+	_check(feedback._music_cache.has("moonlight"), "the alternate field theme renders on first use")
 
 	feedback.stop_music()
 	_check(feedback._current_track.is_empty(), "stopping clears the current track")

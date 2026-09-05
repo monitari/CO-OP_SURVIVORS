@@ -87,9 +87,10 @@ func _test_scythe_sweeps_over_time(main: Node) -> void:
 
 func _test_gravity_moves_smoothly(main: Node) -> void:
 	await _equip(main, 9)
-	_spawn(main, Vector2(330, 0)) # target the collapse chooses
-	var enemy := _spawn(main, Vector2(430, 0))
+	var enemy := _spawn(main, Vector2(330, 0))
+	var farthest := _spawn(main, Vector2(430, 0))
 	var start: Vector2 = enemy.position
+	check(main.weapon_controller._gravity_centre(0, main.weapon_loadouts[0][0]).is_equal_approx(farthest.position), "gravity chooses the farthest enemy in cast range")
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	await create_timer(0.16).timeout
 	check(enemy.position.distance_to(start) > 1.0, "gravity begins pulling before collapse")

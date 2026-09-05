@@ -40,8 +40,8 @@ func _run() -> void:
 		main._register_enemy(enemy)
 	for grade in 4:
 		main.experience_system.spawn_gem(Vector2(-66.0 + grade * 44.0, 115.0), [3, 8, 26, 150][grade], grade)
-	# One of each field drop so the capture shows all four icons.
-	var drop_ids := ["heal", "magnet", "chain_ward", "purge"]
+	# One of each field drop so the capture includes the distinct chest silhouette.
+	var drop_ids := ["heal", "magnet", "chain_ward", "purge", "chest"]
 	for drop_index in drop_ids.size():
 		main.field_items.spawn_item(Vector2(-165.0 + drop_index * 110.0, 175.0), drop_ids[drop_index])
 	main.spatial_grid.rebuild(main.enemies)
@@ -49,6 +49,10 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+	main._on_field_item_collected("chest")
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/chest-open.png")
 	await _capture_weapon_reworks(main)
 	main._set_pause(true)
 	await process_frame
@@ -207,7 +211,7 @@ func _capture_weapon_reworks(main: Node) -> void:
 	paused = false
 	main.weapon_controller.clear_transients()
 	var previous: Array = [main.weapon_loadouts[0].duplicate(true), main.weapon_loadouts[1].duplicate(true)]
-	main.weapon_loadouts[0] = [main._build_weapon_state(main.character_catalog[6]), main._build_weapon_state(main.character_catalog[8])]
+	main.weapon_loadouts[0] = [main._build_weapon_state(main.character_catalog[5]), main._build_weapon_state(main.character_catalog[6]), main._build_weapon_state(main.character_catalog[7]), main._build_weapon_state(main.character_catalog[8])]
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.character_catalog[3]), main._build_weapon_state(main.character_catalog[4]), main._build_weapon_state(main.character_catalog[9])]
 	main.players[0].last_input = Vector2.RIGHT
 	main.players[1].last_input = Vector2.LEFT

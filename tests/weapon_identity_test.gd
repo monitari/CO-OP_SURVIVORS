@@ -110,8 +110,8 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	main.players[1].position = Vector2(0.0, 90.0)
 
 	var radius := float(gravity["radius"])
-	var anchor := _spawn(main, Vector2(radius + 180.0, 0.0))
-	var neighbour := _spawn(main, Vector2(radius + 260.0, 0.0))
+	var neighbour := _spawn(main, Vector2(radius + 180.0, 0.0))
+	var anchor := _spawn(main, Vector2(radius + 260.0, 0.0))
 	main.spatial_grid.rebuild(main.enemies)
 	_check(main.players[0].global_position.distance_to(anchor.global_position) > radius,
 		"the fixture puts the crowd outside the collapse radius")
@@ -119,13 +119,13 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	var neighbour_before := neighbour.global_position.x
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	await create_timer(0.16).timeout
-	_check(neighbour.global_position.x < neighbour_before and neighbour.global_position.x > anchor.global_position.x,
+	_check(neighbour.global_position.x > neighbour_before and neighbour.global_position.x < anchor.global_position.x,
 		"the pull travels over time instead of teleporting the crowd")
 	await create_timer(0.7).timeout
-	print("GRAVITY_METRICS: anchor=%.1f neighbour=%.1f moved=%.1f" % [anchor.max_health - anchor.health, neighbour.max_health - neighbour.health, neighbour_before - neighbour.global_position.x])
+	print("GRAVITY_METRICS: anchor=%.1f neighbour=%.1f moved=%.1f" % [anchor.max_health - anchor.health, neighbour.max_health - neighbour.health, neighbour.global_position.x - neighbour_before])
 	_check(anchor.health < anchor.max_health, "the collapse lands on the crowd, not on the caster")
 	_check(neighbour.health < neighbour.max_health, "and catches what is standing with it")
-	_check(neighbour.global_position.x < neighbour_before,
+	_check(neighbour.global_position.x > neighbour_before,
 		"and finishes closer to the anchor rather than the survivors")
 
 	# With nothing in range it must not silently revert to the old behaviour of

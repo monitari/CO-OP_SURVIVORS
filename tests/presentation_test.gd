@@ -241,7 +241,9 @@ func _test_palette(main: Node) -> void:
 func _test_attack_ring_hierarchy(main: Node) -> void:
 	var before: int = main.weapon_controller.get_child_count()
 	main.weapon_controller._draw_ring(Vector2.ZERO, 200.0, Color("43d9ff"), 12.0)
-	_check(main.weapon_controller.get_child_count() == before + 1, "an area attack creates one ring")
+	_check(main.weapon_controller.get_child_count() == before + 2, "an area attack creates a filled footprint and one ring")
+	var fill := main.weapon_controller.get_child(main.weapon_controller.get_child_count() - 2) as Polygon2D
+	_check(fill != null and fill.polygon.size() >= 32, "the attack radius is represented by a filled area")
 	var ring := main.weapon_controller.get_child(main.weapon_controller.get_child_count() - 1) as Line2D
 	_check(ring != null, "the ring is a drawable line")
 	if ring == null:

@@ -18,6 +18,8 @@ const ITEM_TABLE := [
 	{"id": "purge", "weight": 1, "color": "ff5d8f", "name": "정화의 불꽃"},
 ]
 
+const CHEST_ENTRY := {"id": "chest", "color": "ffd166", "name": "수염 상자"}
+
 var active_items: Array[FieldItem] = []
 var item_pool: Array[FieldItem] = []
 var pickup_radius := 30.0
@@ -38,6 +40,8 @@ func roll_item_id() -> String:
 
 
 func item_display_name(item_id: String) -> String:
+	if item_id == "chest":
+		return String(CHEST_ENTRY["name"])
 	for entry in ITEM_TABLE:
 		if String(entry["id"]) == item_id:
 			return String(entry["name"])
@@ -45,6 +49,8 @@ func item_display_name(item_id: String) -> String:
 
 
 func item_color(item_id: String) -> Color:
+	if item_id == "chest":
+		return Color(String(CHEST_ENTRY["color"]))
 	for entry in ITEM_TABLE:
 		if String(entry["id"]) == item_id:
 			return Color(String(entry["color"]))

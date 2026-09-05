@@ -50,12 +50,35 @@ const CUE_PARAMS := {
 	"weapon_frost": {"freq": 1100.0, "to": 1500.0, "dur": 0.16, "vol": 0.08, "wave": "sine", "gap": 0.08},
 	"weapon_scythe": {"freq": 700.0, "to": 220.0, "dur": 0.11, "vol": 0.11, "wave": "noise", "gap": 0.08},
 	"weapon_chain": {"freq": 160.0, "to": 130.0, "dur": 0.16, "vol": 0.09, "wave": "saw", "gap": 0.08},
+	"weapon_orbit": {"freq": 880.0, "to": 620.0, "dur": 0.18, "vol": 0.08, "wave": "sine", "gap": 0.10},
+	"weapon_lance": {"freq": 360.0, "to": 1160.0, "dur": 0.13, "vol": 0.10, "wave": "square", "gap": 0.08},
+	"weapon_mine": {"freq": 240.0, "to": 420.0, "dur": 0.12, "vol": 0.09, "wave": "square", "gap": 0.10},
+	"weapon_gravity": {"freq": 180.0, "to": 72.0, "dur": 0.26, "vol": 0.12, "wave": "sine", "gap": 0.12},
+	"weapon_starpiercer": {"freq": 620.0, "to": 1380.0, "dur": 0.17, "vol": 0.11, "wave": "square", "gap": 0.08},
+	"weapon_thunder_god": {"freq": 1320.0, "to": 190.0, "dur": 0.24, "vol": 0.13, "wave": "square", "gap": 0.10},
+	"weapon_supernova": {"freq": 520.0, "to": 95.0, "dur": 0.28, "vol": 0.13, "wave": "noise", "gap": 0.12},
+	"weapon_absolute_zero": {"freq": 1450.0, "to": 760.0, "dur": 0.28, "vol": 0.10, "wave": "sine", "gap": 0.12},
+	"weapon_black_moon": {"freq": 820.0, "to": 105.0, "dur": 0.20, "vol": 0.13, "wave": "noise", "gap": 0.10},
+	"weapon_stigmata": {"freq": 210.0, "to": 680.0, "dur": 0.24, "vol": 0.12, "wave": "saw", "gap": 0.10},
+	"weapon_celestial": {"freq": 980.0, "to": 490.0, "dur": 0.30, "vol": 0.10, "wave": "sine", "gap": 0.12},
+	"weapon_judgement": {"freq": 460.0, "to": 1540.0, "dur": 0.20, "vol": 0.12, "wave": "square", "gap": 0.10},
+	"weapon_ruin_garden": {"freq": 190.0, "to": 510.0, "dur": 0.22, "vol": 0.11, "wave": "saw", "gap": 0.12},
+	"weapon_event_horizon": {"freq": 125.0, "to": 42.0, "dur": 0.38, "vol": 0.15, "wave": "sine", "gap": 0.14},
+
+	# Secondary layers mark delayed phases instead of asking one fire sound to
+	# explain an entire multi-stage weapon.
+	"mine_blast": {"freq": 120.0, "to": 48.0, "dur": 0.24, "vol": 0.18, "wave": "noise", "gap": 0.06},
+	"gravity_pull": {"freq": 260.0, "to": 95.0, "dur": 0.34, "vol": 0.09, "wave": "sine", "gap": 0.10},
+	"gravity_collapse": {"freq": 78.0, "to": 42.0, "dur": 0.22, "vol": 0.18, "wave": "square", "gap": 0.08},
+	"chain_snap": {"freq": 310.0, "to": 1280.0, "dur": 0.10, "vol": 0.10, "wave": "square", "gap": 0.07},
 
 	# --- one per field drop, so a pickup says which pickup it was ------------
 	"item_heal": {"freq": 523.0, "to": 784.0, "dur": 0.28, "vol": 0.20, "wave": "sine"},
 	"item_magnet": {"freq": 300.0, "to": 1200.0, "dur": 0.30, "vol": 0.18, "wave": "sine"},
 	"item_chain_ward": {"freq": 400.0, "to": 880.0, "dur": 0.42, "vol": 0.22, "wave": "square"},
 	"item_purge": {"freq": 300.0, "to": 90.0, "dur": 0.40, "vol": 0.24, "wave": "noise"},
+	"item_chest": {"freq": 392.0, "to": 1174.0, "dur": 0.48, "vol": 0.22, "wave": "square"},
+	"chest_open": {"freq": 523.0, "to": 1568.0, "dur": 0.55, "vol": 0.20, "wave": "sine"},
 
 	# --- chain and boss state changes ---------------------------------------
 	"chain_overcharge": {"freq": 500.0, "to": 720.0, "dur": 0.18, "vol": 0.15, "wave": "sine"},
@@ -83,6 +106,23 @@ const MUSIC_TRACKS := {
 			[0.0, 73.42, 1.40, 0.13, "saw"], [1.5, 73.42, 1.40, 0.13, "saw"],
 			[0.0, 293.66, 0.20, 0.05, "square"], [0.75, 415.30, 0.20, 0.05, "square"],
 			[1.5, 293.66, 0.20, 0.05, "square"], [2.25, 415.30, 0.20, 0.05, "square"],
+		],
+	},
+	# A second field theme appears after odd-numbered boss checkpoints. A bass
+	# walk and syncopated bell melody keep it recognisably feline/playful while
+	# giving the back half of a run a new pulse.
+	"moonlight": {
+		"length": 8.0,
+		"notes": [
+			[0.0, 98.0, 0.72, 0.09, "saw"], [1.0, 123.47, 0.72, 0.09, "saw"],
+			[2.0, 146.83, 0.72, 0.09, "saw"], [3.0, 123.47, 0.72, 0.09, "saw"],
+			[4.0, 110.0, 0.72, 0.09, "saw"], [5.0, 146.83, 0.72, 0.09, "saw"],
+			[6.0, 164.81, 0.72, 0.09, "saw"], [7.0, 123.47, 0.72, 0.09, "saw"],
+			[0.0, 587.33, 0.24, 0.045, "sine"], [0.75, 783.99, 0.18, 0.045, "sine"],
+			[1.5, 659.25, 0.30, 0.05, "sine"], [2.5, 880.0, 0.20, 0.045, "sine"],
+			[3.25, 739.99, 0.30, 0.05, "sine"], [4.0, 659.25, 0.22, 0.045, "sine"],
+			[5.0, 987.77, 0.18, 0.05, "sine"], [5.75, 880.0, 0.26, 0.045, "sine"],
+			[6.5, 739.99, 0.28, 0.05, "sine"], [7.25, 587.33, 0.38, 0.05, "sine"],
 		],
 	},
 }

@@ -5,6 +5,9 @@ const ProjectileScript := preload("res://scripts/projectile.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 const MineScript := preload("res://scripts/proximity_mine.gd")
 const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
+const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
+
+signal cue_requested(cue_id: String)
 
 var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
@@ -41,6 +44,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		return
 	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
+	cue_requested.emit("weapon_" + weapon_id)
 	var color := Color(state["color"])
 	var damage := float(state["damage"]) * damage_multiplier * owner_player.might
 	# One roll per cast also covers delayed mines and secondary explosions.
@@ -400,6 +404,7 @@ const CHAIN_TENSION_BONUS := 0.6
 
 func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
 	_damage_along_chain(float(state["width"]), damage * (1.0 + chain_tension * CHAIN_TENSION_BONUS), 1.0)
+	cue_requested.emit("chain_snap")
 
 
 ## Shards riding a circle around their owner. The angle comes from run time
@@ -460,6 +465,7 @@ func _spawn_mine(player_index: int, at: Vector2, damage: float, radius: float, c
 
 
 func _on_mine_detonated(centre: Vector2, damage: float, radius: float, color: Color) -> void:
+	cue_requested.emit("mine_blast")
 	_damage_area(centre, radius, damage)
 	_draw_ring(centre, radius, color, 6.0)
 	_spawn_combat_flare(centre, color, color.lightened(0.4), radius * 0.5, 0.22)
@@ -476,8 +482,9 @@ func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary
 	var radius := float(state["radius"])
 	var pull := float(state.get("pull", 160.0))
 	var field = WeaponFieldScript.new()
-	field.configure_gravity(centre, spatial_grid, damage, radius, pull, color)
+	field.configure_gravity(centre, spatial_grid, damage, radius, pull, color, func() -> void: cue_requested.emit("gravity_collapse"))
 	add_child(field)
+	cue_requested.emit("gravity_pull")
 
 
 ## Where the collapse actually lands.
@@ -486,16 +493,24 @@ func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary
 ## panic button: it only ever helped once things had already reached you, and
 ## the thing it did — drag every nearby enemy into a tight ball right on top of
 ## your own body — was the last thing you wanted at that moment. It now picks
-## the nearest enemy inside `cast_range` and collapses there, so it is a tool
+## the farthest enemy inside `cast_range` and collapses there, so it is a tool
 ## for breaking up a crowd before it arrives. With nothing in range it falls
 ## back to a point out along the aim direction rather than snapping home, so
 ## the weapon never behaves like the old version by accident.
 func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
 	var origin := players[player_index].global_position
 	var cast_range := float(state.get("cast_range", 520.0))
-	var target := spatial_grid.nearest(origin, cast_range)
-	if target != null:
-		return target.global_position
+	var farthest: ChaserEnemy
+	var farthest_distance_squared := -1.0
+	for enemy in spatial_grid.query_radius(origin, cast_range + 45.0):
+		if not is_instance_valid(enemy) or enemy.dead:
+			continue
+		var distance_squared := origin.distance_squared_to(enemy.global_position)
+		if distance_squared <= cast_range * cast_range and distance_squared > farthest_distance_squared:
+			farthest = enemy
+			farthest_distance_squared = distance_squared
+	if farthest != null:
+		return farthest.global_position
 	return origin + _aim_direction(player_index, cast_range) * cast_range * 0.55
 
 
@@ -522,13 +537,10 @@ func _call_thunder_god(player_index: int, state: Dictionary, damage: float, colo
 	for enemy in spatial_grid.query_radius(origin, reach):
 		if origin.distance_to(enemy.global_position) > reach:
 			continue
-		_draw_lightning(origin, enemy.global_position, color, 3.0)
+		if struck < 24:
+			_draw_lightning(origin, enemy.global_position, color, 3.0)
 		enemy.take_damage(damage)
 		struck += 1
-		if struck >= 24:
-			# A cap on the drawn bolts only; a screenful of lines stops reading
-			# as lightning and starts reading as static.
-			break
 	_draw_ring(origin, reach, Color(color, 0.35), 3.0)
 
 
@@ -579,7 +591,7 @@ func _fire_judgement(player_index: int, state: Dictionary, damage: float, color:
 	# beams have to form one fan around the same target or it reads as noise.
 	var heading := _aim_direction(player_index, float(state["range"]))
 	var origin := players[player_index].global_position
-	for offset in [0.0, TAU * 0.33, -TAU * 0.33]:
+	for offset in [0.0, 0.34, -0.34]:
 		_lance_from(origin, heading.rotated(offset), float(state["range"]), float(state["width"]), damage, color)
 
 
@@ -668,6 +680,18 @@ func play_purge_rays(centre: Vector2, radius: float, color: Color) -> void:
 
 
 func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
+	var direction := from.direction_to(to)
+	var normal := direction.orthogonal()
+	var body := Polygon2D.new()
+	body.polygon = PackedVector2Array([
+		from - normal * width * 0.72, from + normal * width * 0.72,
+		to + normal * width * 0.32, to + direction * width * 0.9,
+		to - normal * width * 0.32,
+	])
+	body.color = Color(color, 0.24)
+	body.z_index = 2
+	add_child(body)
+	_flash_and_free(body, 0.07, 0.24)
 	# A soft outer pass under a bright core: the halo says where the beam is,
 	# the core says it landed. One flat line at 70% did neither well.
 	var halo := Line2D.new()
@@ -739,6 +763,16 @@ func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> 
 
 
 func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> void:
+	var fill := Polygon2D.new()
+	fill.position = center
+	var fill_points := PackedVector2Array()
+	for index in 48:
+		fill_points.append(Vector2.from_angle(TAU * float(index) / 48.0) * radius)
+	fill.polygon = fill_points
+	fill.color = Color(color, minf(0.12, maxf(0.045, color.a * 0.16)))
+	fill.z_index = 1
+	add_child(fill)
+	_flash_and_free(fill, RING_HOLD, RING_FADE)
 	var ring := Line2D.new()
 	ring.position = center
 	# Friendly area attacks were reading like persistent arena boundaries.
@@ -773,14 +807,9 @@ func _draw_scythe_arc(center: Vector2, angle: float, radius: float, arc: float, 
 
 
 func _draw_chain_pulse(from: Vector2, to: Vector2, width: float) -> void:
-	var pulse := Line2D.new()
-	pulse.width = width * 2.0
-	pulse.default_color = Color(0.55, 0.98, 0.66, 0.72)
-	pulse.z_index = 2
-	pulse.add_point(from)
-	pulse.add_point(to)
-	add_child(pulse)
-	_flash_and_free(pulse, 0.1, 0.3)
+	var strike = ChainStrikeScript.new()
+	strike.setup(from, to, width, Color("80ed99"))
+	add_child(strike)
 
 
 ## Attack visuals were dying on a straight fade that began the instant they

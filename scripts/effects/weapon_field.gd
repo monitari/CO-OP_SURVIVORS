@@ -175,13 +175,20 @@ func _draw() -> void:
 	match kind:
 		Kind.ORBIT:
 			var phase := age * speed
+			draw_circle(Vector2.ZERO, effect_radius + 18.0, Color(color, 0.045))
+			draw_circle(Vector2.ZERO, effect_radius * 0.52, Color(0.03, 0.04, 0.09, 0.12))
 			draw_arc(Vector2.ZERO, effect_radius, 0, TAU, 48, Color(color, 0.18), 2.0, true)
 			for shard in count:
 				var angle := phase + TAU * float(shard) / count
 				var point := Vector2.from_angle(angle) * effect_radius
+				draw_circle(point, 20.0, Color(color, 0.10))
 				draw_arc(Vector2.ZERO, effect_radius, angle - 0.42, angle, 10, Color(color, 0.42), 4.0, true)
 				_draw_star(point, 11.0, color)
 		Kind.FROST:
+			# The aura's filled footprint is the damage rule; arcs are texture, not
+			# the only thing describing its reach.
+			draw_circle(Vector2.ZERO, effect_radius, Color(color, 0.075))
+			draw_circle(Vector2.ZERO, effect_radius * 0.66, Color(color.lightened(0.25), 0.045))
 			for ring in 3:
 				var start := age * (0.35 + ring * 0.1) + ring * 2.0
 				draw_arc(Vector2.ZERO, effect_radius - ring * 7.0, start, start + 1.25, 18, Color(color, 0.20 + ring * 0.07), 2.5, true)
@@ -192,13 +199,20 @@ func _draw() -> void:
 			var progress := clampf(age / duration, 0.0, 1.0)
 			var start := direction.angle() - arc * 0.5
 			var current := start + arc * ease(progress, -1.7)
-			var trail := maxf(start, current - minf(0.75, arc * 0.45))
+			var trail := maxf(start, current - minf(0.9, arc * 0.5))
+			# A dim full fan telegraphs the committed footprint, then a broad filled
+			# crescent paints the portion the blade has actually crossed.
+			draw_colored_polygon(_sector_points(effect_radius * 0.16, effect_radius, start, start + arc, 36), Color(color, 0.075))
+			draw_colored_polygon(_sector_points(effect_radius * 0.20, effect_radius, trail, current, 18), Color(color, 0.42))
+			draw_colored_polygon(_sector_points(effect_radius * 0.70, effect_radius * 1.04, current - 0.16, current + 0.035, 7), Color(color.lightened(0.42), 0.92))
 			draw_arc(Vector2.ZERO, effect_radius, trail, current, 18, Color(color.lightened(0.35), 0.95), 18.0, true)
-			draw_arc(Vector2.ZERO, effect_radius - 18.0, trail, current, 18, Color(color, 0.35), 28.0, true)
 			var tip := Vector2.from_angle(current) * effect_radius
 			draw_line(Vector2.from_angle(current) * effect_radius * 0.22, tip, Color.WHITE, 3.0, true)
 		Kind.GRAVITY:
 			var progress := clampf(age / duration, 0.0, 1.0)
+			var collapse_radius := effect_radius * (1.0 - progress * 0.78)
+			draw_circle(Vector2.ZERO, collapse_radius, Color(color, 0.08 + progress * 0.08))
+			draw_circle(Vector2.ZERO, collapse_radius * 0.58, Color(color.darkened(0.35), 0.18 + progress * 0.12))
 			for spiral in 4:
 				var r := effect_radius * (1.0 - progress * 0.78) * (1.0 - spiral * 0.13)
 				var start := -age * (5.0 + spiral)
@@ -212,3 +226,12 @@ func _draw_star(at: Vector2, radius: float, tint: Color) -> void:
 		points.append(at + Vector2.from_angle(index * TAU / 8.0) * (radius if index % 2 == 0 else radius * 0.42))
 	draw_colored_polygon(points, tint)
 	draw_polyline(points + PackedVector2Array([points[0]]), Color.WHITE, 1.5, true)
+
+
+func _sector_points(inner_radius: float, outer_radius: float, start: float, finish: float, segments: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for index in segments + 1:
+		points.append(Vector2.from_angle(lerpf(start, finish, float(index) / float(segments))) * outer_radius)
+	for index in segments + 1:
+		points.append(Vector2.from_angle(lerpf(finish, start, float(index) / float(segments))) * inner_radius)
+	return points

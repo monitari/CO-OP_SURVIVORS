@@ -37,11 +37,12 @@ func _run() -> void:
 	_test_magnet(main)
 	_test_chain_ward(main)
 	_test_purge(main)
+	_test_chest(main)
 	_test_drop_rates(main)
 	_test_table_integrity(main)
 
 	if failures.is_empty():
-		print("FIELD_ITEM_PASS: contact pickup, expiry/pooling, all four effects, elite guarantee, luck scaling")
+		print("FIELD_ITEM_PASS: contact pickup, expiry/pooling, effects, upgrade-first chest, elite guarantee, luck scaling")
 		quit(0)
 	else:
 		for failure in failures:
@@ -252,6 +253,29 @@ func _test_drop_rates(main: Node) -> void:
 	main.field_items.clear_all()
 
 
+func _test_chest(main: Node) -> void:
+	var weapon_count_before: int = main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size()
+	var depth_before: int = main._build_depth(0) + main._build_depth(1)
+	var rewards: Array[String] = main._open_chest()
+	var depth_after: int = main._build_depth(0) + main._build_depth(1)
+	_check(rewards.size() >= 1 and rewards.size() <= main.CHEST_MAX_REWARDS,
+		"a chest grants between one and the configured maximum (%d)" % rewards.size())
+	_check(main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size() == weapon_count_before,
+		"a chest upgrades carried gear before unlocking another weapon")
+	_check(depth_after == depth_before + rewards.size(),
+		"every chest reward deepens existing gear while upgrades remain (%d -> %d)" % [depth_before, depth_after])
+
+	seed(74291)
+	var singles := 0
+	var jackpots := 0
+	for roll in 1000:
+		var count: int = main._roll_chest_reward_count()
+		if count == 1: singles += 1
+		if count == main.CHEST_MAX_REWARDS: jackpots += 1
+	_check(singles > 650, "single-item chests stay the common result (%d/1000)" % singles)
+	_check(jackpots > 0 and jackpots < 50, "maximum chests are possible but rare (%d/1000)" % jackpots)
+
+
 func _test_table_integrity(main: Node) -> void:
 	# Every id the roll can produce must be handled by the pickup effects and
 	# have a name and colour, or a drop would land as an unlabelled no-op.
@@ -264,6 +288,8 @@ func _test_table_integrity(main: Node) -> void:
 		_check(id in handled, "drop table id %s has a matching pickup effect" % id)
 	for id in handled:
 		_check(id in table_ids, "pickup effect %s is reachable from the drop table" % id)
+	_check(main.field_items.item_display_name("chest") != "chest", "the separately rolled chest has a display name")
+	_check(main.field_items.item_color("chest") != Color.WHITE, "the separately rolled chest has its own colour")
 
 	var seen: Dictionary = {}
 	for roll in 300:
