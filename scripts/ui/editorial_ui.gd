@@ -288,10 +288,14 @@ static func _hud(main: Node) -> void:
 			for index in 4:
 				var art := icon(holder, null, Rect2(index * 38, 0 if row == "Weapon" else 40, 30, 30))
 				art.name = "%s%d" % [row, index]
-				var tier := label(art, "", Rect2(11, 16, 24, 16), 11, Palette.CREAM)
+				# A bare number, outlined rather than plated: over a busy play field
+				# eight little boxes read as UI chrome, and the thing a player
+				# actually wants at a glance is the digit.
+				var tier := label(art, "", Rect2(11, 15, 26, 18), 13, Palette.CREAM)
 				tier.name = "Tier"
 				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-				tier.add_theme_stylebox_override("normal", Palette.surface(Color(0.04, 0.07, 0.11, 0.92), 5))
+				tier.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
+				tier.add_theme_constant_override("outline_size", 5)
 
 
 static func refresh_hud(main: Node) -> void:
@@ -335,7 +339,7 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 		var entry: Dictionary = carried[index]
 		art.texture = Icons.weapon(String(entry["weapon_id"])) if is_weapon else Icons.upgrade(String(entry["id"]))
 		var tier: Label = art.get_node("Tier")
-		tier.text = "T%d" % int(entry.get("tier", 1))
+		tier.text = str(int(entry.get("tier", 1)))
 
 
 static func _results(main: Node) -> void:

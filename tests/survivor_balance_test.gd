@@ -71,6 +71,7 @@ func _run() -> void:
 	print("SURVIVOR_POWER: " + "  ·  ".join(power_line))
 	_test_axes_are_wide(roster)
 	_test_leash_is_a_real_choice(roster)
+	_test_the_normaliser_still_matches_the_roster(roster)
 
 	# Difficulty labels no longer appear in character select. Distinct combat
 	# signatures are the useful choice now, and no two cats may collapse to the
@@ -130,6 +131,26 @@ func _test_leash_is_a_real_choice(roster: Array[Dictionary]) -> void:
 	_check(longest / shortest >= 1.5,
 		"the leash a pair ends up with is a real choice (%.0f to %.0f)" % [shortest, longest])
 	print("SURVIVOR_LEASH: %.0f - %.0f" % [shortest, longest])
+
+
+## The offense term divides by a constant that has to stay pinned to the
+## roster's actual power level. Nothing enforces that on its own, and the
+## failure is silent and total: rebalance every weapon downward and the divisor
+## stays where it was, so all ten survivors read as under-budget and the band —
+## the one thing keeping them fair to each other — starts rejecting a perfectly
+## fair roster. The tolerance is loose because the constant sits a little under
+## the mean by design (crit is priced on top of it); what it catches is the
+## constant being left behind entirely.
+func _test_the_normaliser_still_matches_the_roster(roster: Array[Dictionary]) -> void:
+	var mean := 0.0
+	for character in roster:
+		mean += CharacterCatalog.raw_power(character)
+	mean /= float(roster.size())
+	var drift: float = absf(mean - CharacterCatalog.OFFENSE_REFERENCE) / CharacterCatalog.OFFENSE_REFERENCE
+	_check(drift <= 0.15,
+		"the offense normaliser is still the roster mean (%.1f vs %.1f, %.0f%% off)" % [
+			CharacterCatalog.OFFENSE_REFERENCE, mean, drift * 100.0])
+	print("SURVIVOR_NORMALISER: reference %.1f  mean %.1f" % [CharacterCatalog.OFFENSE_REFERENCE, mean])
 
 
 func _check(condition: bool, label: String) -> void:

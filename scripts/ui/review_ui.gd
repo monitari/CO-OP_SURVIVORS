@@ -197,10 +197,10 @@ static func toggle_details(main: Node) -> void:
 		var build_lines: Array[String] = []
 		var weapon_names: Array[String] = []
 		for w: Dictionary in main.weapon_loadouts[slot]:
-			weapon_names.append("%s T%d" % [w["weapon_name"], w.get("tier", 1)])
+			weapon_names.append("%s Lv.%d" % [w["weapon_name"], w.get("tier", 1)])
 		var treasure_names: Array[String] = []
 		for treasure: Dictionary in main.treasure_loadouts[slot]:
-			treasure_names.append("%s T%d" % [treasure["name"], treasure["tier"]])
+			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])
 		build_lines.append("무기  " + (" · ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
 		build_lines.append("보물  " + (" · ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
 		build_lines.append("합성  " + main._fusion_progress_line(slot))

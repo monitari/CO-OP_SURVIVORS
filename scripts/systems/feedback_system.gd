@@ -75,6 +75,9 @@ const CUE_PARAMS := {
 	# --- one per field drop, so a pickup says which pickup it was ------------
 	"item_heal": {"freq": 523.0, "to": 784.0, "dur": 0.28, "vol": 0.20, "wave": "sine"},
 	"item_magnet": {"freq": 300.0, "to": 1200.0, "dur": 0.30, "vol": 0.18, "wave": "sine"},
+	"item_guard": {"freq": 660.0, "to": 990.0, "dur": 0.4, "vol": 0.20, "wave": "sine"},
+	"item_frenzy": {"freq": 220.0, "to": 700.0, "dur": 0.34, "vol": 0.22, "wave": "saw"},
+	"item_time_stop": {"freq": 900.0, "to": 180.0, "dur": 0.62, "vol": 0.22, "wave": "sine"},
 	"item_chain_ward": {"freq": 400.0, "to": 880.0, "dur": 0.42, "vol": 0.22, "wave": "square"},
 	"item_purge": {"freq": 300.0, "to": 90.0, "dur": 0.40, "vol": 0.24, "wave": "noise"},
 	"item_chest": {"freq": 392.0, "to": 1174.0, "dur": 0.48, "vol": 0.22, "wave": "square"},

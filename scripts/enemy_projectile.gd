@@ -16,7 +16,14 @@ func setup(origin: Vector2, travel_direction: Vector2, projectile_damage: float,
 	rotation = direction.angle()
 
 
+## Set by main while 멈춘 회중시계 is running. A time stop that froze the
+## enemies but let their shots keep travelling would be the worst of both.
+var frozen := false
+
+
 func _physics_process(delta: float) -> void:
+	if frozen:
+		return
 	lifetime -= delta
 	if lifetime <= 0.0:
 		queue_free()

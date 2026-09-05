@@ -24,6 +24,16 @@ func _run() -> void:
 	# High acceleration is convenient for broad system soaks, but fast straight
 	# projectiles can jump across a small enemy between physics frames. Allow a
 	# slower balance pass so projectile and melee loadouts are compared fairly.
+	# Seeded, like normal_speed_balance_test. An unseeded instrument measured
+	# 28s, 51s, 66s and 46s of survival on four runs of the same build — a
+	# hundred-percent swing, which makes it useless for the one job it has
+	# (comparing before and after a change) and makes its assertions flaky
+	# around any threshold worth setting. Seeding narrows it to roughly 52-63s
+	# rather than removing it — the run is accelerated, so physics deltas still
+	# depend on how fast the frames actually come — but that is inside the band
+	# instead of straddling it.
+	var run_seed := int(OS.get_environment("CHAINBOUND_TEST_SEED")) if OS.has_environment("CHAINBOUND_TEST_SEED") else 20260905
+	seed(run_seed)
 	var simulation_speed := float(OS.get_environment("CHAINBOUND_TEST_SPEED")) if OS.has_environment("CHAINBOUND_TEST_SPEED") else 20.0
 	Engine.time_scale = maxf(1.0, simulation_speed)
 	var active_controls := OS.get_environment("CHAINBOUND_TEST_ACTIVE") == "1"

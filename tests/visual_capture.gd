@@ -49,6 +49,23 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+
+	# 대범람: the late-run encounter that is supposed to bury the screen. Run
+	# through the real director so the shot shows what the schedule produces,
+	# and let separation settle so it reads as a crowd rather than a stack.
+	var deluge: Array[ChaserEnemy] = []
+	main.wave_director._run_encounter("deluge", 1200.0 / WaveDirector.DIFFICULTY_SECONDS, Vector2.ZERO, 0, deluge)
+	for enemy in deluge:
+		main._register_enemy(enemy)
+	for frame in 460:
+		await physics_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/deluge.png")
+	for enemy in main.enemies.duplicate():
+		if is_instance_valid(enemy) and not (enemy as ChaserEnemy).boss:
+			main._cull_enemy(enemy)
+	await process_frame
+
 	main._on_field_item_collected("chest")
 	await _showcase_frame(main, 0.34, "res://.godot_runtime/chest-open.png")
 	await _showcase_frame(main, 1.35, "res://.godot_runtime/chest-rewards.png")

@@ -31,6 +31,10 @@ func consume_level_up() -> bool:
 	# experience as the run goes on (see ChaserEnemy.XP_PER_DIFFICULTY); the
 	# two together are what keeps the cadence flat instead of collapsing into
 	# a drought after ten minutes.
-	required_experience = int(round(float(required_experience) * 1.04 + 95.0))
+	# Retuned when the crowd grew: a run that kills twenty-four thousand things
+	# instead of six thousand earns four times the experience for the same
+	# twenty-five minutes, and the old curve turned that into seventy-two
+	# level-ups — a build finished and maxed out long before the last boss.
+	required_experience = int(round(float(required_experience) * 1.045 + 270.0))
 	return true
 

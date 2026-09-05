@@ -3,6 +3,7 @@ extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 const EnemyScript := preload("res://scripts/enemy.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
+const EnemyProjectileScript := preload("res://scripts/enemy_projectile.gd")
 
 var failures: Array[String] = []
 
@@ -36,6 +37,7 @@ func _run() -> void:
 	_test_heal(main)
 	_test_magnet(main)
 	_test_chain_ward(main)
+	await _test_timed_windows(main)
 	_test_purge(main)
 	_test_chest(main)
 	_test_drop_rates(main)
@@ -176,6 +178,96 @@ func _test_chain_ward(main: Node) -> void:
 	main.chain_overloaded = false
 
 
+## The three timed drops. All of them are a *window*, so each is checked for
+## the same three things: it starts, it actually changes the world while it
+## runs, and it ends. A timer that ticks down without doing anything in between
+## would pass a check that only looked at the flag.
+func _test_timed_windows(main: Node) -> void:
+	main.players[0].position = Vector2.ZERO
+	main.players[1].position = Vector2(120.0, 0.0)
+
+	# 수호의 방울 — untouchable, and untouchable for its whole duration rather
+	# than until the first hit resets the shared invulnerability timer.
+	for player in main.players:
+		player.downed = false
+		player.health = player.max_health
+		player.invulnerability = 0.0
+	main._on_field_item_collected("guard")
+	_check(main.guard_remaining > 0.0, "수호의 방울 opens a guard window")
+	var before: float = main.players[0].health
+	for tick in int(main.GUARD_DURATION * 30.0):
+		main.players[0].hurt(50.0)
+		main._update_timed_items(1.0 / 60.0)
+	_check(is_equal_approx(main.players[0].health, before),
+		"nothing gets through while it holds (%.0f of %.0f)" % [main.players[0].health, before])
+	# The window has to be the authority over the shared invulnerability timer,
+	# which a revive or an ordinary hit also writes to. Anything that clears it
+	# mid-window must not end the guard early.
+	main.players[0].invulnerability = 0.0
+	main._update_timed_items(1.0 / 60.0)
+	main.players[0].hurt(50.0)
+	_check(is_equal_approx(main.players[0].health, before),
+		"and a cleared invulnerability timer does not end it early (%.0f)" % main.players[0].health)
+	for tick in int(main.GUARD_DURATION * 62.0):
+		main._update_timed_items(1.0 / 60.0)
+	_check(main.guard_remaining <= 0.0, "the guard window closes")
+	# Earlier sub-tests hand out 행운의 앞발 and 아홉 목숨, either of which would
+	# absorb this hit and make a mortal survivor look immortal.
+	main.players[0].invulnerability = 0.0
+	main.players[0].dodge_chance = 0.0
+	main.players[0].second_chances = 0
+	main.players[0].hurt(20.0)
+	_check(main.players[0].health < before, "and the pair is mortal again")
+
+	# 광란의 마타타비 — the same multiplier every weapon already reads, so the
+	# whole loadout hits harder rather than one branch of it.
+	main.players[0].health = main.players[0].max_health
+	var calm: float = main._tension_damage_multiplier()
+	main._on_field_item_collected("frenzy")
+	_check(main.frenzy_remaining > 0.0, "광란의 마타타비 opens a frenzy window")
+	_check(main._tension_damage_multiplier() > calm * 1.5,
+		"and the pair hits much harder (%.2f from %.2f)" % [main._tension_damage_multiplier(), calm])
+	for tick in int(main.FRENZY_DURATION * 62.0):
+		main._update_timed_items(1.0 / 60.0)
+	_check(main.frenzy_remaining <= 0.0, "the frenzy window closes")
+	_check(is_equal_approx(main._tension_damage_multiplier(), calm), "and damage returns to normal")
+
+	# 멈춘 회중시계 — the world stops. Checked by moving something: a timer that
+	# runs while enemies keep walking is not a time stop.
+	var walker := _spawn_enemy(main, Vector2(400.0, 0.0))
+	var shot := EnemyProjectileScript.new() as EnemyProjectile
+	shot.setup(Vector2(0.0, 300.0), Vector2.UP, 5.0, main.players)
+	main.add_child(shot)
+	main._on_field_item_collected("time_stop")
+	_check(main.world_stopped(), "멈춘 회중시계 stops the world")
+	var stood: Vector2 = walker.global_position
+	var shot_at: Vector2 = shot.global_position
+	main.set_physics_process(true)
+	for frame in 12:
+		await physics_frame
+	main.set_physics_process(false)
+	_check(walker.global_position.distance_to(stood) < 1.0,
+		"and nothing walks while it holds (%.1fpx)" % walker.global_position.distance_to(stood))
+	_check(shot.global_position.distance_to(shot_at) < 1.0, "nor does anything already in the air")
+
+	for tick in int(main.TIME_STOP_DURATION * 62.0):
+		main._update_timed_items(1.0 / 60.0)
+	_check(not main.world_stopped(), "the clock starts again")
+	main.set_physics_process(true)
+	for frame in 8:
+		await physics_frame
+	main.set_physics_process(false)
+	_check(walker.global_position.distance_to(stood) > 1.0, "and the world moves again")
+
+	walker.take_damage(999999.0)
+	if is_instance_valid(shot):
+		shot.queue_free()
+	main.guard_remaining = 0.0
+	main.frenzy_remaining = 0.0
+	main.time_stop_remaining = 0.0
+	await process_frame
+
+
 func _test_purge(main: Node) -> void:
 	main.players[0].position = Vector2.ZERO
 	main.players[1].position = Vector2(100.0, 0.0)
@@ -256,7 +348,7 @@ func _test_drop_rates(main: Node) -> void:
 func _test_chest(main: Node) -> void:
 	var weapon_count_before: int = main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size()
 	var depth_before: int = main._build_depth(0) + main._build_depth(1)
-	var rewards: Array[String] = main._open_chest()
+	var rewards: Array[Dictionary] = main._open_chest()
 	var depth_after: int = main._build_depth(0) + main._build_depth(1)
 	_check(rewards.size() >= 1 and rewards.size() <= main.CHEST_MAX_REWARDS,
 		"a chest grants between one and the configured maximum (%d)" % rewards.size())
@@ -279,7 +371,7 @@ func _test_chest(main: Node) -> void:
 func _test_table_integrity(main: Node) -> void:
 	# Every id the roll can produce must be handled by the pickup effects and
 	# have a name and colour, or a drop would land as an unlabelled no-op.
-	var handled := ["heal", "magnet", "chain_ward", "purge"]
+	var handled := ["heal", "magnet", "chain_ward", "guard", "frenzy", "time_stop", "purge"]
 	var table_ids: Array[String] = []
 	for entry in main.field_items.ITEM_TABLE:
 		table_ids.append(String(entry["id"]))

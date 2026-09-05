@@ -71,6 +71,7 @@ func _run() -> void:
 	main._refresh_level_up_ui()
 	await process_frame
 	_audit("성장 선택", main.level_overlay)
+	_test_nothing_says_tier(main, "성장 선택", main.level_overlay)
 	main.level_up_active = false
 	main.level_overlay.visible = false
 	paused = false
@@ -78,6 +79,7 @@ func _run() -> void:
 	main._update_hud()
 	await process_frame
 	_audit("전투 HUD", main.combat_hud)
+	_test_nothing_says_tier(main, "전투 HUD", main.combat_hud)
 	_test_the_play_field_shows_the_whole_build(main)
 
 	main._set_pause(true)
@@ -111,6 +113,25 @@ func _run() -> void:
 		quit(1)
 
 
+## "T3" is jargon. Weapons and treasures have levels, and every screen has to
+## say so in the same words — a readout that says "T3" next to one that says "3"
+## for the same weapon is worse than either on its own. Scanned rather than
+## spot-checked, because the notation was spread across nine call sites.
+func _test_nothing_says_tier(main: Node, screen_name: String, screen: Control) -> void:
+	var pattern := RegEx.new()
+	pattern.compile("T[0-9]")
+	_collect_tier_jargon(pattern, screen_name, screen)
+
+
+func _collect_tier_jargon(pattern: RegEx, screen_name: String, node: Node) -> void:
+	for child in node.get_children():
+		var item := child as Label
+		if item != null and pattern.search(String(item.text)) != null:
+			_check(false, "%s · %s still writes a tier as T-number: %s" % [
+				screen_name, item.name, String(item.text).replace("\n", " / ")])
+		_collect_tier_jargon(pattern, screen_name, child)
+
+
 ## The play screen is where a build lives, so it has to show the build: both
 ## rows, both survivors, with the tier on each icon. It used to show four weapon
 ## icons and nothing else — no treasures at all, and no way to tell a tier-one
@@ -129,9 +150,17 @@ func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 				if not art.visible:
 					continue
 				_check(art.texture != null, "P%d %s %d draws an icon" % [slot + 1, row, index])
+				# A bare level number with no plate behind it: "T3" reads as a tier
+				# list rather than as something that grew, and eight little boxes
+				# over the play field are chrome the field does not need.
 				var tier: Label = art.get_node("Tier")
-				_check(tier.text == "T%d" % int((carried[index] as Dictionary).get("tier", 1)),
-					"P%d %s %d states its tier (%s)" % [slot + 1, row, index, tier.text])
+				_check(tier.text == str(int((carried[index] as Dictionary).get("tier", 1))),
+					"P%d %s %d states its level as a bare number (%s)" % [slot + 1, row, index, tier.text])
+				# has_theme_stylebox_override, not get_theme_stylebox: the getter
+				# falls back to the theme default and never returns null, so the
+				# obvious version of this check passes with a plate still on.
+				_check(not tier.has_theme_stylebox_override("normal"),
+					"P%d %s %d wears no plate" % [slot + 1, row, index])
 		# Both rows have to stay on screen: P2's sits against the right edge and
 		# a wider icon or a fifth slot would push it off.
 		var far_right: float = holder.position.x + 3.0 * 38.0 + 30.0

@@ -31,7 +31,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "성좌 관통포",
 			"tags": ["projectile", "tracking", "arcane", "burst"],
 			"description": "유도탄이 관통 광선을 끌고 다니며 지나간 자리를 모두 꿰뚫습니다.",
-			"weapon": {"damage": 30.0, "cooldown": 0.55, "count": 3, "speed": 560.0, "range": 520.0, "width": 26.0, "reach": 1.0},
+			"weapon": {"damage": 33.0, "cooldown": 0.72, "count": 3, "speed": 500.0, "range": 445.0, "width": 23.0, "reach": 1.0},
 		},
 		{
 			"base_weapon_id": "lightning",
@@ -40,7 +40,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "뇌신의 격노",
 			"tags": ["lightning", "storm", "chain", "burst"],
 			"description": "연쇄를 버리고 사거리 안의 모든 적을 동시에 내리칩니다.",
-			"weapon": {"damage": 24.0, "cooldown": 1.0, "range": 560.0, "reach": 2.2},
+			"weapon": {"damage": 27.0, "cooldown": 1.28, "range": 480.0, "reach": 2.05},
 		},
 		{
 			"base_weapon_id": "flame",
@@ -49,7 +49,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "초신성",
 			"tags": ["fire", "projectile", "burst", "aura"],
 			"description": "불씨를 흩뿌린 뒤 그 자리에서 거대한 2차 폭발을 일으킵니다.",
-			"weapon": {"damage": 22.0, "cooldown": 1.15, "count": 14, "speed": 360.0, "radius": 240.0, "reach": 2.6},
+			"weapon": {"damage": 25.0, "cooldown": 1.46, "count": 12, "speed": 325.0, "radius": 205.0, "reach": 2.4},
 		},
 		{
 			"base_weapon_id": "frost",
@@ -58,7 +58,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "절대영도",
 			"tags": ["frost", "control", "aura", "burst"],
 			"description": "상시 냉기를 두르고, 오라 안에서 이미 얼어붙은 적을 계속 파쇄합니다.",
-			"weapon": {"damage": 20.0, "cooldown": 1.4, "radius": 265.0, "slow": 0.12, "reach": 4.0},
+			"weapon": {"damage": 23.0, "cooldown": 1.78, "radius": 228.0, "slow": 0.14, "reach": 3.5},
 		},
 		{
 			"base_weapon_id": "scythe",
@@ -67,7 +67,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "흑월참",
 			"tags": ["melee", "shadow", "arc", "burst"],
 			"description": "부채꼴을 버리고 몸 주위를 두 번 완전히 베어냅니다.",
-			"weapon": {"damage": 44.0, "cooldown": 0.9, "range": 275.0, "arc": 6.28, "reach": 1.15},
+			"weapon": {"damage": 50.0, "cooldown": 1.15, "range": 238.0, "arc": 6.28, "reach": 1.05},
 		},
 		{
 			"base_weapon_id": "chain",
@@ -76,7 +76,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "성흔의 사슬",
 			"tags": ["tether", "holy", "aura", "arcane"],
 			"description": "사슬이 성흔으로 타오르며 적을 태우고 두 사람을 함께 회복시킵니다.",
-			"weapon": {"damage": 34.0, "cooldown": 0.85, "width": 96.0, "heal": 3.0, "reach": 1.5},
+			"weapon": {"damage": 38.0, "cooldown": 1.08, "width": 82.0, "heal": 2.2, "reach": 1.5},
 		},
 		{
 			"base_weapon_id": "orbit",
@@ -85,7 +85,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "천구 의식",
 			"tags": ["arcane", "aura", "control", "holy"],
 			"description": "안팎으로 반대로 도는 두 겹의 궤도가 주변을 통째로 갈아냅니다.",
-			"weapon": {"damage": 15.0, "cooldown": 4.3, "count": 5, "radius": 118.0, "speed": 3.35, "reach": 3.2},
+			"weapon": {"damage": 17.0, "cooldown": 5.5, "count": 5, "radius": 104.0, "speed": 3.0, "reach": 3.0},
 		},
 		{
 			"base_weapon_id": "lance",
@@ -94,7 +94,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "심판의 창",
 			"tags": ["projectile", "holy", "burst", "arc"],
 			"description": "정면과 양 측면을 동시에 꿰뚫는 세 갈래 심판을 내립니다.",
-			"weapon": {"damage": 40.0, "cooldown": 1.0, "range": 620.0, "width": 40.0, "reach": 1.25},
+			"weapon": {"damage": 45.0, "cooldown": 1.28, "range": 530.0, "width": 34.0, "reach": 1.15},
 		},
 		{
 			"base_weapon_id": "mine",
@@ -103,7 +103,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "파멸의 정원",
 			"tags": ["control", "burst", "shadow", "aura"],
 			"description": "한 발이 아니라 결계 한 무리를 원형으로 심어 둘 주위를 밭으로 만듭니다.",
-			"weapon": {"damage": 30.0, "cooldown": 1.6, "count": 6, "radius": 96.0, "reach": 1.9},
+			"weapon": {"damage": 34.0, "cooldown": 2.05, "count": 5, "radius": 84.0, "reach": 1.75},
 		},
 		{
 			"base_weapon_id": "gravity",
@@ -112,7 +112,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "사건의 지평선",
 			"tags": ["arcane", "storm", "control", "burst"],
 			"description": "끌어모은 자리를 한 번 더 무너뜨려 두 번 붕괴시킵니다.",
-			"weapon": {"damage": 24.0, "cooldown": 1.5, "radius": 250.0, "pull": 240.0, "reach": 3.3},
+			"weapon": {"damage": 27.0, "cooldown": 1.92, "radius": 216.0, "pull": 200.0, "reach": 3.0},
 		},
 	]
 

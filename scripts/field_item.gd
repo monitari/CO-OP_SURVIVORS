@@ -85,6 +85,28 @@ func _draw() -> void:
 			draw_arc(Vector2.ZERO, 9.0, 0.0, TAU, 20, ink, 2.0, true)
 			draw_circle(Vector2(-3.5, 0.0), 3.6, ink, false, 2.0)
 			draw_circle(Vector2(3.5, 0.0), 3.6, ink, false, 2.0)
+		"guard":
+			# A bell inside a shield: the thing that makes you untouchable.
+			draw_arc(Vector2(0.0, -1.0), 8.5, PI, TAU, 16, ink, 2.2, true)
+			draw_line(Vector2(-8.5, -1.0), Vector2(0.0, 8.0), ink, 2.2, true)
+			draw_line(Vector2(8.5, -1.0), Vector2(0.0, 8.0), ink, 2.2, true)
+			draw_circle(Vector2(0.0, -1.0), 2.6, ink)
+		"frenzy":
+			# A sprig of matatabi: three leaves off one stem.
+			draw_line(Vector2(0.0, 8.0), Vector2(0.0, -4.0), ink, 2.4, true)
+			for leaf in 3:
+				var lean := (float(leaf) - 1.0) * 0.85
+				draw_colored_polygon(PackedVector2Array([
+					Vector2(0.0, -3.0 + absf(lean) * 3.0),
+					Vector2.from_angle(-PI * 0.5 + lean) * 10.0,
+					Vector2.from_angle(-PI * 0.5 + lean * 1.6) * 5.0,
+				]), ink)
+		"time_stop":
+			# A pocket watch with its hands stopped.
+			draw_arc(Vector2.ZERO, 8.5, 0.0, TAU, 20, ink, 2.2, true)
+			draw_line(Vector2(0.0, -8.5), Vector2(0.0, -11.0), ink, 2.4, true)
+			draw_line(Vector2.ZERO, Vector2(0.0, -5.5), ink, 2.0, true)
+			draw_line(Vector2.ZERO, Vector2(4.2, 1.6), ink, 2.0, true)
 		"purge":
 			for index in 6:
 				var angle := TAU * float(index) / 6.0

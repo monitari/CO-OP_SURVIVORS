@@ -40,8 +40,8 @@ const SPEED_RAMP_CAP := 34.0
 ## Experience per kill rises with the run, so a level-up curve steep enough to
 ## last twenty-five minutes is not paid for entirely by killing more things.
 const XP_PER_DIFFICULTY := 0.20
-const EARLY_GAME_DIFFICULTY := 1.0
-const OPENING_CONTACT_DAMAGE_MULTIPLIER := 0.75
+const EARLY_GAME_DIFFICULTY := 1.4
+const OPENING_CONTACT_DAMAGE_MULTIPLIER := 0.5
 
 const BOSS_SLAM_RADIUS := 95.0
 ## 0.7s of warning against a 95px circle is not a dodge, it is a reaction

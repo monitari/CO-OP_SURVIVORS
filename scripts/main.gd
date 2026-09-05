@@ -214,6 +214,9 @@ var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
 var chain_ward_remaining := 0.0
 var chain_ward_pulse_timer := 0.0
+var guard_remaining := 0.0
+var frenzy_remaining := 0.0
+var time_stop_remaining := 0.0
 
 ## Team attributes. Experience is a shared pool and both survivors level
 ## together, so the stats that act on that pool are shared too — one player
@@ -243,6 +246,13 @@ const CHEST_MAX_REWARDS := 4
 ## no matter how the pair is standing, and burns everything that crosses it.
 ## Long enough to change what a fight is worth attempting, short enough that
 ## the pair has to decide when to spend it.
+## Three timed windows, all short enough that spending one badly is a real
+## mistake. 수호의 방울 is the shortest because untouchable is the strongest
+## thing an item can say; 멈춘 회중시계 is the rarest for the same reason.
+const GUARD_DURATION := 5.0
+const FRENZY_DURATION := 8.0
+const FRENZY_POWER := 1.8
+const TIME_STOP_DURATION := 4.0
 const CHAIN_WARD_DURATION := 8.0
 const CHAIN_WARD_PULSE := 0.22 ## Seconds between chain burn ticks while warded.
 const CHAIN_WARD_PULSE_DAMAGE := 26.0
@@ -421,6 +431,7 @@ func _physics_process(delta: float) -> void:
 		player.step_recovery(delta)
 	_apply_chain_constraint()
 	_update_revives(delta)
+	_update_timed_items(delta)
 	_update_chain_ward(delta)
 	_update_chain_integrity(delta)
 	_update_chain_visual()
@@ -435,8 +446,10 @@ func _physics_process(delta: float) -> void:
 		if not enemy.boss and enemy.global_position.distance_to(cull_origin) > ENEMY_CULL_RADIUS:
 			_cull_enemy(enemy)
 			continue
-		enemy.step(players, delta)
+		if time_stop_remaining <= 0.0:
+			enemy.step(players, delta)
 	spatial_grid.rebuild(enemies)
+	_separate_crowd()
 	# Ticked here rather than in _gain_shared_xp so the queue drains on run
 	# time: the pair gets the gap back as play, not as a paused screen.
 	if level_up_gap_remaining > 0.0:
@@ -455,8 +468,9 @@ func _physics_process(delta: float) -> void:
 			attack_timers[player_index][weapon_slot] -= delta
 
 	var midpoint := (players[0].position + players[1].position) * 0.5
-	for enemy in wave_director.step(delta, elapsed, midpoint, enemies.size()):
-		_register_enemy(enemy)
+	if time_stop_remaining <= 0.0:
+		for enemy in wave_director.step(delta, elapsed, midpoint, enemies.size()):
+			_register_enemy(enemy)
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
 			if attack_timers[player_index][weapon_slot] <= 0.0:
@@ -1095,9 +1109,10 @@ func _create_badged_icon_row(parent: Node, start_x: float, row_y: float, count: 
 		tier.size = Vector2(24.0, 17.0)
 		tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		tier.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		tier.add_theme_font_size_override("font_size", 10)
+		tier.add_theme_font_size_override("font_size", 12)
 		tier.add_theme_color_override("font_color", Color("f4f8ff"))
-		_make_label_background(tier, Color(0.01, 0.02, 0.05, 0.9))
+		tier.add_theme_color_override("font_outline_color", Color(0.01, 0.02, 0.05, 0.95))
+		tier.add_theme_constant_override("outline_size", 5)
 		icon.add_child(tier)
 		icons.append(icon)
 	return icons
@@ -1426,6 +1441,9 @@ func _start_selected_run() -> void:
 	chain_overloaded = false
 	chain_ward_remaining = 0.0
 	chain_ward_pulse_timer = 0.0
+	guard_remaining = 0.0
+	frenzy_remaining = 0.0
+	time_stop_remaining = 0.0
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
 	for key in run_stats:
@@ -1549,6 +1567,40 @@ func _update_chain_ward(delta: float) -> void:
 
 func chain_warded() -> bool:
 	return chain_ward_remaining > 0.0
+
+
+func world_stopped() -> bool:
+	return time_stop_remaining > 0.0
+
+
+## The three timed field windows. Each one announces its own end, because a
+## window whose expiry is invisible is a window players cannot plan around.
+func _update_timed_items(delta: float) -> void:
+	if guard_remaining > 0.0:
+		guard_remaining = maxf(0.0, guard_remaining - delta)
+		# Re-asserted every tick against the *remaining* window rather than set
+		# once at pickup. The invulnerability timer is shared with everything
+		# else that grants a moment of it — a revive sets 1.5s, a hit sets 0.55s
+		# — so anything that touched it mid-window would otherwise quietly cut
+		# the window short. The window is the authority.
+		for player in players:
+			if not player.downed:
+				player.invulnerability = maxf(player.invulnerability, guard_remaining)
+		if guard_remaining <= 0.0:
+			_show_message("수호의 방울 해제", Color("8ecae6"))
+	if frenzy_remaining > 0.0:
+		frenzy_remaining = maxf(0.0, frenzy_remaining - delta)
+		if frenzy_remaining <= 0.0:
+			_show_message("광란 진정", Color("8ecae6"))
+	if time_stop_remaining > 0.0:
+		time_stop_remaining = maxf(0.0, time_stop_remaining - delta)
+		for child in get_children():
+			var shot := child as EnemyProjectile
+			if shot != null:
+				shot.frozen = time_stop_remaining > 0.0
+		if time_stop_remaining <= 0.0:
+			_show_message("시간이 다시 흐릅니다", Color("c77dff"))
+			feedback.play_cue("warning")
 
 
 func _update_chain_integrity(delta: float) -> void:
@@ -1962,6 +2014,88 @@ func _perform_character_attack(player_index: int) -> void:
 ## Recycles an enemy that wandered out of the fight. Deliberately not the
 ## death path: nothing was killed, so there is no experience gem, no field
 ## drop and no kill counted.
+## How hard two overlapping bodies push apart per tick, as a fraction of how
+## far they are inside each other. Not 1.0: a hard resolve makes a dense crowd
+## jitter, because every pair is corrected against a position two other pairs
+## are also correcting. Partial correction over several ticks settles instead.
+const CROWD_PUSH := 0.34
+## Bodies are allowed to touch a little. Without this, enemies that are meant to
+## arrive as a pack visibly repel each other on contact and a swarm stops
+## reading as a swarm.
+const CROWD_OVERLAP_SLACK := 0.82
+## The four forward neighbours. Walking only these plus the cell itself visits
+## every neighbouring pair exactly once; the backward four would visit each pair
+## a second time and cancel half the correction.
+const CROWD_NEIGHBOURS: Array[Vector2i] = [
+	Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1),
+]
+
+
+## Stops bodies standing inside each other.
+##
+## Enemies all walked at the nearest survivor along their own straight line, so
+## anything spawned on a similar bearing converged into one stack: twenty mice
+## occupying one mouse's worth of screen, dealing twenty mice's worth of contact
+## damage from a single silhouette. A crowd that cannot be read cannot be
+## fought, and the swarm archetype — the whole point of which is that it arrives
+## as a mass — was the worst offender.
+##
+## Walks the spatial grid's own buckets rather than calling query_radius per
+## enemy: at several hundred bodies that would be several hundred array
+## allocations every physics tick. Cell size (192) is far wider than the largest
+## pair of radii, so own-cell plus four forward neighbours covers every overlap.
+func _separate_crowd() -> void:
+	for key in spatial_grid.cells:
+		var bucket: Array = spatial_grid.cells[key]
+		for index in bucket.size():
+			var first := bucket[index] as ChaserEnemy
+			for other_index in range(index + 1, bucket.size()):
+				_resolve_overlap(first, bucket[other_index] as ChaserEnemy)
+			for offset in CROWD_NEIGHBOURS:
+				var neighbour: Variant = spatial_grid.cells.get(key + offset)
+				if neighbour == null:
+					continue
+				for candidate in (neighbour as Array):
+					_resolve_overlap(first, candidate as ChaserEnemy)
+	# The survivors are solid too, but only one way: an enemy is pushed out of a
+	# cat, never the other way round. Shoving the player around would take the
+	# controls away at exactly the moment they matter most.
+	for player in players:
+		for candidate in spatial_grid.query_radius(player.global_position, player.radius + 64.0):
+			var enemy := candidate as ChaserEnemy
+			if not is_instance_valid(enemy) or enemy.dead or enemy.boss:
+				continue
+			var offset := enemy.global_position - player.global_position
+			var overlap := player.radius + enemy.radius - offset.length()
+			if overlap <= 0.0:
+				continue
+			var direction := offset.normalized() if offset.length_squared() > 0.01 else Vector2.from_angle(randf() * TAU)
+			enemy.position += direction * overlap
+
+
+## Pushes two overlapping enemies apart, weighted by size so a mouse bounces off
+## a bulwark rather than moving it. A boss is immovable: it is the one thing on
+## the field whose position is a promise to the player.
+func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
+	if not is_instance_valid(first) or not is_instance_valid(second) or first.dead or second.dead:
+		return
+	if first.boss and second.boss:
+		return
+	var offset := second.global_position - first.global_position
+	var distance := offset.length()
+	var minimum := (first.radius + second.radius) * CROWD_OVERLAP_SLACK
+	if distance >= minimum:
+		return
+	var direction := offset / distance if distance > 0.01 else Vector2.from_angle(randf() * TAU)
+	var push := (minimum - distance) * CROWD_PUSH
+	# Share of the correction each one takes: the smaller body moves more, and a
+	# boss takes none of it at all.
+	var first_share := 0.0 if first.boss else (1.0 if second.boss else second.radius / (first.radius + second.radius))
+	var second_share := 0.0 if second.boss else (1.0 if first.boss else first.radius / (first.radius + second.radius))
+	first.position -= direction * push * first_share
+	second.position += direction * push * second_share
+
+
 func _cull_enemy(enemy: ChaserEnemy) -> void:
 	enemies.erase(enemy)
 	wave_director.release_enemy(enemy)
@@ -2084,6 +2218,27 @@ func _on_field_item_collected(item_id: String) -> void:
 				particles.emit_ring(player.global_position, color, 60.0, 0.45)
 			camera_shake = maxf(camera_shake, 10.0)
 			label += " — %d초간 사슬 무적·과충전" % int(CHAIN_WARD_DURATION)
+		"guard":
+			guard_remaining = GUARD_DURATION
+			for player in players:
+				if not player.downed:
+					player.invulnerability = maxf(player.invulnerability, GUARD_DURATION)
+				particles.emit_ring(player.global_position, color, 74.0, 0.5)
+			camera_shake = maxf(camera_shake, 6.0)
+			label += " — %d초간 무적" % int(GUARD_DURATION)
+		"frenzy":
+			frenzy_remaining = FRENZY_DURATION
+			for player in players:
+				particles.emit_sparks(player.global_position, color, 12, 300.0)
+			camera_shake = maxf(camera_shake, 9.0)
+			label += " — %d초간 피해 +%d%%" % [int(FRENZY_DURATION), roundi((FRENZY_POWER - 1.0) * 100.0)]
+		"time_stop":
+			time_stop_remaining = TIME_STOP_DURATION
+			var stop_centre := (players[0].global_position + players[1].global_position) * 0.5
+			weapon_controller.play_shockwave(stop_centre, 1100.0, color, 0.7, false)
+			particles.emit_motes(stop_centre, color, 20)
+			camera_shake = maxf(camera_shake, 14.0)
+			label += " — %d초간 시간 정지" % int(TIME_STOP_DURATION)
 		"purge":
 			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 			var burned := 0
@@ -2181,7 +2336,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 				candidates.append({
 					"slot": slot, "priority": 2,
 					"option": {"id": "treasure_upgrade", "treasure_slot": treasure_slot},
-					"label": "%s T%d" % [String(treasure["name"]), int(treasure["tier"]) + 1],
+					"label": "%s Lv.%d" % [String(treasure["name"]), int(treasure["tier"]) + 1],
 				})
 	return candidates
 
@@ -2526,44 +2681,44 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 const WEAPON_SPECIALS := {
 	"homing": {
 		"a": {"title": "다중 유도", "label": "동시 발사", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "마력 추진", "label": "투사체 속도", "field": "speed", "delta": 70.0},
+		"b": {"title": "마력 추진", "label": "투사체 속도", "field": "speed", "delta": 46.0},
 	},
 	"lightning": {
 		"a": {"title": "연쇄 전도", "label": "연쇄", "field": "jumps", "delta": 1, "integer": true},
-		"b": {"title": "확장 도체", "label": "첫 타격 사거리", "field": "range", "delta": 55.0},
+		"b": {"title": "확장 도체", "label": "첫 타격 사거리", "field": "range", "delta": 36.0},
 	},
 	"flame": {
-		"a": {"title": "불씨 범람", "label": "화염탄", "field": "count", "delta": 2, "integer": true},
-		"b": {"title": "열풍 추진", "label": "투사체 속도", "field": "speed", "delta": 55.0},
+		"a": {"title": "불씨 범람", "label": "화염탄", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "열풍 추진", "label": "투사체 속도", "field": "speed", "delta": 36.0},
 	},
 	"frost": {
-		"a": {"title": "혹한 영역", "label": "반경", "field": "radius", "delta": 30.0},
-		"b": {"title": "동상", "label": "감속 배율", "field": "slow", "delta": -0.08, "floor": 0.25, "percent": true},
+		"a": {"title": "혹한 영역", "label": "반경", "field": "radius", "delta": 19.0},
+		"b": {"title": "동상", "label": "감속 배율", "field": "slow", "delta": -0.05, "floor": 0.34, "percent": true},
 	},
 	"scythe": {
-		"a": {"title": "긴 자루", "label": "사거리", "field": "range", "delta": 30.0},
-		"b": {"title": "보름베기", "label": "공격 각도", "field": "arc", "delta": 0.25, "cap": PI * 1.75, "degrees": true},
+		"a": {"title": "긴 자루", "label": "사거리", "field": "range", "delta": 19.0},
+		"b": {"title": "보름베기", "label": "공격 각도", "field": "arc", "delta": 0.17, "cap": PI * 1.5, "degrees": true},
 	},
 	"chain": {
-		"a": {"title": "넓은 파동", "label": "파동 폭", "field": "width", "delta": 14.0},
-		"b": {"title": "느슨한 족쇄", "label": "사슬 한계", "field": "chain_length", "delta": 45.0, "target": "run"},
+		"a": {"title": "넓은 파동", "label": "파동 폭", "field": "width", "delta": 9.0},
+		"b": {"title": "느슨한 족쇄", "label": "사슬 한계", "field": "chain_length", "delta": 30.0, "target": "run"},
 	},
 	"orbit": {
 		"a": {"title": "파편 증식", "label": "파편 수", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "확장 궤도", "label": "궤도 반경", "field": "radius", "delta": 22.0},
+		"b": {"title": "확장 궤도", "label": "궤도 반경", "field": "radius", "delta": 14.0},
 	},
 	"lance": {
-		"a": {"title": "장사정", "label": "사거리", "field": "range", "delta": 90.0},
+		"a": {"title": "장사정", "label": "사거리", "field": "range", "delta": 58.0},
 		"b": {"title": "분광", "label": "광선 수", "field": "beams", "delta": 1, "integer": true},
 	},
 	"mine": {
 		"a": {"title": "다중 매설", "label": "매설 수", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "광역 결계", "label": "폭발 반경", "field": "radius", "delta": 22.0},
+		"b": {"title": "광역 결계", "label": "폭발 반경", "field": "radius", "delta": 14.0},
 	},
 	"gravity": {
-		"a": {"title": "사건 확대", "label": "붕괴 반경", "field": "radius", "delta": 35.0},
-		"b": {"title": "강한 인력", "label": "인력", "field": "pull", "delta": 70.0,
-			"extra_field": "cast_range", "extra_delta": 60.0},
+		"a": {"title": "사건 확대", "label": "붕괴 반경", "field": "radius", "delta": 22.0},
+		"b": {"title": "강한 인력", "label": "인력", "field": "pull", "delta": 45.0,
+			"extra_field": "cast_range", "extra_delta": 38.0},
 	},
 }
 
@@ -2893,7 +3048,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			score += 10.0
 			reason = "%s   최종 티어" % reason
 		else:
-			reason = "%s   T%d" % [reason, tier + 1]
+			reason = "%s   Lv.%d" % [reason, tier + 1]
 
 	var new_resonance := _new_resonance_from_option(slot, option)
 	if not new_resonance.is_empty():
@@ -2903,7 +3058,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
 		if int(weapon.get("tier", 1)) == Evolutions.WEAPON_MAX_TIER - 1:
 			score += 34.0
-			reason = "T%d   합성 직전" % Evolutions.WEAPON_MAX_TIER
+			reason = "레벨 %d   합성 직전" % Evolutions.WEAPON_MAX_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -3003,21 +3158,21 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	if upgrade_id == "treasure_upgrade":
 		var carried: Dictionary = treasure_loadouts[slot][int(option["treasure_slot"])]
 		return "%s
-T%d → T%d" % [
+레벨 %d → %d" % [
 			String(carried["per_tier"]), int(carried["tier"]), int(carried["tier"]) + 1
 		]
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
 	var tier := int(state.get("tier", 1))
-	var tier_hint := "\nT%d → T%d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
+	var tier_hint := "\n레벨 %d → %d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER and not bool(state.get("evolved", false)):
-		tier_hint = "\nT%d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
+		tier_hint = "\n레벨 %d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
 	match upgrade_id:
 		"weapon_power":
-			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.25, tier_hint]
+			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.16, tier_hint]
 		"weapon_rate":
-			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.2, float(state["cooldown"]) * 0.88), tier_hint]
+			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * 0.93), tier_hint]
 		"special_a", "special_b":
 			var spec := _special_spec(weapon_id, upgrade_id.substr(upgrade_id.length() - 1))
 			if not spec.is_empty():
@@ -3133,9 +3288,9 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var weapon_id := String(state["weapon_id"])
 	match upgrade_id:
 		"weapon_power":
-			state["damage"] = float(state["damage"]) * 1.25
+			state["damage"] = float(state["damage"]) * 1.16
 		"weapon_rate":
-			state["cooldown"] = maxf(0.2, float(state["cooldown"]) * 0.88)
+			state["cooldown"] = maxf(0.32, float(state["cooldown"]) * 0.93)
 		"special_a", "special_b":
 			var key := upgrade_id.substr(upgrade_id.length() - 1)
 			var spec := _special_spec(weapon_id, key)
@@ -3153,53 +3308,53 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 	var player := players[player_slot]
 	match upgrade_id:
 		"move":
-			player.move_speed *= 1.08
+			player.move_speed *= 1.05
 		"vitality":
-			player.max_health += 15.0
-			player.heal(15.0)
+			player.max_health += 12.0
+			player.heal(12.0)
 		"might":
-			player.might += 0.15
+			player.might += 0.09
 		"area":
-			player.area += 0.15
+			player.area += 0.09
 		"amount":
 			player.amount += 1
 		"haste":
-			player.haste = maxf(0.4, player.haste - 0.1)
+			player.haste = maxf(0.6, player.haste - 0.06)
 		"projectile_speed":
-			player.projectile_speed += 0.15
+			player.projectile_speed += 0.10
 		"armor":
-			player.armor += 2.0
+			player.armor += 1.5
 		"recovery":
-			player.recovery += 0.8
+			player.recovery += 0.5
 		"crit":
-			player.crit_chance = minf(0.85, player.crit_chance + 0.08)
+			player.crit_chance = minf(0.60, player.crit_chance + 0.05)
 		"pierce":
 			player.pierce += 1
 		"thorns":
-			player.thorns += 0.15
+			player.thorns += 0.10
 		"resolve":
-			player.resolve += 4.0
+			player.resolve += 3.0
 		"overcharge":
-			team_overcharge += 0.10
+			team_overcharge += 0.06
 		"greed":
-			team_greed += 0.40
+			team_greed += 0.30
 		"magnet":
-			team_magnet += 0.25
+			team_magnet += 0.20
 			_apply_team_magnet()
 		"growth":
-			team_growth += 0.15
+			team_growth += 0.10
 		"luck":
 			team_luck += 1
 		"catnip":
-			team_level_heal += 0.05
+			team_level_heal += 0.04
 		"bounty_bell":
-			team_hunt_bonus += 0.25
+			team_hunt_bonus += 0.18
 		"twin_charm":
-			team_close_power += 0.08
+			team_close_power += 0.05
 		"dash_claw":
-			team_dash_burst += 16.0
+			team_dash_burst += 11.0
 		"lucky_paw":
-			player.dodge_chance = minf(0.60, player.dodge_chance + 0.04)
+			player.dodge_chance = minf(0.45, player.dodge_chance + 0.03)
 		"nine_lives":
 			player.second_chances += 1
 		_:
@@ -3342,7 +3497,7 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 		var entry: Dictionary = carried[index]
 		icon.texture = IconCatalog.weapon(String(entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(entry["id"]))
 		tier.visible = true
-		tier.text = "T%d" % int(entry.get("tier", 1))
+		tier.text = str(int(entry.get("tier", 1)))
 ## The strip under the cards used to spell out both fusion requirements for
 ## both survivors, every level, from level one — the whole tech tree as a
 ## table. It is gone; the per-card fusion mark says the same thing at the
@@ -3378,7 +3533,7 @@ func _fusion_progress_line(slot: int) -> String:
 		if progress <= best_progress:
 			continue
 		best_progress = progress
-		best = "%s T%d/%d + %s T%d/%d → %s" % [
+		best = "%s %d/%d + %s %d/%d → %s" % [
 			String(weapon["weapon_name"]), weapon_tier, Evolutions.WEAPON_MAX_TIER,
 			String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
 			String(evolution["weapon_name"]),
@@ -3562,10 +3717,16 @@ func _apply_team_magnet() -> void:
 
 func _weapon_interval(player_index: int, weapon_slot: int) -> float:
 	var base := float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
-	return maxf(0.12, base * players[player_index].haste)
+	return maxf(0.25, base * players[player_index].haste)
 
 
 func _tension_damage_multiplier() -> float:
+	if frenzy_remaining > 0.0:
+		return _base_tension_multiplier() * FRENZY_POWER
+	return _base_tension_multiplier()
+
+
+func _base_tension_multiplier() -> float:
 	# The ward pays the overcharge bonus unconditionally. That is the whole
 	# reason to pick the drop up at a moment when the pair is fighting close
 	# together rather than only when the chain is already in trouble.
@@ -3658,10 +3819,10 @@ func _player_health_text(player_index: int) -> String:
 func _loadout_summary(player_index: int) -> String:
 	var loadout: Array = weapon_loadouts[player_index]
 	if loadout.size() == 1:
-		return "%s T%d" % [String(loadout[0]["weapon_name"]), int(loadout[0].get("tier", 1))]
+		return "%s Lv.%d" % [String(loadout[0]["weapon_name"]), int(loadout[0].get("tier", 1))]
 	var tiers: Array[String] = []
 	for weapon in loadout:
-		tiers.append("T%d" % int(weapon.get("tier", 1)))
+		tiers.append("Lv.%d" % int(weapon.get("tier", 1)))
 	return "무기 %d종 %s" % [loadout.size(), "/".join(tiers)]
 
 

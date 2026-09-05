@@ -11,10 +11,20 @@ const FieldItemScript := preload("res://scripts/field_item.gd")
 
 ## Weights are relative, not percentages. Healing is the common one because it
 ## is the safety valve; the screen-clearing purge is the rare payoff.
+## Four drops meant a run of twenty-odd pickups was the same four things over
+## and over. Seven is enough that finding one is a question ("what did we get?")
+## rather than a formality, and the three additions are deliberately the two
+## fantasies a survivors game owes a player — being untouchable for a moment,
+## and stopping the world — plus a short window where the pair simply hits much
+## harder. All three are timed rather than instant: an item you have to *spend*
+## well is worth walking to.
 const ITEM_TABLE := [
 	{"id": "heal", "weight": 4, "color": "80ed99", "name": "결속의 양식"},
 	{"id": "magnet", "weight": 3, "color": "43d9ff", "name": "자력 파동"},
 	{"id": "chain_ward", "weight": 2, "color": "fff275", "name": "사슬 결계"},
+	{"id": "guard", "weight": 2, "color": "9bf6ff", "name": "수호의 방울"},
+	{"id": "frenzy", "weight": 2, "color": "ff9770", "name": "광란의 마타타비"},
+	{"id": "time_stop", "weight": 1, "color": "c77dff", "name": "멈춘 회중시계"},
 	{"id": "purge", "weight": 1, "color": "ff5d8f", "name": "정화의 불꽃"},
 ]
 

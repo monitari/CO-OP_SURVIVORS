@@ -59,10 +59,10 @@ func _run() -> void:
 	main.weapon_loadouts[0][0]["cooldown"] = 0.2
 	check(not Value.has_effect(main, 0, {"id": "weapon_rate", "weapon_slot": 0}), "capped rate excluded")
 	main.weapon_loadouts[0][0] = main._build_weapon_state(main.character_catalog[3])
-	main.weapon_loadouts[0][0]["slow"] = 0.25
+	main.weapon_loadouts[0][0]["slow"] = 0.34
 	check(not Value.has_effect(main, 0, {"id": "special_b", "weapon_slot": 0}), "capped slow excluded")
 	main.weapon_loadouts[0][0] = main._build_weapon_state(main.character_catalog[4])
-	main.weapon_loadouts[0][0]["arc"] = PI * 1.75
+	main.weapon_loadouts[0][0]["arc"] = PI * 1.5
 	check(not Value.has_effect(main, 0, {"id": "special_b", "weapon_slot": 0}), "capped arc excluded")
 	main.weapon_loadouts[0][0] = main._build_weapon_state(main.character_catalog[0])
 	main.weapon_loadouts[0][0]["tier"] = 7
@@ -75,7 +75,7 @@ func _run() -> void:
 			found = found or option["id"] == "evolve_weapon"
 		check(found, "fusion guaranteed even across repeated rerolls")
 	var power := {"id": "weapon_power", "weapon_slot": 0}
-	check(is_equal_approx(Value.gain(main, 0, power), 0.25), "single weapon damage gain is 25 percent")
+	check(is_equal_approx(Value.gain(main, 0, power), 0.16), "single weapon damage gain is 16 percent")
 	main.weapon_loadouts[0].append(main._build_weapon_state(main.character_catalog[1]))
 	check(Value.gain(main, 0, power) < 0.25, "single weapon gain weighted by whole loadout")
 	var lightning: Dictionary = main.weapon_loadouts[0][1]

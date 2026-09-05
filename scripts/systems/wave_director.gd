@@ -28,8 +28,9 @@ const RUN_LENGTH := BOSS_INTERVAL * float(BOSS_COUNT)
 ## Seconds of elapsed run per point of difficulty. Stretched with the run so a
 ## twenty-five-minute fight does not simply arrive at five times the old scaling.
 const DIFFICULTY_SECONDS := 62.0
-const OPENING_SPAWN_INTERVAL := 0.78
-const SECOND_WAVE_SPAWN_INTERVAL := 0.68
+const OPENING_SPAWN_INTERVAL := 1.25
+const SECOND_WAVE_SPAWN_INTERVAL := 1.05
+const THIRD_WAVE_SPAWN_INTERVAL := 0.88
 const FIRST_REINFORCEMENT_COUNT := 3
 const CHARGER_UNLOCK_TIME := 30.0
 const BULWARK_UNLOCK_TIME := 75.0
@@ -43,13 +44,21 @@ const SWARM_INTERVAL := 22.0
 ## has to be side-stepped, and a squad is four elites at once.
 const ENCOUNTER_FIRST := 105.0
 const ENCOUNTER_INTERVAL := 78.0
-const ENCOUNTER_ORDER := ["swarm_tide", "stampede", "ring_siege", "elite_squad"]
+const ENCOUNTER_ORDER := ["swarm_tide", "stampede", "ring_siege", "elite_squad", "deluge"]
 const ENCOUNTER_NAMES := {
 	"swarm_tide": "군체 해일",
 	"stampede": "돌진 폭주",
 	"ring_siege": "포위 진형",
 	"elite_squad": "정예 편대",
+	"deluge": "대범람",
 }
+## 대범람 is the one encounter that is supposed to be frightening rather than
+## interesting: enemies from every bearing at once, enough of them to cover the
+## screen. It is held back until the pair has a build to answer it with — before
+## this it is not a climax, it is a wall.
+const DELUGE_UNLOCK_TIME := 420.0
+const DELUGE_BASE_COUNT := 46
+const DELUGE_PER_MINUTE := 5.0
 
 var enemy_pool: Array[ChaserEnemy] = []
 var spawn_timer := 0.0
@@ -58,7 +67,7 @@ var swarm_timer := SWARM_UNLOCK_TIME
 var boss_spawned := false ## True once the first boss of the run has arrived.
 var bosses_spawned := 0
 var boss_active := false ## Kept current by main; holds the next boss back while one is still alive.
-var enemy_cap := 420
+var enemy_cap := 620
 
 var wave_index := 0
 var wave_elapsed := 0.0
@@ -77,7 +86,13 @@ func spawn_interval() -> float:
 		return OPENING_SPAWN_INTERVAL
 	if wave_index == 1:
 		return SECOND_WAVE_SPAWN_INTERVAL
-	return maxf(0.16, 0.62 - float(wave_index) * 0.045)
+	if wave_index == 2:
+		return THIRD_WAVE_SPAWN_INTERVAL
+	# Steeper and with a lower floor than before. The old curve flattened out
+	# around wave eight, so minute ten and minute twenty-five felt the same —
+	# and with bodies no longer able to stack, a given number of enemies now
+	# takes up much more room than it used to.
+	return maxf(0.10, 0.62 - float(wave_index) * 0.055)
 
 
 func is_surge_wave(index: int) -> bool:
@@ -119,7 +134,11 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		# The first boundary used to combine four instant reinforcements with
 		# the charger unlock two seconds earlier. Three plain chasers make it a
 		# readable escalation without turning the end of the tutorial into a wall.
-		var surge := 10 if is_surge_wave(wave_index) else (FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4)
+		# Wave openers grow with the run rather than being a fixed handful, so a
+		# late surge actually lands as a surge.
+		var growth := int(float(wave_index) * 0.8)
+		var surge := (10 + growth * 2) if is_surge_wave(wave_index) else (
+			FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4 + growth)
 		for index in surge:
 			if active_count + spawned.size() >= enemy_cap:
 				break
@@ -169,6 +188,8 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		encounter_timer = ENCOUNTER_INTERVAL
 		var encounter_id: String = ENCOUNTER_ORDER[encounters_run % ENCOUNTER_ORDER.size()]
 		encounters_run += 1
+		if encounter_id == "deluge" and elapsed < DELUGE_UNLOCK_TIME:
+			encounter_id = "swarm_tide"
 		encounter_started.emit(encounter_id)
 		_run_encounter(encounter_id, difficulty, center, active_count, spawned)
 
@@ -177,7 +198,9 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 
 	if spawn_timer <= 0.0:
 		spawn_timer = spawn_interval()
-		var count := 2 if wave_index >= 2 and randf() < 0.4 else 1
+		var count := 1 + int(float(wave_index) / 4.0)
+		if wave_index >= 2 and randf() < 0.4:
+			count += 1
 		for index in count:
 			if active_count + spawned.size() >= enemy_cap:
 				break
@@ -229,6 +252,20 @@ func _run_encounter(
 				if not budget.call():
 					return
 				spawned.append(_acquire_enemy(_pick_archetype(difficulty * DIFFICULTY_SECONDS), difficulty, center, true, false))
+		"deluge":
+			# Four rings at four radii so they do not arrive as one wall the pair
+			# can simply out-walk: the near ring is on them immediately and the
+			# far one closes while they are still dealing with it.
+			var elapsed_now := difficulty * DIFFICULTY_SECONDS
+			var total := DELUGE_BASE_COUNT + int(elapsed_now / 60.0 * DELUGE_PER_MINUTE)
+			for index in total:
+				if not budget.call():
+					return
+				var enemy := _acquire_enemy(_pick_archetype(elapsed_now), difficulty, center, false, false)
+				var ring := index % 4
+				var angle := TAU * float(index) / float(total) + float(ring) * 0.31
+				enemy.position = center + Vector2.from_angle(angle) * (560.0 + float(ring) * 175.0)
+				spawned.append(enemy)
 
 
 func release_enemy(enemy: ChaserEnemy) -> void:
@@ -273,4 +310,4 @@ func _pick_archetype(elapsed: float) -> String:
 ## back half of a twenty-five-minute run does not spend its whole enemy budget
 ## on things worth three experience each.
 func _swarm_pack_size(elapsed: float) -> int:
-	return mini(28, 7 + int(elapsed / 90.0) * 3)
+	return mini(46, 7 + int(elapsed / 70.0) * 4)

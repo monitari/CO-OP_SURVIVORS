@@ -68,7 +68,11 @@ static func mobility_budget(character: Dictionary) -> float:
 	return float(character["speed"]) / 230.0 + float(character["chain"]) / 700.0
 
 
-static func offense_budget(character: Dictionary) -> float:
+## What one cast is worth before crit and before normalising: damage per second
+## times how much of the field it covers. Split out from offense_budget so the
+## balance test can average it across the roster and check the normaliser below
+## still matches.
+static func raw_power(character: Dictionary) -> float:
 	var weapon: Dictionary = character["weapon"]
 	var raw := float(weapon["damage"]) / float(weapon["cooldown"]) * float(weapon["reach"])
 	# Persistent weapons buy several seconds of board control with one cast.
@@ -77,7 +81,22 @@ static func offense_budget(character: Dictionary) -> float:
 	# are one-frame hits.
 	if character["weapon_id"] == "orbit": raw *= 4.8
 	if character["weapon_id"] == "mine": raw *= 1.42
-	return raw / 34.0 * (1.0 + float(character["crit"]) * 1.5)
+	return raw
+
+
+static func offense_budget(character: Dictionary) -> float:
+	return raw_power(character) / OFFENSE_REFERENCE * (1.0 + float(character["crit"]) * 1.5)
+
+
+## The scale the offense term is measured against — roughly the roster's mean
+## raw power, a little under it because crit is priced on top. All the budget
+## answers is "are these ten fair to each other", never "is the game easy", so
+## this has to move whenever the whole roster is rebalanced: it went 34.0 ->
+## 29.0 when every cooldown rose about a fifth. The balance test asserts it
+## still tracks the measured mean, because a global nerf that left the yardstick
+## behind would make all ten survivors read as under-budget and the band would
+## start rejecting a perfectly fair roster.
+const OFFENSE_REFERENCE := 29.0
 
 
 static func utility_budget(character: Dictionary) -> float:
@@ -288,7 +307,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": -20.0,
 			"might": 1.12, "area": 0.86, "haste": 0.90, "recovery": 0.0,
 			"projectile_speed": 1.18, "dodge": 0.06,
-			"weapon": {"damage": 33.0, "cooldown": 0.92, "count": 1, "speed": 470.0, "reach": 1.0, "tier": 1}
+			"weapon": {"damage": 34.0, "cooldown": 1.12, "count": 1, "speed": 415.0, "reach": 1.0, "tier": 1}
 		},
 		{
 			"id": "volta",
@@ -306,7 +325,7 @@ static func all_characters() -> Array[Dictionary]:
 			"pickup": 1.1,
 			"chain": 10.0,
 			"might": 1.0, "area": 1.08, "haste": 0.96, "recovery": 0.2,
-			"weapon": {"damage": 24.0, "cooldown": 1.45, "jumps": 3, "range": 440.0, "reach": 2.2, "tier": 1}
+			"weapon": {"damage": 27.5, "cooldown": 1.78, "jumps": 3, "range": 375.0, "reach": 2.05, "tier": 1}
 		},
 		{
 			"id": "ignis",
@@ -327,7 +346,7 @@ static func all_characters() -> Array[Dictionary]:
 			# Radial shots trade reliability for coverage. Nine slightly stronger
 			# embers give the starting version enough intersections to finish a
 			# basic enemy before the ring has already closed on both survivors.
-			"weapon": {"damage": 23.5, "cooldown": 1.65, "count": 9, "speed": 315.0, "reach": 2.6, "tier": 1}
+			"weapon": {"damage": 26.5, "cooldown": 2.02, "count": 8, "speed": 280.0, "reach": 2.4, "tier": 1}
 		},
 		{
 			"id": "neve",
@@ -346,7 +365,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 65.0,
 			"might": 0.90, "area": 1.25, "haste": 1.10, "recovery": 0.9,
 			"resolve": 2.0,
-			"weapon": {"damage": 19.0, "cooldown": 2.1, "radius": 135.0, "slow": 0.52, "reach": 4.0, "tier": 1}
+			"weapon": {"damage": 22.5, "cooldown": 2.56, "radius": 116.0, "slow": 0.58, "reach": 3.5, "tier": 1}
 		},
 		{
 			"id": "moro",
@@ -370,7 +389,7 @@ static func all_characters() -> Array[Dictionary]:
 			"dodge": 0.04,
 			# Melee carries a low reach factor because it only hits what you face,
 			# so it is allowed a much higher per-swing number than the auras.
-			"weapon": {"damage": 45.0, "cooldown": 1.35, "range": 220.0, "arc": 2.1, "reach": 1.15, "tier": 1}
+			"weapon": {"damage": 52.0, "cooldown": 1.65, "range": 190.0, "arc": 1.85, "reach": 1.05, "tier": 1}
 		},
 		{
 			"id": "serin",
@@ -394,7 +413,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 85.0,
 			"might": 0.88, "area": 1.0, "haste": 1.08, "recovery": 1.3,
 			"thorns": 0.10, "resolve": 3.0,
-			"weapon": {"damage": 34.0, "cooldown": 1.35, "width": 58.0, "reach": 1.6, "tier": 1}
+			"weapon": {"damage": 38.0, "cooldown": 1.65, "width": 48.0, "reach": 1.5, "tier": 1}
 		},
 		{
 			"id": "kael",
@@ -415,7 +434,7 @@ static func all_characters() -> Array[Dictionary]:
 			"amount": 1,
 			# Orbiting shards hit whatever walks into them without any aiming at
 			# all, so the per-shard number is small and reach carries the weight.
-			"weapon": {"damage": 12.5, "cooldown": 5.4, "count": 3, "radius": 96.0, "speed": 3.15, "reach": 3.2, "tier": 1}
+			"weapon": {"damage": 14.0, "cooldown": 6.6, "count": 3, "radius": 86.0, "speed": 2.85, "reach": 3.0, "tier": 1}
 		},
 		{
 			"id": "rian",
@@ -434,7 +453,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 15.0,
 			"might": 1.10, "area": 0.82, "haste": 1.0, "recovery": 0.0,
 			"projectile_speed": 1.25, "pierce": 1,
-			"weapon": {"damage": 46.0, "cooldown": 1.55, "range": 520.0, "width": 34.0, "beams": 1, "reach": 1.25, "tier": 1}
+			"weapon": {"damage": 51.5, "cooldown": 1.89, "range": 445.0, "width": 29.0, "beams": 1, "reach": 1.15, "tier": 1}
 		},
 		{
 			"id": "tera",
@@ -453,7 +472,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 40.0,
 			"might": 0.98, "area": 1.16, "haste": 1.10, "recovery": 0.7,
 			"resolve": 2.0,
-			"weapon": {"damage": 41.0, "cooldown": 3.0, "count": 1, "radius": 96.0, "reach": 1.9, "tier": 1}
+			"weapon": {"damage": 46.0, "cooldown": 3.66, "count": 1, "radius": 84.0, "reach": 1.75, "tier": 1}
 		},
 		{
 			"id": "nova",
@@ -475,6 +494,6 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 5.0,
 			"might": 1.0, "area": 1.20, "haste": 1.05, "recovery": 0.2,
 			"projectile_speed": 0.90,
-			"weapon": {"damage": 26.0, "cooldown": 2.35, "radius": 210.0, "pull": 160.0, "cast_range": 520.0, "reach": 3.3, "tier": 1}
+			"weapon": {"damage": 30.0, "cooldown": 2.87, "radius": 182.0, "pull": 135.0, "cast_range": 460.0, "reach": 3.0, "tier": 1}
 		}
 	]
