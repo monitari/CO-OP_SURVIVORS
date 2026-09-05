@@ -622,8 +622,8 @@ func _create_hud() -> void:
 	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0))
 
 	hud_portrait_icons = [
-		_create_icon_rect(layer, Vector2(31.0, 20.0), Vector2(30.0, 30.0)),
-		_create_icon_rect(layer, Vector2(1217.0, 20.0), Vector2(30.0, 30.0)),
+		_create_icon_rect(layer, Vector2(26.0, 21.0), Vector2(42.0, 42.0)),
+		_create_icon_rect(layer, Vector2(1212.0, 21.0), Vector2(42.0, 42.0)),
 	]
 	p1_status_label = Label.new()
 	p1_status_label.position = Vector2(66.0, 24.0)
@@ -728,13 +728,12 @@ func _create_hud() -> void:
 	message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_confine_label(message_label)
 	message_label.modulate.a = 0.0
-	_make_label_background(message_label, Color(0.02, 0.03, 0.07, 0.9))
 	layer.add_child(message_label)
 
 	layer = screen_host
 	level_overlay = CatPanel.new()
 	level_overlay.position = Vector2(20.0, 132.0)
-	level_overlay.size = Vector2(1240.0, 545.0)
+	level_overlay.size = Vector2(1240.0, 490.0)
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
 
@@ -750,13 +749,13 @@ func _create_hud() -> void:
 	level_card_labels[0] = _create_level_cards(level_overlay, 8.0, Color("43d9ff"))
 	level_card_labels[1] = _create_level_cards(level_overlay, 624.0, Color("b892ff"))
 	level_portrait_icons = [
-		_create_icon_rect(level_overlay, Vector2(8.0, 392.0), Vector2(68.0, 68.0)),
-		_create_icon_rect(level_overlay, Vector2(624.0, 392.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(8.0, 374.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(624.0, 374.0), Vector2(68.0, 68.0)),
 	]
-	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 384.0, WEAPON_LOADOUT_CAP)
-	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 384.0, WEAPON_LOADOUT_CAP)
-	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 428.0, TREASURE_LOADOUT_CAP)
-	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 428.0, TREASURE_LOADOUT_CAP)
+	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 374.0, WEAPON_LOADOUT_CAP)
+	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 374.0, WEAPON_LOADOUT_CAP)
+	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 418.0, TREASURE_LOADOUT_CAP)
+	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 418.0, TREASURE_LOADOUT_CAP)
 	p1_level_footer = _create_level_footer(level_overlay, 8.0, Color("43d9ff"))
 	p2_level_footer = _create_level_footer(level_overlay, 624.0, Color("b892ff"))
 
@@ -1356,10 +1355,8 @@ func _refresh_character_select_ui() -> void:
 ## Deliberately says nothing about fusions or resonances.
 ##
 ## The card used to print "합성 X T7 + Y T4 → Z" and the strip under it listed
-## the resonances the pair would eventually reach. That is the whole back half
 ## of the run, handed over before the run starts — the first fusion is meant to
 ## be found, and a resonance is meant to be the thing the pair discovers they
-## have built toward. What belongs here is what the survivor is like to play
 ## right now: how they attack, how sturdy they are, and how demanding they are.
 func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
@@ -1381,7 +1378,6 @@ func _format_character_card(player_index: int) -> String:
 		_character_select_status(player_index),
 	]
 	return "\n".join(lines)
-
 
 ## What this survivor does to the pair's leash, in plain language. The number
 ## itself is in the stat row; this says what it means.
@@ -3524,11 +3520,7 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 ## moment it is actually a decision (see _fusion_hint). What is left here is
 ## the run state a player cannot see anywhere else on this screen.
 func _refresh_team_stats_ui() -> void:
-	team_stats_label.text = "LV.%d      공유 경험치 %d / %d      %02d:%02d 경과" % [
-		progression.level, int(progression.experience), int(progression.required_experience),
-		int(elapsed) / 60, int(elapsed) % 60,
-	]
-	team_stats_label.visible = true
+	team_stats_label.text = ""
 
 
 ## The nearest fusion this survivor could reach, written as the two
@@ -3867,20 +3859,18 @@ func _show_message(text: String, color: Color) -> void:
 		notice_stack.pop_front().queue_free()
 	var notice := Label.new()
 	notice.text = text.replace("\n", " · ")
-	notice.size = Vector2(350, 48)
+	notice.size = Vector2(440, 40)
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	notice.clip_text = true
 	notice.add_theme_font_size_override("font_size", 14)
 	notice.add_theme_color_override("font_color", color)
 	notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_make_label_background(notice, Color(0.02, 0.03, 0.07, 0.85))
-	var notice_style := notice.get_theme_stylebox("normal") as StyleBoxFlat
-	notice_style.set_content_margin_all(10.0)
 	message_label.get_parent().add_child(notice)
 	notice_stack.append(notice)
 	for index in notice_stack.size():
-		notice_stack[index].position = Vector2(906, 625 - (notice_stack.size() - index - 1) * 54)
+		notice_stack[index].position = Vector2(820, 632 - (notice_stack.size() - index - 1) * 42)
 	var tween := create_tween()
 	tween.tween_interval(3.0)
 	tween.tween_property(notice, "modulate:a", 0.0, 0.65)

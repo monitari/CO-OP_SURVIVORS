@@ -13,6 +13,7 @@ const PLAYSTYLE := {
 }
 
 
+
 static func label(parent: Node, text: String, rect: Rect2, font_size := 18, ink: Color = Palette.INK) -> Label:
 	var item := Label.new()
 	item.text = text
@@ -190,8 +191,14 @@ static func _growth(main: Node) -> void:
 	place(main.level_title, Rect2(24, 16, 860, 42), 28)
 	for slot in 2:
 		var x := 8.0 + slot * 616.0
+		var panel := plate(screen, Rect2(x - 4, 58, 608, 418), Palette.P1 if slot == 0 else Palette.P2)
+		panel.name = "GrowthPanel%d" % slot
+		panel.modulate = Color(1.0, 1.0, 1.0, 0.18)
+		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		screen.move_child(panel, 0)
 		var heading := label(screen, "", Rect2(x + 8, 70, 590, 26), 16, Palette.P1 if slot == 0 else Palette.P2)
 		heading.name = "GrowthName%d" % slot
+		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		for card: Label in main.level_card_labels[slot]:
 			card.add_theme_color_override("font_color", Palette.INK)
 			card.add_theme_font_size_override("font_size", 16)
@@ -216,16 +223,18 @@ static func _growth(main: Node) -> void:
 			badge.add_theme_font_size_override("font_size", 14)
 		var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 		footer.add_theme_color_override("font_color", Palette.MUTED)
-		var stats := label(screen, "", Rect2(x + 14, 472, 586, 28), 13, Palette.INK)
+		var stats := label(screen, "", Rect2(x + 420, 370, 178, 40), 12, Palette.INK)
 		stats.name = "BuildStats%d" % slot
-	place(main.team_stats_label, Rect2(24, 496, 1192, 46), 14, Palette.MUTED)
+		stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	main.team_stats_label.visible = false
 
 
 static func refresh_growth(main: Node, slot: int) -> void:
 	var screen: Control = main.level_overlay
 	screen.get_node("GrowthName%d" % slot).text = "P%d  %s" % [slot + 1, main.selected_characters[slot]["name"]]
 	var player: Node = main.players[slot]
-	screen.get_node("BuildStats%d" % slot).text = "공격 %d%%   범위 %d%%   이속 %d   방어 %.0f   회복 %.1f/s" % [
+	screen.get_node("BuildStats%d" % slot).text = "공격 %d%%   범위 %d%%   이속 %d\n방어 %.0f   회복 %.1f/s" % [
 		int(player.might * 100), int(player.area * 100), int(player.move_speed), player.armor, player.recovery]
 	var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 	for index in choices.size():
@@ -250,10 +259,10 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		badge.add_theme_stylebox_override("normal",
 			Palette.surface(Color("efdcd6") if against else Color("dfebda"), 8))
 	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
-	place(footer, Rect2(278 + slot * 616, 369, 330, 52), 14, Palette.MUTED)
-	footer.text = "무기 %d/4 · 보물 %d/4 · 뽑기 %d\n%s" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size(), main.rerolls_remaining[slot], "확정 · 상대 선택 대기" if main.selected_upgrade_indices[slot] >= 0 else "클릭 / W·↑·A 확정"]
+	place(footer, Rect2(278 + slot * 616, 370, 142, 28), 13, Palette.MUTED)
+	footer.text = "무기 %d/4 · 보물 %d/4 · 뽑기 %d" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size(), main.rerolls_remaining[slot]]
 	if main.level_up_input_delay > 0.0:
-		footer.text = "무기 %d/4 · 보물 %d/4\n잠시 후 선택 가능" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+		footer.text = "무기 %d/4 · 보물 %d/4 · 잠시 후 선택" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
 	if screen.has_node("Reroll%d" % slot):
 		screen.get_node("Reroll%d" % slot).disabled = main.level_up_input_delay > 0.0 or main.selected_upgrade_indices[slot] >= 0 or main.rerolls_remaining[slot] <= 0
 		screen.get_node("Cancel%d" % slot).disabled = main.selected_upgrade_indices[slot] < 0
@@ -274,14 +283,13 @@ static func _hud(main: Node) -> void:
 	for child in main.combat_hud.get_children():
 		if child is ColorRect and child != main.boss_hud_panel:
 			child.hide()
-	place(main.p1_status_label, Rect2(66, 20, 140, 28), 18, Palette.P1.lightened(0.55))
-	place(main.p2_status_label, Rect2(1074, 20, 140, 28), 18, Palette.P2.lightened(0.55))
-	main.p2_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	main.p1_status_label.visible = false
+	main.p2_status_label.visible = false
 	for slot in 2:
 		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
 		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
-		bar.position = Vector2(212 if slot == 0 else 850, 22)
-		bar.size = Vector2(210, 24)
+		bar.position = Vector2(78 if slot == 0 else 922, 30)
+		bar.size = Vector2(280, 24)
 		caption.position = bar.position
 		caption.size = bar.size
 	for item in [main.chain_bar, main.chain_distance_text_label]:
@@ -296,15 +304,18 @@ static func _hud(main: Node) -> void:
 	main.tutorial_label.add_theme_color_override("font_color", Color("f0cca2"))
 	place(main.hud_label, Rect2(584, 14, 112, 36), 29, Palette.CREAM)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label(main.combat_hud, "", Rect2(440, 22, 138, 24), 12, Color("b9cbc8")).name = "WaveReadout"
-	label(main.combat_hud, "", Rect2(702, 22, 138, 24), 12, Color("e4c899")).name = "ObjectiveReadout"
+	var wave_readout := label(main.combat_hud, "", Rect2(702, 22, 138, 24), 12, Color("b9cbc8"))
+	wave_readout.name = "WaveReadout"
+	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var objective_readout := label(main.combat_hud, "", Rect2(440, 22, 138, 24), 12, Color("e4c899"))
+	objective_readout.name = "ObjectiveReadout"
 	# Two rows per survivor: weapons on top, treasures under them, each icon
 	# carrying its own tier. The play screen showed weapons only and showed them
 	# without tiers, so half of what a build actually is — the treasures, and how
 	# deep anything was — could only be seen by opening a menu.
 	for slot in 2:
 		var holder := Control.new()
-		holder.position = Vector2(28 if slot == 0 else 1096, 55)
+		holder.position = Vector2(28 if slot == 0 else 1096, 62)
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.name = "Carried%d" % slot
 		main.combat_hud.add_child(holder)
