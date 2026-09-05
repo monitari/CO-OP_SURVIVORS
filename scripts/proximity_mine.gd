@@ -49,8 +49,14 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 	if not armed:
 		scale = Vector2.ONE * lerpf(0.55, 1.0, clampf(age / ARM_TIME, 0.0, 1.0))
+		rotation = -age * 2.6
 		return
-	rotation += delta * 0.42
+	# Rotation and modulate are node properties, so the sigil turns and the
+	# danger halo breathes without a single redraw. 결계 지뢰 used to be two flat
+	# circles that never moved after arming, which is why a field of them read
+	# as debris rather than as something about to go off.
+	rotation += delta * 0.9
+	modulate.a = 0.78 + 0.22 * sin(age * 4.4)
 	if spatial_grid == null:
 		return
 	for enemy in spatial_grid.query_radius(global_position, TRIGGER_RADIUS + 40.0):
@@ -74,12 +80,32 @@ func force_detonate() -> void:
 	_detonate()
 
 
+## A ward sigil, not a dot. Unarmed mines stay hollow and unlit so a survivor
+## can still tell at a glance which of the things underfoot will actually go off.
+## Nothing here reads the clock: the turning comes from the node rotation and the
+## breathing from its modulate, so a screenful of mines costs one draw each.
 func _draw() -> void:
-	# Unarmed mines read as hollow so a survivor can tell at a glance which of
-	# the things underfoot will actually go off.
-	var pulse := 0.5 + 0.5 * sin(age * 9.0)
-	if armed:
-		draw_circle(Vector2.ZERO, 11.0, Color(mine_color, 0.85))
-		draw_arc(Vector2.ZERO, 17.0, 0.0, TAU, 20, Color(mine_color, 0.35 + pulse * 0.4), 2.5, true)
-	else:
-		draw_arc(Vector2.ZERO, 11.0, 0.0, TAU, 18, Color(mine_color, 0.55), 2.0, true)
+	if not armed:
+		draw_arc(Vector2.ZERO, 12.0, 0.0, TAU, 20, Color(mine_color, 0.4), 2.0, true)
+		for spoke in 3:
+			var angle := TAU * float(spoke) / 3.0
+			draw_line(Vector2.from_angle(angle) * 5.0, Vector2.from_angle(angle) * 11.0,
+				Color(mine_color, 0.3), 1.6, true)
+		return
+
+	draw_circle(Vector2.ZERO, 26.0, Color(mine_color, 0.09))
+	# Outer rune ring: six notches on a broken circle.
+	for notch in 6:
+		var start := TAU * float(notch) / 6.0
+		draw_arc(Vector2.ZERO, 18.0, start + 0.16, start + TAU / 6.0 - 0.16, 6,
+			Color(mine_color, 0.62), 2.4, true)
+		draw_circle(Vector2.from_angle(start) * 18.0, 2.4, Color(mine_color.lightened(0.35), 0.9))
+	# Inner sigil: two counter-set triangles around a bright core.
+	for flip in 2:
+		var offset := PI * float(flip)
+		var points := PackedVector2Array()
+		for corner in 3:
+			points.append(Vector2.from_angle(offset + TAU * float(corner) / 3.0) * 11.0)
+		draw_polyline(points + PackedVector2Array([points[0]]), Color(mine_color, 0.72), 2.0, true)
+	draw_circle(Vector2.ZERO, 6.0, Color(mine_color, 0.9))
+	draw_circle(Vector2.ZERO, 3.0, Color(mine_color.lightened(0.7), 1.0))

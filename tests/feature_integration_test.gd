@@ -217,6 +217,15 @@ func _test_resonance_vote(main: Node) -> void:
 	await _tap(main, "p2_select_confirm")
 	_check(not main.resonance_system.active_resonances.is_empty(), "matching votes activate resonance")
 	_check(String(main.resonance_system.active_resonances[0]["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
+	# Agreeing on a resonance now opens a showcase over the vote screen, and the
+	# run is handed back when that finishes rather than on the same frame.
+	_check(main.cinematic_active, "agreeing opens the resonance showcase")
+	_check(not main.resonance_vote_active, "and closes the vote behind it")
+	for frame in 400:
+		if not main.cinematic_active:
+			break
+		await process_frame
+	_check(not main.cinematic_active, "the showcase ends on its own")
 	_check(not main.resonance_vote_active and not paused, "resonance vote returns to combat")
 	for resonance in main.resonance_system.catalog:
 		main.weapon_controller.perform_resonance(resonance, 1.0)

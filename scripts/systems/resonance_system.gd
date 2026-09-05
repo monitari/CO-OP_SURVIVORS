@@ -84,6 +84,11 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 					var candidate := resonance.duplicate(true)
 					candidate["weapon_a_name"] = String(weapon_a["weapon_name"])
 					candidate["weapon_b_name"] = String(weapon_b["weapon_name"])
+					# The ids travel too, so the activation showcase can put the
+					# two weapons that earned it on screen rather than only their
+					# names.
+					candidate["weapon_a_id"] = String(weapon_a.get("weapon_id", ""))
+					candidate["weapon_b_id"] = String(weapon_b.get("weapon_id", ""))
 					candidates.append(candidate)
 	return candidates
 

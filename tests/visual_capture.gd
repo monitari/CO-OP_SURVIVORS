@@ -50,19 +50,32 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
 	main._on_field_item_collected("chest")
-	await process_frame
-	await RenderingServer.frame_post_draw
-	_save_viewport("res://.godot_runtime/chest-open.png")
-	await _capture_weapon_reworks(main)
-	main._set_pause(true)
-	await process_frame
-	await RenderingServer.frame_post_draw
-	_save_viewport("res://.godot_runtime/pause.png")
-	main._activate_pause_item(5)
-	await RenderingServer.frame_post_draw
-	_save_viewport("res://.godot_runtime/restart-confirm.png")
-	main._activate_pause_item(0)
-	main._set_pause(false)
+	await _showcase_frame(main, 0.34, "res://.godot_runtime/chest-open.png")
+	await _showcase_frame(main, 1.35, "res://.godot_runtime/chest-rewards.png")
+	await _drain_showcase(main)
+
+	# The two showcases that close the tech tree, driven straight rather than
+	# played out through a whole run.
+	var fusion := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
+	main._queue_showcase({
+		"kind": "fusion",
+		"base_weapon_id": String(main.weapon_loadouts[0][0]["weapon_id"]),
+		"treasure_id": String(fusion["treasure_id"]),
+		"weapon_id": String(fusion["weapon_id"]),
+		"name": String(fusion["weapon_name"]),
+	})
+	main._play_showcase_queue()
+	await _showcase_frame(main, 0.42, "res://.godot_runtime/fusion-converge.png")
+	await _showcase_frame(main, 1.35, "res://.godot_runtime/fusion-showcase.png")
+	await _drain_showcase(main)
+
+	main._queue_showcase({
+		"kind": "resonance", "weapon_a_id": "starpiercer", "weapon_b_id": "thunder_god",
+		"name": "유도 뇌격",
+	})
+	main._play_showcase_queue()
+	await _showcase_frame(main, 1.55, "res://.godot_runtime/resonance-showcase.png")
+	await _drain_showcase(main)
 
 	# Pin the pair in the beneficial tension band so the compact chain labels
 	# and action text can be reviewed together rather than only as empty bars.
@@ -90,9 +103,27 @@ func _run() -> void:
 	main._begin_level_up()
 	main.level_up_input_delay = 0.0 # capture the interactive state, not the opening beat
 	main._refresh_level_up_ui()
-	await process_frame
+	# The modal backdrop is switched on inside _physics_process, so a capture
+	# that never ticks physics shows the play field around the panel and the
+	# shot reads as a layout bug that is not in the game.
+	await _tick_physics(main, 4)
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/level-up.png")
+
+	# A card carrying the fusion mark: P1 one weapon tier and one treasure tier
+	# away, so the screen has something to hint about.
+	var marked := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1,
+		"treasure": TreasureCatalog.by_id(String(marked["treasure_id"]))})
+	while main._treasure_tier(0, String(marked["treasure_id"])) < EvolutionCatalog.REQUIRED_TREASURE_TIER - 1:
+		main._apply_upgrade(0, {"id": "treasure_upgrade", "weapon_slot": -1,
+			"treasure_slot": main.treasure_loadouts[0].size() - 1})
+	main.p1_choices = main._get_upgrade_choices(1)
+	main._refresh_level_up_ui()
+	await _tick_physics(main, 2)
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/level-up-fusion-mark.png")
 
 	# Give both survivors a few attributes so the build panel has something to
 	# show, then capture the hold-to-peek overlay.
@@ -197,6 +228,54 @@ func _run() -> void:
 	quit(0)
 
 
+## Showcases run on wall-clock time and the capture renders far faster than the
+## game does, so counting frames lands on a different moment every run. The
+## clock is set explicitly instead, which is the only way these shots mean the
+## same thing twice.
+func _showcase_frame(main: Node, at: float, path: String) -> void:
+	var node := _live_showcase(main)
+	if node == null:
+		return
+	node.age = at
+	match node.mode:
+		Showcase.Mode.FUSION:
+			node._step_fusion()
+		Showcase.Mode.RESONANCE:
+			node._step_resonance()
+		Showcase.Mode.CHEST:
+			node._step_chest()
+	node.queue_redraw()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport(path)
+
+
+## Runs the real per-frame rules (modal backdrop, HUD visibility) before a shot,
+## since main ticks on PROCESS_MODE_ALWAYS even while an overlay has paused the
+## tree and several screens only look right once it has.
+func _tick_physics(main: Node, frames: int) -> void:
+	var was := main.is_physics_processing()
+	main.set_physics_process(true)
+	for frame in frames:
+		await physics_frame
+	main.set_physics_process(was)
+
+
+func _live_showcase(main: Node) -> Showcase:
+	for child in main.hud_layer.get_children():
+		var node := child as Showcase
+		if node != null:
+			return node
+	return null
+
+
+func _drain_showcase(main: Node) -> void:
+	for frame in 900:
+		if not main.cinematic_active:
+			break
+		await process_frame
+
+
 func _save_viewport(path: String) -> void:
 	var image := root.get_texture().get_image()
 	var error := image.save_png(ProjectSettings.globalize_path(path))
@@ -213,6 +292,8 @@ func _capture_weapon_reworks(main: Node) -> void:
 	var previous: Array = [main.weapon_loadouts[0].duplicate(true), main.weapon_loadouts[1].duplicate(true)]
 	main.weapon_loadouts[0] = [main._build_weapon_state(main.character_catalog[5]), main._build_weapon_state(main.character_catalog[6]), main._build_weapon_state(main.character_catalog[7]), main._build_weapon_state(main.character_catalog[8])]
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.character_catalog[3]), main._build_weapon_state(main.character_catalog[4]), main._build_weapon_state(main.character_catalog[9])]
+	# Show that upgraded lances choose independent bearings in the same cast.
+	main.weapon_loadouts[0][2]["beams"] = 3
 	main.players[0].last_input = Vector2.RIGHT
 	main.players[1].last_input = Vector2.LEFT
 	main.spatial_grid.rebuild(main.enemies)

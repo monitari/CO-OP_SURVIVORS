@@ -115,11 +115,15 @@ static func install(main: Node) -> void:
 		_detail_card(main.details_overlay, x + 293, 146, "vitality", "생존", "Survival%d" % slot)
 		_detail_card(main.details_overlay, x, 268, "overcharge", "협동", "Coop%d" % slot)
 		_detail_card(main.details_overlay, x + 293, 268, "magnet", "탐색", "Utility%d" % slot)
-		var build := UI.plate(main.details_overlay, Rect2(x, 390, 578, 104), Palette.CARD)
+		# Four lines now: the fusion path moved here from the always-on strip
+		# under the level-up cards. Opt-in is the right place for it — a player
+		# who wants the table can ask for it, and one who wants to find the
+		# first fusion for themselves is no longer told.
+		var build := UI.plate(main.details_overlay, Rect2(x, 384, 578, 116), Palette.CARD)
 		build.name = "Build%d" % slot
-		UI.label(build, "장비 구성", Rect2(16, 10, 150, 22), 14, Palette.GOLD)
-		UI.label(build, "", Rect2(16, 36, 546, 58), 14, Palette.INK).name = "Value"
-	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다 · 선택은 창을 닫은 뒤 확정", Rect2(24, 502, 1138, 24), 14, Palette.MUTED)
+		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 14, Palette.GOLD)
+		UI.label(build, "", Rect2(16, 32, 546, 78), 14, Palette.INK).name = "Value"
+	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다 · 선택은 창을 닫은 뒤 확정", Rect2(24, 508, 1138, 24), 14, Palette.MUTED)
 
 
 static func _detail_card(parent: Control, x: float, y: float, icon_id: String, title: String, node_name: String) -> void:
@@ -199,6 +203,7 @@ static func toggle_details(main: Node) -> void:
 			treasure_names.append("%s T%d" % [treasure["name"], treasure["tier"]])
 		build_lines.append("무기  " + (" · ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
 		build_lines.append("보물  " + (" · ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
+		build_lines.append("합성  " + main._fusion_progress_line(slot))
 		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 		if main.level_up_active and not choices.is_empty():
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]

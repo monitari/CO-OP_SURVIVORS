@@ -21,6 +21,15 @@ func _run() -> void:
 	var host: Control = main.hud_layer.get_node("ThemeHost")
 	_check(main.lobby_title.get_theme_font("font") == host.theme.default_font,
 		"Korean font theme reaches labels, not an empty sibling")
+	_check(String(host.theme.default_font.resource_path).ends_with("Jua-Regular.ttf"),
+		"the bundled rounded Korean font drives the UI on every machine")
+	_check(main.lobby_overlay.has_node("LobbyAmbience/TitleLogo"), "lobby uses the large title asset")
+	var ambience: Control = main.lobby_overlay.get_node("LobbyAmbience")
+	var logo: TextureRect = ambience.get_node("TitleLogo")
+	var logo_y := logo.position.y
+	for frame in 8: await process_frame
+	_check(not is_equal_approx(logo.position.y, logo_y), "the title has a restrained idle animation")
+	_check(not main.lobby_title.visible, "the old duplicate text title is removed")
 	for panel in [main.lobby_overlay, main.character_overlay, main.level_overlay,
 		main.resonance_overlay, main.pause_overlay, main.result_overlay]:
 		_check(panel.get_script() == CatPanel, "every modal uses shared cat skin")

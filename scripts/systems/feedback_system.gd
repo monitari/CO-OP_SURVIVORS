@@ -45,7 +45,7 @@ const CUE_PARAMS := {
 
 	# --- one per weapon, so a loadout is audible as well as visible ----------
 	"weapon_homing": {"freq": 520.0, "to": 760.0, "dur": 0.09, "vol": 0.09, "wave": "sine", "gap": 0.07},
-	"weapon_lightning": {"freq": 900.0, "to": 300.0, "dur": 0.10, "vol": 0.10, "wave": "square", "gap": 0.07},
+	"weapon_lightning": {"freq": 980.0, "to": 260.0, "dur": 0.065, "vol": 0.085, "wave": "noise", "gap": 0.28},
 	"weapon_flame": {"freq": 400.0, "to": 180.0, "dur": 0.12, "vol": 0.09, "wave": "noise", "gap": 0.08},
 	"weapon_frost": {"freq": 1100.0, "to": 1500.0, "dur": 0.16, "vol": 0.08, "wave": "sine", "gap": 0.08},
 	"weapon_scythe": {"freq": 700.0, "to": 220.0, "dur": 0.11, "vol": 0.11, "wave": "noise", "gap": 0.08},

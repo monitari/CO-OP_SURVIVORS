@@ -46,6 +46,59 @@ func _run() -> void:
 		quit(1)
 
 
+## The bands themselves, driven by scores rather than by whatever the pool
+## happened to deal: a hand of three strong cards must star more than one, and
+## a hand of three weak ones must star none. Without this the checks above pass
+## on any implementation that simply never marks anything.
+func _test_advice_bands(main: Node) -> void:
+	var choices: Array = main._get_upgrade_choices(1)
+	var best := -INF
+	for option in choices:
+		best = maxf(best, float(option["recommendation_score"]))
+	for option in choices:
+		var score := float(option["recommendation_score"])
+		var starred := bool(option["recommended"])
+		var expected: bool = score >= main.RECOMMEND_MIN_SCORE and score >= best * main.RECOMMEND_RELATIVE
+		_check(starred == expected,
+			"card scoring %.0f against a best of %.0f is starred exactly when it should be" % [score, best])
+	print("ADVICE_METRICS: best=%.0f floor=%.0f relative=%.2f" % [best, main.RECOMMEND_MIN_SCORE, main.RECOMMEND_RELATIVE])
+	_test_a_dead_card_is_marked_against(main)
+
+
+## The checks above only observe whatever the pool dealt, so a build that never
+## marked anything against would sail through them. This hands the scorer a card
+## that provably does nothing — a fire-rate upgrade on a weapon already at the
+## cooldown floor — and requires it to say so.
+func _test_a_dead_card_is_marked_against(main: Node) -> void:
+	var weapon: Dictionary = main.weapon_loadouts[0][0]
+	var restore: float = weapon["cooldown"]
+	weapon["cooldown"] = 0.2
+	var hand: Array[Dictionary] = [
+		{"id": "weapon_rate", "weapon_slot": 0, "title": "dead"},
+		{"id": "weapon_power", "weapon_slot": 0, "title": "live"},
+		{"id": "vitality", "weapon_slot": -1, "title": "other"},
+	]
+	main._annotate_recommendations(0, hand)
+	_check(bool(hand[0]["discouraged"]),
+		"a card that cannot change anything is marked against (score %.0f)" % float(hand[0]["recommendation_score"]))
+	_check(not bool(hand[0]["recommended"]), "and certainly not starred")
+	_check(not bool(hand[1]["discouraged"]), "while a card that does something is not")
+
+	# And the whole hand is never condemned, however bad it is.
+	var hopeless: Array[Dictionary] = [
+		{"id": "weapon_rate", "weapon_slot": 0, "title": "a"},
+		{"id": "weapon_rate", "weapon_slot": 0, "title": "b"},
+		{"id": "weapon_rate", "weapon_slot": 0, "title": "c"},
+	]
+	main._annotate_recommendations(0, hopeless)
+	var condemned := 0
+	for option in hopeless:
+		condemned += 1 if bool(option["discouraged"]) else 0
+	_check(condemned == hopeless.size() - 1,
+		"a hopeless hand still leaves one card unmarked (%d of %d)" % [condemned, hopeless.size()])
+	weapon["cooldown"] = restore
+
+
 func _open_level_up(main: Node) -> void:
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
@@ -152,13 +205,38 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	main.p1_choices = main._get_upgrade_choices(1)
 	main.p2_choices = main._get_upgrade_choices(2)
 	main._refresh_level_up_ui()
+	# There used to be exactly one star, always, on whichever card scored
+	# highest — which claims a right answer exists even when three cards are
+	# within a hair of each other. A draw may now be starred zero, one or
+	# several times, and cards that do nothing for this build are marked
+	# against instead. What has to hold is that the advice is consistent with
+	# the scores and never condemns the whole hand.
 	var recommended_cards := 0
-	for card: Label in main.level_card_labels[0]:
+	var discouraged_cards := 0
+	for index in main.p1_choices.size():
+		var card: Label = main.level_card_labels[0][index]
+		var option: Dictionary = main.p1_choices[index]
 		var icon := card.get_node("Icon") as TextureRect
 		var badge := card.get_node("Recommendation") as Label
 		_check(icon.texture != null, "every upgrade card renders a mapped icon")
-		recommended_cards += 1 if badge.visible else 0
-	_check(recommended_cards == 1, "the recommendation badge is visible on one dealt card")
+		var starred := bool(option.get("recommended", false))
+		var against := bool(option.get("discouraged", false))
+		_check(not (starred and against), "no card is both recommended and discouraged")
+		_check(badge.visible == (starred or against), "the badge shows exactly when there is advice")
+		if starred:
+			_check(String(badge.text).begins_with("★"), "a recommendation reads as one")
+			_check(float(option["recommendation_score"]) >= main.RECOMMEND_MIN_SCORE,
+				"a starred card clears the absolute bar (%.0f)" % float(option["recommendation_score"]))
+		if against:
+			_check(String(badge.text).begins_with("▽"), "a warning reads as one")
+			_check(not String(option.get("discouragement_reason", "")).is_empty(),
+				"a warning says why")
+		recommended_cards += 1 if starred else 0
+		discouraged_cards += 1 if against else 0
+	_check(discouraged_cards < main.p1_choices.size(),
+		"the whole hand is never marked against (%d of %d)" % [discouraged_cards, main.p1_choices.size()])
+	_check(recommended_cards + discouraged_cards <= main.p1_choices.size(), "advice does not double up")
+	_test_advice_bands(main)
 	# The build readout used to be two lines of attribute numbers. It is now two
 	# rows of icons with empty slots left visible, because "무기 2/4 · 보물 1/4"
 	# and four empty sockets say more mid-decision than eight numbers do.

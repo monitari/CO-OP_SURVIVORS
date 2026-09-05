@@ -6,6 +6,7 @@ const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 const MineScript := preload("res://scripts/proximity_mine.gd")
 const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
 const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
+const LanceStrikeScript := preload("res://scripts/effects/lance_strike.gd")
 
 signal cue_requested(cue_id: String)
 
@@ -44,7 +45,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		return
 	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
 	var weapon_id := String(state["weapon_id"])
-	cue_requested.emit("weapon_" + weapon_id)
+	var play_cast_cue := true
 	var color := Color(state["color"])
 	var damage := float(state["damage"]) * damage_multiplier * owner_player.might
 	# One roll per cast also covers delayed mines and secondary explosions.
@@ -63,10 +64,10 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
 	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
 	match weapon_id:
-		"homing": _fire_homing(player_index, scaled, damage, color)
-		"lightning": _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color)
+		"homing": play_cast_cue = _fire_homing(player_index, scaled, damage, color)
+		"lightning": play_cast_cue = _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color) > 0
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
-		"frost": _ensure_frost_aura(player_index, weapon_slot, scaled, damage, color)
+		"frost": play_cast_cue = _ensure_frost_aura(player_index, weapon_slot, scaled, damage, color)
 		"scythe": _swing_scythe(player_index, scaled, damage, color)
 		"chain": _fire_chain_pulse(scaled, damage)
 		"orbit": _sweep_orbit(player_index, scaled, damage, color)
@@ -77,13 +78,15 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"starpiercer": _fire_starpiercer(player_index, scaled, damage, color)
 		"thunder_god": _call_thunder_god(player_index, scaled, damage, color)
 		"supernova": _fire_supernova(player_index, scaled, damage, color)
-		"absolute_zero": _ensure_absolute_aura(player_index, weapon_slot, scaled, damage, color)
+		"absolute_zero": play_cast_cue = _ensure_absolute_aura(player_index, weapon_slot, scaled, damage, color)
 		"black_moon": _swing_black_moon(player_index, scaled, damage, color)
 		"stigmata": _burn_stigmata(scaled, damage)
 		"celestial": _sweep_celestial(player_index, scaled, damage, color)
 		"judgement": _fire_judgement(player_index, scaled, damage, color)
 		"ruin_garden": _plant_ruin_garden(player_index, scaled, damage, color)
 		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
+	if play_cast_cue:
+		cue_requested.emit("weapon_" + weapon_id)
 
 
 ## Resonance now sits behind two fused weapons rather than two tier-3 base
@@ -307,24 +310,26 @@ func _aim_direction(player_index: int, reach: float) -> Vector2:
 	return fallback.normalized() if fallback.length_squared() > 0.001 else Vector2.RIGHT
 
 
-func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Color) -> bool:
 	var target := spatial_grid.nearest(players[player_index].global_position, 700.0)
 	if target == null:
-		return
+		return false
 	var count := int(state["count"])
 	for shot in count:
 		var projectile := _acquire_projectile()
 		projectile.global_position = players[player_index].global_position
 		var spread := (float(shot) - float(count - 1) * 0.5) * 0.16
 		projectile.setup(_aim_direction(player_index, 700.0).rotated(spread), target)
+		projectile.style = "star"
 		projectile.spatial_grid = spatial_grid
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
 		projectile.projectile_color = color
 		projectile.remaining_hits = 1 + players[player_index].pierce
+	return true
 
 
-func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: float, color: Color) -> void:
+func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: float, color: Color) -> int:
 	var hit: Array[ChaserEnemy] = []
 	var current_position := origin
 	var search_range := first_range
@@ -337,6 +342,7 @@ func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: fl
 		hit.append(target)
 		current_position = target.global_position
 		search_range = 210.0
+	return hit.size()
 
 
 func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
@@ -357,32 +363,35 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		# The modestly wider hit disc preserves the radial gaps but makes close
 		# interceptions reliable.
 		projectile.radius = 9.0
+		projectile.style = "ember"
 		projectile.projectile_color = color
 	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
 
 
-func _ensure_frost_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> void:
+func _ensure_frost_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> bool:
 	var key := "frost:%d:%d" % [player_index, weapon_slot]
 	var existing = sustained_fields.get(key)
 	if is_instance_valid(existing):
 		existing.refresh_frost(damage, float(state["radius"]), float(state["slow"]), color)
-		return
+		return false
 	var field = WeaponFieldScript.new()
 	field.configure_frost(players[player_index], spatial_grid, damage, float(state["radius"]), float(state["slow"]), color)
 	add_child(field)
 	sustained_fields[key] = field
+	return true
 
 
-func _ensure_absolute_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> void:
+func _ensure_absolute_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> bool:
 	var key := "absolute:%d:%d" % [player_index, weapon_slot]
 	var existing = sustained_fields.get(key)
 	if is_instance_valid(existing):
 		existing.refresh_frost(damage, float(state["radius"]), float(state["slow"]), color, true)
-		return
+		return false
 	var field = WeaponFieldScript.new()
 	field.configure_frost(players[player_index], spatial_grid, damage, float(state["radius"]), float(state["slow"]), color, true)
 	add_child(field)
 	sustained_fields[key] = field
+	return true
 
 
 func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
@@ -426,13 +435,31 @@ func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Co
 func _fire_lance(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var origin := players[player_index].global_position
 	var reach := float(state["range"])
-	var heading := _aim_direction(player_index, reach)
 	var width := float(state["width"])
 	var beams := maxi(1, int(state.get("beams", 1)))
-	var lateral := heading.orthogonal()
-	for index in beams:
-		var offset := (float(index) - float(beams - 1) * 0.5) * (width * 1.35)
-		_lance_from(origin + lateral * offset, heading, reach, width, damage, color)
+	for heading in _lance_headings(player_index, reach, beams):
+		_lance_from(origin, heading, reach, width, damage, color)
+
+
+## Each beam rolls a different target from the current field. Extra beams only
+## use a small fallback fan if there are fewer enemies than beams, so the
+## multi-beam upgrade can never collapse back into parallel copies.
+func _lance_headings(player_index: int, reach: float, beam_count: int) -> Array[Vector2]:
+	var origin := players[player_index].global_position
+	var candidates: Array[ChaserEnemy] = []
+	for enemy in spatial_grid.query_radius(origin, reach + 45.0):
+		if is_instance_valid(enemy) and not enemy.dead and origin.distance_to(enemy.global_position) <= reach + enemy.radius:
+			candidates.append(enemy)
+	candidates.shuffle()
+	var headings: Array[Vector2] = []
+	for index in mini(beam_count, candidates.size()):
+		headings.append(origin.direction_to(candidates[index].global_position))
+	var fallback := _aim_direction(player_index, reach)
+	while headings.size() < beam_count:
+		var index := headings.size()
+		var ratio := 0.5 if beam_count <= 1 else float(index) / float(beam_count - 1)
+		headings.append(fallback.rotated(lerpf(-0.34, 0.34, ratio)))
+	return headings
 
 
 ## Ordnance left behind rather than fired forward: the pair's own path becomes
@@ -680,39 +707,9 @@ func play_purge_rays(centre: Vector2, radius: float, color: Color) -> void:
 
 
 func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
-	var direction := from.direction_to(to)
-	var normal := direction.orthogonal()
-	var body := Polygon2D.new()
-	body.polygon = PackedVector2Array([
-		from - normal * width * 0.72, from + normal * width * 0.72,
-		to + normal * width * 0.32, to + direction * width * 0.9,
-		to - normal * width * 0.32,
-	])
-	body.color = Color(color, 0.24)
-	body.z_index = 2
-	add_child(body)
-	_flash_and_free(body, 0.07, 0.24)
-	# A soft outer pass under a bright core: the halo says where the beam is,
-	# the core says it landed. One flat line at 70% did neither well.
-	var halo := Line2D.new()
-	halo.width = width * 2.1
-	halo.default_color = Color(color, 0.26)
-	halo.z_index = 2
-	halo.antialiased = true
-	halo.add_point(from)
-	halo.add_point(to)
-	add_child(halo)
-	_flash_and_free(halo, 0.08, 0.26)
-
-	var beam := Line2D.new()
-	beam.width = width
-	beam.default_color = Color(color.lightened(0.35), 0.95)
-	beam.z_index = 3
-	beam.antialiased = true
-	beam.add_point(from)
-	beam.add_point(to)
+	var beam = LanceStrikeScript.new()
+	beam.setup(from, to, width, color)
 	add_child(beam)
-	_flash_and_free(beam, 0.09, 0.2)
 
 
 func _damage_area(center: Vector2, radius: float, damage: float, slow_multiplier: float = 1.0) -> void:

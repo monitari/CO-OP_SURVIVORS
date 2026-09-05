@@ -10,6 +10,7 @@ const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
+const ShowcaseScript := preload("res://scripts/effects/showcase.gd")
 const ParticleFieldScript := preload("res://scripts/systems/particle_field.gd")
 const ArenaFloorScript := preload("res://scripts/arena_floor.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
@@ -77,6 +78,14 @@ var chain_line: Line2D
 var chain_glow: Line2D
 var bursts: BurstField
 var particles: ParticleField
+## A fusion, a resonance and a chest each stop the run and take the screen for
+## a couple of seconds. The queue exists because one level-up can produce two
+## fusions, and a chest can contain one — they play in order rather than on
+## top of each other.
+var showcase_queue: Array[Dictionary] = []
+var cinematic_active := false
+var cinematic_continuation := Callable()
+var cinematic_resume_paused := false
 var arena_floor: ArenaFloor
 var modal_dim: ColorRect
 var world_camera: Camera2D
@@ -217,9 +226,15 @@ var chain_ward_pulse_timer := 0.0
 const FIELD_ITEM_BASE_CHANCE := 0.015
 const FIELD_ITEM_LUCK_CHANCE := 0.005
 const FIELD_ITEM_HEAL_RATIO := 0.3
-const CHEST_BASE_CHANCE := 0.004
-const CHEST_LUCK_CHANCE := 0.001
-const CHEST_ELITE_BONUS := 0.18
+## Elites only (and every boss, which spawns one outright). Ordinary kills used
+## to roll for one too, at 0.4% across roughly six thousand kills a run — which
+## made the rarest thing in the game something that happened constantly, from
+## nowhere in particular.
+const CHEST_ELITE_CHANCE := 0.34
+const CHEST_LUCK_CHANCE := 0.006
+## Luck moves the odds; it does not turn every elite into a chest. Without the
+## ceiling a maxed-luck greedy pair opened four chests a minute.
+const CHEST_MAX_CHANCE := 0.7
 const CHEST_MAX_REWARDS := 4
 ## 사슬 결계 used to be 사슬 정비: it topped up the integrity bar and did
 ## nothing else, which made the rarest-but-one drop in the game a number going
@@ -354,9 +369,12 @@ func _physics_process(delta: float) -> void:
 	# the dozen places an overlay opens or closes, so it cannot drift out of
 	# sync with what is actually on screen.
 	var modal := (lobby_active or character_select_active or level_up_active
-		or resonance_vote_active or pause_active or game_over)
+		or resonance_vote_active or pause_active or game_over or cinematic_active)
 	modal_dim.visible = modal
-	combat_hud.visible = not lobby_active and not character_select_active
+	# The run is over on the result screen, so its bars are stale information
+	# drawn on top of the panel that replaced them — and the P2 panel reaches
+	# far enough right to clip the overlay's own corner.
+	combat_hud.visible = not lobby_active and not character_select_active and not game_over
 	if modal:
 		for slot in 2:
 			combat_hud.get_node("Carried%d" % slot).visible = false
@@ -364,6 +382,10 @@ func _physics_process(delta: float) -> void:
 		# arrow would otherwise sit on top of the overlay panel.
 		threat_edge_indicator.visible = false
 		message_label.modulate.a = 0.0
+	# Checked before every other state: a showcase is on top of whatever opened
+	# it, and the run must not advance underneath it.
+	if cinematic_active:
+		return
 	if lobby_active:
 		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
 		if lobby_input_cooldown <= 0.0 and Input.is_action_just_pressed("pause") and (lobby_joined[0] or lobby_joined[1]):
@@ -540,25 +562,14 @@ func _create_players() -> void:
 	players.append(player_two)
 
 
-## The HUD ran on Godot's built-in fallback font, which has no Korean weight
-## worth the name — every label was the same flat grey shape. SystemFont picks a
-## real family off the machine at runtime, so the game gets proper type without a
-## font binary in the repository or a licence question attached to it. The list
-## is ordered by preference and falls through common Korean UI families before
-## giving up and taking whatever the platform offers.
-const UI_FONT_FAMILIES := [
-	"Pretendard", "Malgun Gothic", "Apple SD Gothic Neo",
-	"NanumBarunGothic", "Noto Sans KR", "Segoe UI",
-]
+## Keep the rounded cat-storybook voice consistent on every machine. Jua is
+## bundled with its OFL licence instead of relying on an OS-specific fallback.
+const CatUIFont := preload("res://assets/fonts/Jua-Regular.ttf")
 
 
 func _build_ui_theme_host() -> Control:
-	var font := SystemFont.new()
-	font.font_names = UI_FONT_FAMILIES
-	font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_AUTO
-
 	var theme := Theme.new()
-	theme.default_font = font
+	theme.default_font = CatUIFont
 	theme.set_color("font_color", "Label", CatTheme.CREAM)
 	# Screens keep their own type scale; family and neutral ink are inherited.
 	var host := Control.new()
@@ -1153,6 +1164,11 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		# blank lines, which is a layout expressed as content.
 		var icon := _create_icon_rect(card, Vector2((LEVEL_CARD_WIDTH - 64.0) * 0.5, 16.0), Vector2(64.0, 64.0))
 		icon.name = "Icon"
+		# The fusion mark sits beside the card art, not under it: it is a
+		# property of the thing on the card, and the card body is already full.
+		var fusion_mark := _create_icon_rect(card, Vector2(LEVEL_CARD_WIDTH - 46.0, 14.0), Vector2(34.0, 34.0))
+		fusion_mark.name = "FusionMark"
+		fusion_mark.visible = false
 		var recommendation := Label.new()
 		recommendation.name = "Recommendation"
 		recommendation.position = Vector2(10.0, LEVEL_CARD_HEIGHT - 40.0)
@@ -1260,9 +1276,9 @@ func _refresh_lobby_ui() -> void:
 func _format_lobby_slot(slot: int) -> String:
 	var heading := "P%d" % (slot + 1)
 	if lobby_joined[slot]:
-		return "%s  ·  ✓ 참가 완료\n%s\nESC / START  취소" % [heading, lobby_device_names[slot]]
+		return "%s  ✓ 참가 완료\n%s" % [heading, lobby_device_names[slot]]
 	var hint := "WASD  /  패드 1 아무 버튼" if slot == 0 else "방향키  /  패드 2 아무 버튼"
-	return "%s  ·  참가 대기\n\n%s" % [heading, hint]
+	return "%s  참가\n%s" % [heading, hint]
 
 
 func _begin_character_select() -> void:
@@ -1432,6 +1448,9 @@ func _start_selected_run() -> void:
 	field_items.clear_all()
 	bursts.clear_all()
 	particles.clear_all()
+	showcase_queue.clear()
+	cinematic_active = false
+	cinematic_continuation = Callable()
 	lobby_active = false
 	lobby_overlay.visible = false
 	get_tree().paused = false
@@ -2003,12 +2022,16 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 ## team luck raises. The boss is excluded because defeating it ends the run,
 ## so a pickup nobody can reach would just be noise.
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
-	var chest_chance := (CHEST_BASE_CHANCE + CHEST_LUCK_CHANCE * float(team_luck)) * (1.0 + team_greed * 0.5)
+	# Chests come from elites and bosses and nothing else. A chest that could
+	# fall off any of the six thousand ordinary kills in a run is a slot machine
+	# running in the background; one that only falls off a fight the pair had to
+	# actually win is a reward for winning it.
 	if was_elite:
-		chest_chance += CHEST_ELITE_BONUS
-	if randf() < chest_chance:
-		field_items.spawn_item(drop_position, "chest")
-		return
+		var chest_chance := minf(CHEST_MAX_CHANCE,
+			CHEST_ELITE_CHANCE + CHEST_LUCK_CHANCE * float(team_luck) * (1.0 + team_greed * 0.5))
+		if randf() < chest_chance:
+			field_items.spawn_item(drop_position, "chest")
+			return
 	var chance := (FIELD_ITEM_BASE_CHANCE + FIELD_ITEM_LUCK_CHANCE * float(team_luck)) * (1.0 + team_greed)
 	if not was_elite and randf() >= chance:
 		return
@@ -2027,9 +2050,15 @@ func _on_field_item_collected(item_id: String) -> void:
 			var centre := (players[0].global_position + players[1].global_position) * 0.5
 			weapon_controller.play_shockwave(centre, 260.0, color, 0.48, false)
 			particles.emit_motes(centre, color, 22)
-			feedback.play_cue("chest_open")
 			camera_shake = maxf(camera_shake, 12.0)
-			label += "  %d개 획득\n%s" % [rewards.size(), " · ".join(rewards)]
+			var names: Array[String] = []
+			for reward: Dictionary in rewards:
+				names.append(String(reward["label"]))
+			label += "  %d개 획득\n%s" % [rewards.size(), " · ".join(names)]
+			# Pushed to the front so the box is seen opening before anything it
+			# contained gets its own showcase (a chest can hand out a fusion).
+			_queue_showcase({"kind": "chest", "rewards": rewards}, true)
+			_play_showcase_queue()
 		"heal":
 			for player in players:
 				player.heal(player.max_health * FIELD_ITEM_HEAL_RATIO)
@@ -2084,18 +2113,24 @@ func _on_field_item_collected(item_id: String) -> void:
 ## level-up. Existing equipment is always considered before empty slots; the
 ## box therefore deepens a build first and only introduces new technology when
 ## nothing currently carried can still grow.
-func _open_chest() -> Array[String]:
-	var results: Array[String] = []
+## Each reward carries the icon it will be thrown out as, not only its name:
+## the opening showcase shows what came out, and a list of text would be the
+## thing the box was supposed to replace.
+func _open_chest() -> Array[Dictionary]:
+	var results: Array[Dictionary] = []
 	for reward_index in _roll_chest_reward_count():
 		var candidates := _chest_upgrade_candidates()
 		if candidates.is_empty():
 			candidates = _chest_unlock_candidates()
 		if candidates.is_empty():
-			results.append(_apply_chest_transcendence())
+			results.append({"label": _apply_chest_transcendence(), "icon": IconCatalog.upgrade("might")})
 			continue
 		var chosen := _choose_chest_candidate(candidates)
-		_apply_upgrade(int(chosen["slot"]), chosen["option"])
-		results.append("P%d %s" % [int(chosen["slot"]) + 1, String(chosen["label"])])
+		var slot := int(chosen["slot"])
+		var option: Dictionary = chosen["option"]
+		var art := IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
+		_apply_upgrade(slot, option)
+		results.append({"label": "P%d %s" % [slot + 1, String(chosen["label"])], "icon": art})
 	return results
 
 
@@ -2201,6 +2236,60 @@ func _apply_chest_transcendence() -> String:
 	var weapon: Dictionary = weapon_loadouts[slot].pick_random()
 	weapon["damage"] = float(weapon["damage"]) * 1.08
 	return "P%d %s 초월" % [slot + 1, String(weapon["weapon_name"])]
+
+
+## Adds a showcase to the queue. `front` is for a chest, whose own opening has
+## to be seen before whatever the chest happened to contain.
+func _queue_showcase(entry: Dictionary, front := false) -> void:
+	if front:
+		showcase_queue.push_front(entry)
+	else:
+		showcase_queue.append(entry)
+
+
+## Plays everything queued, then calls `continuation`. The tree is paused for
+## the duration and put back the way it was found, so this works both from a
+## level-up (already paused) and from a chest picked up mid-fight (not).
+func _play_showcase_queue(continuation := Callable()) -> void:
+	cinematic_continuation = continuation
+	if not cinematic_active:
+		cinematic_resume_paused = get_tree().paused
+	_advance_showcase_queue()
+
+
+func _advance_showcase_queue() -> void:
+	if showcase_queue.is_empty():
+		cinematic_active = false
+		get_tree().paused = cinematic_resume_paused
+		var next := cinematic_continuation
+		cinematic_continuation = Callable()
+		if next.is_valid():
+			next.call()
+		return
+	var entry: Dictionary = showcase_queue.pop_front()
+	cinematic_active = true
+	get_tree().paused = true
+	var node := ShowcaseScript.new() as Showcase
+	match String(entry["kind"]):
+		"fusion":
+			node.play_fusion(
+				IconCatalog.weapon(String(entry["base_weapon_id"])),
+				IconCatalog.upgrade(String(entry["treasure_id"])),
+				IconCatalog.weapon(String(entry["weapon_id"])),
+				String(entry["name"]), Color("ffd166"))
+			feedback.play_cue("resonance")
+		"resonance":
+			node.play_resonance(
+				IconCatalog.weapon(String(entry["weapon_a_id"])),
+				IconCatalog.weapon(String(entry["weapon_b_id"])),
+				String(entry["name"]), Color("c77dff"))
+			feedback.play_cue("resonance")
+		"chest":
+			node.play_chest(entry["rewards"])
+			feedback.play_cue("chest_open")
+	node.finished.connect(_advance_showcase_queue)
+	hud_layer.add_child(node)
+	camera_shake = maxf(camera_shake, 8.0)
 
 
 func _gain_shared_xp(amount: int) -> void:
@@ -2552,19 +2641,122 @@ func _has_weapon_upgrade(options: Array) -> bool:
 ## expected combat value, current survivability, run timing and the build graph:
 ## an option that creates a new tier-3 weapon pairing wins a large explicit
 ## bonus because it immediately unlocks a resonance vote.
+## How the screen advises. There used to be exactly one star, always, on
+## whichever card scored highest — which lies twice: it claims there is a right
+## answer when three cards are within a hair of each other, and it claims the
+## best of three bad cards is good.
+##
+## A card is now starred only if it clears an absolute bar *and* is close to the
+## best on offer, so a draw of three mediocre cards is honestly starred zero
+## times and a draw of two strong ones is starred twice. The opposite advice is
+## worth as much and was missing entirely: a card that does nothing for this
+## build is marked against, which is the difference between a player who reads
+## the screen and one who guesses.
+const RECOMMEND_MIN_SCORE := 42.0
+const RECOMMEND_RELATIVE := 0.80
+const DISCOURAGE_MAX_SCORE := 18.0
+const DISCOURAGE_RELATIVE := 0.25
+
+
 func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
-	var best_index := -1
 	var best_score := -INF
-	for index in choices.size():
-		var rating := _score_upgrade_option(slot, choices[index])
-		choices[index]["recommendation_score"] = float(rating["score"])
-		choices[index]["recommendation_reason"] = String(rating["reason"])
-		choices[index]["recommended"] = false
-		if float(rating["score"]) > best_score:
-			best_score = float(rating["score"])
-			best_index = index
-	if best_index >= 0:
-		choices[best_index]["recommended"] = true
+	for option in choices:
+		var rating := _score_upgrade_option(slot, option)
+		option["recommendation_score"] = float(rating["score"])
+		option["recommendation_reason"] = String(rating["reason"])
+		option["recommended"] = false
+		option["discouraged"] = false
+		best_score = maxf(best_score, float(rating["score"]))
+
+	var discouraged := 0
+	for option in choices:
+		var score := float(option["recommendation_score"])
+		if score >= RECOMMEND_MIN_SCORE and score >= best_score * RECOMMEND_RELATIVE:
+			option["recommended"] = true
+			continue
+		# Never mark the whole hand against: a player forced to pick from three
+		# cards has to be told which of them is least bad, not that they lose
+		# whatever they do.
+		if discouraged >= choices.size() - 1:
+			continue
+		if score <= DISCOURAGE_MAX_SCORE or score <= best_score * DISCOURAGE_RELATIVE:
+			option["discouraged"] = true
+			option["discouragement_reason"] = _discouragement_reason(slot, option, score)
+			discouraged += 1
+
+
+## Why a card is marked against. Deliberately about this build rather than about
+## the card — "지금 무기와 맞지 않음" is actionable, "약함" is not.
+func _discouragement_reason(slot: int, option: Dictionary, score: float) -> String:
+	var upgrade_id := String(option["id"])
+	if score <= 1.0:
+		return "지금은 효과 없음"
+	if upgrade_id in ["unlock_treasure", "treasure_upgrade"]:
+		var effect := _option_icon_id(slot, option)
+		if not UpgradeValue.benefits_loadout(weapon_loadouts[slot], effect):
+			return "지금 무기와 맞지 않음"
+		return "성장이 느린 편"
+	if upgrade_id == "unlock_weapon":
+		return "칸을 나누게 됩니다"
+	return "다른 카드가 더 급합니다"
+
+
+## Whether this card is on a fusion path, and whether taking it opens one now.
+##
+## The level-up screen used to print both requirements of every survivor's
+## nearest fusion along the bottom of the screen. That is the back half of the
+## run handed over as a table, and it made the first fusion an errand rather
+## than a discovery. The mark says only that this card matters to a fusion; it
+## never names what the fusion is.
+func _fusion_hint(slot: int, option: Dictionary) -> Dictionary:
+	var upgrade_id := String(option["id"])
+	if upgrade_id == "evolve_weapon":
+		return {} ## The card already is the fusion.
+	var loadout: Array = weapon_loadouts[slot]
+
+	if upgrade_id == "unlock_weapon":
+		var character: Dictionary = option["character"]
+		var evolution := Evolutions.for_base(String(character["weapon_id"]))
+		if evolution.is_empty():
+			return {}
+		# Only worth marking if the treasure half is already under way; every
+		# weapon has a fusion somewhere, so marking all of them says nothing.
+		if _treasure_tier(slot, String(evolution["treasure_id"])) <= 0:
+			return {}
+		return {"ready": false, "tip": "합성 재료 — 이 무기의 짝을 이미 들고 있습니다"}
+
+	if upgrade_id in ["unlock_treasure", "treasure_upgrade"]:
+		var treasure_id := _option_icon_id(slot, option)
+		var on_path := false
+		for weapon in loadout:
+			if bool(weapon.get("evolved", false)):
+				continue
+			var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+			if evolution.is_empty() or String(evolution["treasure_id"]) != treasure_id:
+				continue
+			on_path = true
+			var next_tier := _treasure_tier(slot, treasure_id) + 1
+			if next_tier >= Evolutions.REQUIRED_TREASURE_TIER and int(weapon.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+				return {"ready": true, "tip": "이걸 고르면 바로 합성할 수 있습니다"}
+		return {"ready": false, "tip": "합성 재료"} if on_path else {}
+
+	var weapon_slot := int(option.get("weapon_slot", -1))
+	if weapon_slot < 0 or weapon_slot >= loadout.size():
+		return {}
+	var weapon: Dictionary = loadout[weapon_slot]
+	if bool(weapon.get("evolved", false)):
+		return {}
+	var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+	if evolution.is_empty():
+		return {}
+	var next_tier := mini(Evolutions.WEAPON_MAX_TIER, int(weapon.get("tier", 1)) + 1)
+	if next_tier >= Evolutions.WEAPON_MAX_TIER:
+		if _treasure_tier(slot, String(evolution["treasure_id"])) >= Evolutions.REQUIRED_TREASURE_TIER:
+			return {"ready": true, "tip": "이걸 고르면 바로 합성할 수 있습니다"}
+		return {"ready": false, "tip": "무기는 준비됐습니다 — 짝이 되는 보물이 필요합니다"}
+	if next_tier >= Evolutions.WEAPON_MAX_TIER - 2:
+		return {"ready": false, "tip": "합성 재료"}
+	return {}
 
 
 ## Scores one card so the level-up screen can star the strongest. Treasures are
@@ -2892,7 +3084,14 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 	if selected_upgrade_indices[0] >= 0 and selected_upgrade_indices[1] >= 0:
 		_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
 		_apply_upgrade(1, p2_choices[selected_upgrade_indices[1]])
-		_after_personal_upgrade_choices()
+		# Any fusion the two picks produced is shown before the run is handed
+		# back — including before the resonance vote, which is the next thing a
+		# pair who just fused might be looking at.
+		if showcase_queue.is_empty():
+			_after_personal_upgrade_choices()
+		else:
+			level_overlay.visible = false
+			_play_showcase_queue(_after_personal_upgrade_choices)
 
 
 func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
@@ -2905,10 +3104,18 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	if upgrade_id == "evolve_weapon":
 		var weapon_slot := int(option["weapon_slot"])
 		var base_state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
-		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(option["evolution"], base_state)
+		var evolution: Dictionary = option["evolution"]
+		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(evolution, base_state)
 		fusion_discovered = true
-		feedback.play_cue("resonance")
-		_show_message("합성 완성 — %s" % String((option["evolution"] as Dictionary)["weapon_name"]), Color("fff275"))
+		# The biggest single step in the tree used to be one line in the message
+		# banner, identical in weight to "+25% 피해". It gets the screen now.
+		_queue_showcase({
+			"kind": "fusion",
+			"base_weapon_id": String(base_state["weapon_id"]),
+			"treasure_id": String(evolution["treasure_id"]),
+			"weapon_id": String(evolution["weapon_id"]),
+			"name": String(evolution["weapon_name"]),
+		})
 		return
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
@@ -3022,6 +3229,7 @@ func _refresh_player_cards(player_index: int) -> void:
 		var is_focused := not locked and index == upgrade_cursors[slot]
 		var is_chosen := locked and index == selected_upgrade_indices[slot]
 		var is_recommended := bool(option.get("recommended", false))
+		var is_discouraged := bool(option.get("discouraged", false))
 
 		card.visible = (not locked) or is_chosen
 		card.text = "%s\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
@@ -3030,8 +3238,18 @@ func _refresh_player_cards(player_index: int) -> void:
 		# The reason lives on the badge instead of as a fourth line of body copy:
 		# it explains the star, so it belongs to the star.
 		var recommendation := card.get_node("Recommendation") as Label
-		recommendation.visible = is_recommended
-		recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
+		recommendation.visible = is_recommended or is_discouraged
+		if is_discouraged:
+			recommendation.text = "▽ %s" % String(option.get("discouragement_reason", ""))
+		else:
+			recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
+
+		var mark := card.get_node("FusionMark") as TextureRect
+		var hint := _fusion_hint(slot, option)
+		mark.visible = not hint.is_empty()
+		if mark.visible:
+			mark.texture = IconCatalog.fusion_seal(bool(hint["ready"]))
+			mark.tooltip_text = String(hint["tip"])
 
 		var border := CatTheme.GOLD if is_unlock or is_recommended else accent
 		if level_up_input_delay > 0.0:
@@ -3125,9 +3343,16 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 		icon.texture = IconCatalog.weapon(String(entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(entry["id"]))
 		tier.visible = true
 		tier.text = "T%d" % int(entry.get("tier", 1))
+## The strip under the cards used to spell out both fusion requirements for
+## both survivors, every level, from level one — the whole tech tree as a
+## table. It is gone; the per-card fusion mark says the same thing at the
+## moment it is actually a decision (see _fusion_hint). What is left here is
+## the run state a player cannot see anywhere else on this screen.
 func _refresh_team_stats_ui() -> void:
-	# Show the two-part commitment before the player spends limited slots.
-	team_stats_label.text = "합성  P1  %s\n합성  P2  %s" % [_fusion_progress_line(0), _fusion_progress_line(1)]
+	team_stats_label.text = "LV.%d      공유 경험치 %d / %d      %02d:%02d 경과" % [
+		progression.level, int(progression.experience), int(progression.required_experience),
+		int(elapsed) / 60, int(elapsed) % 60,
+	]
 	team_stats_label.visible = true
 
 
@@ -3226,8 +3451,16 @@ func _handle_resonance_vote_input() -> void:
 		resonance_vote_active = false
 		resonance_overlay.visible = false
 		_show_message("공명 완성 — %s" % String(chosen["name"]), Color("fff275"))
-		feedback.play_cue("resonance")
-		_finish_level_up()
+		# Deliberately a different shape from the fusion showcase: a resonance is
+		# the pair's move, so the two weapons orbit and stay two rather than
+		# converging into one.
+		_queue_showcase({
+			"kind": "resonance",
+			"weapon_a_id": String(chosen.get("weapon_a_id", "")),
+			"weapon_b_id": String(chosen.get("weapon_b_id", "")),
+			"name": String(chosen["name"]),
+		})
+		_play_showcase_queue(_finish_level_up)
 		return
 	# Only the disagreement is cleared, not the browsing position: both cursors
 	# stay where they were so the pair argues from where they actually are.

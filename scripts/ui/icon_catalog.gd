@@ -69,6 +69,57 @@ static func has_atlas_art(id: String, kind: String) -> bool:
 			return UPGRADE_ORDER.has(id) or UPGRADE_ALIASES.has(id)
 
 
+## The mark the level-up screen puts beside a card that feeds a fusion.
+##
+## The screen used to spell the whole tech tree out along the bottom — "화염
+## 성운 T1/7 + 확장의 렌즈 T0/4 → 초신성" — which is a spreadsheet, and it told
+## a first-time pair the answer to something they were supposed to discover.
+## The mark says only "this card is on a fusion path", and the bright version
+## says "taking this opens one now". What it opens is still not named.
+##
+## Two chevrons closing on a diamond: converging, then a thing made.
+static func fusion_seal(ready: bool) -> Texture2D:
+	var key := "seal:%s" % ("ready" if ready else "step")
+	if _generated.has(key):
+		return _generated[key] as Texture2D
+	var size := 64
+	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0, 0, 0, 0))
+	var centre := Vector2(size * 0.5, size * 0.5)
+	# Drawn onto a cream card, so both inks are darker than the palette colours
+	# they stand for: a pale gold seal on a pale card is a smudge.
+	var ink := Color("c8871b") if ready else Color("647c86")
+	var glow := Color(ink, 0.30 if ready else 0.16)
+	for y in size:
+		for x in size:
+			var offset := Vector2(float(x) + 0.5, float(y) + 0.5) - centre
+			var distance := offset.length()
+			if distance > 30.0:
+				continue
+			# Outer ring.
+			if distance >= 25.0:
+				image.set_pixel(x, y, Color(ink, 0.85 if ready else 0.5))
+				continue
+			if distance >= 22.0:
+				image.set_pixel(x, y, glow)
+				continue
+			# Diamond core.
+			if absf(offset.x) + absf(offset.y) <= 8.0:
+				image.set_pixel(x, y, Color(ink.lightened(0.35) if ready else ink, 1.0))
+				continue
+			# Two chevrons pointing inward from left and right.
+			var toward := absf(absf(offset.x) - 15.0) + absf(absf(offset.y) - absf(offset.x) + 15.0)
+			if absf(offset.x) >= 9.0 and absf(offset.x) <= 20.0 and absf(offset.y) <= 13.0:
+				if absf(absf(offset.y) - (20.0 - absf(offset.x))) <= 2.2:
+					image.set_pixel(x, y, Color(ink, 0.95 if ready else 0.6))
+					continue
+			if distance <= 19.0 and toward < 0.0:
+				image.set_pixel(x, y, glow)
+	var texture := ImageTexture.create_from_image(image)
+	_generated[key] = texture
+	return texture
+
+
 static func generated(id: String, kind: String) -> Texture2D:
 	var key := kind + ":" + id
 	if _generated.has(key):

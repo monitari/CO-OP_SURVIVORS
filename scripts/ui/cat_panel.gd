@@ -40,8 +40,6 @@ func _draw_backdrop() -> void:
 	for index in 32:
 		var spot := Vector2(fmod(index * 173.0 + 28, size.x), fmod(index * 79.0 + 22, size.y))
 		draw_circle(spot, 1.4 if index % 3 else 2.2, Color(CatStyle.CREAM, 0.22))
-	draw_circle(Vector2(size.x - 82, 88), 51, Color("e9cfa7"))
-	draw_circle(Vector2(size.x - 61, 70), 47, Color("172c36"))
 	for index in 12:
 		var x := index * 116.0 - 30
 		var top := size.y - 46 - (index % 3) * 17

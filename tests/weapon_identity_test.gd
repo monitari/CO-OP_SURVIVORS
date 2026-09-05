@@ -8,7 +8,7 @@ var failures: Array[String] = []
 
 
 func _initialize() -> void:
-	TestHarness.arm_watchdog(self, "WEAPON_IDENTITY_FAIL", 120.0)
+	TestHarness.arm_watchdog(self, "WEAPON_IDENTITY_FAIL", 240.0)
 	call_deferred("_run")
 
 
@@ -44,9 +44,10 @@ func _run() -> void:
 	await _test_chain_pulse_reads_the_leash(main)
 	await _test_lance_splits_into_beams(main)
 	_test_leash_upgrade_lengthens_the_chain(main)
+	await _test_orbit_hits_once_per_shard(main)
 
 	if failures.is_empty():
-		print("WEAPON_IDENTITY_PASS: ten weapons, twenty working specials, three reworked deliveries")
+		print("WEAPON_IDENTITY_PASS: ten weapons, twenty working specials, four reworked deliveries")
 		quit(0)
 	else:
 		for failure in failures:
@@ -86,8 +87,11 @@ func _test_every_weapon_has_specials(main: Node) -> void:
 				"%s's special %s moves %s (%.2f)" % [name, key, String(spec["field"]), after])
 
 			# And the card pool has to be able to offer it, or it is unreachable.
+			# Fifteen draws rather than forty: each draw runs the whole scoring
+			# pass, and at twenty specials the old count made this the slowest
+			# test in the suite for no extra confidence.
 			var offered := false
-			for draw in 40:
+			for draw in 15:
 				for candidate in main._get_upgrade_choices(1):
 					if String(candidate["id"]) == "special_" + key and int(candidate["weapon_slot"]) == 0:
 						offered = true
@@ -170,8 +174,8 @@ func _measure_chain_hit(main: Node, tension: float) -> float:
 	return dealt
 
 
-## 분광 turns one beam into a fan of parallel ones. Measured by where they land,
-## not by the field changing: a beam count nothing reads is not an upgrade.
+## 분광 rolls separate targets instead of cloning one parallel line. Measured
+## by headings and actual victims so a cosmetic spread cannot satisfy it.
 func _test_lance_splits_into_beams(main: Node) -> void:
 	await _clear_enemies(main)
 	main.players[0].area = 1.0
@@ -181,21 +185,28 @@ func _test_lance_splits_into_beams(main: Node) -> void:
 	main.players[0].position = Vector2.ZERO
 	main.players[1].position = Vector2(0.0, 200.0)
 
-	# One target dead ahead to aim at, one well off the line the single beam takes.
-	var ahead := _spawn(main, Vector2(300.0, 0.0))
-	var flanker := _spawn(main, Vector2(300.0, float(lance["width"]) * 1.35))
-	flanker.radius = 6.0
+	var targets: Array[ChaserEnemy] = []
+	for position in [Vector2(300, 0), Vector2(0, 300), Vector2(-300, 0), Vector2(0, -300)]:
+		targets.append(_spawn(main, position))
 	main.spatial_grid.rebuild(main.enemies)
+	seed(1197)
 	main.weapon_controller.perform_attack(0, 0, 1.0)
-	_check(ahead.health < ahead.max_health, "the single beam hits what it is aimed at")
-	var flanker_untouched := is_equal_approx(flanker.health, flanker.max_health)
-	_check(flanker_untouched, "and a single beam misses the flank")
+	var single_hits := targets.filter(func(enemy: ChaserEnemy) -> bool: return enemy.health < enemy.max_health).size()
+	_check(single_hits == 1, "one lance selects and pierces one random bearing (%d bearings hit)" % single_hits)
 
+	for enemy in targets:
+		enemy.health = enemy.max_health
 	main._apply_upgrade(0, {"id": "special_b", "weapon_slot": 0})
 	_check(int(main.weapon_loadouts[0][0]["beams"]) == 2, "분광 adds a beam")
 	main.spatial_grid.rebuild(main.enemies)
+	seed(1197)
+	var headings: Array[Vector2] = main.weapon_controller._lance_headings(0, float(lance["range"]), 2)
+	_check(headings.size() == 2 and absf(headings[0].angle_to(headings[1])) > 0.1,
+		"multiple lances choose visibly different random directions")
+	seed(1197)
 	main.weapon_controller.perform_attack(0, 0, 1.0)
-	_check(flanker.health < flanker.max_health, "the fanned beams reach the flank")
+	var multi_hits := targets.filter(func(enemy: ChaserEnemy) -> bool: return enemy.health < enemy.max_health).size()
+	_check(multi_hits >= 2, "two lances reach at least two target bearings (%d)" % multi_hits)
 	await _clear_enemies(main)
 
 
@@ -210,6 +221,78 @@ func _test_leash_upgrade_lengthens_the_chain(main: Node) -> void:
 		"느슨한 족쇄 lengthens the pair's leash (%.0f → %.0f)" % [before, main.chain_max_length])
 	_check(not main.weapon_loadouts[0][0].has("chain_length"),
 		"and does not smuggle a stray field onto the weapon")
+
+
+## 궤도 파편 checked the whole ring five times a second and let one enemy be hit
+## only once per check, so every shard past the first was decoration: a boss
+## standing in the ring took the same damage from five shards as from one, and
+## 파편 증식 — the weapon's own signature upgrade — did nothing at all to a
+## single target.
+##
+## Measured against a stationary dummy parked on the ring, because that is the
+## exact case the old model got wrong.
+func _test_orbit_hits_once_per_shard(main: Node) -> void:
+	await _clear_enemies(main)
+	var orbit: Dictionary = main._build_weapon_state(CharacterCatalog.all_characters()[6])
+	_check(String(orbit["weapon_id"]) == "orbit", "the fixture picked the orbit survivor")
+	main.players[0].position = Vector2.ZERO
+	main.players[1].position = Vector2(0.0, 260.0)
+
+	var three := await _measure_orbit(main, orbit, 3)
+	var six := await _measure_orbit(main, orbit, 6)
+	print("ORBIT_METRICS: 3 shards hit %d times, 6 shards hit %d times" % [three, six])
+	_check(three >= 2, "a single enemy is hit more than once per revolution (%d)" % three)
+	_check(six > three,
+		"doubling the shards lands more hits on that one enemy (%d vs %d)" % [six, three])
+	# A shard that stays on top of something must not machine-gun it. The bound
+	# is the rule itself — one hit per shard per re-hit window, for as long as
+	# the field lives — so a per-frame regression (about 230 hits here) fails
+	# even though the honest number sits far below the cap.
+	var ceiling := int(ceil(last_orbit_duration / WeaponField.ORBIT_REHIT)) * 6
+	_check(six <= ceiling, "and the ring still cannot machine-gun it (%d, ceiling %d)" % [six, ceiling])
+	await _clear_enemies(main)
+
+
+## Runs one orbit field to completion against a dummy on the ring and reports
+## how many separate hits it took.
+var last_orbit_duration := 0.0
+
+
+func _measure_orbit(main: Node, base: Dictionary, shards: int) -> int:
+	var state := base.duplicate(true)
+	state["count"] = shards
+	main.weapon_loadouts[0] = [state]
+	var victim := _spawn(main, Vector2(float(state["radius"]), 0.0))
+	victim.health = 1000000.0
+	victim.max_health = 1000000.0
+	main.spatial_grid.rebuild(main.enemies)
+
+	var hits := 0
+	var previous := victim.health
+	main.weapon_controller.perform_attack(0, 0, 1.0)
+	var field: WeaponField = null
+	for child in main.weapon_controller.get_children():
+		var candidate := child as WeaponField
+		if candidate != null:
+			field = candidate
+	_check(field != null, "the cast actually created an orbit field")
+	if field == null:
+		return 0
+	last_orbit_duration = field.duration
+	for step in 300:
+		if not is_instance_valid(field):
+			break
+		field._physics_process(1.0 / 60.0)
+		if victim.health < previous:
+			hits += 1
+			previous = victim.health
+	if is_instance_valid(field):
+		field.queue_free()
+	victim.dead = true
+	main.enemies.erase(victim)
+	victim.queue_free()
+	await process_frame
+	return hits
 
 
 func _spawn(main: Node, at: Vector2) -> ChaserEnemy:

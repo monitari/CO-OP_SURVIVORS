@@ -35,10 +35,10 @@ func _run() -> void:
 	_test_both_requirements(main)
 	_test_fusion_replaces_in_place(main)
 	_test_tier_is_capped(main)
-	_test_tech_tree_is_hidden_until_discovered(main)
+	_test_the_tech_tree_is_shown_on_the_cards(main)
 
 	if failures.is_empty():
-		print("FUSION_PASS: both gates enforced, fusion replaces in place, tech tree visible from the start")
+		print("FUSION_PASS: both gates enforced, fusion replaces in place, the tree is on the cards not on a strip")
 		quit(0)
 	else:
 		for failure in failures:
@@ -146,26 +146,48 @@ func _test_tier_is_capped(main: Node) -> void:
 		"weapon tier stops at the cap (%d)" % int(weapon["tier"]))
 
 
-func _test_tech_tree_is_hidden_until_discovered(main: Node) -> void:
-	# Even before discovery, show the next requirements. P2 is already T7 in
-	# this fixture; only the required denominator, not a T1 numerator, is fixed.
+## The screen used to print both requirements of both survivors' nearest fusion
+## along the bottom, from level one — the back half of the run as a table, and
+## an errand instead of a discovery. The strip is gone; what replaced it is a
+## mark on the individual card that is actually a decision right now.
+##
+## Both halves are checked, because deleting the strip without putting anything
+## in its place would leave a player with no way at all to see a fusion coming.
+func _test_the_tech_tree_is_shown_on_the_cards(main: Node) -> void:
 	main.fusion_discovered = false
 	main._refresh_team_stats_ui()
-	_check(String(main.team_stats_label.text).contains("합성  P1") and String(main.team_stats_label.text).contains("/7"),
-		"the fusion path and weapon requirement are visible before the first fusion")
+	var strip := String(main.team_stats_label.text)
+	for evolution in EvolutionCatalog.all_evolutions():
+		_check(not strip.contains(String(evolution["weapon_name"])),
+			"the strip does not name the fusion %s" % String(evolution["weapon_name"]))
+	_check(not strip.contains("→"), "the strip is not a requirements table any more (%s)" % strip)
+	_check(strip.contains("LV."), "the strip still carries the run state it replaced it with")
 
-	main.fusion_discovered = true
-	main._refresh_team_stats_ui()
-	var text := String(main.team_stats_label.text)
-	_check(text.contains("합성  P1") and text.contains("합성  P2"), "the tech tree lists both survivors")
-	# P2 has an unfused weapon at max tier, so their line has to name the
-	# treasure that is still missing — that is the whole point of the readout.
-	var partner_evolution := EvolutionCatalog.for_base(String(main.weapon_loadouts[1][0]["weapon_id"]))
-	var required := TreasureCatalog.by_id(String(partner_evolution["treasure_id"]))
-	_check(text.contains(String(required["name"])),
-		"the tech tree names the treasure a weapon still needs (%s)" % String(required["name"]))
-	_check(text.contains(String(partner_evolution["weapon_name"])),
-		"the tech tree names what the weapon would become")
+	# P2 carries an unfused weapon at max tier with no treasure, so its weapon
+	# upgrades have to be marked as fusion material rather than as nothing.
+	var weapon: Dictionary = main.weapon_loadouts[1][0]
+	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER - 1
+	var hint: Dictionary = main._fusion_hint(1, {"id": "weapon_power", "weapon_slot": 0})
+	_check(not hint.is_empty(), "a weapon one step from its cap is marked")
+	_check(not bool(hint["ready"]), "but not as ready while its treasure is missing")
+
+	# The treasure that finishes it, at the tier that finishes it, is the mark
+	# that says "take this and you can fuse now".
+	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
+	var treasure_id := String(evolution["treasure_id"])
+	main._apply_upgrade(1, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id(treasure_id)})
+	var treasure_slot: int = main.treasure_loadouts[1].size() - 1
+	while main._treasure_tier(1, treasure_id) < EvolutionCatalog.REQUIRED_TREASURE_TIER - 1:
+		main._apply_upgrade(1, {"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot})
+	var last_step: Dictionary = main._fusion_hint(1, {"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot})
+	_check(not last_step.is_empty() and bool(last_step["ready"]),
+		"the last step before a fusion is marked as ready")
+
+	# And a card with nothing to do with any fusion carries no mark at all, or
+	# the mark would be decoration rather than information.
+	_check(main._fusion_hint(1, {"id": "move", "weapon_slot": -1}).is_empty(),
+		"an unrelated card is not marked")
 
 
 func _check(condition: bool, label: String) -> void:

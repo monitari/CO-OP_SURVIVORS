@@ -25,7 +25,7 @@ func _run() -> void:
 	_check(main.lobby_active, "starts in lobby")
 	_check(main.lobby_overlay.visible, "lobby overlay is visible")
 	_check(not main.character_overlay.visible, "character select is hidden behind the lobby")
-	_check(main.lobby_p1_label.text.contains("참가 대기"), "empty P1 slot prompts to join")
+	_check(main.lobby_p1_label.text.contains("참가") and not main.lobby_p1_label.text.contains("완료"), "empty P1 slot prompts to join")
 
 	main.lobby_input_cooldown = 0.0
 	main._join_lobby_slot(0, -1, "키보드 WASD")

@@ -12,6 +12,14 @@ var lifetime := 3.2
 var radius := 8.0
 var projectile_color := Color("43d9ff")
 var homing_enabled := true
+## What this projectile looks like. 유도 별탄 and 불꽃 투사체 were both a flat
+## disc with a stub of a tail, which next to the drawn scythe sweep and the
+## orbit ring read as placeholder art. The silhouette is now built once in local
+## space and carried by the node's own rotation, so a comet and an ember cost
+## exactly what the disc did — no per-frame redraw for either.
+var style := "bolt"
+var shape_seed := 0.0
+var spawn_lifetime := 3.2
 var remaining_hits := 1
 var hit_enemy_ids: Dictionary = {}
 var spatial_grid: EnemySpatialGrid
@@ -26,6 +34,11 @@ func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
 	radius = 8.0
 	projectile_color = Color("43d9ff")
 	homing_enabled = true
+	style = "bolt"
+	shape_seed = randf() * TAU
+	spawn_lifetime = lifetime
+	scale = Vector2.ONE
+	modulate = Color.WHITE
 	remaining_hits = 1
 	hit_enemy_ids.clear()
 	direction = start_direction.normalized()
@@ -50,6 +63,14 @@ func _physics_process(delta: float) -> void:
 		direction = direction.lerp(desired, minf(1.0, turn_speed * delta)).normalized()
 	position += direction * speed * delta
 	rotation = direction.angle()
+	# Node scale and modulate rather than a redraw: an ember that burns down and
+	# a star that steadies as it flies, for free at three hundred projectiles.
+	var remaining := clampf(lifetime / maxf(0.001, spawn_lifetime), 0.0, 1.0)
+	if style == "ember":
+		scale = Vector2.ONE * (0.72 + remaining * 0.42)
+		modulate.a = clampf(remaining * 2.6, 0.35, 1.0)
+	elif style == "star":
+		scale = Vector2.ONE * (1.12 - remaining * 0.12)
 
 	var candidates: Array = spatial_grid.query_radius(global_position, radius + 32.0) if spatial_grid != null else get_tree().get_nodes_in_group("enemies")
 	for candidate in candidates:
@@ -90,7 +111,65 @@ func _find_nearest_enemy() -> ChaserEnemy:
 	return nearest
 
 
+## Drawn along +X; the node's rotation points it. Everything here is static in
+## local space on purpose — see the note on `style`.
 func _draw() -> void:
-	draw_line(Vector2(-22.0, 0.0), Vector2(-7.0, 0.0), Color(projectile_color, 0.28), radius, true)
-	draw_circle(Vector2.ZERO, radius + 5.0, Color(projectile_color, 0.18))
-	draw_circle(Vector2.ZERO, radius, projectile_color)
+	match style:
+		"star":
+			_draw_star_comet()
+		"ember":
+			_draw_ember()
+		_:
+			draw_line(Vector2(-22.0, 0.0), Vector2(-7.0, 0.0), Color(projectile_color, 0.28), radius, true)
+			draw_circle(Vector2.ZERO, radius + 5.0, Color(projectile_color, 0.18))
+			draw_circle(Vector2.ZERO, radius, projectile_color)
+
+
+## 유도 별탄: a four-pointed star with a tapered trail, so a homing shot reads as
+## the thing its name says it is rather than as a dot.
+func _draw_star_comet() -> void:
+	var tail := radius * 4.6
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(-tail, 0.0), Vector2(-radius * 1.2, -radius * 0.72),
+		Vector2(-radius * 1.2, radius * 0.72),
+	]), Color(projectile_color, 0.22))
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(-tail * 0.55, 0.0), Vector2(-radius * 0.9, -radius * 0.4),
+		Vector2(-radius * 0.9, radius * 0.4),
+	]), Color(projectile_color, 0.4))
+	draw_circle(Vector2.ZERO, radius + 5.0, Color(projectile_color, 0.16))
+	var star := PackedVector2Array()
+	for index in 8:
+		var angle := TAU * float(index) / 8.0
+		var reach := radius * 1.55 if index % 2 == 0 else radius * 0.6
+		star.append(Vector2.from_angle(angle) * reach)
+	draw_colored_polygon(star, projectile_color)
+	draw_circle(Vector2.ZERO, radius * 0.52, Color(projectile_color.lightened(0.65), 0.95))
+	# Two sparks shed behind it, seeded per shot so a volley is not eight
+	# identical stamps in a row.
+	draw_circle(Vector2(-tail * 0.62, sin(shape_seed) * radius * 0.8), radius * 0.26, Color(projectile_color, 0.55))
+	draw_circle(Vector2(-tail * 0.86, sin(shape_seed + 2.1) * radius * 0.6), radius * 0.18, Color(projectile_color, 0.35))
+
+
+## 불꽃 투사체: a teardrop with a hot core and a ragged trailing edge, wobbled by
+## the per-shot seed so a nine-ember nova is not nine copies of one sprite.
+func _draw_ember() -> void:
+	var wobble := sin(shape_seed) * 0.35
+	var body := PackedVector2Array()
+	for index in 10:
+		var angle := TAU * float(index) / 10.0
+		var stretch := 1.0 + cos(angle) * 0.42
+		var ripple := 1.0 + sin(angle * 3.0 + shape_seed) * 0.14
+		body.append(Vector2.from_angle(angle + wobble * 0.1) * radius * 1.35 * stretch * ripple)
+	draw_colored_polygon(body, Color(projectile_color, 0.34))
+	var core := PackedVector2Array()
+	for index in 8:
+		var angle := TAU * float(index) / 8.0
+		core.append(Vector2.from_angle(angle) * radius * (0.92 + cos(angle) * 0.3))
+	draw_colored_polygon(core, projectile_color)
+	draw_circle(Vector2(radius * 0.22, 0.0), radius * 0.46, Color(projectile_color.lightened(0.7), 0.95))
+	# The trailing lick of flame.
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(-radius * 1.2, -radius * 0.5), Vector2(-radius * 3.4 - wobble * 6.0, 0.0),
+		Vector2(-radius * 1.2, radius * 0.5),
+	]), Color(projectile_color.lightened(0.2), 0.3))

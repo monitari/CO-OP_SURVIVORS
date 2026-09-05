@@ -2,6 +2,8 @@ extends RefCounted
 ## Layout and visual hierarchy only. Input and build calculations remain in main.
 const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
+const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
+const TitleLogo := preload("res://assets/ui/title/moonroof_title.png")
 const PLAYSTYLE := {
 	"homing": "유도 별탄 · 단일 적 추적", "lightning": "연쇄 번개 · 적 사이로 전이",
 	"flame": "불꽃 투사체 · 전방 화력", "frost": "빙결 오라 · 상시 둔화 피해",
@@ -93,24 +95,23 @@ static func _lobby(main: Node) -> void:
 		if child not in [main.lobby_title, main.lobby_p1_label, main.lobby_p2_label]:
 			screen.remove_child(child)
 			child.queue_free()
-	label(screen, "MOONROOF     /     LOCAL CO-OP", Rect2(48, 32, 560, 24), 14, Palette.GOLD)
-	place(main.lobby_title, Rect2(48, 82, 560, 132), 52)
-	main.lobby_title.text = "달빛 옥상\n간식 수호대"
-	label(screen, "사슬 하나. 고양이 둘.\n친구와 발맞춰 한밤의 옥상을 지켜요.", Rect2(52, 235, 560, 62), 20, Palette.MUTED)
-	var scene := plate(screen, Rect2(640, 44, 410, 275), Color("dce7de"))
-	icon(scene, Icons.survivor("lyra"), Rect2(22, 26, 180, 180))
-	icon(scene, Icons.survivor("volta"), Rect2(204, 55, 168, 168))
-	label(scene, "01  /  MOONLIGHT PATROL", Rect2(24, 233, 362, 22), 13, Palette.P1)
+	main.lobby_title.text = ""
+	main.lobby_title.visible = false
+	var ambience = LobbyAmbience.new()
+	ambience.name = "LobbyAmbience"
+	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
+	screen.add_child(ambience)
+	screen.move_child(ambience, 0)
+	var prompt := label(screen, "두 고양이가 모이면 바로 출발", Rect2(300, 334, 500, 28), 18, Palette.MUTED)
+	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		var item: Label = main.lobby_p1_label if slot == 0 else main.lobby_p2_label
-		place(item, Rect2(48 + slot * 510, 360, 494, 166), 21, Palette.P1 if slot == 0 else Palette.P2)
+		place(item, Rect2(48 + slot * 510, 382, 494, 142), 21, Palette.P1 if slot == 0 else Palette.P2)
 		item.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD))
 		var style := item.get_theme_stylebox("normal") as StyleBoxFlat
 		style.set_content_margin_all(22)
-	label(screen, "2인 협동   ·   자동 공격   ·   5분 생존 + 보스", Rect2(48, 320, 1000, 26), 15, Palette.MUTED)
-	label(screen, "키보드 / 게임패드 지원", Rect2(48, 552, 500, 24), 14, Palette.MUTED)
-	var hint := label(screen, "ESC / START  참가 취소", Rect2(600, 552, 450, 24), 14, Palette.MUTED)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var hint := label(screen, "ESC / START  참가 취소", Rect2(325, 550, 450, 24), 14, Palette.MUTED)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
 static func _characters(main: Node) -> void:
@@ -237,10 +238,16 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		if kind == "evolve_weapon":
 			card.text = short_evolution(String(option["evolution"]["weapon_id"]))
 		card.tooltip_text = String(option["title"]) + "\n" + String(option["description"])
+		# The badge carries whichever advice the card actually has. It used to
+		# always print a star, so a card marked against still read as endorsed.
 		var badge: Label = card.get_node("Recommendation")
-		var reason := String(option.get("recommendation_reason", ""))
-		badge.text = "★ " + reason.split("   ")[0]
+		var against := bool(option.get("discouraged", false))
+		var reason := String(option.get("discouragement_reason" if against else "recommendation_reason", ""))
+		badge.text = ("▽ " if against else "★ ") + reason.split("   ")[0]
 		badge.tooltip_text = reason
+		badge.add_theme_color_override("font_color", Color("9a5b4c") if against else Palette.P1)
+		badge.add_theme_stylebox_override("normal",
+			Palette.surface(Color("efdcd6") if against else Color("dfebda"), 8))
 	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 	place(footer, Rect2(278 + slot * 616, 369, 330, 52), 14, Palette.MUTED)
 	footer.text = "무기 %d/4 · 보물 %d/4 · 뽑기 %d\n%s" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size(), main.rerolls_remaining[slot], "확정 · 상대 선택 대기" if main.selected_upgrade_indices[slot] >= 0 else "클릭 / W·↑·A 확정"]
@@ -267,15 +274,24 @@ static func _hud(main: Node) -> void:
 	place(main.hud_label, Rect2(455, 20, 112, 32), 25, Palette.CREAM)
 	label(main.combat_hud, "", Rect2(579, 25, 126, 24), 14, Color("b9cbc8")).name = "WaveReadout"
 	label(main.combat_hud, "", Rect2(710, 25, 118, 24), 14, Color("e4c899")).name = "ObjectiveReadout"
+	# Two rows per survivor: weapons on top, treasures under them, each icon
+	# carrying its own tier. The play screen showed weapons only and showed them
+	# without tiers, so half of what a build actually is — the treasures, and how
+	# deep anything was — could only be seen by opening a menu.
 	for slot in 2:
 		var holder := Control.new()
-		holder.position = Vector2(32 if slot == 0 else 1100, 108)
+		holder.position = Vector2(28 if slot == 0 else 1096, 104)
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.name = "Carried%d" % slot
 		main.combat_hud.add_child(holder)
-		for index in 4:
-			var art := icon(holder, null, Rect2(index * 38, 0, 30, 30))
-			art.name = "Weapon%d" % index
+		for row in ["Weapon", "Treasure"]:
+			for index in 4:
+				var art := icon(holder, null, Rect2(index * 38, 0 if row == "Weapon" else 40, 30, 30))
+				art.name = "%s%d" % [row, index]
+				var tier := label(art, "", Rect2(11, 16, 24, 16), 11, Palette.CREAM)
+				tier.name = "Tier"
+				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				tier.add_theme_stylebox_override("normal", Palette.surface(Color(0.04, 0.07, 0.11, 0.92), 5))
 
 
 static func refresh_hud(main: Node) -> void:
@@ -303,11 +319,23 @@ static func refresh_hud(main: Node) -> void:
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
 		holder.visible = not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)
-		for index in 4:
-			var art: TextureRect = holder.get_node("Weapon%d" % index)
-			art.visible = index < main.weapon_loadouts[slot].size()
-			if art.visible:
-				art.texture = Icons.weapon(String(main.weapon_loadouts[slot][index]["weapon_id"]))
+		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
+		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
+
+
+## One row of the play-field build readout. Tiers are drawn over the corner of
+## their own icon rather than beside it: the row has to stay inside the margin
+## the play field leaves it, and a tier is only ever a glance.
+static func _refresh_carried_row(holder: Control, prefix: String, carried: Array, is_weapon: bool) -> void:
+	for index in 4:
+		var art: TextureRect = holder.get_node("%s%d" % [prefix, index])
+		art.visible = index < carried.size()
+		if not art.visible:
+			continue
+		var entry: Dictionary = carried[index]
+		art.texture = Icons.weapon(String(entry["weapon_id"])) if is_weapon else Icons.upgrade(String(entry["id"]))
+		var tier: Label = art.get_node("Tier")
+		tier.text = "T%d" % int(entry.get("tier", 1))
 
 
 static func _results(main: Node) -> void:
@@ -334,7 +362,9 @@ static func _results(main: Node) -> void:
 			icon(screen, null, Rect2(x + 98 + index * 51, 309, 42, 42)).name = "ResultWeapon%d_%d" % [slot, index]
 	label(screen, "협동 기록", Rect2(32, 388, 850, 24), 14, Palette.GOLD)
 	label(screen, "", Rect2(32, 417, 850, 30), 16, Palette.MUTED).name = "CoopRecord"
-	place(main.result_label, Rect2(32, 474, 850, 38), 18, Palette.INK)
+	# Sized to its own text rather than to the panel: an 850px plate holding one
+	# centred phrase read as two empty boxes with a button wedged between them.
+	place(main.result_label, Rect2(311, 470, 292, 42), 18, Palette.INK)
 	main.result_label.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 10))
 	main.result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
