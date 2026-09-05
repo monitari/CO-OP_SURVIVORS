@@ -227,17 +227,42 @@ func _test_palette(main: Node) -> void:
 	_check(main.players[1].body_color == Color("b892ff"), "P2's body matches its HUD colour")
 
 
+## Friendly rings and enemy telegraphs both draw circles on the field, and the
+## pair has to tell them apart instantly. That used to be enforced by keeping
+## friendly rings dim and thin — which worked, and then kept working past the
+## point of usefulness: they became so faint that a firing weapon read as a
+## smudge.
+##
+## The distinction is a temporal one, not a brightness one. A friendly ring
+## flashes once and is gone inside a fraction of a second; an enemy telegraph
+## sits there filling up for well over a second before it lands. Nothing that
+## disappears that fast can be mistaken for something you have to dodge, so the
+## ring is free to be as legible as it likes.
 func _test_attack_ring_hierarchy(main: Node) -> void:
 	var before: int = main.weapon_controller.get_child_count()
 	main.weapon_controller._draw_ring(Vector2.ZERO, 200.0, Color("43d9ff"), 12.0)
 	_check(main.weapon_controller.get_child_count() == before + 1, "an area attack creates one ring")
 	var ring := main.weapon_controller.get_child(main.weapon_controller.get_child_count() - 1) as Line2D
-	_check(ring != null and ring.width <= 4.0,
-		"friendly attack rings stay visually subordinate (width %.1f)" % (ring.width if ring else -1.0))
-	_check(ring != null and ring.default_color.a <= 0.341,
-		"friendly attack rings are translucent (alpha %.2f)" % (ring.default_color.a if ring else -1.0))
-	if ring:
-		ring.queue_free()
+	_check(ring != null, "the ring is a drawable line")
+	if ring == null:
+		return
+
+	# Legible: the old ceilings were 4px and 34% alpha, which is what made a
+	# cast invisible in the first place.
+	_check(ring.width >= 5.0, "a friendly ring is thick enough to see (width %.1f)" % ring.width)
+	_check(ring.default_color.a >= 0.6, "and solid enough to see (alpha %.2f)" % ring.default_color.a)
+
+	# Transient: comfortably shorter-lived than the shortest enemy telegraph.
+	var ring_lifetime := 0.0
+	for tween in main.weapon_controller.get_tree().get_processed_tweens():
+		if tween.is_valid():
+			ring_lifetime = maxf(ring_lifetime, tween.get_total_elapsed_time())
+	_check(main.weapon_controller.RING_HOLD + main.weapon_controller.RING_FADE < ChaserEnemy.BOSS_SLAM_WINDUP_ENRAGED * 0.5,
+		"a friendly ring is gone long before an enemy telegraph would land (%.2fs vs %.2fs)" % [
+			main.weapon_controller.RING_HOLD + main.weapon_controller.RING_FADE,
+			ChaserEnemy.BOSS_SLAM_WINDUP_ENRAGED,
+		])
+	ring.queue_free()
 
 
 func _test_layout(main: Node) -> void:

@@ -42,6 +42,12 @@ const ENEMY_CULL_RADIUS := 1500.0
 ## with. Without a beat of dead time the screen appearing mid-stride reads
 ## a movement key as a card confirmation and picks for them.
 const LEVEL_UP_INPUT_DELAY := 0.45
+## Breathing room between one level-up screen closing and the next opening.
+## Experience arrives in bursts — a swarm pack, a magnet item — so several
+## levels can come due at once, and back-to-back screens turned that into a
+## stutter where the run stopped, resumed for a frame, and stopped again.
+## The pending levels are not lost; they simply queue behind this.
+const LEVEL_UP_GAP := 1.1
 
 # Overcharge is a loan against the chain, not a free damage bonus. Holding the
 # survivors apart past CHAIN_WARNING_RATIO burns integrity; only closing back
@@ -162,7 +168,8 @@ var upgrade_cursors: Array[int] = [0, 0]
 var selected_upgrade_indices: Array[int] = [-1, -1] ## -1 = still choosing; >=0 = locked in but not yet applied until both players lock
 var rerolls_remaining: Array[int] = [REROLL_START, REROLL_START]
 var last_upgrade_choice_keys: Array = [[], []]
-var level_up_input_delay := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
+var level_up_input_delay := 0.0
+var level_up_gap_remaining := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
 var resonance_cursors: Array[int] = [0, 0]
 var tutorial_active := false
 var tutorial_step := 0
@@ -381,6 +388,13 @@ func _physics_process(delta: float) -> void:
 			continue
 		enemy.step(players, delta)
 	spatial_grid.rebuild(enemies)
+	# Ticked here rather than in _gain_shared_xp so the queue drains on run
+	# time: the pair gets the gap back as play, not as a paused screen.
+	if level_up_gap_remaining > 0.0:
+		level_up_gap_remaining = maxf(0.0, level_up_gap_remaining - delta)
+		if level_up_gap_remaining <= 0.0 and progression.can_level_up():
+			_begin_level_up()
+			return
 	bursts.step(delta)
 	_update_threat_indicator()
 	experience_system.step(players, delta)
@@ -1262,16 +1276,29 @@ func _refresh_character_select_ui() -> void:
 ## which fusion and which treasure your whole run is aimed at. It now shows the
 ## full stat block, where the weapon ends up, and a plain-language difficulty
 ## read so the choice can be made without knowing the catalog by heart.
+## Deliberately says nothing about fusions or resonances.
+##
+## The card used to print "합성 X T7 + Y T4 → Z" and the strip under it listed
+## the resonances the pair would eventually reach. That is the whole back half
+## of the run, handed over before the run starts — the first fusion is meant to
+## be found, and a resonance is meant to be the thing the pair discovers they
+## have built toward. What belongs here is what the survivor is like to play
+## right now: how they attack, how sturdy they are, and how demanding they are.
 func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
 	var weapon: Dictionary = character["weapon"]
-	var evolution := Evolutions.for_base(String(character["weapon_id"]))
-	var required := Treasures.by_id(String(evolution.get("treasure_id", "")))
-	return "%s\n피해 %.0f  ·  %.2f초마다 공격\n\n합성  %s T7 + %s T%d\n→ %s\n\n%s" % [
-		String(character["weapon_name"]), float(weapon["damage"]), float(weapon["cooldown"]),
-		String(character["weapon_name"]), String(required.get("name", "-")), Evolutions.REQUIRED_TREASURE_TIER,
-		String(evolution.get("weapon_name", "-")), _character_select_status(player_index),
+	var profile := CharacterCatalog.difficulty_profile(character)
+	var lines: Array[String] = [
+		String(character["weapon_name"]),
+		"피해 %.0f      %.2f초마다" % [float(weapon["damage"]), float(weapon["cooldown"])],
+		"",
+		"난이도  %s" % CharacterCatalog.difficulty_stars(character),
+		String(profile["headline"]),
+		"",
+		_character_select_status(player_index),
 	]
+	return "\n".join(lines)
+
 
 func _character_select_status(player_index: int) -> String:
 	if character_confirmed[player_index]:
@@ -1287,31 +1314,27 @@ func _stat_blocks(value: float) -> String:
 	return "■".repeat(filled) + "□".repeat(5 - filled)
 
 
+## The pair's shared read on their two picks, without naming anything they have
+## not unlocked. It compares the two survivors' demands rather than previewing
+## the tech tree, because "are these two going to cover for each other" is the
+## question character select actually has to answer.
 func _synergy_preview() -> String:
 	var first: Dictionary = character_catalog[selected_character_indices[0]]
 	var second: Dictionary = character_catalog[selected_character_indices[1]]
-	var names: Array[String] = []
-	for resonance in resonance_system.catalog:
-		var requirements: Array = resonance["requires"]
-		var tags_a: Array = first["tags"]
-		var tags_b: Array = second["tags"]
-		if (requirements[0] in tags_a and requirements[1] in tags_b) or (requirements[1] in tags_a and requirements[0] in tags_b):
-			names.append(String(resonance["name"]))
-	return "합성 후 예상 공명   " + ("   ".join(names) if not names.is_empty() else "직접 조합 없음 — 각자의 강점을 살리세요")
+	var first_profile := CharacterCatalog.difficulty_profile(first)
+	var second_profile := CharacterCatalog.difficulty_profile(second)
+	var coverage := (float(first_profile["coverage"]) + float(second_profile["coverage"])) * 0.5
+	var durability := (float(first_profile["durability"]) + float(second_profile["durability"])) * 0.5
 
-
-## Builds a self-contained weapon-loadout entry from a character's catalog
-## entry: the numeric weapon stats plus the identity fields (id/name/tags/
-## color/source) that a picked-up weapon needs to carry with it once it no
-## longer matches the player's own selected_characters[i].
-func _build_weapon_state(character: Dictionary) -> Dictionary:
-	var state: Dictionary = (character["weapon"] as Dictionary).duplicate(true)
-	state["weapon_id"] = character["weapon_id"]
-	state["weapon_name"] = character["weapon_name"]
-	state["tags"] = (character["tags"] as Array).duplicate()
-	state["color"] = character["color"]
-	state["source_character"] = character["name"]
-	return state
+	if coverage < 0.4 and durability < 0.45:
+		return "둘 다 좁게 싸우고 얇습니다 — 포위되기 전에 정리해야 합니다"
+	if coverage < 0.4:
+		return "둘 다 한 번에 적은 수만 처리합니다 — 몰리면 함께 물러나세요"
+	if durability < 0.45:
+		return "화력은 넓지만 둘 다 무릅니다 — 사슬 거리를 짧게 유지하세요"
+	if coverage > 0.7 and durability > 0.6:
+		return "넓게 처리하고 잘 버팁니다 — 과충전을 오래 끌고 가도 됩니다"
+	return "한쪽이 넓게 쓸고 한쪽이 앞을 맡는 조합입니다"
 
 
 func _start_selected_run() -> void:
@@ -1327,6 +1350,7 @@ func _start_selected_run() -> void:
 	chain_integrity = CHAIN_INTEGRITY_MAX
 	chain_overloaded = false
 	rerolls_remaining = [REROLL_START, REROLL_START]
+	level_up_gap_remaining = 0.0
 	for key in run_stats:
 		run_stats[key] = 0.0 if key in ["overcharge_time", "reflected"] else 0
 	last_upgrade_choice_keys = [[], []]
@@ -1519,6 +1543,9 @@ func _update_camera(delta: float) -> void:
 		shake_offset = Vector2(randf_range(-camera_shake, camera_shake), randf_range(-camera_shake, camera_shake))
 		camera_shake = move_toward(camera_shake, 0.0, delta * 24.0)
 	world_camera.position = world_camera.position.lerp(midpoint, minf(1.0, delta * 8.0)) + shake_offset
+	# The rooftop follows the view rather than existing as a fixed slab, so
+	# there is no edge to reach however far the pair kites.
+	arena_floor.follow(world_camera.position)
 
 
 ## A wave only reads as a wave if it is announced. The surge waves get their
@@ -1799,8 +1826,13 @@ func _on_field_item_collected(item_id: String) -> void:
 				player.heal(player.max_health * FIELD_ITEM_HEAL_RATIO)
 			label += " — 두 사람 회복"
 		"magnet":
-			var collected := experience_system.collect_all()
-			label += " — 경험치 %d개 회수" % collected
+			var pulled := experience_system.magnetize_all()
+			# Two rings from the pair's midpoint so the pull has a visible source
+			# and the stream of gems reads as caused rather than coincidental.
+			var centre := (players[0].global_position + players[1].global_position) * 0.5
+			weapon_controller.play_shockwave(centre, 900.0, color, 0.55, true)
+			camera_shake = maxf(camera_shake, 4.0)
+			label += " — 맵 전체 경험치 %d개 견인" % pulled
 		"chain_repair":
 			chain_integrity = minf(CHAIN_INTEGRITY_MAX, chain_integrity + FIELD_ITEM_CHAIN_REPAIR)
 			if chain_overloaded and chain_integrity >= CHAIN_OVERLOAD_CLEAR:
@@ -1816,7 +1848,13 @@ func _on_field_item_collected(item_id: String) -> void:
 				if midpoint.distance_to(enemy.global_position) <= FIELD_ITEM_PURGE_RADIUS:
 					enemy.take_damage(FIELD_ITEM_PURGE_DAMAGE)
 					burned += 1
-			camera_shake = maxf(camera_shake, 9.0)
+			# The screen-clear is the biggest thing an item does, so it gets the
+			# biggest presentation in the game: an expanding front, a bright core
+			# flash, and a burst at every enemy it caught.
+			weapon_controller.play_shockwave(midpoint, FIELD_ITEM_PURGE_RADIUS, color, 0.42, false)
+			weapon_controller.play_shockwave(midpoint, FIELD_ITEM_PURGE_RADIUS * 0.55, Color.WHITE, 0.3, false)
+			weapon_controller.play_purge_rays(midpoint, FIELD_ITEM_PURGE_RADIUS, color)
+			camera_shake = maxf(camera_shake, 22.0)
 			label += " — 적 %d체 정화" % burned
 	run_stats["items"] = int(run_stats["items"]) + 1
 	feedback.play_item_cue(item_id)
@@ -1826,7 +1864,10 @@ func _on_field_item_collected(item_id: String) -> void:
 func _gain_shared_xp(amount: int) -> void:
 	progression.add_experience(int(round(float(amount) * team_growth)))
 	feedback.play_cue("xp")
-	if not level_up_active and progression.can_level_up():
+	# Not opened here any more: the physics loop watches the queue so a level
+	# earned mid-burst waits out the gap instead of interrupting on the frame
+	# the gem happened to land.
+	if not level_up_active and progression.can_level_up() and level_up_gap_remaining <= 0.0:
 		_begin_level_up()
 
 
@@ -1838,6 +1879,7 @@ func _begin_level_up() -> void:
 			rerolls_remaining[slot] = mini(REROLL_CAP, rerolls_remaining[slot] + 1)
 	level_up_active = true
 	level_up_input_delay = LEVEL_UP_INPUT_DELAY
+	level_up_gap_remaining = 0.0
 	selected_upgrade_indices = [-1, -1]
 	upgrade_cursors = [0, 0]
 	p1_choices = _get_upgrade_choices(1)
@@ -2164,12 +2206,17 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		if not UpgradeValue.benefits_loadout(loadout, effect_id):
 			score = 5.0
 			reason = "후속 무기 준비"
-		for weapon: Dictionary in loadout:
-			var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
-			if evolution.get("treasure_id", "") == effect_id and _treasure_tier(slot, effect_id) < Evolutions.REQUIRED_TREASURE_TIER:
-				score += 20.0 + float(weapon.get("tier", 1)) * 3.0
-				reason += "   합성 재료"
-				break
+		# A treasure that is the missing half of a fusion used to be worth a flat
+		# +20, which loses to a generic damage card at 50 — so the screen would
+		# recommend more damage to a pair standing one treasure tier away from
+		# reworking their whole weapon. The bonus now scales with how complete
+		# the path already is, which makes the last step before a fusion the
+		# strongest ordinary card in the pool without ever outranking the fusion
+		# card itself.
+		var path := _fusion_path_value(slot, effect_id)
+		if not path.is_empty():
+			score += float(path["value"])
+			reason = String(path["reason"])
 	if upgrade_id == "unlock_treasure":
 		# Slots are finite now, so committing one is worth more while several
 		# are open and less when it would spend the last of them on a whim.
@@ -2198,6 +2245,57 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			score += 34.0
 			reason = "T%d   합성 직전" % Evolutions.WEAPON_MAX_TIER
 	return {"score": score, "reason": reason}
+
+
+## What a treasure is worth as fusion material, given how far along that fusion
+## already is. Returns an empty dictionary when the treasure feeds no fusion this
+## survivor is actually working toward.
+##
+## Progress is measured over both requirements together, so "weapon maxed,
+## treasure one tier short" scores far above "weapon at tier 2, treasure one tier
+## short" — the same card, but only one of them is the last step.
+## Builds a self-contained weapon-loadout entry from a character's catalog
+## entry: the numeric weapon stats plus the identity fields (id/name/tags/
+## color/source) that a picked-up weapon needs to carry with it once it no
+## longer matches the player's own selected_characters[i].
+func _build_weapon_state(character: Dictionary) -> Dictionary:
+	var state: Dictionary = (character["weapon"] as Dictionary).duplicate(true)
+	state["weapon_id"] = character["weapon_id"]
+	state["weapon_name"] = character["weapon_name"]
+	state["tags"] = (character["tags"] as Array).duplicate()
+	state["color"] = character["color"]
+	state["source_character"] = character["name"]
+	return state
+
+
+func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
+	var best := {}
+	var best_progress := -1.0
+	for weapon: Dictionary in weapon_loadouts[slot]:
+		if bool(weapon.get("evolved", false)):
+			continue
+		var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+		if evolution.is_empty() or String(evolution.get("treasure_id", "")) != treasure_id:
+			continue
+		var treasure_tier := _treasure_tier(slot, treasure_id)
+		if treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER:
+			continue # this half is already done; the weapon is what is missing
+		var weapon_progress := float(int(weapon.get("tier", 1))) / float(Evolutions.WEAPON_MAX_TIER)
+		var treasure_progress := float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
+		var progress := (weapon_progress + treasure_progress) * 0.5
+		if progress <= best_progress:
+			continue
+		best_progress = progress
+		var weapon_tier := int(weapon.get("tier", 1))
+		var last_step: bool = (
+			treasure_tier + 1 >= Evolutions.REQUIRED_TREASURE_TIER
+			and weapon_tier >= Evolutions.WEAPON_MAX_TIER
+		)
+		best = {
+			"value": 24.0 + progress * 90.0 + (40.0 if last_step else 0.0),
+			"reason": "%s 합성 재료" % String(evolution["weapon_name"]) if not last_step else "%s 합성까지 한 걸음" % String(evolution["weapon_name"]),
+		}
+	return best
 
 
 func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
@@ -2622,7 +2720,7 @@ func _finish_level_up() -> void:
 	get_tree().paused = false
 	_show_message("LV.%d · 둘 다 성장 완료" % progression.level, Color("fff275"))
 	if progression.can_level_up():
-		call_deferred("_begin_level_up")
+		level_up_gap_remaining = LEVEL_UP_GAP
 
 
 func _after_personal_upgrade_choices() -> void:

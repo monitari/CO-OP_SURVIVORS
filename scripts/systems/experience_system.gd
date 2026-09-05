@@ -7,6 +7,14 @@ const GemScript := preload("res://scripts/experience_gem.gd")
 
 var active_gems: Array[ExperienceGem] = []
 var gem_pool: Array[ExperienceGem] = []
+## A magnetised gem is given a travel time rather than a speed, so a gem four
+## thousand pixels out arrives in about the same beat as one just off screen.
+## Speed-based pulling made the far ones take ten seconds, by which point the
+## item that caused it was long forgotten.
+const MAGNET_ITEM_TRAVEL := 0.85
+const MAGNET_ITEM_MIN_SPEED := 700.0
+const MAGNET_ITEM_MAX_SPEED := 4200.0
+
 var magnet_radius := 155.0
 var pickup_radius := 34.0
 
@@ -31,24 +39,33 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		if gem.global_position.distance_squared_to(players[1].global_position) < gem.global_position.distance_squared_to(players[0].global_position):
 			nearest = players[1]
 		var distance: float = gem.global_position.distance_to(nearest.global_position)
-		if distance <= magnet_radius:
+		if gem.magnetized:
+			# No radius at all: a magnetised gem is coming home from across the
+			# map, accelerating as it closes so the stream arrives as a rush
+			# rather than a uniform drift.
+			var pull := clampf(distance / MAGNET_ITEM_TRAVEL, MAGNET_ITEM_MIN_SPEED, MAGNET_ITEM_MAX_SPEED)
+			gem.position += gem.global_position.direction_to(nearest.global_position) * pull * delta
+		elif distance <= magnet_radius:
 			var speed := lerpf(170.0, 760.0, 1.0 - clampf(distance / magnet_radius, 0.0, 1.0))
 			gem.position += gem.global_position.direction_to(nearest.global_position) * speed * delta
 		if gem.global_position.distance_to(nearest.global_position) <= pickup_radius + nearest.radius:
 			_collect(gem)
 
 
-## Instantly banks every gem on the field. Used by the magnet field item,
-## which is the only thing that reaches gems the pickup radius never would.
-func collect_all() -> int:
-	var collected := 0
+## Puts every gem on the map into flight toward the nearest survivor. It used to
+## bank them instantly, which meant the single most satisfying item in the game
+## produced no image at all — a number moved and that was it. They now stream in
+## over about a second, and the count returned is what is on its way.
+func magnetize_all() -> int:
+	var pulled := 0
 	for candidate in active_gems.duplicate():
 		var gem := candidate as ExperienceGem
-		if not is_instance_valid(gem) or not gem.active:
+		if not is_instance_valid(gem) or not gem.active or gem.magnetized:
 			continue
-		collected += 1
-		_collect(gem)
-	return collected
+		gem.magnetized = true
+		gem.queue_redraw()
+		pulled += 1
+	return pulled
 
 
 func _collect(gem: ExperienceGem) -> void:

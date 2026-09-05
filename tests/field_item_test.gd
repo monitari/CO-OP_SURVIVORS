@@ -98,8 +98,31 @@ func _test_magnet(main: Node) -> void:
 	_check(main.experience_system.active_gems.size() == 5, "gems are on the field before the magnet fires")
 
 	main._on_field_item_collected("magnet")
-	_check(main.experience_system.active_gems.is_empty(), "the magnet drop sweeps up gems anywhere on the field")
-	_check(main.progression.experience > before, "swept gems are actually banked as shared experience")
+	# The magnet used to bank everything on the frame it fired, which meant the
+	# most dramatic item in the game produced no image at all — a number moved.
+	# It now puts every gem into flight, so what this has to check is that they
+	# are travelling and that they arrive.
+	for gem: ExperienceGem in main.experience_system.active_gems:
+		_check(gem.magnetized, "every gem on the field is pulled, however far away it is")
+	_check(not main.experience_system.active_gems.is_empty(), "the pull is a journey, not an instant collection")
+
+	# Flown in over roughly a second of run time, from four thousand pixels out.
+	for tick in 180:
+		main.experience_system.step(main.players, 1.0 / 60.0)
+	_check(main.experience_system.active_gems.is_empty(),
+		"pulled gems arrive (%d still travelling)" % main.experience_system.active_gems.size())
+	_check(main.progression.experience > before, "and are banked as shared experience")
+
+	# A gem that was never magnetised must still respect the pickup radius, or
+	# the item has quietly become permanent.
+	main.experience_system.spawn_gem(Vector2(4000.0, 4000.0), 7)
+	for tick in 120:
+		main.experience_system.step(main.players, 1.0 / 60.0)
+	_check(main.experience_system.active_gems.size() == 1,
+		"a gem spawned after the magnet is not swept up by it")
+	main.experience_system.magnetize_all()
+	for tick in 180:
+		main.experience_system.step(main.players, 1.0 / 60.0)
 	main.experience_system.magnet_radius = main.EXPERIENCE_MAGNET_BASE
 
 	main.level_up_active = false

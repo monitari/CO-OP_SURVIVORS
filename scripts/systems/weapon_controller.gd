@@ -78,6 +78,12 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 ## them at once rather than rewriting twenty-five of them by hand.
 const ENDGAME_SCALE := 2.2
 
+## What separates a friendly area ring from an enemy telegraph is how long it
+## stays, not how dim it is. Named so the hierarchy is asserted against these
+## rather than against a colour someone might reasonably want to change.
+const RING_HOLD := 0.07
+const RING_FADE := 0.24
+
 
 func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 	var resonance_id := String(resonance["id"])
@@ -563,16 +569,74 @@ func _lance_from(origin: Vector2, heading: Vector2, reach: float, width: float, 
 	_draw_beam(origin, tip, color, width)
 
 
+## A ring that grows from nothing to `radius` and fades as it goes. Field items
+## use it as their signature: they are rare, they change the board, and they
+## should look like it. `inward` reverses the motion, which is what the magnet
+## needs — its ring collapses toward the pair rather than expanding from them.
+func play_shockwave(centre: Vector2, radius: float, color: Color, duration: float, inward := false) -> void:
+	var wave := Line2D.new()
+	wave.position = centre
+	wave.width = 14.0
+	wave.default_color = Color(color, 0.9)
+	wave.z_index = 4
+	wave.antialiased = true
+	for index in 65:
+		wave.add_point(Vector2.from_angle(TAU * float(index) / 64.0) * radius)
+	wave.scale = Vector2.ONE * (1.0 if inward else 0.04)
+	add_child(wave)
+
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(wave, "scale", Vector2.ONE * (0.04 if inward else 1.0), duration) 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(wave, "width", 3.0, duration)
+	tween.tween_property(wave, "modulate:a", 0.0, duration).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(wave.queue_free)
+
+
+## Spokes thrown outward from a point. Only the purge uses this, and only
+## because a screen-clear that looks the same as a nova is a wasted moment.
+func play_purge_rays(centre: Vector2, radius: float, color: Color) -> void:
+	for index in 16:
+		var angle := TAU * float(index) / 16.0 + randf() * 0.12
+		var ray := Line2D.new()
+		ray.position = centre
+		ray.width = 9.0
+		ray.default_color = Color(color.lightened(0.4), 0.85)
+		ray.z_index = 4
+		ray.antialiased = true
+		ray.add_point(Vector2.from_angle(angle) * radius * 0.18)
+		ray.add_point(Vector2.from_angle(angle) * radius * 1.15)
+		ray.scale = Vector2(0.15, 0.15)
+		add_child(ray)
+		var tween := create_tween()
+		tween.set_parallel(true)
+		tween.tween_property(ray, "scale", Vector2.ONE, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(ray, "modulate:a", 0.0, 0.4).set_ease(Tween.EASE_IN)
+		tween.chain().tween_callback(ray.queue_free)
+
+
 func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
+	# A soft outer pass under a bright core: the halo says where the beam is,
+	# the core says it landed. One flat line at 70% did neither well.
+	var halo := Line2D.new()
+	halo.width = width * 2.1
+	halo.default_color = Color(color, 0.26)
+	halo.z_index = 2
+	halo.antialiased = true
+	halo.add_point(from)
+	halo.add_point(to)
+	add_child(halo)
+	_flash_and_free(halo, 0.08, 0.26)
+
 	var beam := Line2D.new()
 	beam.width = width
-	beam.default_color = Color(color, 0.7)
-	beam.z_index = 2
+	beam.default_color = Color(color.lightened(0.35), 0.95)
+	beam.z_index = 3
 	beam.antialiased = true
 	beam.add_point(from)
 	beam.add_point(to)
 	add_child(beam)
-	_fade_and_free(beam, 0.16)
+	_flash_and_free(beam, 0.09, 0.2)
 
 
 func _damage_area(center: Vector2, radius: float, damage: float, slow_multiplier: float = 1.0) -> void:
@@ -608,9 +672,10 @@ func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
 
 func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> void:
 	var bolt := Line2D.new()
-	bolt.width = width
-	bolt.default_color = color
+	bolt.width = width * 1.5
+	bolt.default_color = color.lightened(0.2)
 	bolt.z_index = 3
+	bolt.antialiased = true
 	for index in 8:
 		var ratio := float(index) / 7.0
 		var point := from.lerp(to, ratio)
@@ -618,7 +683,7 @@ func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> 
 			point += Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
 		bolt.add_point(point)
 	add_child(bolt)
-	_fade_and_free(bolt, 0.17)
+	_flash_and_free(bolt, 0.06, 0.22)
 
 
 func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> void:
@@ -626,40 +691,59 @@ func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> v
 	ring.position = center
 	# Friendly area attacks were reading like persistent arena boundaries.
 	# Keep their footprint visible, but subordinate them to enemy telegraphs.
-	ring.width = clampf(width * 0.45, 2.0, 4.0)
-	ring.default_color = Color(color, minf(color.a, 0.34))
+	# Friendly rings were dimmed to 34% and 4px to stop them reading as arena
+	# boundaries. That worked and then some — they became invisible. They are
+	# legible again; what keeps them distinct from an enemy telegraph is that
+	# they flash once and expand away, while a telegraph pulses and fills.
+	ring.width = clampf(width * 0.8, 3.0, 9.0)
+	ring.default_color = Color(color, minf(color.a, 0.85))
 	ring.z_index = 2
 	ring.antialiased = true
-	for index in 33:
-		ring.add_point(Vector2.from_angle(TAU * float(index) / 32.0) * radius)
+	for index in 41:
+		ring.add_point(Vector2.from_angle(TAU * float(index) / 40.0) * radius)
 	add_child(ring)
-	_fade_and_free(ring, 0.12)
+	_flash_and_free(ring, RING_HOLD, RING_FADE)
+	var grow := create_tween()
+	grow.tween_property(ring, "scale", Vector2.ONE * 1.12, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 func _draw_scythe_arc(center: Vector2, angle: float, radius: float, arc: float, color: Color) -> void:
 	var slash := Line2D.new()
 	slash.position = center
-	slash.width = 12.0
-	slash.default_color = color
+	slash.width = 16.0
+	slash.default_color = color.lightened(0.25)
 	slash.z_index = 3
+	slash.antialiased = true
 	for index in 19:
 		slash.add_point(Vector2.from_angle(angle - arc * 0.5 + arc * float(index) / 18.0) * radius)
 	add_child(slash)
-	_fade_and_free(slash, 0.2)
+	_flash_and_free(slash, 0.1, 0.26)
 
 
 func _draw_chain_pulse(from: Vector2, to: Vector2, width: float) -> void:
 	var pulse := Line2D.new()
 	pulse.width = width * 2.0
-	pulse.default_color = Color(0.5, 0.93, 0.6, 0.32)
+	pulse.default_color = Color(0.55, 0.98, 0.66, 0.72)
 	pulse.z_index = 2
 	pulse.add_point(from)
 	pulse.add_point(to)
 	add_child(pulse)
-	_fade_and_free(pulse, 0.22)
+	_flash_and_free(pulse, 0.1, 0.3)
+
+
+## Attack visuals were dying on a straight fade that began the instant they
+## appeared, over 0.12-0.22s. Half of that is spent under 50% opacity, so a
+## weapon firing every second read as a faint smear rather than as a hit.
+##
+## They now hold at full strength for a beat and only then fall off, on an eased
+## curve. Same budget of screen time, but the part the eye registers is at full
+## opacity instead of averaged away.
+func _flash_and_free(node: CanvasItem, hold: float, fade: float) -> void:
+	var tween := create_tween()
+	tween.tween_interval(hold)
+	tween.tween_property(node, "modulate:a", 0.0, fade).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	tween.tween_callback(node.queue_free)
 
 
 func _fade_and_free(node: CanvasItem, duration: float) -> void:
-	var tween := create_tween()
-	tween.tween_property(node, "modulate:a", 0.0, duration)
-	tween.tween_callback(node.queue_free)
+	_flash_and_free(node, duration * 0.55, duration)

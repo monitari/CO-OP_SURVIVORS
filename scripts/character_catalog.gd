@@ -42,36 +42,113 @@ static func survival_budget(character: Dictionary) -> float:
 ## field does one cast cover". A low-reach weapon kills one thing at a time,
 ## which means being surrounded is fatal and the pair has to keep moving. Low
 ## health compounds that, because the same mistake costs more.
+## How demanding a survivor is to play, as a continuous read rather than two
+## threshold flips.
+##
+## The old version was `reach < 1.4` plus `health < 100`, which made 99 health a
+## whole grade harder than 100 and ignored speed entirely. It also had nothing to
+## say when the roster grew — every new survivor had to be hand-fitted around
+## those two constants.
+##
+## Each axis is now normalised against the roster's own spread, so adding a
+## survivor recalibrates the scale instead of breaking it, and the three axes are
+## the three ways a run actually goes wrong:
+##
+##   coverage   how much one cast handles, from `reach` — the difference between
+##              being surrounded and clearing the ring
+##   durability how much a mistake costs, from health
+##   mobility   whether you can leave, from speed
+##
+## Coverage is weighted heaviest because being surrounded is what kills pairs;
+## mobility is lightest because the chain caps how far either cat can run anyway.
+const DIFFICULTY_WEIGHTS := {"coverage": 0.5, "durability": 0.3, "mobility": 0.2}
+
+
+static func difficulty_profile(character: Dictionary) -> Dictionary:
+	var roster := all_characters()
+	var reach_span := _span(roster, "reach")
+	var health_span := _span(roster, "health")
+	var speed_span := _span(roster, "speed")
+
+	var coverage := _normalise(float((character["weapon"] as Dictionary)["reach"]), reach_span)
+	var durability := _normalise(float(character["health"]), health_span)
+	var mobility := _normalise(float(character["speed"]), speed_span)
+	var ease := (
+		coverage * float(DIFFICULTY_WEIGHTS["coverage"])
+		+ durability * float(DIFFICULTY_WEIGHTS["durability"])
+		+ mobility * float(DIFFICULTY_WEIGHTS["mobility"])
+	)
+	return {
+		"coverage": coverage,
+		"durability": durability,
+		"mobility": mobility,
+		"ease": ease,
+		"rating": difficulty_from_ease(ease),
+		"headline": _difficulty_headline(coverage, durability, mobility),
+	}
+
+
+## 1 (easiest) to 5. Five bands rather than three because ten survivors spread
+## across three grades left seven of them labelled the same thing.
+static func difficulty_from_ease(ease: float) -> int:
+	return clampi(5 - int(floor(ease * 5.0)), 1, 5)
+
+
 static func difficulty(character: Dictionary) -> int:
-	var rating := 1
-	if float((character["weapon"] as Dictionary)["reach"]) < 1.4:
-		rating += 1
-	if float(character["health"]) < 100.0:
-		rating += 1
-	return rating
+	return int(difficulty_profile(character)["rating"])
 
 
-static func difficulty_reason(character: Dictionary) -> String:
-	var weapon: Dictionary = character["weapon"]
-	var narrow := float(weapon["reach"]) < 1.4
-	var frail := float(character["health"]) < 100.0
-	if narrow and frail:
-		return "한 번에 적은 수만 처리하고 맷집도 얇습니다"
-	if narrow:
-		return "한 번에 적은 수만 처리해 포위에 약합니다"
-	if frail:
-		return "화력은 넓지만 맞으면 크게 아픕니다"
-	return "넓게 처리하고 맷집도 여유롭습니다"
+static func difficulty_stars(character: Dictionary) -> String:
+	var rating := difficulty(character)
+	return "★".repeat(rating) + "☆".repeat(5 - rating)
 
 
 static func difficulty_label(character: Dictionary) -> String:
 	match difficulty(character):
 		1:
-			return "쉬움"
+			return "아주 쉬움"
 		2:
+			return "쉬움"
+		3:
 			return "보통"
-		_:
+		4:
 			return "어려움"
+		_:
+			return "매우 어려움"
+
+
+static func difficulty_reason(character: Dictionary) -> String:
+	return String(difficulty_profile(character)["headline"])
+
+
+## Names the axis that actually makes this survivor hard, rather than reciting
+## all three. Whichever normalised value is lowest is the one the player will
+## feel first.
+static func _difficulty_headline(coverage: float, durability: float, mobility: float) -> String:
+	var weakest := minf(coverage, minf(durability, mobility))
+	if weakest > 0.55:
+		return "약점이 뚜렷하지 않아 무난합니다"
+	if is_equal_approx(weakest, coverage):
+		return "한 번에 처리하는 수가 적어 포위에 약합니다"
+	if is_equal_approx(weakest, durability):
+		return "한 대가 크게 아파 실수를 아낄 수 없습니다"
+	return "느려서 위치를 미리 잡아 두어야 합니다"
+
+
+static func _span(roster: Array[Dictionary], field: String) -> Vector2:
+	var low := INF
+	var high := -INF
+	for character in roster:
+		var value := float((character["weapon"] as Dictionary)["reach"]) if field == "reach" else float(character[field])
+		low = minf(low, value)
+		high = maxf(high, value)
+	return Vector2(low, high)
+
+
+static func _normalise(value: float, span: Vector2) -> float:
+	if is_equal_approx(span.y, span.x):
+		return 0.5
+	return clampf((value - span.x) / (span.y - span.x), 0.0, 1.0)
 
 
 static func power_budget(character: Dictionary) -> float:

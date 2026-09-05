@@ -106,7 +106,13 @@ func _run() -> void:
 	await process_frame
 	check(absf(dummy.body_sprite.global_rotation) < 0.001, "sprite stays upright while telegraph rotates")
 	check(dummy.z_index > 3, "enemy warnings stay above friendly rings")
-	check(main._format_character_card(0).contains("T7"), "character recipe states weapon tier")
+	# This used to assert the opposite: that the select card printed the fusion
+	# recipe ("합성 X T7 + Y T4"). That was reversed on purpose — the first fusion
+	# is meant to be found during a run, not read off a menu before it starts.
+	# What select owes the player is how the survivor plays right now.
+	var card: String = main._format_character_card(0)
+	check(not card.contains("합성"), "character select does not spoil the fusion recipe")
+	check(card.contains("난이도"), "character select still rates how demanding the survivor is")
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
 	main.level_up_input_delay = 0
