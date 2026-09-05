@@ -7,6 +7,8 @@ signal damaged(player: ChainPlayer, amount: float)
 signal downed_started(player: ChainPlayer)
 signal revived_player(player: ChainPlayer)
 signal dashed(player: ChainPlayer)
+signal second_chance_used(player: ChainPlayer)
+signal dodged(player: ChainPlayer)
 
 ## A short burst along the last movement direction with brief invulnerability.
 ## Until now the only way to avoid a telegraphed attack was to walk out of
@@ -69,6 +71,8 @@ var crit_chance := 0.0 ## chance a hit deals CRIT_MULTIPLIER damage
 var pierce := 0 ## extra enemies a projectile passes through
 var thorns := 0.0 ## fraction of contact damage returned to the attacker
 var resolve := 0.0 ## extra bleedout seconds, and faster rescues
+var dodge_chance := 0.0 ## chance to ignore a hit entirely
+var second_chances := 0 ## fatal hits converted into a short recovery window
 var dash_timer := 0.0 ## remaining burst time
 var dash_cooldown := 0.0
 var dash_direction := Vector2.RIGHT
@@ -94,25 +98,23 @@ func apply_character(character: Dictionary) -> void:
 	health = max_health
 	move_speed = float(character["speed"])
 	downed = false
-	bleedout_remaining = BLEEDOUT_BASE + resolve
 	revive_progress = 0.0
-	might = 1.0
-	area = 1.0
-	projectile_speed = 1.0
-	amount = 0
-	haste = 1.0
-	armor = 0.0
-	recovery = 0.0
-	crit_chance = 0.0
-	pierce = 0
-	thorns = 0.0
-	resolve = 0.0
+	might = float(character.get("might", 1.0))
+	area = float(character.get("area", 1.0))
+	projectile_speed = float(character.get("projectile_speed", 1.0))
+	amount = int(character.get("amount", 0))
+	haste = float(character.get("haste", 1.0))
+	armor = float(character.get("armor", 0.0))
+	recovery = float(character.get("recovery", 0.0))
+	crit_chance = float(character.get("crit", 0.0))
+	pierce = int(character.get("pierce", 0))
+	thorns = float(character.get("thorns", 0.0))
+	resolve = float(character.get("resolve", 0.0))
+	dodge_chance = float(character.get("dodge", 0.0))
+	second_chances = int(character.get("second_chances", 0))
+	bleedout_remaining = BLEEDOUT_BASE + resolve
 	dash_timer = 0.0
 	dash_cooldown = 0.0
-	# Six axes rather than two, and two of them start non-zero: armor and crit
-	# are part of who a survivor is, not only something treasures grant.
-	armor = float(character.get("armor", 0.0))
-	crit_chance = float(character.get("crit", 0.0))
 	facing = Vector2.RIGHT
 	lean = 0.0
 	footfall_timer = 0.0
@@ -207,15 +209,25 @@ func dash_ready() -> bool:
 ## `source_position` lets a contact hit be reflected back at whatever landed
 ## it. Attacks with no attacker on the field (the chain overload, a boss slam)
 ## simply leave it empty and reflect nothing.
-func hurt(amount: float, source_position := Vector2.INF) -> bool:
+func hurt(amount: float, source_position := Vector2.INF, can_dodge := true) -> bool:
 	if invulnerability > 0.0 or downed:
+		return false
+	if can_dodge and dodge_chance > 0.0 and randf() < dodge_chance:
+		invulnerability = 0.28
+		dodged.emit(self)
+		queue_redraw()
 		return false
 	if thorns > 0.0 and source_position != Vector2.INF:
 		reflected.emit(source_position, amount * thorns)
 	health = maxf(0.0, health - maxf(1.0, amount - armor))
 	invulnerability = 0.55
 	damaged.emit(self, amount)
-	if health <= 0.0:
+	if health <= 0.0 and second_chances > 0:
+		second_chances -= 1
+		health = max_health * 0.28
+		invulnerability = 1.25
+		second_chance_used.emit(self)
+	elif health <= 0.0:
 		downed = true
 		bleedout_remaining = BLEEDOUT_BASE + resolve
 		revive_progress = 0.0

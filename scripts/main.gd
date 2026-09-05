@@ -237,6 +237,10 @@ var team_growth := 1.0 ## multiplier on all shared XP gained
 var team_luck := 0
 var team_overcharge := 0.0
 var team_greed := 0.0
+var team_level_heal := 0.0
+var team_hunt_bonus := 0.0
+var team_close_power := 0.0
+var team_dash_burst := 0.0
 ## Set the first time either survivor fuses a weapon. Until then the level-up
 ## screen says nothing about fusion requirements: the first one is meant to be
 ## discovered, and every one after that is meant to be plannable.
@@ -311,9 +315,8 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		if details_overlay.visible and (event.is_action_pressed("menu_previous") or event.is_action_pressed("menu_next")):
-			for slot in 2:
-				var text: RichTextLabel = details_overlay.get_node("Details%d" % slot)
-				text.scroll_to_line(maxi(0, text.get_first_visible_line() + (2 if event.is_action_pressed("menu_next") else -2)))
+			# The redesigned sheet fits every category without scrolling. Consume
+			# navigation here so it cannot change a card behind the modal.
 			get_viewport().set_input_as_handled()
 			return
 	if event is InputEventJoypadButton or event is InputEventJoypadMotion:
@@ -511,6 +514,8 @@ func _create_players() -> void:
 	player_one.downed_started.connect(_on_player_downed)
 	player_one.revived_player.connect(_on_player_revived)
 	player_one.dashed.connect(_on_player_dashed)
+	player_one.second_chance_used.connect(_on_second_chance_used)
+	player_one.dodged.connect(_on_player_dodged)
 	player_one.reflected.connect(_on_damage_reflected)
 	player_one.footfall.connect(_on_footfall)
 	players.append(player_one)
@@ -523,6 +528,8 @@ func _create_players() -> void:
 	player_two.downed_started.connect(_on_player_downed)
 	player_two.revived_player.connect(_on_player_revived)
 	player_two.dashed.connect(_on_player_dashed)
+	player_two.second_chance_used.connect(_on_second_chance_used)
+	player_two.dodged.connect(_on_player_dodged)
 	player_two.reflected.connect(_on_damage_reflected)
 	player_two.footfall.connect(_on_footfall)
 	players.append(player_two)
@@ -870,8 +877,8 @@ func _create_hud() -> void:
 	lobby_overlay.add_child(lobby_help)
 
 	pause_overlay = CatPanel.new()
-	pause_overlay.position = Vector2(310.0, 146.0)
-	pause_overlay.size = Vector2(660.0, 470.0)
+	pause_overlay.position = Vector2(220.0, 92.0)
+	pause_overlay.size = Vector2(840.0, 536.0)
 	pause_overlay.visible = false
 	layer.add_child(pause_overlay)
 	var rest_icon := _create_icon_rect(pause_overlay, Vector2(302, 20), Vector2(56, 56))
@@ -1318,8 +1325,7 @@ func _refresh_character_select_ui() -> void:
 func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
 	var weapon: Dictionary = character["weapon"]
-	var profile := CharacterCatalog.difficulty_profile(character)
-	# The six numbers live in the icon row above this label; what belongs here
+	# The stat grid lives above this label; what belongs here
 	# is the part a number cannot say. The leash line is called out separately
 	# because it is the one stat that changes how both players have to move.
 	var lines: Array[String] = [
@@ -1328,8 +1334,10 @@ func _format_character_card(player_index: int) -> String:
 			float(weapon["damage"]), float(weapon["cooldown"]),
 			_chain_note(character),
 		],
-		"난이도  %s" % CharacterCatalog.difficulty_stars(character),
-		String(profile["headline"]),
+		"자력 %.0f%%      사슬 %+.0f      회피 %.0f%%" % [
+			float(character["pickup"]) * 100.0, float(character["chain"]),
+			float(character.get("dodge", 0.0)) * 100.0,
+		],
 		"",
 		_character_select_status(player_index),
 	]
@@ -1407,6 +1415,10 @@ func _start_selected_run() -> void:
 	team_luck = 0
 	team_overcharge = 0.0
 	team_greed = 0.0
+	team_level_heal = 0.0
+	team_hunt_bonus = 0.0
+	team_close_power = 0.0
+	team_dash_burst = 0.0
 	fusion_discovered = false
 	# The shared magnet is the average of what the two cats bring to it, so a
 	# Nova pair really does sweep a screen the other pairs have to walk across.
@@ -1547,7 +1559,7 @@ func _trigger_chain_overload() -> void:
 	chain_overloaded = true
 	run_stats["overloads"] = int(run_stats["overloads"]) + 1
 	for player in players:
-		player.hurt(CHAIN_OVERLOAD_DAMAGE)
+		player.hurt(CHAIN_OVERLOAD_DAMAGE, Vector2.INF, false)
 	camera_shake = maxf(camera_shake, 14.0)
 	feedback.play_cue("down")
 	_show_message("사슬 과부하 · 서로 가까이!", Color("ff5d8f"))
@@ -1794,6 +1806,21 @@ func _on_player_dashed(_player: ChainPlayer) -> void:
 	particles.emit_sparks(_player.global_position, _player.body_color, 6, 260.0)
 	camera_shake = maxf(camera_shake, 3.0)
 	feedback.play_cue("dash")
+	if team_dash_burst > 0.0:
+		weapon_controller.perform_pounce(_player.global_position, team_dash_burst, _player.body_color)
+
+
+func _on_second_chance_used(player: ChainPlayer) -> void:
+	bursts.spawn(player.global_position, Color("fff275"), 2.2)
+	particles.emit_motes(player.global_position, Color("fff275"), 18)
+	camera_shake = maxf(camera_shake, 8.0)
+	_show_message("%s의 아홉 목숨!" % player.character_name, Color("fff275"))
+
+
+func _on_player_dodged(player: ChainPlayer) -> void:
+	particles.emit_ring(player.global_position, Color("f4f8ff"), player.radius + 14.0, 0.24)
+	particles.emit_sparks(player.global_position, player.body_color.lightened(0.35), 5, 210.0)
+	feedback.play_cue("dash")
 
 
 ## Dust under a running cat. Emitted from the player on its own cadence rather
@@ -1919,11 +1946,14 @@ func _cull_enemy(enemy: ChaserEnemy) -> void:
 func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	var death_position := enemy.global_position
 	var dropped_xp := enemy.xp_value
+	var dropped_grade := enemy.xp_grade
 	var defeated_boss := enemy.boss
 	var was_elite := enemy.elite
+	if was_elite or defeated_boss:
+		dropped_xp = roundi(float(dropped_xp) * (1.0 + team_hunt_bonus))
 	enemies.erase(enemy)
 	kills += 1
-	experience_system.spawn_gem(death_position, dropped_xp)
+	experience_system.spawn_gem(death_position, dropped_xp, dropped_grade)
 	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
 	feedback.play_cue("kill")
 	wave_director.release_enemy(enemy)
@@ -2464,6 +2494,24 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"luck":
 			score = 40.0 - progression.level * 1.5
 			reason = "희귀 카드 확률"
+		"catnip":
+			score = 31.0 + (1.0 - health_ratio) * 38.0
+			reason = "성장 때 팀 회복"
+		"bounty_bell":
+			score = 55.0 - progression.level * 1.7
+			reason = "강적 XP 증폭"
+		"twin_charm":
+			score = 42.0 + maxf(0.0, 10.0 - team_overcharge * 20.0)
+			reason = "밀착 전투 화력"
+		"dash_claw":
+			score = 40.0 + minf(12.0, float(run_stats["dashes"]) * 0.5)
+			reason = "대시를 공격으로"
+		"lucky_paw":
+			score = 38.0 + (1.0 - health_ratio) * 30.0
+			reason = "피해 완전 회피"
+		"nine_lives":
+			score = 58.0 + (1.0 - health_ratio) * 34.0
+			reason = "치명타 1회 무효"
 		"unlock_weapon":
 			score = 44.0 + (WEAPON_LOADOUT_CAP - loadout.size()) * 4.0
 			reason = "공격 축 추가"
@@ -2793,6 +2841,18 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 			team_growth += 0.15
 		"luck":
 			team_luck += 1
+		"catnip":
+			team_level_heal += 0.05
+		"bounty_bell":
+			team_hunt_bonus += 0.25
+		"twin_charm":
+			team_close_power += 0.08
+		"dash_claw":
+			team_dash_burst += 16.0
+		"lucky_paw":
+			player.dodge_chance = minf(0.60, player.dodge_chance + 0.04)
+		"nine_lives":
+			player.second_chances += 1
 		_:
 			return false
 	return true
@@ -2966,6 +3026,9 @@ func _finish_level_up() -> void:
 	level_up_active = false
 	level_overlay.visible = false
 	get_tree().paused = false
+	if team_level_heal > 0.0:
+		for player in players:
+			player.heal(player.max_health * team_level_heal)
 	_show_message("LV.%d · 둘 다 성장 완료" % progression.level, Color("fff275"))
 	if progression.can_level_up():
 		level_up_gap_remaining = LEVEL_UP_GAP
@@ -3136,7 +3199,9 @@ func _tension_damage_multiplier() -> float:
 	if chain_overloaded:
 		return CHAIN_OVERLOAD_PENALTY
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
-	return (1.25 + team_overcharge) if ratio >= CHAIN_WARNING_RATIO else 1.0
+	if ratio >= CHAIN_WARNING_RATIO:
+		return 1.25 + team_overcharge
+	return 1.0 + team_close_power if ratio <= 0.45 else 1.0
 
 
 func _update_hud() -> void:

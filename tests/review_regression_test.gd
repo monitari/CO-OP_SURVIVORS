@@ -37,10 +37,15 @@ func _run() -> void:
 	main.ReviewUI.toggle_details(main)
 	check(main.details_overlay.visible and not main.pause_overlay.visible, "details exclusively cover the menu")
 	for slot in 2:
-		var detail: RichTextLabel = main.details_overlay.get_node("Details%d" % slot)
-		for term in ["치명타", "관통", "발동 간격", "반사", "구조", "자석", "욕심", "과충전"]:
-			check(detail.text.contains(term), "full stat: " + term)
-		check(detail.scroll_active, "long builds stay scrollable")
+		var section_text := " ".join([
+			main.details_overlay.get_node("Offense%d/Value" % slot).text,
+			main.details_overlay.get_node("Survival%d/Value" % slot).text,
+			main.details_overlay.get_node("Coop%d/Value" % slot).text,
+			main.details_overlay.get_node("Utility%d/Value" % slot).text,
+			main.details_overlay.get_node("Build%d/Value" % slot).text,
+		])
+		for term in ["치명", "회피", "구조", "자력", "과충전", "무기"]:
+			check(section_text.contains(term), "full stat category: " + term)
 	main.ReviewUI.toggle_details(main)
 	check(main.pause_overlay.visible and main.pause_active, "closing details preserves pause")
 	main.ReviewUI.toggle_details(main)
@@ -116,7 +121,7 @@ func _run() -> void:
 	# What select owes the player is how the survivor plays right now.
 	var card: String = main._format_character_card(0)
 	check(not card.contains("합성"), "character select does not spoil the fusion recipe")
-	check(card.contains("난이도"), "character select still rates how demanding the survivor is")
+	check(not card.contains("난이도"), "character select removes difficulty labels")
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
 	main.level_up_input_delay = 0

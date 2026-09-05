@@ -19,14 +19,16 @@ var magnet_radius := 155.0
 var pickup_radius := 34.0
 
 
-func spawn_gem(spawn_position: Vector2, value: int) -> void:
+func spawn_gem(spawn_position: Vector2, value: int, grade := -1) -> void:
 	var gem: ExperienceGem
 	if gem_pool.is_empty():
 		gem = GemScript.new() as ExperienceGem
 		add_child(gem)
 	else:
 		gem = gem_pool.pop_back()
-	gem.activate(spawn_position, value)
+	if grade < 0:
+		grade = 3 if value >= 100 else (2 if value >= 24 else (1 if value >= 7 else 0))
+	gem.activate(spawn_position, value, grade)
 	active_gems.append(gem)
 
 

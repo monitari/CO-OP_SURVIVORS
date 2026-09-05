@@ -1,6 +1,7 @@
 extends RefCounted
 const UI := preload("res://scripts/ui/editorial_ui.gd")
 const Palette := preload("res://scripts/ui/cat_theme.gd")
+const Icons := preload("res://scripts/ui/icon_catalog.gd")
 
 static func button(parent: Control, caption: String, rect: Rect2, action: Callable) -> Button:
 	var b := Button.new()
@@ -81,9 +82,20 @@ static func install(main: Node) -> void:
 		main.get_tree().reload_current_scene())
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
 	settings.hide()
+	var pause_rects := [
+		Rect2(32, 112, 252, 62), Rect2(316, 138, 230, 72),
+		Rect2(558, 138, 230, 72), Rect2(316, 226, 230, 72),
+		Rect2(558, 226, 230, 72), Rect2(32, 188, 252, 48),
+	]
 	for index in 6:
-		button(main.pause_overlay, "", Rect2(32, 112 + index * 43, 596, 37), func() -> void: main._activate_pause_item(index)).name = "PauseAction%d" % index
-	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(32, 376, 596, 34), func() -> void: toggle_details(main))
+		var action := button(main.pause_overlay, "", pause_rects[index], func() -> void: main._activate_pause_item(index))
+		action.name = "PauseAction%d" % index
+		action.add_theme_font_size_override("font_size", 17 if index == 0 else 15)
+	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(32, 250, 252, 48), func() -> void: toggle_details(main)).name = "PauseDetails"
+	var snapshot := UI.plate(main.pause_overlay, Rect2(32, 318, 756, 120), Palette.CARD)
+	snapshot.name = "RunSnapshot"
+	UI.label(snapshot, "RUN SNAPSHOT", Rect2(18, 12, 180, 22), 13, Palette.GOLD)
+	UI.label(snapshot, "", Rect2(18, 39, 720, 62), 16, Palette.INK).name = "Value"
 	main.details_overlay = UI.plate(main.pause_overlay.get_parent(), Rect2(20, 132, 1240, 545), Palette.PANEL)
 	main.details_overlay.name = "BuildDetails"
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -92,15 +104,32 @@ static func install(main: Node) -> void:
 	UI.label(main.details_overlay, "성장 기록 · 전체 능력치", Rect2(24, 12, 900, 40), 26)
 	button(main.details_overlay, "닫기 · TAB / X", Rect2(952, 16, 210, 34), func() -> void: toggle_details(main))
 	for slot in 2:
-		var text := RichTextLabel.new()
-		text.position = Vector2(24 + slot * 578, 68)
-		text.size = Vector2(554, 418)
-		text.add_theme_font_size_override("normal_font_size", 16)
-		text.add_theme_color_override("default_color", Palette.INK)
-		text.scroll_active = true
-		main.details_overlay.add_child(text)
-		text.name = "Details%d" % slot
-	UI.label(main.details_overlay, "스크롤: 마우스 휠 / ↑ ↓ / 패드 방향키     ·     선택은 창을 닫은 뒤 확정", Rect2(24, 494, 1138, 26), 14, Palette.MUTED)
+		var x := 24.0 + slot * 602.0
+		var header := UI.plate(main.details_overlay, Rect2(x, 64, 578, 72), Palette.CARD)
+		header.name = "DetailHeader%d" % slot
+		UI.icon(header, null, Rect2(12, 8, 56, 56)).name = "Portrait"
+		UI.icon(header, null, Rect2(80, 14, 44, 44)).name = "Weapon"
+		UI.label(header, "", Rect2(138, 10, 420, 27), 20, Palette.P1 if slot == 0 else Palette.P2).name = "Name"
+		UI.label(header, "", Rect2(138, 39, 420, 23), 14, Palette.MUTED).name = "WeaponName"
+		_detail_card(main.details_overlay, x, 146, "might", "공격", "Offense%d" % slot)
+		_detail_card(main.details_overlay, x + 293, 146, "vitality", "생존", "Survival%d" % slot)
+		_detail_card(main.details_overlay, x, 268, "overcharge", "협동", "Coop%d" % slot)
+		_detail_card(main.details_overlay, x + 293, 268, "magnet", "탐색", "Utility%d" % slot)
+		var build := UI.plate(main.details_overlay, Rect2(x, 390, 578, 104), Palette.CARD)
+		build.name = "Build%d" % slot
+		UI.label(build, "장비 구성", Rect2(16, 10, 150, 22), 14, Palette.GOLD)
+		UI.label(build, "", Rect2(16, 36, 546, 58), 14, Palette.INK).name = "Value"
+	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다 · 선택은 창을 닫은 뒤 확정", Rect2(24, 502, 1138, 24), 14, Palette.MUTED)
+
+
+static func _detail_card(parent: Control, x: float, y: float, icon_id: String, title: String, node_name: String) -> void:
+	var card := UI.plate(parent, Rect2(x, y, 285, 112), Palette.CARD)
+	card.name = node_name
+	UI.icon(card, Icons.upgrade(icon_id), Rect2(14, 12, 30, 30))
+	UI.label(card, title, Rect2(52, 13, 214, 26), 15, Palette.GOLD)
+	var value := UI.label(card, "", Rect2(14, 43, 257, 62), 13, Palette.INK)
+	value.name = "Value"
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 static func choose_cat(main: Node, slot: int, direction: int) -> void:
 	if main.lobby_input_cooldown > 0.0: return
@@ -118,9 +147,27 @@ static func refresh_pause(main: Node) -> void:
 		var b: Button = main.pause_overlay.get_node("PauseAction%d" % index)
 		b.visible = not main.restart_pending or index < 2
 		var caption: String = (["취소 · 계속 쉬기", "종료하고 처음부터"] [index] if main.restart_pending and index < 2 else names[index])
-		if not main.restart_pending and index in [1, 2, 3, 4]: caption += "   ·   " + ("켜짐" if states[index] else "꺼짐")
+		if not main.restart_pending and index in [1, 2, 3, 4]: caption += "\n" + ("● 켜짐" if states[index] else "○ 꺼짐")
 		b.text = ("▶  " if main.pause_cursor == index else "") + caption
-	UI.place(main.pause_label, Rect2(32, 416, 596, 38), 14)
+		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if main.pause_cursor == index else Palette.CARD, 10)
+		style.border_color = Palette.P1 if main.pause_cursor == index else Palette.OUTLINE
+		style.set_border_width_all(3 if main.pause_cursor == index else 1)
+		b.add_theme_stylebox_override("normal", style)
+	main.pause_overlay.get_node("PauseDetails").visible = not main.restart_pending
+	main.pause_overlay.get_node("RunSnapshot").visible = not main.restart_pending
+	if not main.restart_pending:
+		main.pause_overlay.get_node("RunSnapshot/Value").text = "%02d:%02d  ·  LV.%d  ·  %d 처치\n%s / %s  ·  사슬 내구 %d%%" % [int(main.elapsed) / 60, int(main.elapsed) % 60, main.progression.level, main.kills, main.players[0].character_name, main.players[1].character_name, roundi(main.chain_integrity)]
+	else:
+		main.pause_overlay.get_node("PauseAction0").position = Vector2(158, 190)
+		main.pause_overlay.get_node("PauseAction0").size = Vector2(252, 64)
+		main.pause_overlay.get_node("PauseAction1").position = Vector2(430, 190)
+		main.pause_overlay.get_node("PauseAction1").size = Vector2(252, 64)
+	if not main.restart_pending:
+		var rects := [Vector2(32, 112), Vector2(316, 138), Vector2(558, 138), Vector2(316, 226), Vector2(558, 226), Vector2(32, 188)]
+		for index in 6:
+			main.pause_overlay.get_node("PauseAction%d" % index).position = rects[index]
+			main.pause_overlay.get_node("PauseAction%d" % index).size = Vector2(252, 62 if index == 0 else (48 if index == 5 else 72)) if index in [0, 5] else Vector2(230, 72)
+	UI.place(main.pause_label, Rect2(32, 462, 756, 34), 14)
 	main.pause_label.text = "↑ ↓ / 패드 방향키 이동 · ENTER / A 선택 · ESC / B 닫기"
 	if main.restart_pending:
 		main.pause_label.text = "현재 판의 성장과 기록은 사라집니다. 취소가 기본 선택입니다."
@@ -134,24 +181,26 @@ static func toggle_details(main: Node) -> void:
 	if not main.details_overlay.visible: return
 	for slot in 2:
 		var p: Node = main.players[slot]
-		var lines: Array[String] = ["P%d  %s" % [slot + 1, p.character_name],
-			"체력 %.0f/%.0f   방어 %.0f   회복 %.1f/s" % [p.health, p.max_health, p.armor, p.recovery],
-			"공격 %d%%   범위 %d%%   발동 간격 %d%%" % [roundi(p.might * 100), roundi(p.area * 100), roundi(p.haste * 100)],
-			"추가 발사 %d   관통 +%d   치명타 %d%% (2배)" % [p.amount, p.pierce, roundi(p.crit_chance * 100)],
-			"이속 %.0f   탄속 %d%%   반사 %d%%" % [p.move_speed, roundi(p.projectile_speed * 100), roundi(p.thorns * 100)],
-			"다운 유예 %.0f초   동료 구조 %.2f초" % [p.BLEEDOUT_BASE + p.resolve, 2.6 / (1.0 + p.resolve * 0.05)],
-			"공유 XP %d%% · 자석 %d%% · 행운 %d · 욕심 +%d%%" % [roundi(main.team_growth * 100), roundi(main.team_magnet * 100), main.team_luck, roundi(main.team_greed * 100)],
-			"사슬 %.0f   과충전 공격 +%d%% · 내구 소모 %d%%" % [main.chain_max_length, roundi((0.25 + main.team_overcharge) * 100), roundi(maxf(0.25, 1.0 - main.team_overcharge * 1.2) * 100)], ""]
+		var header: Panel = main.details_overlay.get_node("DetailHeader%d" % slot)
+		header.get_node("Portrait").texture = Icons.survivor(String(main.selected_characters[slot]["id"]))
+		header.get_node("Weapon").texture = Icons.weapon(String(main.weapon_loadouts[slot][0]["weapon_id"]))
+		header.get_node("Name").text = "P%d  %s" % [slot + 1, p.character_name]
+		header.get_node("WeaponName").text = "%d 무기 · %d 보물" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%% · 치명 %d%% · 발동 %d%%\n추가 +%d · 관통 +%d · 탄속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100)]
+		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f · 방어 %.0f · 재생 %.1f/s\n회피 %d%% · 반사 %d%% · 목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
+		main.details_overlay.get_node("Coop%d/Value" % slot).text = "사슬 %.0f · 구조 %.2f초 · 유예 %.0f초\n과충전 +%d%% · 밀착 +%d%% · 대시 %.0f" % [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst]
+		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f · 범위 %d%% · 자력 %d%%\nXP %d%% · 강적 +%d%% · 행운 %d\n레벨 회복 %d%% · 드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
+		var build_lines: Array[String] = []
+		var weapon_names: Array[String] = []
+		for w: Dictionary in main.weapon_loadouts[slot]:
+			weapon_names.append("%s T%d" % [w["weapon_name"], w.get("tier", 1)])
+		var treasure_names: Array[String] = []
+		for treasure: Dictionary in main.treasure_loadouts[slot]:
+			treasure_names.append("%s T%d" % [treasure["name"], treasure["tier"]])
+		build_lines.append("무기  " + (" · ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
+		build_lines.append("보물  " + (" · ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
 		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 		if main.level_up_active and not choices.is_empty():
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]
-			lines.append(String(choice["title"]).replace("\n", " · "))
-			lines.append(String(choice["description"]))
-			lines.append("추천 근거: " + String(choice.get("recommendation_reason", "균형 성장")))
-		lines.append("합성  " + main._fusion_progress_line(slot))
-		for w: Dictionary in main.weapon_loadouts[slot]:
-			lines.append("%s T%d · 피해 %.1f · 발동 %.2f초" % [w["weapon_name"], w.get("tier", 1), float(w["damage"]) * p.might, maxf(0.12, float(w["cooldown"]) * p.haste)])
-		lines.append("치명타는 발동마다 판정 · 추가 발사/관통은 해당 무기에 적용")
-		lines.append("화력은 명중·범위 가정에 따른 비교 추정치입니다.")
-		main.details_overlay.get_node("Details%d" % slot).text = "\n".join(lines)
-		main.details_overlay.get_node("Details%d" % slot).scroll_to_line(0)
+			build_lines.append("선택  %s · ★ %s" % [String(choice["title"]).replace("\n", " "), String(choice.get("recommendation_reason", "균형 성장")).split("   ")[0]])
+		main.details_overlay.get_node("Build%d/Value" % slot).text = "\n".join(build_lines)

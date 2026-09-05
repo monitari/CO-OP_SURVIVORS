@@ -152,13 +152,14 @@ func _test_select_hides_the_tech_tree(main: Node) -> void:
 	_check(not shown.contains("합성"), "select does not mention fusion at all")
 	_check(not shown.contains("공명"), "select does not mention resonance at all")
 
-	# It still has to be worth reading: the weapon and the difficulty read are
-	# the things a player actually chooses on.
+	# It still has to be worth reading: the starting weapon and its icon are
+	# the things a player actually chooses on. Difficulty labels were removed.
 	for player_index in 2:
 		var character: Dictionary = main.character_catalog[main.selected_character_indices[player_index]]
 		var card := String(main.character_p1_label.text if player_index == 0 else main.character_p2_label.text)
 		_check(card.contains(String(character["weapon_name"])), "the card still names the weapon")
-		_check(card.contains(CharacterCatalog.difficulty_stars(character)), "and shows its difficulty")
+		_check(not card.contains("난이도"), "and does not classify the pick by difficulty")
+		_check(main.character_overlay.get_node("CatWeapon%d" % player_index).texture != null, "and shows its weapon icon")
 
 
 func _check(condition: bool, label: String) -> void:

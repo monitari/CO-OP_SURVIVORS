@@ -29,7 +29,7 @@ func _run() -> void:
 	var weapon_ids: Dictionary = {}
 	var budget_line: Array[String] = []
 	var power_line: Array[String] = []
-	var difficulties: Dictionary = {}
+	var extended_signatures: Dictionary = {}
 
 	for character in roster:
 		var name := String(character["name"])
@@ -42,7 +42,7 @@ func _run() -> void:
 				name, budget, CharacterCatalog.TOTAL_BUDGET_MIN, CharacterCatalog.TOTAL_BUDGET_MAX])
 
 		# A budget only means anything if every field it reads is actually there.
-		for field: String in ["health", "speed", "armor", "crit", "pickup", "chain"]:
+		for field: String in ["health", "speed", "armor", "crit", "pickup", "chain", "might", "area", "haste", "recovery"]:
 			_check(character.has(field), "%s declares %s" % [name, field])
 		var weapon: Dictionary = character["weapon"]
 		_check(weapon.has("reach"), "%s's weapon declares a reach factor" % name)
@@ -65,18 +65,18 @@ func _run() -> void:
 		_check(GameIconCatalog.weapon(weapon_id) != null, "%s's weapon has an icon" % name)
 		_check(not (character["tags"] as Array).is_empty(), "%s has resonance tags" % name)
 
-		difficulties[CharacterCatalog.difficulty(character)] = true
+		extended_signatures["%.2f:%.2f:%.2f:%.2f" % [character["might"], character["area"], character["haste"], character["recovery"]]] = true
 
 	print("SURVIVOR_BUDGET: " + "  ·  ".join(budget_line))
 	print("SURVIVOR_POWER: " + "  ·  ".join(power_line))
 	_test_axes_are_wide(roster)
 	_test_leash_is_a_real_choice(roster)
 
-	# Ten survivors spread over one or two difficulty grades is a rating nobody
-	# can choose on. The spread floors above should force this, but asserting it
-	# directly is what says the *derived* read moved, not only the inputs.
-	_check(difficulties.size() >= 4,
-		"the roster spans at least four difficulty grades (%s)" % str(difficulties.keys()))
+	# Difficulty labels no longer appear in character select. Distinct combat
+	# signatures are the useful choice now, and no two cats may collapse to the
+	# same four extended stats.
+	_check(extended_signatures.size() == roster.size(),
+		"every survivor has a distinct extended combat signature")
 
 	# The band is only useful if it is tighter than the spread it was drawn
 	# around; a band wide enough to admit anything asserts nothing.

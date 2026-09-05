@@ -4,6 +4,7 @@ extends Node2D
 const ProjectileScript := preload("res://scripts/projectile.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 const MineScript := preload("res://scripts/proximity_mine.gd")
+const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
 
 var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
@@ -16,6 +17,8 @@ var chain_length := 370.0
 var chain_tension := 0.0
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
+var sustained_fields: Dictionary = {}
+const MINE_CAP_PER_PLAYER := 10
 
 
 func configure(
@@ -59,7 +62,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"homing": _fire_homing(player_index, scaled, damage, color)
 		"lightning": _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color)
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
-		"frost": _fire_frost_ring(player_index, scaled, damage, color)
+		"frost": _ensure_frost_aura(player_index, weapon_slot, scaled, damage, color)
 		"scythe": _swing_scythe(player_index, scaled, damage, color)
 		"chain": _fire_chain_pulse(scaled, damage)
 		"orbit": _sweep_orbit(player_index, scaled, damage, color)
@@ -70,7 +73,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"starpiercer": _fire_starpiercer(player_index, scaled, damage, color)
 		"thunder_god": _call_thunder_god(player_index, scaled, damage, color)
 		"supernova": _fire_supernova(player_index, scaled, damage, color)
-		"absolute_zero": _freeze_absolute(player_index, scaled, damage, color)
+		"absolute_zero": _ensure_absolute_aura(player_index, weapon_slot, scaled, damage, color)
 		"black_moon": _swing_black_moon(player_index, scaled, damage, color)
 		"stigmata": _burn_stigmata(scaled, damage)
 		"celestial": _sweep_celestial(player_index, scaled, damage, color)
@@ -225,6 +228,14 @@ func play_boss_flare(center: Vector2, enraged := false) -> void:
 	_spawn_combat_flare(center, Color("ff334f") if enraged else Color("c1121f"), Color("fff275"), 235.0 if enraged else 205.0, 0.72)
 
 
+## Treasure-driven dash attack, resolved through the same grid and feedback
+## stack as the regular weapons.
+func perform_pounce(center: Vector2, damage: float, color: Color) -> void:
+	_damage_area(center, 112.0, damage)
+	_draw_ring(center, 112.0, color, 9.0)
+	_spawn_combat_flare(center, color, Color.WHITE, 54.0, 0.24)
+
+
 func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radius: float, lifetime: float) -> void:
 	var flare := CombatFlareScript.new()
 	flare.setup(center, primary, secondary, radius, lifetime)
@@ -246,6 +257,10 @@ func clear_transients() -> void:
 		var mine := child as ProximityMine
 		if mine != null:
 			mine.queue_free()
+		var field = child if child.get_script() == WeaponFieldScript else null
+		if field != null:
+			field.queue_free()
+	sustained_fields.clear()
 
 
 func _acquire_projectile() -> HomingProjectile:
@@ -342,27 +357,37 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
 
 
-func _fire_frost_ring(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var origin := players[player_index].global_position
-	var radius := float(state["radius"])
-	for enemy in spatial_grid.query_radius(origin, radius + 40.0):
-		if origin.distance_to(enemy.global_position) <= radius + enemy.radius:
-			enemy.take_damage(damage)
-			if is_instance_valid(enemy) and not enemy.dead:
-				enemy.apply_slow(1.25, float(state["slow"]))
-	_draw_ring(origin, radius, color, 7.0)
+func _ensure_frost_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> void:
+	var key := "frost:%d:%d" % [player_index, weapon_slot]
+	var existing = sustained_fields.get(key)
+	if is_instance_valid(existing):
+		existing.refresh_frost(damage, float(state["radius"]), float(state["slow"]), color)
+		return
+	var field = WeaponFieldScript.new()
+	field.configure_frost(players[player_index], spatial_grid, damage, float(state["radius"]), float(state["slow"]), color)
+	add_child(field)
+	sustained_fields[key] = field
+
+
+func _ensure_absolute_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> void:
+	var key := "absolute:%d:%d" % [player_index, weapon_slot]
+	var existing = sustained_fields.get(key)
+	if is_instance_valid(existing):
+		existing.refresh_frost(damage, float(state["radius"]), float(state["slow"]), color, true)
+		return
+	var field = WeaponFieldScript.new()
+	field.configure_frost(players[player_index], spatial_grid, damage, float(state["radius"]), float(state["slow"]), color, true)
+	add_child(field)
+	sustained_fields[key] = field
 
 
 func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var origin := players[player_index].global_position
 	var attack_range := float(state["range"])
 	var direction := _aim_direction(player_index, attack_range)
-	var arc := float(state["arc"])
-	for enemy in spatial_grid.query_radius(origin, attack_range + 40.0):
-		var to_enemy := enemy.global_position - origin
-		if to_enemy.length() <= attack_range + enemy.radius and absf(direction.angle_to(to_enemy.normalized())) <= arc * 0.5:
-			enemy.take_damage(damage)
-	_draw_scythe_arc(origin, direction.angle(), attack_range, arc, color)
+	var field = WeaponFieldScript.new()
+	field.configure_scythe(origin, direction, spatial_grid, damage, attack_range, float(state["arc"]), color)
+	add_child(field)
 
 
 ## The tether weapon is the only one that cares how the pair is standing, and
@@ -382,16 +407,9 @@ func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
 ## and two consecutive sweeps never hit the same arc — which is what makes it
 ## read as an orbit rather than as a pulsing ring.
 func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var centre := players[player_index].global_position
-	var radius := float(state["radius"])
-	var shards := maxi(1, int(state["count"]))
-	var phase := elapsed * float(state.get("speed", 2.4))
-	for index in shards:
-		var angle := phase + TAU * float(index) / float(shards)
-		var point := centre + Vector2.from_angle(angle) * radius
-		_damage_area(point, 26.0, damage)
-		_draw_ring(point, 15.0, color, 5.0)
-	_draw_ring(centre, radius, Color(color, 0.5), 2.0)
+	var field = WeaponFieldScript.new()
+	field.configure_orbit(players[player_index], spatial_grid, damage, float(state["radius"]), maxi(1, int(state["count"])), float(state.get("speed", 2.4)), color)
+	add_child(field)
 
 
 ## A straight line that reaches much further than anything else in the roster
@@ -422,12 +440,23 @@ func _plant_mines(player_index: int, state: Dictionary, damage: float, color: Co
 	var lead := _aim_direction(player_index, 460.0) * 70.0
 	for index in count:
 		var offset := lead if index == 0 else lead + Vector2.from_angle(randf() * TAU) * randf_range(30.0, 90.0)
-		var mine := MineScript.new() as ProximityMine
-		mine.configure(damage, radius, color)
-		mine.detonated.connect(_on_mine_detonated)
-		mine.spatial_grid = spatial_grid
-		mine.global_position = players[player_index].global_position + offset
-		add_child(mine)
+		_spawn_mine(player_index, players[player_index].global_position + offset, damage * 1.45, radius * 1.15, color)
+
+
+func _spawn_mine(player_index: int, at: Vector2, damage: float, radius: float, color: Color) -> void:
+	var owned: Array[ProximityMine] = []
+	for child in get_children():
+		var carried := child as ProximityMine
+		if carried != null and carried.owner_index == player_index and not carried.spent:
+			owned.append(carried)
+	if owned.size() >= MINE_CAP_PER_PLAYER:
+		owned[0].force_detonate()
+	var mine := MineScript.new() as ProximityMine
+	mine.configure(damage, radius, color, player_index)
+	mine.detonated.connect(_on_mine_detonated)
+	mine.spatial_grid = spatial_grid
+	mine.global_position = at
+	add_child(mine)
 
 
 func _on_mine_detonated(centre: Vector2, damage: float, radius: float, color: Color) -> void:
@@ -446,22 +475,9 @@ func _collapse_gravity(player_index: int, state: Dictionary, damage: float, colo
 func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var radius := float(state["radius"])
 	var pull := float(state.get("pull", 160.0))
-	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
-		var offset := centre - enemy.global_position
-		var distance := offset.length()
-		if distance > radius + enemy.radius:
-			continue
-		if enemy.boss:
-			# A boss that can be vacuumed across the arena would trivialise the
-			# one fight the whole run builds toward.
-			enemy.take_damage(damage)
-			continue
-		enemy.position += offset.normalized() * minf(pull, distance)
-		enemy.take_damage(damage)
-		if is_instance_valid(enemy) and not enemy.dead:
-			enemy.apply_slow(1.2, 0.55)
-	_draw_ring(centre, radius, color, 3.0)
-	_draw_ring(centre, radius * 0.35, Color(color, 0.85), 5.0)
+	var field = WeaponFieldScript.new()
+	field.configure_gravity(centre, spatial_grid, damage, radius, pull, color)
+	add_child(field)
 
 
 ## Where the collapse actually lands.
@@ -530,22 +546,6 @@ func _fire_supernova(player_index: int, state: Dictionary, damage: float, color:
 	get_tree().create_timer(0.45).timeout.connect(blast)
 
 
-## Freezes rather than slows, and anything already frozen is shattered instead
-## of merely hit again.
-func _freeze_absolute(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var centre := players[player_index].global_position
-	var radius := float(state["radius"])
-	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
-		if centre.distance_to(enemy.global_position) > radius + enemy.radius:
-			continue
-		var already_frozen := enemy.slow_timer > 0.0
-		enemy.take_damage(damage * (2.4 if already_frozen else 1.0))
-		if is_instance_valid(enemy) and not enemy.dead:
-			enemy.apply_slow(2.4, float(state["slow"]))
-	_draw_ring(centre, radius, color, 9.0)
-	_draw_ring(centre, radius * 0.55, Color(color, 0.7), 4.0)
-
-
 ## No facing requirement any more: two full circles around the swinger.
 func _swing_black_moon(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var full := state.duplicate()
@@ -589,12 +589,7 @@ func _plant_ruin_garden(player_index: int, state: Dictionary, damage: float, col
 	var centre := players[player_index].global_position
 	for index in count:
 		var angle := TAU * float(index) / float(count) + randf() * 0.3
-		var mine := MineScript.new() as ProximityMine
-		mine.configure(damage, float(state["radius"]), color)
-		mine.spatial_grid = spatial_grid
-		mine.detonated.connect(_on_mine_detonated)
-		mine.global_position = centre + Vector2.from_angle(angle) * 105.0
-		add_child(mine)
+		_spawn_mine(player_index, centre + Vector2.from_angle(angle) * 105.0, damage * 1.25, float(state["radius"]), color)
 
 
 ## Pull, collapse, and then collapse again on the cluster the first one made.
@@ -611,7 +606,7 @@ func _collapse_event_horizon(player_index: int, state: Dictionary, damage: float
 		_damage_area(centre, radius * 0.7, damage * 2.0)
 		_draw_ring(centre, radius * 0.7, color.lightened(0.35), 11.0)
 		_spawn_combat_flare(centre, color, Color.WHITE, radius * 0.4, 0.26)
-	get_tree().create_timer(0.35).timeout.connect(implode)
+	get_tree().create_timer(0.55).timeout.connect(implode)
 
 
 ## The lance shape decoupled from a survivor, so resonances can fire one from

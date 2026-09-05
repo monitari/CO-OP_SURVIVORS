@@ -57,7 +57,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_id": "absolute_zero",
 			"weapon_name": "절대영도",
 			"tags": ["frost", "control", "aura", "burst"],
-			"description": "적을 얼려 세우고, 이미 얼어붙은 적은 그대로 부숴버립니다.",
+			"description": "상시 냉기를 두르고, 오라 안에서 이미 얼어붙은 적을 계속 파쇄합니다.",
 			"weapon": {"damage": 20.0, "cooldown": 1.4, "radius": 265.0, "slow": 0.12, "reach": 4.0},
 		},
 		{
@@ -85,7 +85,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"weapon_name": "천구 의식",
 			"tags": ["arcane", "aura", "control", "holy"],
 			"description": "안팎으로 반대로 도는 두 겹의 궤도가 주변을 통째로 갈아냅니다.",
-			"weapon": {"damage": 15.0, "cooldown": 0.85, "count": 5, "radius": 118.0, "speed": 2.9, "reach": 3.2},
+			"weapon": {"damage": 15.0, "cooldown": 4.3, "count": 5, "radius": 118.0, "speed": 3.35, "reach": 3.2},
 		},
 		{
 			"base_weapon_id": "lance",

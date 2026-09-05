@@ -66,6 +66,7 @@ var health := 32.0
 var max_health := 32.0
 var contact_damage := 12.0
 var xp_value := 5
+var xp_grade := 0
 var contact_cooldown := 0.0
 var enemy_color := Color("ef476f")
 var dead := false
@@ -122,6 +123,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 
 	match archetype:
 		"swarm":
+			xp_grade = 0
 			# Individually harmless and worth almost nothing; the point is that
 			# they arrive by the dozen. A wave of these is the pair's chance to
 			# convert a good position into levels rather than a threat to it.
@@ -132,6 +134,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 3
 			enemy_color = Color("9bf6ff")
 		"bulwark":
+			xp_grade = 2
 			# The opposite pressure: it will not die quickly, and while it is
 			# alive it is walking straight at the chain. Worth real XP because
 			# committing damage to it is a real cost.
@@ -142,6 +145,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 26
 			enemy_color = Color("8d99ae")
 		"charger":
+			xp_grade = 1
 			move_speed = 68.0
 			radius = 20.0
 			max_health = 52.0
@@ -149,6 +153,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 7
 			enemy_color = Color("ff8c42")
 		"shooter":
+			xp_grade = 1
 			move_speed = 58.0
 			radius = 16.0
 			max_health = 42.0
@@ -156,6 +161,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 8
 			enemy_color = Color("ffd166")
 		"chain_hunter":
+			xp_grade = 1
 			move_speed = 102.0
 			radius = 18.0
 			max_health = 48.0
@@ -163,6 +169,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 9
 			enemy_color = Color("06d6a0")
 		"brute":
+			xp_grade = 2
 			# This archetype only ever spawns as the boss (WaveDirector never
 			# hands it to a regular or elite wave), so its base speed is tuned
 			# for that fight specifically — fast enough to threaten a chain
@@ -177,6 +184,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			# player palette is the worst possible read in a crowded field.
 			enemy_color = Color("c1121f")
 		_:
+			xp_grade = 0
 			move_speed = 78.0
 			radius = randf_range(14.0, 22.0)
 			max_health = 32.0
@@ -209,6 +217,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		radius *= 1.3
 		contact_damage *= 1.4
 		xp_value *= 4
+		xp_grade = maxi(xp_grade, 2)
 	if boss:
 		# One explicit multiplier instead of elite x boss, and a gentler contact
 		# hit: two touches killing an unupgraded survivor left no fight in it.
@@ -221,6 +230,11 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		contact_damage *= 1.15 + float(maxi(1, boss_rank) - 1) * 0.12
 		move_speed += float(maxi(1, boss_rank) - 1) * 7.0
 		xp_value = 150 * maxi(1, boss_rank)
+		xp_grade = 3
+	# Time scaling can turn even a familiar enemy into a valuable target. Keep
+	# the drop silhouette honest to the final reward, not only its archetype.
+	var value_grade := 3 if xp_value >= 100 else (2 if xp_value >= 24 else (1 if xp_value >= 7 else 0))
+	xp_grade = maxi(xp_grade, value_grade)
 	health = max_health
 	z_index = 5 # Threat telegraphs remain above friendly attack effects.
 	if not is_instance_valid(body_sprite):

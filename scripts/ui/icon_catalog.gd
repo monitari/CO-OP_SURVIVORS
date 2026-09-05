@@ -23,6 +23,10 @@ const UPGRADE_ORDER := [
 ]
 
 const WEAPON_PASSTHROUGH := ["unlock_weapon", "weapon_power", "weapon_rate", "special_a", "special_b", "evolve_weapon"]
+const UPGRADE_ALIASES := {
+	"catnip": "recovery", "bounty_bell": "growth", "twin_charm": "overcharge",
+	"dash_claw": "might", "lucky_paw": "luck", "nine_lives": "vitality",
+}
 
 const GLYPH_SIZE := 96
 const GLYPH_SHAPES := 8
@@ -48,7 +52,8 @@ static func weapon(weapon_id: String) -> Texture2D:
 static func upgrade(upgrade_id: String, weapon_id := "") -> Texture2D:
 	if upgrade_id in WEAPON_PASSTHROUGH:
 		return weapon(weapon_id)
-	var atlas_icon := _by_id(UPGRADE_ATLAS, UPGRADE_ORDER, upgrade_id, 6, 3)
+	var atlas_id := String(UPGRADE_ALIASES.get(upgrade_id, upgrade_id))
+	var atlas_icon := _by_id(UPGRADE_ATLAS, UPGRADE_ORDER, atlas_id, 6, 3)
 	return atlas_icon if atlas_icon != null else generated(upgrade_id, "upgrade")
 
 
@@ -61,7 +66,7 @@ static func has_atlas_art(id: String, kind: String) -> bool:
 		"weapon":
 			return WEAPON_ORDER.has(id)
 		_:
-			return UPGRADE_ORDER.has(id)
+			return UPGRADE_ORDER.has(id) or UPGRADE_ALIASES.has(id)
 
 
 static func generated(id: String, kind: String) -> Texture2D:

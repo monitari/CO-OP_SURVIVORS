@@ -102,6 +102,7 @@ func _test_every_weapon_has_specials(main: Node) -> void:
 ## damaged, which the old version could never do.
 func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	await _clear_enemies(main)
+	main.players[0].area = 1.0
 	var gravity: Dictionary = main._build_weapon_state(CharacterCatalog.all_characters()[9])
 	_check(String(gravity["weapon_id"]) == "gravity", "the fixture picked the gravity survivor")
 	main.weapon_loadouts[0] = [gravity]
@@ -117,10 +118,15 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 
 	var neighbour_before := neighbour.global_position.x
 	main.weapon_controller.perform_attack(0, 0, 1.0)
+	await create_timer(0.16).timeout
+	_check(neighbour.global_position.x < neighbour_before and neighbour.global_position.x > anchor.global_position.x,
+		"the pull travels over time instead of teleporting the crowd")
+	await create_timer(0.7).timeout
+	print("GRAVITY_METRICS: anchor=%.1f neighbour=%.1f moved=%.1f" % [anchor.max_health - anchor.health, neighbour.max_health - neighbour.health, neighbour_before - neighbour.global_position.x])
 	_check(anchor.health < anchor.max_health, "the collapse lands on the crowd, not on the caster")
 	_check(neighbour.health < neighbour.max_health, "and catches what is standing with it")
 	_check(neighbour.global_position.x < neighbour_before,
-		"and drags it toward the anchor rather than toward the survivors")
+		"and finishes closer to the anchor rather than the survivors")
 
 	# With nothing in range it must not silently revert to the old behaviour of
 	# detonating on top of the pair.
@@ -128,6 +134,7 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	var underfoot := _spawn(main, Vector2(20.0, 0.0))
 	main.spatial_grid.rebuild(main.enemies)
 	main.weapon_controller.perform_attack(0, 0, 1.0)
+	await create_timer(0.55).timeout
 	_check(underfoot.health < underfoot.max_health, "something already on top of the pair is still hit")
 	await _clear_enemies(main)
 
@@ -167,6 +174,7 @@ func _measure_chain_hit(main: Node, tension: float) -> float:
 ## not by the field changing: a beam count nothing reads is not an upgrade.
 func _test_lance_splits_into_beams(main: Node) -> void:
 	await _clear_enemies(main)
+	main.players[0].area = 1.0
 	var lance: Dictionary = main._build_weapon_state(CharacterCatalog.all_characters()[7])
 	_check(String(lance["weapon_id"]) == "lance", "the fixture picked the lance survivor")
 	main.weapon_loadouts[0] = [lance]

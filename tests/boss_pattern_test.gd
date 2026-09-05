@@ -57,6 +57,9 @@ func _run() -> void:
 	# Player 0 stands in the blast, player 1 stays well clear of it.
 	main.players[0].position = impact
 	main.players[1].position = impact + Vector2(500.0, 500.0)
+	# This test measures slam geometry, not the character's passive dodge roll.
+	main.players[0].dodge_chance = 0.0
+	main.players[1].dodge_chance = 0.0
 	var p1_health_before: float = main.players[0].health
 	var p2_health_before: float = main.players[1].health
 	var integrity_before: float = main.chain_integrity

@@ -13,7 +13,7 @@ extends Node2D
 signal detonated(centre: Vector2, damage: float, radius: float, color: Color)
 
 const ARM_TIME := 0.45 ## Cannot be used as an instant nova at point blank.
-const LIFETIME := 6.0
+const LIFETIME := INF ## Persists until triggered or replaced by the placement cap.
 ## Wide enough that walking past a mine sets it off. At the original 46px an
 ## enemy could pass within its own body width and survive.
 const TRIGGER_RADIUS := 64.0
@@ -25,15 +25,17 @@ var armed := false
 var age := 0.0
 var spatial_grid: EnemySpatialGrid
 var spent := false
+var owner_index := -1
 
 
-func configure(new_damage: float, new_radius: float, color: Color) -> void:
+func configure(new_damage: float, new_radius: float, color: Color, new_owner := -1) -> void:
 	damage = new_damage
 	blast_radius = new_radius
 	mine_color = color
 	armed = false
 	age = 0.0
 	spent = false
+	owner_index = new_owner
 	z_index = -1
 	queue_redraw()
 
@@ -45,13 +47,10 @@ func _physics_process(delta: float) -> void:
 	if not armed and age >= ARM_TIME:
 		armed = true
 		queue_redraw()
-	if age >= LIFETIME:
-		# A mine nobody walked into still goes off, so a planted one is never
-		# simply wasted.
-		_detonate()
-		return
 	if not armed:
+		scale = Vector2.ONE * lerpf(0.55, 1.0, clampf(age / ARM_TIME, 0.0, 1.0))
 		return
+	rotation += delta * 0.42
 	if spatial_grid == null:
 		return
 	for enemy in spatial_grid.query_radius(global_position, TRIGGER_RADIUS + 40.0):
@@ -68,6 +67,11 @@ func _detonate() -> void:
 	spent = true
 	detonated.emit(global_position, damage, blast_radius, mine_color)
 	queue_free()
+
+
+func force_detonate() -> void:
+	armed = true
+	_detonate()
 
 
 func _draw() -> void:

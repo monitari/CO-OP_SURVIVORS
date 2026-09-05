@@ -4,10 +4,10 @@ const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const PLAYSTYLE := {
 	"homing": "유도 별탄 · 단일 적 추적", "lightning": "연쇄 번개 · 적 사이로 전이",
-	"flame": "불꽃 투사체 · 전방 화력", "frost": "빙결 고리 · 주변 둔화",
-	"scythe": "회전 낫 · 근거리 광역", "chain": "사슬 파동 · 결속 공격",
-	"orbit": "회전 별 · 근접 방어", "lance": "관통 광선 · 직선 공격",
-	"mine": "지뢰 설치 · 길목 제어", "gravity": "중력장 · 적 모으기",
+	"flame": "불꽃 투사체 · 전방 화력", "frost": "빙결 오라 · 상시 둔화 피해",
+	"scythe": "월도 낫 · 부채꼴 연속 베기", "chain": "사슬 파동 · 결속 공격",
+	"orbit": "회전 별 · 3.8초 연타", "lance": "관통 광선 · 직선 공격",
+	"mine": "결계 지뢰 · 밟을 때까지 유지", "gravity": "중력 붕괴 · 부드러운 흡인",
 }
 
 
@@ -136,27 +136,27 @@ static func _characters(main: Node) -> void:
 		screen.move_child(bed, 0)
 		var portrait: TextureRect = main.character_portrait_icons[slot]
 		portrait.position = Vector2(x + 22, 204)
-		portrait.size = Vector2(112, 112)
-		label(screen, "P%d" % (slot + 1), Rect2(x + 156, 194, 50, 25), 14, Palette.P1 if slot == 0 else Palette.P2)
-		var heading := label(screen, "", Rect2(x + 156, 219, 344, 38), 28)
+		portrait.size = Vector2(104, 104)
+		label(screen, "P%d" % (slot + 1), Rect2(x + 146, 194, 50, 25), 14, Palette.P1 if slot == 0 else Palette.P2)
+		var heading := label(screen, "", Rect2(x + 146, 219, 354, 38), 28)
 		heading.name = "CatName%d" % slot
-		var role := label(screen, "", Rect2(x + 156, 261, 344, 48), 15, Palette.MUTED)
+		var weapon_art := icon(screen, null, Rect2(x + 22, 312, 46, 46))
+		weapon_art.name = "CatWeapon%d" % slot
+		var role := label(screen, "", Rect2(x + 146, 261, 354, 48), 15, Palette.MUTED)
 		role.name = "CatRole%d" % slot
 		role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		# Two rows of three. The roster used to differ only in health and speed,
-		# so three numbers said everything there was to say; there are six axes
-		# now and leaving three of them off the screen would hide exactly the
-		# ones that make the picks feel different.
+		# Eight meaningful axes in a compact 4x2 grid. Weapon art anchors the first
+		# cell, so loadout identity is visible before anyone reads a description.
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
-			var column := stat % 3
-			var row := stat / 3
+			var column := stat % 4
+			var row := stat / 4
 			icon(screen, Icons.upgrade(String(entry["icon"])),
-				Rect2(x + 20 + column * 166, 318 + row * 36, 28, 28))
-			var value := label(screen, "", Rect2(x + 52 + column * 166, 316 + row * 36, 112, 32), 15)
+				Rect2(x + 82 + column * 108, 312 + row * 39, 25, 25))
+			var value := label(screen, "", Rect2(x + 109 + column * 108, 309 + row * 39, 80, 32), 13)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
-		place(body, Rect2(x + 24, 396, 480, 158), 16)
+		place(body, Rect2(x + 24, 398, 480, 150), 15)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	place(main.character_synergy_label, Rect2(32, 593, 1076, 42), 15, Palette.MUTED)
 
@@ -166,7 +166,8 @@ static func refresh_characters(main: Node) -> void:
 	main.character_roster_label.text = "클릭 P1 · 우클릭 P2"
 	for slot in 2:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
-		screen.get_node("CatName%d" % slot).text = String(cat["name"]) + "   ·   " + main.CharacterData.difficulty_label(cat)
+		screen.get_node("CatName%d" % slot).text = String(cat["name"])
+		screen.get_node("CatWeapon%d" % slot).texture = Icons.weapon(String(cat["weapon_id"]))
 		screen.get_node("CatRole%d" % slot).text = PLAYSTYLE.get(String(cat["weapon_id"]), cat["title"])
 		screen.get_node("CatRole%d" % slot).tooltip_text = cat["description"]
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():

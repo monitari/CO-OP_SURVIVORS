@@ -101,10 +101,12 @@ func _test_area(main: Node) -> void:
 
 	main.players[1].area = 1.0
 	main.weapon_controller.perform_attack(1, 0, 1.0)
+	await create_timer(0.36).timeout
 	_check(is_equal_approx(enemy.health, before), "an enemy outside the base ring takes nothing at normal area")
 
 	main.players[1].area = 1.8
 	main.weapon_controller.perform_attack(1, 0, 1.0)
+	await create_timer(0.36).timeout
 	_check(enemy.health < before, "a widened area attribute reaches an enemy the base radius could not")
 	main.players[1].area = 1.0
 	await _clear_enemies(main)

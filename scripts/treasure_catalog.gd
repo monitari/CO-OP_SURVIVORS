@@ -149,6 +149,48 @@ static func all_treasures() -> Array[Dictionary]:
 			"stat": "행운",
 			"per_tier": "공유 행운 +1",
 		},
+		{
+			"id": "catnip",
+			"name": "별빛 캣닢",
+			"shared": true,
+			"stat": "성장 회복",
+			"per_tier": "레벨업마다 둘 다 최대 체력의 5% 회복",
+		},
+		{
+			"id": "bounty_bell",
+			"name": "사냥꾼 방울",
+			"shared": true,
+			"stat": "강적 경험치",
+			"per_tier": "엘리트·보스 경험치 +25%",
+		},
+		{
+			"id": "twin_charm",
+			"name": "쌍둥이 부적",
+			"shared": true,
+			"stat": "밀착 화력",
+			"per_tier": "사슬 거리 45% 이내일 때 피해 +8%",
+		},
+		{
+			"id": "dash_claw",
+			"name": "질주 발톱",
+			"shared": true,
+			"stat": "대시 공격",
+			"per_tier": "대시 시작점에 피해 16 충격파",
+		},
+		{
+			"id": "lucky_paw",
+			"name": "행운의 앞발",
+			"shared": false,
+			"stat": "회피",
+			"per_tier": "피해를 무시할 확률 +4%",
+		},
+		{
+			"id": "nine_lives",
+			"name": "아홉 목숨 리본",
+			"shared": false,
+			"stat": "기사회생",
+			"per_tier": "치명타를 1회 막고 체력 28% 회복",
+		},
 	]
 
 

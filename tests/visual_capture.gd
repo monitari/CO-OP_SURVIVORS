@@ -28,6 +28,9 @@ func _run() -> void:
 	main.character_confirmed[0] = true
 	main.character_confirmed[1] = true
 	main._start_selected_run()
+	await physics_frame
+	await process_frame
+	main.set_physics_process(false)
 	main.players[0].position = Vector2(-120.0, 0.0)
 	main.players[1].position = Vector2(120.0, 0.0)
 	var archetypes := ["chaser", "charger", "shooter", "chain_hunter", "brute"]
@@ -35,7 +38,8 @@ func _run() -> void:
 		var enemy := main.wave_director._acquire_enemy(archetypes[index], 1.0, Vector2.ZERO, index == 4, false) as ChaserEnemy
 		enemy.position = Vector2.from_angle(TAU * float(index) / float(archetypes.size())) * 265.0
 		main._register_enemy(enemy)
-	main.experience_system.spawn_gem(Vector2(0.0, 115.0), 5)
+	for grade in 4:
+		main.experience_system.spawn_gem(Vector2(-66.0 + grade * 44.0, 115.0), [3, 8, 26, 150][grade], grade)
 	# One of each field drop so the capture shows all four icons.
 	var drop_ids := ["heal", "magnet", "chain_ward", "purge"]
 	for drop_index in drop_ids.size():
@@ -45,6 +49,7 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+	await _capture_weapon_reworks(main)
 	main._set_pause(true)
 	await process_frame
 	await RenderingServer.frame_post_draw
@@ -193,6 +198,32 @@ func _save_viewport(path: String) -> void:
 	var error := image.save_png(ProjectSettings.globalize_path(path))
 	if error != OK:
 		push_error("Failed to save visual capture: " + path)
+
+
+func _capture_weapon_reworks(main: Node) -> void:
+	main.set_physics_process(false)
+	main.level_up_active = false
+	main.level_overlay.hide()
+	paused = false
+	main.weapon_controller.clear_transients()
+	var previous: Array = [main.weapon_loadouts[0].duplicate(true), main.weapon_loadouts[1].duplicate(true)]
+	main.weapon_loadouts[0] = [main._build_weapon_state(main.character_catalog[6]), main._build_weapon_state(main.character_catalog[8])]
+	main.weapon_loadouts[1] = [main._build_weapon_state(main.character_catalog[3]), main._build_weapon_state(main.character_catalog[4]), main._build_weapon_state(main.character_catalog[9])]
+	main.players[0].last_input = Vector2.RIGHT
+	main.players[1].last_input = Vector2.LEFT
+	main.spatial_grid.rebuild(main.enemies)
+	for slot in main.weapon_loadouts[0].size(): main.weapon_controller.perform_attack(0, slot, 1.0)
+	for slot in main.weapon_loadouts[1].size(): main.weapon_controller.perform_attack(1, slot, 1.0)
+	for frame in 10: await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/weapon-reworks-motion.png")
+	for frame in 30: await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/weapon-reworks-sustain.png")
+	main.weapon_controller.clear_transients()
+	main.weapon_loadouts[0] = previous[0]
+	main.weapon_loadouts[1] = previous[1]
+	main.set_physics_process(true)
 
 
 func _capture_enemy_roster(main: Node) -> void:
