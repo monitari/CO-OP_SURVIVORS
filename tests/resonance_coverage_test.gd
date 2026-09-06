@@ -1,6 +1,6 @@
 extends SceneTree
 
-const CharacterData := preload("res://scripts/character_catalog.gd")
+const CharacterData := preload("res://scripts/catalogs/character_catalog.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
 

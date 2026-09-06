@@ -1,7 +1,7 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
-const ArenaFloorScript := preload("res://scripts/arena_floor.gd")
+const ArenaFloorScript := preload("res://scripts/entities/arena_floor.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
 
 var failures: Array[String] = []

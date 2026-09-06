@@ -11,7 +11,7 @@ signal wave_calm_started(wave_index: int)
 signal boss_incoming(boss_rank: int)
 signal encounter_started(encounter_id: String)
 
-const EnemyScript := preload("res://scripts/enemy.gd")
+const EnemyScript := preload("res://scripts/entities/enemy.gd")
 
 ## A run is now twenty-five minutes rather than five. Five minutes was shorter
 ## than the content the game hands out — four weapon slots, four treasure slots,

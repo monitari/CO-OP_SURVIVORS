@@ -2,6 +2,17 @@ extends RefCounted
 const UI := preload("res://scripts/ui/editorial_ui.gd")
 const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
+const G := preload("res://scripts/ui/layout_grid.gd")
+
+## The pause dialogue's six action slots: one tall column beside a 2x2 block,
+## sized so the right edge lands flush with the panel. Shared rather than
+## written twice — the builder and the per-frame refresh both place these, and
+## when only one of them was updated the menu kept the old panel's width.
+const PAUSE_SLOTS := [
+	Rect2(16, 112, 260, 62), Rect2(292, 138, 230, 72),
+	Rect2(538, 138, 230, 72), Rect2(292, 226, 230, 72),
+	Rect2(538, 226, 230, 72), Rect2(16, 188, 260, 48),
+]
 
 static func button(parent: Control, caption: String, rect: Rect2, action: Callable) -> Button:
 	var b := Button.new()
@@ -39,10 +50,12 @@ static func install(main: Node) -> void:
 		join.gui_input.connect(func(e: InputEvent) -> void:
 			if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 				main._join_lobby_slot(slot, -1, "키보드 WASD" if slot == 0 else "키보드 방향키"))
-		var x := 32.0 + slot * 548.0
-		button(main.character_overlay, "이전", Rect2(x + 24, 540, 90, 32), func() -> void: choose_cat(main, slot, -1))
-		button(main.character_overlay, "다음", Rect2(x + 122, 540, 90, 32), func() -> void: choose_cat(main, slot, 1))
-		button(main.character_overlay, "확정 / 변경", Rect2(x + 330, 540, 174, 32), func() -> void:
+		# The same half-page card the select screen draws, so the buttons sit
+		# under their own survivor rather than near them.
+		var x := G.x(0.25 + slot * 5.75) - G.x(0)
+		button(main.character_overlay, "이전", Rect2(x + G.GUTTER, 540, 90, 32), func() -> void: choose_cat(main, slot, -1))
+		button(main.character_overlay, "다음", Rect2(x + G.GUTTER + 106.0, 540, 90, 32), func() -> void: choose_cat(main, slot, 1))
+		button(main.character_overlay, "확정 / 변경", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 540, 174, 32), func() -> void:
 			if main.lobby_input_cooldown > 0.0: return
 			main.character_confirmed[slot] = not main.character_confirmed[slot]
 			main._refresh_character_select_ui()
@@ -62,11 +75,11 @@ static func install(main: Node) -> void:
 					toggle_details(main)
 				elif e.button_index == MOUSE_BUTTON_LEFT and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
 					main._select_upgrade(slot + 1, index))
-		button(main.level_overlay, "선택 취소", Rect2(352 + slot * 616, 446, 116, 26), func() -> void:
+		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 248.0 - G.GUTTER, 438, 116, 26), func() -> void:
 			if main.level_up_active:
 				main.selected_upgrade_indices[slot] = -1
 				main._refresh_level_up_ui()).name = "Cancel%d" % slot
-		button(main.level_overlay, "다시 뽑기", Rect2(482 + slot * 616, 446, 116, 26), func() -> void:
+		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 116.0 - G.GUTTER, 438, 116, 26), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0 and main.rerolls_remaining[slot] > 0:
 				main._reroll_choices(slot + 1)).name = "Reroll%d" % slot
 		for index in main.resonance_cards.size():
@@ -76,36 +89,32 @@ static func install(main: Node) -> void:
 				main.resonance_votes[slot] = index
 				main.resonance_cursors[slot] = index
 				main._refresh_resonance_vote_ui())
-	button(main.level_overlay, "상세 · TAB / X", Rect2(970, 24, 236, 32), func() -> void: toggle_details(main))
-	button(main.result_overlay, "다시 결속하기", Rect2(310, 476, 300, 36), func() -> void:
+	button(main.level_overlay, "상세 · TAB / X", Rect2(G.w(12) - 236.0 - G.PAD, 24, 236, 32), func() -> void: toggle_details(main))
+	button(main.result_overlay, "다시 결속하기", Rect2((G.w(8) - 300.0) * 0.5, 476, 300, 36), func() -> void:
 		main.get_tree().paused = false
 		main.get_tree().reload_current_scene())
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
 	settings.hide()
-	var pause_rects := [
-		Rect2(32, 112, 252, 62), Rect2(316, 138, 230, 72),
-		Rect2(558, 138, 230, 72), Rect2(316, 226, 230, 72),
-		Rect2(558, 226, 230, 72), Rect2(32, 188, 252, 48),
-	]
+	var pause_rects := PAUSE_SLOTS
 	for index in 6:
 		var action := button(main.pause_overlay, "", pause_rects[index], func() -> void: main._activate_pause_item(index))
 		action.name = "PauseAction%d" % index
 		action.add_theme_font_size_override("font_size", 17 if index == 0 else 15)
-	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(32, 250, 252, 48), func() -> void: toggle_details(main)).name = "PauseDetails"
-	var snapshot := UI.plate(main.pause_overlay, Rect2(32, 318, 756, 120), Palette.CARD)
+	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(16, 250, 260, 48), func() -> void: toggle_details(main)).name = "PauseDetails"
+	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 318, G.w(8) - G.GUTTER * 2.0, 120), Palette.CARD)
 	snapshot.name = "RunSnapshot"
 	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
 	for index in 4:
 		var x := 18 + index * 182
 		UI.label(snapshot, ["생존 시간", "공유 성장", "처치", "사슬 내구"][index], Rect2(x, 38, 168, 20), 13, Palette.MUTED)
 		UI.label(snapshot, "", Rect2(x, 62, 168, 34), 24, Palette.INK).name = "Metric%d" % index
-	main.details_overlay = UI.plate(main.pause_overlay.get_parent(), Rect2(20, 132, 1240, 545), Palette.PANEL)
+	main.details_overlay = UI.plate(main.pause_overlay.get_parent(), Rect2(G.x(0), 132, G.w(12), 545), Palette.PANEL)
 	main.details_overlay.name = "BuildDetails"
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.details_overlay.z_index = 20
 	main.details_overlay.hide()
 	UI.label(main.details_overlay, "성장 기록 · 전체 능력치", Rect2(24, 12, 900, 40), 26)
-	button(main.details_overlay, "닫기 · TAB / X", Rect2(952, 16, 210, 34), func() -> void: toggle_details(main))
+	button(main.details_overlay, "닫기 · TAB / X", Rect2(G.w(12) - 210.0 - G.GUTTER, 16, 210, 34), func() -> void: toggle_details(main))
 	for slot in 2:
 		var x := 24.0 + slot * 602.0
 		var header := UI.plate(main.details_overlay, Rect2(x, 64, 578, 72), Palette.CARD)
@@ -167,16 +176,17 @@ static func refresh_pause(main: Node) -> void:
 		for index in 4:
 			main.pause_overlay.get_node("RunSnapshot/Metric%d" % index).text = values[index]
 	else:
-		main.pause_overlay.get_node("PauseAction0").position = Vector2(158, 190)
+		var confirm_x := (G.w(8) - 252.0 * 2.0 - G.GUTTER) * 0.5
+		main.pause_overlay.get_node("PauseAction0").position = Vector2(confirm_x, 190)
 		main.pause_overlay.get_node("PauseAction0").size = Vector2(252, 64)
-		main.pause_overlay.get_node("PauseAction1").position = Vector2(430, 190)
+		main.pause_overlay.get_node("PauseAction1").position = Vector2(confirm_x + 252.0 + G.GUTTER, 190)
 		main.pause_overlay.get_node("PauseAction1").size = Vector2(252, 64)
 	if not main.restart_pending:
-		var rects := [Vector2(32, 112), Vector2(316, 138), Vector2(558, 138), Vector2(316, 226), Vector2(558, 226), Vector2(32, 188)]
 		for index in 6:
-			main.pause_overlay.get_node("PauseAction%d" % index).position = rects[index]
-			main.pause_overlay.get_node("PauseAction%d" % index).size = Vector2(252, 62 if index == 0 else (48 if index == 5 else 72)) if index in [0, 5] else Vector2(230, 72)
-	UI.place(main.pause_label, Rect2(32, 462, 756, 34), 14)
+			var slot: Rect2 = PAUSE_SLOTS[index]
+			main.pause_overlay.get_node("PauseAction%d" % index).position = slot.position
+			main.pause_overlay.get_node("PauseAction%d" % index).size = slot.size
+	UI.place(main.pause_label, Rect2(G.GUTTER, 462, G.w(8) - G.GUTTER * 2.0, 34), 14)
 	main.pause_label.text = "↑ ↓ / 패드 방향키 이동 · ENTER / A 선택 · ESC / B 닫기"
 	if main.restart_pending:
 		main.pause_label.text = "현재 판의 성장과 기록은 사라집니다. 취소가 기본 선택입니다."

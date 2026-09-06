@@ -17,7 +17,6 @@ var damage := 30.0
 var tint := Color("d59356")
 var age := 0.0
 var struck: Dictionary = {}
-const TOY_TEXTURE := preload("res://assets/art/unified/weapons/boomerang.png")
 const LIFETIME := 1.65
 ## Where the toy is along its path, as a multiple of `reach`. One and a half
 ## turns of a sine: out to +1, home through 0, and on to -1 where it is let go.
@@ -59,4 +58,48 @@ func _draw() -> void:
 	var travelling := signf(cos(progress * SWEEP))
 	draw_line(Vector2.ZERO, -heading.rotated(-rotation) * travelling * 34.0, Color(tint, alpha * 0.28), 10.0, true)
 	draw_set_transform(Vector2.ZERO, age * 9.0)
-	draw_texture_rect(TOY_TEXTURE, Rect2(-24, -24, 48, 48), false, Color(1, 1, 1, alpha))
+	_draw_fish(alpha)
+
+
+## The toy is drawn rather than blitted, for the same reason the star bolt and
+## the ember are: it has to sit beside them on the same field without one of
+## them looking like a sticker someone pasted on. Drawing it also lets it carry
+## the thrower's colour — a picked-up 생선 부메랑 keeps the tint of whoever it
+## came from — and costs the same as the one quad it replaces.
+##
+## Everything is in local coordinates around the toy's centre, nose along +X, so
+## the spin above is the only transform involved.
+const FISH_LENGTH := 19.0
+
+
+func _draw_fish(alpha: float) -> void:
+	var ink := Color(tint.darkened(0.62), alpha)
+	var body_colour := Color(tint, alpha)
+	var belly := Color(tint.lightened(0.62), alpha)
+	draw_circle(Vector2.ZERO, FISH_LENGTH * 0.95, Color(tint, alpha * 0.14))
+	var body := PackedVector2Array([
+		Vector2(FISH_LENGTH, 0.0),
+		Vector2(10.0, -7.6), Vector2(0.0, -8.6), Vector2(-8.0, -6.0),
+		Vector2(-11.0, -3.4),
+		# Forked tail: out to the top fluke, in to the notch, out to the bottom.
+		Vector2(-FISH_LENGTH, -9.4), Vector2(-14.6, 0.0), Vector2(-FISH_LENGTH, 9.4),
+		Vector2(-11.0, 3.4),
+		Vector2(-8.0, 6.0), Vector2(0.0, 8.6), Vector2(10.0, 7.6),
+	])
+	# Fins first so the body outline closes over where they meet it.
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(2.0, -7.4), Vector2(-3.5, -14.2), Vector2(-7.5, -6.4)]), Color(tint.darkened(0.18), alpha))
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(4.0, 3.2), Vector2(-1.5, 9.6), Vector2(-4.5, 3.2)]), Color(tint.darkened(0.18), alpha))
+	draw_colored_polygon(body, body_colour)
+	# A pale belly along the lower half, which is what makes it read as a fish
+	# rather than as a leaf at the size this actually flies past at.
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(13.0, 1.2), Vector2(0.0, 7.0), Vector2(-8.0, 4.6), Vector2(-9.5, 1.0)]), belly)
+	var outline := body.duplicate()
+	outline.append(body[0])
+	draw_polyline(outline, ink, 2.2, true)
+	draw_circle(Vector2(11.2, -2.4), 2.6, ink)
+	draw_circle(Vector2(11.9, -3.1), 1.0, Color(Color.WHITE, alpha))
+	# Gill line, one stroke, so the head end is distinguishable while it spins.
+	draw_line(Vector2(6.4, -5.4), Vector2(5.2, 4.6), ink, 1.6, true)

@@ -1,8 +1,8 @@
 # 에코·라떼 초상화
 
 생성 방식: built-in image_gen. 스타일 기준: survivor_atlas.png.
-게임은 `assets/art/unified/cats/`의 PNG를 사용한다. 통합 아트 파이프라인으로
-옮기면서 초기 SVG 시안은 정리했고, 원본 PNG는 `assets/art/sources/cats/`에 남는다.
+게임은 `assets/sprites/cats/`의 PNG를 사용한다. 통합 아트 파이프라인으로
+옮기면서 초기 SVG 시안은 정리했고, 생성 원본은 `art/originals/cats/`에 남는다.
 
 ## Echo
 

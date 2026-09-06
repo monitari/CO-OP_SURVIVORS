@@ -3,7 +3,8 @@ extends RefCounted
 const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
-const TitleLogo := preload("res://assets/ui/title/moonroof_title.png")
+const G := preload("res://scripts/ui/layout_grid.gd")
+const TitleLogo := preload("res://assets/ui/moonroof_title.png")
 const PLAYSTYLE := {
 	"homing": "유도 별탄 · 단일 적 추적", "lightning": "연쇄 번개 · 적 사이로 전이",
 	"flame": "불꽃 투사체 · 전방 화력", "frost": "빙결 오라 · 상시 둔화 피해",
@@ -59,13 +60,26 @@ static func apply(main: Node) -> void:
 	for screen in [main.lobby_overlay, main.character_overlay, main.level_overlay,
 		main.resonance_overlay, main.pause_overlay, main.result_overlay]:
 		_reink(screen)
+	# Six overlays used to sit at six unrelated origins. They are columns now:
+	# the two screens that need the whole page take all twelve, and the three
+	# that are a dialogue rather than a workspace take the middle eight.
+	for wide in [main.lobby_overlay, main.character_overlay]:
+		wide.position = G.rect(0, 0).position
+		wide.size = Vector2(G.w(12), G.h(8))
+	for narrow in [main.resonance_overlay, main.pause_overlay, main.result_overlay]:
+		narrow.position = G.rect(2, 0.5).position
+		narrow.size = Vector2(G.w(8), G.h(7))
+	# The growth screen keeps the vertical slide main animates it with, so only
+	# its horizontal placement and width come from the grid.
+	main.level_overlay.position.x = G.x(0)
+	main.level_overlay.size = Vector2(G.w(12), G.h(6))
 	_lobby(main)
 	_characters(main)
 	_growth(main)
 	_results(main)
 	_pause(main)
 	_hud(main)
-	place(main.resonance_title, Rect2(32, 20, 840, 42), 28)
+	place(main.resonance_title, G.inner(2, 0.5, 2.25, 0.75, 7.5), 28)
 	main.resonance_title.text = "함께 쓰는 필살기"
 	main.resonance_status.add_theme_color_override("font_color", Palette.MUTED)
 	for card: Label in main.resonance_cards:
@@ -103,15 +117,15 @@ static func _lobby(main: Node) -> void:
 	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	var prompt := label(screen, "두 고양이가 모이면 바로 출발", Rect2(300, 334, 500, 28), 18, Palette.MUTED)
+	var prompt := label(screen, "두 고양이가 모이면 바로 출발", G.inner(0, 0, 3.5, 4, 5, 0.4), 18, Palette.MUTED)
 	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		var item: Label = main.lobby_p1_label if slot == 0 else main.lobby_p2_label
-		place(item, Rect2(48 + slot * 510, 382, 494, 142), 21, Palette.P1 if slot == 0 else Palette.P2)
+		place(item, G.inner(0, 0, 0.5 + slot * 6.0, 4.6, 5.5, 2), 21, Palette.P1 if slot == 0 else Palette.P2)
 		item.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD))
 		var style := item.get_theme_stylebox("normal") as StyleBoxFlat
 		style.set_content_margin_all(22)
-	var hint := label(screen, "ESC / START  참가 취소", Rect2(325, 550, 450, 24), 14, Palette.MUTED)
+	var hint := label(screen, "ESC / START  참가 취소", G.inner(0, 0, 3.5, 7.1, 5, 0.35), 14, Palette.MUTED)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
@@ -122,30 +136,35 @@ static func _characters(main: Node) -> void:
 		if child is Panel or (child is Label and child.text in ["P1", "P2"]):
 			screen.remove_child(child)
 			child.queue_free()
-	place(main.character_title, Rect2(32, 20, 700, 40), 28)
+	place(main.character_title, G.inner(0, 0, 0.25, 0.2, 7), 28)
 	main.character_title.text = "오늘 밤의 수호대"
-	place(main.character_roster_label, Rect2(790, 26, 314, 24), 14, Palette.MUTED)
+	place(main.character_roster_label, G.inner(0, 0, 8.25, 0.28, 3.5, 0.35), 14, Palette.MUTED)
 	main.character_roster_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	for index in main.character_catalog.size():
-		var step: float = 1080.0 / main.character_catalog.size()
-		var tile := plate(screen, Rect2(32 + index * step, 76, step - 8, 82))
+		# The roster strip is a slice row rather than columns: twelve cats do not
+		# divide into twelve columns once the page margin is taken out.
+		var strip := G.inner(0, 0, 0.25, 1.0, 11.5, 1.2)
+		var slot_rect := G.slice(strip, main.character_catalog.size(), index, G.PAD)
+		var tile := plate(screen, slot_rect)
 		tile.name = "Roster%d" % index
-		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2((step - 62) * 0.5, 3, 54, 54))
-		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(4, 55, step - 16, 23), 13)
+		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2((slot_rect.size.x - 54) * 0.5, 4, 54, 54))
+		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(0, 58, slot_rect.size.x, 22), 13)
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
-		var x := 32.0 + slot * 548.0
-		var bed := plate(screen, Rect2(x, 178, 528, 402))
+		# Each survivor takes half the page: six columns, four rows deep.
+		var card := G.inner(0, 0, 0.25 + slot * 5.75, 2.4, 5.5, 4.4)
+		var x := card.position.x
+		var bed := plate(screen, card)
 		screen.move_child(bed, 0)
 		var portrait: TextureRect = main.character_portrait_icons[slot]
-		portrait.position = Vector2(x + 22, 204)
+		portrait.position = Vector2(x + G.GUTTER, card.position.y + G.GUTTER)
 		portrait.size = Vector2(104, 104)
-		label(screen, "P%d" % (slot + 1), Rect2(x + 146, 194, 50, 25), 14, Palette.P1 if slot == 0 else Palette.P2)
-		var heading := label(screen, "", Rect2(x + 146, 219, 354, 38), 28)
+		label(screen, "P%d" % (slot + 1), Rect2(x + 136, card.position.y + 6, 50, 25), 14, Palette.P1 if slot == 0 else Palette.P2)
+		var heading := label(screen, "", Rect2(x + 136, card.position.y + 31, card.size.x - 152, 38), 28)
 		heading.name = "CatName%d" % slot
-		var weapon_art := icon(screen, null, Rect2(x + 22, 312, 46, 46))
+		var weapon_art := icon(screen, null, Rect2(x + G.GUTTER, card.position.y + 124, 46, 46))
 		weapon_art.name = "CatWeapon%d" % slot
-		var role := label(screen, "", Rect2(x + 146, 261, 354, 48), 15, Palette.MUTED)
+		var role := label(screen, "", Rect2(x + 136, card.position.y + 73, card.size.x - 152, 48), 15, Palette.MUTED)
 		role.name = "CatRole%d" % slot
 		role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		# Eight meaningful axes in a compact 4x2 grid. Weapon art anchors the first
@@ -155,13 +174,13 @@ static func _characters(main: Node) -> void:
 			var column := stat % 4
 			var row := stat / 4
 			icon(screen, Icons.upgrade(String(entry["icon"])),
-				Rect2(x + 82 + column * 108, 312 + row * 39, 25, 25))
-			var value := label(screen, "", Rect2(x + 109 + column * 108, 309 + row * 39, 80, 32), 13)
+				Rect2(x + 76 + column * 108, card.position.y + 124 + row * 39, 25, 25))
+			var value := label(screen, "", Rect2(x + 103 + column * 108, card.position.y + 121 + row * 39, 80, 32), 13)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
-		place(body, Rect2(x + 24, 398, 480, 150), 15)
+		place(body, Rect2(x + G.GUTTER, card.position.y + 210, card.size.x - G.GUTTER * 2.0, card.size.y - 222), 15)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	place(main.character_synergy_label, Rect2(32, 593, 1076, 42), 15, Palette.MUTED)
+	place(main.character_synergy_label, G.inner(0, 0, 0.25, 7.05, 11.5, 0.6), 15, Palette.MUTED)
 
 
 static func refresh_characters(main: Node) -> void:
@@ -171,7 +190,11 @@ static func refresh_characters(main: Node) -> void:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
 		screen.get_node("CatName%d" % slot).text = String(cat["name"])
 		screen.get_node("CatWeapon%d" % slot).texture = Icons.weapon(String(cat["weapon_id"]))
-		screen.get_node("CatRole%d" % slot).text = "%s\n조작 난이도 %s" % [PLAYSTYLE.get(String(cat["weapon_id"]), cat["title"]), CharacterCatalog.difficulty_stars(cat)]
+		# The breed line, not the weapon line. Ten cats used to be introduced by
+		# what their weapon does and two by who they are, because only the two
+		# newest had no PLAYSTYLE entry to override them. The weapon still
+		# describes itself on the level-up card and in the block below.
+		screen.get_node("CatRole%d" % slot).text = "%s\n조작 난이도 %s" % [String(cat["title"]), CharacterCatalog.difficulty_stars(cat)]
 		screen.get_node("CatRole%d" % slot).tooltip_text = cat["description"]
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
@@ -188,15 +211,17 @@ static func refresh_characters(main: Node) -> void:
 
 static func _growth(main: Node) -> void:
 	var screen: Control = main.level_overlay
-	place(main.level_title, Rect2(24, 16, 860, 42), 28)
+	# The growth overlay slides vertically, so its children take x from the
+	# grid and y from the panel itself.
+	place(main.level_title, Rect2(G.PAD, 10, G.w(8), 42), 28)
 	for slot in 2:
-		var x := 8.0 + slot * 616.0
-		var panel := plate(screen, Rect2(x - 4, 58, 608, 418), Palette.P1 if slot == 0 else Palette.P2)
+		var x: float = main.LEVEL_HALF_X[slot]
+		var panel := plate(screen, Rect2(x, 58, G.w(6), 414), Palette.P1 if slot == 0 else Palette.P2)
 		panel.name = "GrowthPanel%d" % slot
 		panel.modulate = Color(1.0, 1.0, 1.0, 0.18)
 		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		screen.move_child(panel, 0)
-		var heading := label(screen, "", Rect2(x + 8, 70, 590, 26), 16, Palette.P1 if slot == 0 else Palette.P2)
+		var heading := label(screen, "", Rect2(x + G.PAD, 70, G.w(6) - G.GUTTER, 26), 16, Palette.P1 if slot == 0 else Palette.P2)
 		heading.name = "GrowthName%d" % slot
 		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		for card: Label in main.level_card_labels[slot]:
@@ -223,11 +248,13 @@ static func _growth(main: Node) -> void:
 			badge.add_theme_font_size_override("font_size", 14)
 		var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 		footer.add_theme_color_override("font_color", Palette.MUTED)
-		var stats := label(screen, "", Rect2(x + 268, 372, 330, 44), 12, Palette.MUTED)
+		# Status right, controls left: both stop a gutter short of the panel edge
+		# instead of ending flush against it.
+		var stats := label(screen, "", Rect2(x + G.w(6) - 332.0 - G.GUTTER, 366, 332, 44), 12, Palette.MUTED)
 		stats.name = "BuildStats%d" % slot
 		stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		stats.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	place(main.team_stats_label, Rect2(24, 430, 1192, 26), 13, Palette.MUTED)
+	place(main.team_stats_label, Rect2(G.PAD, 430, G.w(12) - G.GUTTER, 26), 13, Palette.MUTED)
 	main.team_stats_label.visible = false
 
 
@@ -260,7 +287,7 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		badge.add_theme_stylebox_override("normal",
 			Palette.surface(Color("efdcd6") if against else Color("dfebda"), 8))
 	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
-	place(footer, Rect2(268 + slot * 616, 418, 330, 22), 13, Palette.MUTED)
+	place(footer, Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 332.0 - G.GUTTER, 412, 332, 22), 13, Palette.MUTED)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	footer.text = "무기 %d/4 · 보물 %d/4 · 뽑기 %d" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size(), main.rerolls_remaining[slot]]
 	if main.level_up_input_delay > 0.0:
@@ -290,32 +317,35 @@ static func _hud(main: Node) -> void:
 	for slot in 2:
 		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
 		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
-		bar.position = Vector2(78 if slot == 0 else 922, 30)
-		bar.size = Vector2(280, 24)
+		# Health reads on columns 0-3 and 8-11; the middle four columns are the
+		# shared readouts, so nothing in the HUD floats between the two systems.
+		bar.position = Vector2(G.x(0.5) if slot == 0 else G.x(8.2), 30)
+		bar.size = Vector2(G.w(3), 24)
 		caption.position = bar.position
 		caption.size = bar.size
 	for item in [main.chain_bar, main.chain_distance_text_label]:
-		item.position = Vector2(480, 57)
-		item.size = Vector2(156, 18)
+		item.position = Vector2(G.x(4.35), 57)
+		item.size = Vector2(G.w(1.6), 18)
 	for item in [main.chain_integrity_bar, main.chain_integrity_text_label]:
-		item.position = Vector2(644, 57)
-		item.size = Vector2(156, 18)
-	place(main.chain_status_label, Rect2(480, 77, 205, 20), 12, Palette.CREAM)
-	place(main.resonance_status_label, Rect2(685, 77, 115, 20), 12, Palette.CREAM)
+		item.position = Vector2(G.x(6.0), 57)
+		item.size = Vector2(G.w(1.6), 18)
+	place(main.chain_status_label, Rect2(G.x(4.35), 77, G.w(2), 20), 12, Palette.CREAM)
+	place(main.resonance_status_label, Rect2(G.x(6.4), 77, G.w(1.2), 20), 12, Palette.CREAM)
 	main.boss_label.add_theme_color_override("font_color", Color("f0cca2"))
-	place(main.boss_label, Rect2(440, 100, 180, 22), 13, Palette.CREAM)
-	main.boss_bar.position = Vector2(626, 103)
-	main.boss_bar.size = Vector2(214, 16)
+	place(main.boss_label, Rect2(G.x(3.9), 100, G.w(1.8), 22), 13, Palette.CREAM)
+	main.boss_bar.position = Vector2(G.x(5.8), 103)
+	main.boss_bar.size = Vector2(G.w(2.2), 16)
 	main.boss_health_text_label.position = main.boss_bar.position
 	main.boss_health_text_label.size = main.boss_bar.size
 	main.boss_health_text_label.add_theme_font_size_override("font_size", 11)
-	main.tutorial_label.add_theme_color_override("font_color", Color("f0cca2"))
-	place(main.hud_label, Rect2(584, 14, 112, 36), 29, Palette.CREAM)
+	# The clock is the page's centre line, so it is centred on the content span
+	# rather than snapped to a column edge — 48..1232 has its middle at 640.
+	place(main.hud_label, Rect2((G.VIEWPORT.x - G.w(1.2)) * 0.5, 14, G.w(1.2), 36), 29, Palette.CREAM)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var wave_readout := label(main.combat_hud, "", Rect2(702, 22, 138, 24), 12, Color("b9cbc8"))
+	var wave_readout := label(main.combat_hud, "", Rect2(G.x(6.54), 22, G.w(1.4), 24), 12, Color("b9cbc8"))
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var objective_readout := label(main.combat_hud, "", Rect2(440, 22, 138, 24), 12, Color("e4c899"))
+	var objective_readout := label(main.combat_hud, "", Rect2(G.x(3.9), 22, G.w(1.4), 24), 12, Color("e4c899"))
 	objective_readout.name = "ObjectiveReadout"
 	# Two rows per survivor: weapons on top, treasures under them, each icon
 	# carrying its own tier. The play screen showed weapons only and showed them
@@ -323,7 +353,7 @@ static func _hud(main: Node) -> void:
 	# deep anything was — could only be seen by opening a menu.
 	for slot in 2:
 		var holder := Control.new()
-		holder.position = Vector2(28 if slot == 0 else 1096, 62)
+		holder.position = Vector2(G.x(0) - 20.0 if slot == 0 else G.x(10.5), 62)
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.name = "Carried%d" % slot
 		main.combat_hud.add_child(holder)
@@ -385,31 +415,34 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 
 static func _results(main: Node) -> void:
 	var screen: Control = main.result_overlay
-	label(screen, "", Rect2(32, 24, 850, 44), 30).name = "ResultHeading"
-	label(screen, "", Rect2(32, 74, 850, 28), 16, Palette.MUTED).name = "ResultReason"
+	var wide := G.w(8) - G.GUTTER * 2.0
+	label(screen, "", Rect2(G.GUTTER, 24, wide, 44), 30).name = "ResultHeading"
+	label(screen, "", Rect2(G.GUTTER, 74, wide, 28), 16, Palette.MUTED).name = "ResultReason"
 	for index in 3:
-		var tile := plate(screen, Rect2(32 + index * 290, 120, 274, 120))
+		# Three metric tiles across the dialogue, sharing one gutter each.
+		var tile := plate(screen, G.slice(Rect2(G.GUTTER, 120, wide, 120), 3, index))
 		var ids := ["move", "might", "growth"]
 		var names := ["생존 시간", "처치", "공유 레벨"]
 		icon(tile, Icons.upgrade(ids[index]), Rect2(18, 14, 32, 32))
-		label(tile, names[index], Rect2(60, 17, 190, 28), 15, Palette.MUTED)
-		label(tile, "", Rect2(20, 52, 230, 52), 36).name = "Value"
+		label(tile, names[index], Rect2(60, 17, tile.size.x - 76.0, 28), 15, Palette.MUTED)
+		label(tile, "", Rect2(20, 52, tile.size.x - 40.0, 52), 36).name = "Value"
 		tile.name = "ResultMetric%d" % index
 	for slot in 2:
-		var x := 32 + slot * 435
-		var tile := plate(screen, Rect2(x, 260, 419, 108))
+		var half := G.slice(Rect2(G.GUTTER, 260, wide, 108), 2, slot)
+		var x := half.position.x
+		var tile := plate(screen, half)
 		screen.move_child(tile, 0)
 		var portrait: TextureRect = screen.get_node("ResultCat%d" % slot)
-		portrait.position = Vector2(x + 12, 275)
+		portrait.position = Vector2(x + G.GUTTER, 278)
 		portrait.size = Vector2(72, 72)
-		label(screen, "", Rect2(x + 98, 270, 298, 28), 18, Palette.P1 if slot == 0 else Palette.P2).name = "ResultName%d" % slot
+		label(screen, "", Rect2(x + 100, 272, half.size.x - 116, 28), 18, Palette.P1 if slot == 0 else Palette.P2).name = "ResultName%d" % slot
 		for index in 4:
-			icon(screen, null, Rect2(x + 98 + index * 51, 309, 42, 42)).name = "ResultWeapon%d_%d" % [slot, index]
-	label(screen, "협동 기록", Rect2(32, 388, 850, 24), 14, Palette.GOLD)
-	label(screen, "", Rect2(32, 417, 850, 30), 16, Palette.MUTED).name = "CoopRecord"
+			icon(screen, null, Rect2(x + 100 + index * 48, 310, 42, 42)).name = "ResultWeapon%d_%d" % [slot, index]
+	label(screen, "협동 기록", Rect2(G.GUTTER, 388, wide, 24), 14, Palette.GOLD)
+	label(screen, "", Rect2(G.GUTTER, 417, wide, 30), 16, Palette.MUTED).name = "CoopRecord"
 	# Sized to its own text rather than to the panel: an 850px plate holding one
 	# centred phrase read as two empty boxes with a button wedged between them.
-	place(main.result_label, Rect2(311, 470, 292, 42), 18, Palette.INK)
+	place(main.result_label, Rect2((G.w(8) - 292.0) * 0.5, 470, 292, 42), 18, Palette.INK)
 	main.result_label.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 10))
 	main.result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -438,21 +471,21 @@ static func _pause(main: Node) -> void:
 		if child is TextureRect:
 			screen.remove_child(child)
 			child.queue_free()
-	label(screen, "잠시 쉬어가기", Rect2(32, 24, 595, 42), 28).name = "PauseHeading"
-	label(screen, "일시정지  /  두 고양이가 기다려요", Rect2(32, 71, 595, 24), 14, Palette.MUTED)
+	label(screen, "잠시 쉬어가기", Rect2(G.GUTTER, 24, G.w(8) - G.GUTTER * 2.0, 42), 28).name = "PauseHeading"
+	label(screen, "일시정지  /  두 고양이가 기다려요", Rect2(G.GUTTER, 71, G.w(8) - G.GUTTER * 2.0, 24), 14, Palette.MUTED)
 	var settings := Control.new()
 	settings.name = "SettingsRows"
 	settings.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen.add_child(settings)
 	for index in 4:
-		var row := plate(settings, Rect2(32, 113 + index * 47, 596, 41))
+		var row := plate(settings, Rect2(G.GUTTER, 113 + index * 47, G.w(8) - G.GUTTER * 2.0, 41))
 		var names := ["화면 흔들림", "피해 숫자", "효과음", "음악"]
 		label(row, "F%d" % (index + 1), Rect2(16, 7, 40, 27), 14, Palette.GOLD)
 		label(row, names[index], Rect2(72, 7, 400, 27), 17)
 		var value := label(row, "", Rect2(494, 7, 82, 27), 15, Palette.P1)
 		value.name = "Value"
 		row.name = "Setting%d" % index
-	place(main.pause_label, Rect2(32, 328, 596, 113), 16)
+	place(main.pause_label, Rect2(G.GUTTER, 328, G.w(8) - G.GUTTER * 2.0, 113), 16)
 
 
 static func refresh_pause(main: Node) -> void:
@@ -463,7 +496,7 @@ static func refresh_pause(main: Node) -> void:
 		main.feedback.sound_enabled, main.feedback.music_enabled]
 	for index in 4:
 		screen.get_node("SettingsRows/Setting%d/Value" % index).text = "켜짐" if values[index] else "꺼짐"
-	place(main.pause_label, Rect2(32, 328, 596, 113), 16)
+	place(main.pause_label, Rect2(G.GUTTER, 328, G.w(8) - G.GUTTER * 2.0, 113), 16)
 	main.pause_label.text = "ESC / START  계속하기\nENTER  처음부터     F11  전체 화면\n대시  P1 SPACE · P2 . · 패드 RT"
 
 

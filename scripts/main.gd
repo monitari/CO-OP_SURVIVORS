@@ -1,8 +1,8 @@
 extends Node2D
 
-const PlayerScene := preload("res://scripts/player.gd")
-const CharacterData := preload("res://scripts/character_catalog.gd")
-const EnemyProjectileScript := preload("res://scripts/enemy_projectile.gd")
+const PlayerScene := preload("res://scripts/entities/player.gd")
+const CharacterData := preload("res://scripts/catalogs/character_catalog.gd")
+const EnemyProjectileScript := preload("res://scripts/entities/enemy_projectile.gd")
 const SpatialGridScript := preload("res://scripts/systems/enemy_spatial_grid.gd")
 const ProgressionScript := preload("res://scripts/systems/progression_system.gd")
 const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
@@ -11,7 +11,7 @@ const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
 const ShowcaseScript := preload("res://scripts/effects/showcase.gd")
 const ParticleFieldScript := preload("res://scripts/systems/particle_field.gd")
-const ArenaFloorScript := preload("res://scripts/arena_floor.gd")
+const ArenaFloorScript := preload("res://scripts/entities/arena_floor.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
@@ -20,8 +20,8 @@ const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
 const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
 const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
-const Treasures := preload("res://scripts/treasure_catalog.gd")
-const Evolutions := preload("res://scripts/evolution_catalog.gd")
+const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
+const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
@@ -165,7 +165,7 @@ var restart_armed_at := 0
 var details_overlay: Panel
 var modal_input_guard := 0
 const ReviewUI := preload("res://scripts/ui/review_ui.gd")
-const UpgradeValue := preload("res://scripts/upgrade_value.gd")
+const UpgradeValue := preload("res://scripts/systems/upgrade_value.gd")
 var lobby_active := true
 var run_won := false
 var boss_enemy: ChaserEnemy
@@ -767,8 +767,8 @@ func _create_hud() -> void:
 	_confine_label(level_title)
 	level_overlay.add_child(level_title)
 
-	level_card_labels[0] = _create_level_cards(level_overlay, 8.0, Color("43d9ff"))
-	level_card_labels[1] = _create_level_cards(level_overlay, 624.0, Color("b892ff"))
+	level_card_labels[0] = _create_level_cards(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
+	level_card_labels[1] = _create_level_cards(level_overlay, LEVEL_HALF_X[1], Color("b892ff"))
 	level_portrait_icons = [
 		_create_icon_rect(level_overlay, Vector2(20.0, 376.0), Vector2(60.0, 60.0)),
 		_create_icon_rect(level_overlay, Vector2(636.0, 376.0), Vector2(60.0, 60.0)),
@@ -777,8 +777,8 @@ func _create_hud() -> void:
 	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 706.0, 372.0, WEAPON_LOADOUT_CAP)
 	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 90.0, 414.0, TREASURE_LOADOUT_CAP)
 	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 706.0, 414.0, TREASURE_LOADOUT_CAP)
-	p1_level_footer = _create_level_footer(level_overlay, 8.0, Color("43d9ff"))
-	p2_level_footer = _create_level_footer(level_overlay, 624.0, Color("b892ff"))
+	p1_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
+	p2_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[1], Color("b892ff"))
 
 	resonance_overlay = CatPanel.new()
 	resonance_overlay.position = Vector2(180.0, 132.0)
@@ -1143,9 +1143,15 @@ func _slot_placeholder_style() -> StyleBoxFlat:
 ## Widened twice now. The recommendation lines added to card copy made the
 ## old width break Korean words mid-syllable on nearly every card.
 const LEVEL_OVERLAY_Y := 132.0
-const LEVEL_CARD_WIDTH := 196.0
+## Three cards fill one survivor's six columns exactly: 3x184 + 2x16 = 584,
+## which is LayoutGrid.w(6). The old 196/10 pair added up to 608 a side, so two
+## halves came to 1204 in a 1184-wide screen and the right card hung over the
+## edge of its own panel.
+const LEVEL_CARD_WIDTH := 184.0
 const LEVEL_CARD_HEIGHT := 262.0
-const LEVEL_CARD_GAP := 10.0
+const LEVEL_CARD_GAP := 16.0
+## Local x of each survivor's half inside level_overlay: column 0 and column 6.
+const LEVEL_HALF_X := [0.0, 600.0]
 const LEVEL_CARD_Y := 105.0
 
 const RESONANCE_CARD_SLOTS := 3
@@ -1228,7 +1234,7 @@ func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
 	# because clip_text does not complain. That fifth line is the status line:
 	# "잠시 후 선택할 수 있습니다" is the only thing explaining why input is
 	# ignored during the anti-misclick delay, and nobody had ever seen it.
-	footer.position = Vector2(half_x + 270.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 6.0)
+	footer.position = Vector2(half_x + 246.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 6.0)
 	footer.size = Vector2(338.0, 100.0)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1475,7 +1481,6 @@ func _start_selected_run() -> void:
 	field_items.clear_all()
 	bursts.clear_all()
 	particles.clear_all()
-	experience_bank = 0
 	showcase_queue.clear()
 	cinematic_active = false
 	cinematic_continuation = Callable()
@@ -2208,42 +2213,18 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		_show_message("사슬의 마력이 회복되었습니다  +8 HP", Color("80ed99"))
 
 
-## Elites always leave a drop; ordinary kills roll against a small chance that
-## team luck raises. The boss is excluded because defeating it ends the run,
-## so a pickup nobody can reach would just be noise.
-## What a kill leaves on the floor.
+## What a kill leaves on the floor: its own gem, every time.
 ##
-## Every kill used to drop its own gem. At twenty thousand kills a run that is
-## twenty thousand crumbs — the floor was permanently littered with specks worth
-## four experience each, none of which was worth walking to, and picking one up
-## was not an event. Ordinary kills now pay into a bank and the bank drops a
-## single gem once it is worth collecting, so the same total experience arrives
-## as far fewer, far larger pickups.
-##
-## Anything that was already worth something — an elite, a boss, a bulwark —
-## skips the bank and drops on its own, because the whole point of killing one
-## is that it pays out.
-var experience_bank := 0
-var experience_bank_position := Vector2.ZERO
-
-
-## The bank fills faster as the run goes on, so the gem count stays roughly flat
-## instead of climbing with the kill rate. At the opening this is a handful of
-## mice; by the last boss it is a whole swarm pack.
-func _experience_merge_threshold() -> int:
-	return 26 + int(elapsed * 0.16)
-
-
-func _drop_experience(at: Vector2, amount: int, grade: int, notable: bool) -> void:
-	if notable or amount >= _experience_merge_threshold():
-		experience_system.spawn_gem(at, amount, grade)
-		return
-	experience_bank += amount
-	experience_bank_position = at
-	var threshold := _experience_merge_threshold()
-	if experience_bank >= threshold:
-		experience_system.spawn_gem(experience_bank_position, experience_bank, -1)
-		experience_bank = 0
+## Ordinary kills used to pay into a shared bank that dropped one gem when it
+## was worth collecting, because twenty thousand kills a run meant a floor
+## littered with crumbs. The cost was that most of a run's kills produced
+## nothing to look at — the reward for clearing a swarm pack was a number
+## moving somewhere off screen. Every enemy drops now; what separates them is
+## the grade of the gem, which ChaserEnemy sets from the archetype and how far
+## into the run it died, so the floor reads as a spread of ranks rather than a
+## uniform sprinkle.
+func _drop_experience(at: Vector2, amount: int, grade: int, _notable: bool) -> void:
+	experience_system.spawn_gem(at, amount, grade)
 
 
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:

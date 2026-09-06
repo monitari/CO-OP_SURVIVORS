@@ -1,7 +1,7 @@
 extends SceneTree
 const Main := preload("res://scenes/main.tscn")
 const Harness := preload("res://tests/test_harness.gd")
-const Value := preload("res://scripts/upgrade_value.gd")
+const Value := preload("res://scripts/systems/upgrade_value.gd")
 var failures: Array[String] = []
 
 func _initialize() -> void:

@@ -24,6 +24,16 @@ func activate(spawn_position: Vector2, experience_value: int, experience_grade :
 	queue_redraw()
 
 
+## Takes another drop into this one. Used when a kill lands on top of a gem
+## that is already lying there: the experience is added rather than given its
+## own node, and the silhouette rises to the better of the two so the pile
+## still reads as the best thing in it.
+func absorb(extra_value: int, extra_grade: int) -> void:
+	value += extra_value
+	grade = clampi(maxi(grade, extra_grade), 0, 3)
+	queue_redraw()
+
+
 func deactivate() -> void:
 	active = false
 	visible = false

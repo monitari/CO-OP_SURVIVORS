@@ -1,10 +1,10 @@
 class_name WeaponController
 extends Node2D
 
-const ProjectileScript := preload("res://scripts/projectile.gd")
+const ProjectileScript := preload("res://scripts/entities/projectile.gd")
 const MilkPoolScript := preload("res://scripts/effects/milk_pool.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
-const MineScript := preload("res://scripts/proximity_mine.gd")
+const MineScript := preload("res://scripts/entities/proximity_mine.gd")
 const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
 const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
 const LanceStrikeScript := preload("res://scripts/effects/lance_strike.gd")

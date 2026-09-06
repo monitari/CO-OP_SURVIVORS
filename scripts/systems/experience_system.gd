@@ -3,7 +3,7 @@ extends Node2D
 
 signal experience_collected(amount: int)
 
-const GemScript := preload("res://scripts/experience_gem.gd")
+const GemScript := preload("res://scripts/entities/experience_gem.gd")
 
 var active_gems: Array[ExperienceGem] = []
 var gem_pool: Array[ExperienceGem] = []
@@ -18,6 +18,19 @@ const MAGNET_ITEM_MAX_SPEED := 4200.0
 var magnet_radius := 155.0
 var pickup_radius := 34.0
 
+## Every kill drops its own gem, which on its own is unbounded: an automated
+## fifteen-minute run left 1,987 of them lying on the roof and still climbing,
+## each one a node redrawing itself every frame. So a drop that lands on top of
+## a gem already on the floor merges into it, and once the field is carrying
+## MAX_ACTIVE the next drop merges into the nearest gem however far that is.
+##
+## Nothing is ever thrown away — the gem simply gets heavier and, if the new
+## drop outranks it, brighter. The pair still sees a drop for every kill; what
+## they stop seeing is a thousand separate specks none of which was worth
+## walking to.
+const MERGE_RADIUS := 46.0
+const MAX_ACTIVE := 320
+
 
 func spawn_gem(spawn_position: Vector2, value: int, grade := -1) -> void:
 	var gem: ExperienceGem
@@ -28,8 +41,33 @@ func spawn_gem(spawn_position: Vector2, value: int, grade := -1) -> void:
 		gem = gem_pool.pop_back()
 	if grade < 0:
 		grade = 3 if value >= 100 else (2 if value >= 24 else (1 if value >= 7 else 0))
+	var host := _merge_target(spawn_position)
+	if host != null:
+		host.absorb(value, grade)
+		return
 	gem.activate(spawn_position, value, grade)
 	active_gems.append(gem)
+
+
+## The gem a new drop should join, or null when it deserves its own node.
+## Magnetised gems are never merge targets: they are already on their way home,
+## so pouring a fresh drop into one would teleport it to the players.
+func _merge_target(at: Vector2) -> ExperienceGem:
+	var nearest: ExperienceGem = null
+	var nearest_distance := INF
+	for candidate in active_gems:
+		var gem := candidate as ExperienceGem
+		if not is_instance_valid(gem) or not gem.active or gem.magnetized:
+			continue
+		var distance := gem.global_position.distance_squared_to(at)
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = gem
+	if nearest == null:
+		return null
+	if nearest_distance <= MERGE_RADIUS * MERGE_RADIUS:
+		return nearest
+	return nearest if active_gems.size() >= MAX_ACTIVE else null
 
 
 func step(players: Array[ChainPlayer], delta: float) -> void:

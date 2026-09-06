@@ -1,7 +1,7 @@
 extends SceneTree
 
 const Harness := preload("res://tests/test_harness.gd")
-const Enemy := preload("res://scripts/enemy.gd")
+const Enemy := preload("res://scripts/entities/enemy.gd")
 const Experience := preload("res://scripts/systems/experience_system.gd")
 var failures: Array[String] = []
 
@@ -30,7 +30,12 @@ func _run() -> void:
 
 	var system := Experience.new() as ExperienceSystem
 	root.add_child(system)
-	for value in [3, 8, 26, 150]: system.spawn_gem(Vector2.ZERO, value)
+	# Spread out on purpose: drops landing within MERGE_RADIUS of each other now
+	# join into one gem, which is what keeps a per-kill drop from burying the
+	# roof. This check is about the value-to-grade inference, so it gives each
+	# gem its own patch of floor.
+	for index in 4:
+		system.spawn_gem(Vector2(index * ExperienceSystem.MERGE_RADIUS * 3.0, 0.0), [3, 8, 26, 150][index])
 	var spawned: Array[int] = []
 	for gem in system.active_gems: spawned.append(gem.grade)
 	check(spawned == [0, 1, 2, 3], "gem grade is inferred safely when a caller omits it")

@@ -1,26 +1,17 @@
 class_name GameIconCatalog
 extends RefCounted
 
-## Cat-themed cartoon atlases cover the complete current roster, base/evolved
-## weapons and treasures. Unknown future ids retain a deterministic fallback.
+## Every icon is its own file under assets/sprites/, named by the id that asks
+## for it. Unknown future ids retain a deterministic generated fallback.
+##
+## These used to be three grid atlases sliced at load time — cell arithmetic,
+## a 6% overscan for ears crossing a cell edge, and a connected-component crop
+## to find the silhouette inside the cell, all so a filename could be avoided.
+## The art it produced is now checked in directly, one PNG per id, so an icon is
+## looked up rather than computed and a new one is added by dropping a file in.
 
-const SURVIVOR_ATLAS: Texture2D = preload("res://assets/ui/icons/survivor_atlas.png")
-const WEAPON_ATLAS: Texture2D = preload("res://assets/ui/icons/weapon_atlas.png")
-const UPGRADE_ATLAS: Texture2D = preload("res://assets/ui/icons/upgrade_atlas.png")
-
-const SURVIVOR_ORDER := ["lyra", "volta", "ignis", "neve", "moro", "serin", "kael", "rian", "tera", "nova"]
-const WEAPON_ORDER := [
-	"homing", "lightning", "flame", "frost", "scythe",
-	"chain", "orbit", "lance", "mine", "gravity",
-	"starpiercer", "thunder_god", "supernova", "absolute_zero", "black_moon",
-	"stigmata", "celestial", "judgement", "ruin_garden", "event_horizon",
-]
-const UPGRADE_ORDER := [
-	"might", "area", "amount", "haste",
-	"projectile_speed", "armor", "recovery", "magnet",
-	"growth", "luck", "move", "vitality",
-	"crit", "pierce", "thorns", "resolve", "overcharge", "greed",
-]
+## Which folder answers each kind of lookup.
+const SPRITE_FOLDERS := {"survivor": "cats", "weapon": "weapons", "upgrade": "upgrades"}
 
 const WEAPON_PASSTHROUGH := ["unlock_weapon", "weapon_power", "weapon_rate", "special_a", "special_b", "evolve_weapon"]
 const UPGRADE_ALIASES := {
@@ -34,42 +25,47 @@ const GLYPH_SHAPES := 8
 ## Generated glyphs are built once per id and reused. Without this every card
 ## refresh on the level-up screen would rasterise several 96x96 images.
 static var _generated: Dictionary = {}
-static var _atlas_icons: Dictionary = {}
+## Misses are cached as null too, so an id with no art is not re-probed on
+## every card refresh.
+static var _sprites: Dictionary = {}
+
+
+## The drawn art for one id, or null when no file answers to it.
+static func _sprite(kind: String, id: String) -> Texture2D:
+	var key := kind + ":" + id
+	if _sprites.has(key):
+		return _sprites[key] as Texture2D
+	var path := "res://assets/sprites/%s/%s.png" % [String(SPRITE_FOLDERS[kind]), id]
+	var texture: Texture2D = load(path) if ResourceLoader.exists(path) else null
+	_sprites[key] = texture
+	return texture
 
 
 static func survivor(character_id: String) -> Texture2D:
-	if character_id in ["echo", "latte"]: return load("res://assets/art/unified/cats/%s.png" % character_id)
-	var atlas_icon := _by_id(SURVIVOR_ATLAS, SURVIVOR_ORDER, character_id, 5, 2)
-	return atlas_icon if atlas_icon != null else generated(character_id, "survivor")
+	var art := _sprite("survivor", character_id)
+	return art if art != null else generated(character_id, "survivor")
 
 
 static func weapon(weapon_id: String) -> Texture2D:
-	if weapon_id in ["boomerang", "milk", "skipping_stone", "cream_tide"]: return load("res://assets/art/unified/weapons/%s.png" % weapon_id)
-	var atlas_icon := _by_id(WEAPON_ATLAS, WEAPON_ORDER, weapon_id, 5, 4)
-	if atlas_icon != null:
-		return atlas_icon
-	return generated(weapon_id, "weapon")
+	var art := _sprite("weapon", weapon_id)
+	return art if art != null else generated(weapon_id, "weapon")
 
 
 static func upgrade(upgrade_id: String, weapon_id := "") -> Texture2D:
 	if upgrade_id in WEAPON_PASSTHROUGH:
 		return weapon(weapon_id)
-	var atlas_id := String(UPGRADE_ALIASES.get(upgrade_id, upgrade_id))
-	var atlas_icon := _by_id(UPGRADE_ATLAS, UPGRADE_ORDER, atlas_id, 6, 3)
-	return atlas_icon if atlas_icon != null else generated(upgrade_id, "upgrade")
+	var art := _sprite("upgrade", String(UPGRADE_ALIASES.get(upgrade_id, upgrade_id)))
+	return art if art != null else generated(upgrade_id, "upgrade")
 
 
 ## Whether this id is covered by real art. Used by the icon test to report what
-## still needs drawing rather than to fail the build over it.
+## still needs drawing rather than to fail the build over it. It now answers by
+## looking for the file instead of consulting a hand-kept list, so the list and
+## the folder cannot drift apart.
 static func has_atlas_art(id: String, kind: String) -> bool:
-	if id in ["echo", "latte", "boomerang", "milk", "skipping_stone", "cream_tide"]: return true
-	match kind:
-		"survivor":
-			return SURVIVOR_ORDER.has(id)
-		"weapon":
-			return WEAPON_ORDER.has(id)
-		_:
-			return UPGRADE_ORDER.has(id) or UPGRADE_ALIASES.has(id)
+	if kind == "survivor" or kind == "weapon":
+		return _sprite(kind, id) != null
+	return _sprite("upgrade", String(UPGRADE_ALIASES.get(id, id))) != null
 
 
 ## The mark the level-up screen puts beside a card that feeds a fusion.
@@ -210,20 +206,3 @@ static func _in_glyph(offset: Vector2, outer: float, shape: int) -> bool:
 		7: # chevrons
 			return absf(absf(unit.x) - absf(unit.y)) < 0.16 and distance < 0.7
 	return false
-
-
-static func _by_id(atlas: Texture2D, order: Array, id: String, columns: int, rows: int) -> Texture2D:
-	var index := order.find(id)
-	if index < 0:
-		return null
-	var cache_key := atlas.resource_path + ":" + id
-	if _atlas_icons.has(cache_key):
-		return _atlas_icons[cache_key] as Texture2D
-	var cell := Vector2(float(atlas.get_width()) / float(columns), float(atlas.get_height()) / float(rows))
-	# Permit small atlas-layout drift so ears/tips crossing a nominal cell edge
-	# are recovered; the central-component crop rejects adjacent silhouettes.
-	var bounds := Rect2(Vector2(index % columns, index / columns) * cell, cell)
-	bounds = bounds.grow(minf(cell.x, cell.y) * 0.06).intersection(Rect2(Vector2.ZERO, atlas.get_size()))
-	var texture := preload("res://scripts/ui/icon_crop.gd").region(atlas, bounds)
-	_atlas_icons[cache_key] = texture
-	return texture

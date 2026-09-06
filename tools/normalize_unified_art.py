@@ -4,8 +4,8 @@ import shutil
 from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
-ART = ROOT / "assets/art/unified"
-SOURCES = ROOT / "assets/art/sources"
+ART = ROOT / "assets/sprites"
+SOURCES = ROOT / "art/originals"
 
 
 def normalize(path):

@@ -7,7 +7,7 @@ extends Node2D
 
 signal item_collected(item_id: String)
 
-const FieldItemScript := preload("res://scripts/field_item.gd")
+const FieldItemScript := preload("res://scripts/entities/field_item.gd")
 
 ## Weights are relative, not percentages. Healing is the common one because it
 ## is the safety valve; the screen-clearing purge is the rare payoff.

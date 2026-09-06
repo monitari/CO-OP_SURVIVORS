@@ -1,6 +1,6 @@
 class_name ChaserEnemy
 extends Node2D
-const EnemyArt := preload("res://scripts/enemy_art.gd")
+const EnemyArt := preload("res://scripts/entities/enemy_art.gd")
 const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
 var body_sprite: Sprite2D
 
@@ -43,6 +43,8 @@ const SPEED_RAMP_CAP := 34.0
 ## Experience per kill rises with the run, so a level-up curve steep enough to
 ## last twenty-five minutes is not paid for entirely by killing more things.
 const XP_PER_DIFFICULTY := 0.20
+## Difficulty at which every drop moves up one rung — about minute nine.
+const DIFFICULTY_PER_GRADE := 9.0
 const EARLY_GAME_DIFFICULTY := 1.4
 const OPENING_CONTACT_DAMAGE_MULTIPLIER := 0.5
 
@@ -251,10 +253,28 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		move_speed += float(maxi(1, boss_rank) - 1) * 7.0
 		xp_value = 150 * maxi(1, boss_rank)
 		xp_grade = 3
-	# Time scaling can turn even a familiar enemy into a valuable target. Keep
-	# the drop silhouette honest to the final reward, not only its archetype.
-	var value_grade := 3 if xp_value >= 100 else (2 if xp_value >= 24 else (1 if xp_value >= 7 else 0))
-	xp_grade = maxi(xp_grade, value_grade)
+	# Every kill drops now, so the silhouette has to carry two things at once:
+	# what died, and how deep into the run it died. The archetype sets the rung
+	# — a flea is never worth what a bulwark is — and the run lifts the whole
+	# ladder a step at a time, so late trash reads richer than early trash
+	# without every drop collapsing into one colour.
+	#
+	# Absolute value thresholds did this before and could not: xp_value climbs
+	# 20% per difficulty step, so by minute twenty a mouse cleared the same bar
+	# a bulwark cleared at minute one and the four grades stopped separating
+	# anything. The top grade stays reserved for elites and bosses, which is
+	# what makes spotting one on the floor mean something.
+	# One rung, not a ladder of them: there are only four grades and the
+	# archetypes already spread across three, so lifting by two would put a
+	# flea and a guard dog on the same colour and undo the separation this
+	# exists to show.
+	var depth := mini(1, int(difficulty / DIFFICULTY_PER_GRADE))
+	if boss:
+		xp_grade = 3
+	elif elite:
+		xp_grade = clampi(maxi(xp_grade, 2) + depth, 2, 3)
+	else:
+		xp_grade = clampi(xp_grade + depth, 0, 2)
 	health = max_health
 	z_index = 5 # Threat telegraphs remain above friendly attack effects.
 	if not is_instance_valid(body_sprite):

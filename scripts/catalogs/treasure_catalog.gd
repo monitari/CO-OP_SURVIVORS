@@ -10,8 +10,8 @@ extends RefCounted
 ## accumulated.
 ##
 ## The ids deliberately match the attribute names main.gd already applies and
-## the order of GameIconCatalog.UPGRADE_ORDER, so every treasure has an icon and
-## an effect without either being defined twice.
+## the filenames under assets/sprites/upgrades/, so every treasure has an icon
+## and an effect without either being defined twice.
 
 const MAX_TIER := 6
 

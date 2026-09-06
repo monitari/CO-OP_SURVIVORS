@@ -1,7 +1,7 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
-const EnemyScript := preload("res://scripts/enemy.gd")
+const EnemyScript := preload("res://scripts/entities/enemy.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
 

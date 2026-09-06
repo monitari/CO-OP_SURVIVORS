@@ -28,9 +28,9 @@
 
 생성 방식: built-in image_gen (`imagegen` 스킬). API/CLI를 사용하지 않았다.
 
-- [에코 PNG](../assets/ui/icons/echo.png)
-- [라떼 PNG](../assets/ui/icons/latte.png)
-- [최종 프롬프트](../assets/ui/icons/portrait-prompts.md)
+- [에코 PNG](../assets/sprites/cats/echo.png)
+- [라떼 PNG](../assets/sprites/cats/latte.png)
+- [최종 프롬프트](../art/prompts/portraits.md)
 - [선택창](screenshots/critique/new-characters.png)
 - [보스 HUD](screenshots/critique/boss-chain-slam.png)
 - [아이템 연출](screenshots/critique/field-item-auras.png)

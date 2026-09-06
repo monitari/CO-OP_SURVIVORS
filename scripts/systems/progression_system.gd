@@ -35,10 +35,11 @@ func consume_level_up() -> bool:
 	# instead of six thousand earns four times the experience for the same
 	# twenty-five minutes, and the old curve turned that into seventy-two
 	# level-ups — a build finished and maxed out long before the last boss.
-	# Nudged again when ordinary kills stopped dropping their own gem: banking
-	# small drops did not change the experience earned, but raising what elites
-	# and bosses pay out did, and the run was landing at fifty-four level-ups
-	# rather than the high forties the tech tree is sized for.
+	# The curve is written against total experience earned, not against how many
+	# gems it arrives in, so it survived drops being banked and then unbanked
+	# again. What moved it was raising what elites and bosses pay out, which
+	# had the run landing at fifty-four level-ups rather than the high forties
+	# the tech tree is sized for.
 	required_experience = int(round(float(required_experience) * 1.05 + 315.0))
 	return true
 

@@ -1,6 +1,6 @@
 extends SceneTree
 
-const EnemyScript := preload("res://scripts/enemy.gd")
+const EnemyScript := preload("res://scripts/entities/enemy.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
 
 var failures: Array[String] = []

@@ -1,9 +1,9 @@
 extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
-const EnemyScript := preload("res://scripts/enemy.gd")
+const EnemyScript := preload("res://scripts/entities/enemy.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
-const EnemyProjectileScript := preload("res://scripts/enemy_projectile.gd")
+const EnemyProjectileScript := preload("res://scripts/entities/enemy_projectile.gd")
 
 var failures: Array[String] = []
 

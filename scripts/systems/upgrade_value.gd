@@ -1,8 +1,8 @@
 extends RefCounted
 ## A deterministic comparison, not measured DPS: catalog hit coverage, actual
 ## delivery/count/area changes and cooldown floors. Same assumptions before/after.
-const Cats := preload("res://scripts/character_catalog.gd")
-const Evolutions := preload("res://scripts/evolution_catalog.gd")
+const Cats := preload("res://scripts/catalogs/character_catalog.gd")
+const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
 
 static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 	var id := String(option["id"])
