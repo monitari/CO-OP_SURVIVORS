@@ -22,7 +22,16 @@ func _run() -> void:
 		quit(1)
 		return
 
-	_check(main.lobby_active, "starts in lobby")
+	# The lobby is no longer the front door. A run now begins at the title, and
+	# the lobby is what "게임 시작" opens — so the entry point is checked here
+	# too, rather than the test quietly starting one screen further in than a
+	# player does.
+	_check(main.title_active and main.title_overlay.visible, "starts on the title screen")
+	_check(not main.lobby_overlay.visible, "the lobby waits behind it")
+	main._activate_title_item(0)
+	await process_frame
+	_check(not main.title_active and not main.title_overlay.visible, "starting a game leaves the title")
+	_check(main.lobby_active, "and opens the lobby")
 	_check(main.lobby_overlay.visible, "lobby overlay is visible")
 	_check(not main.character_overlay.visible, "character select is hidden behind the lobby")
 	_check(main.lobby_p1_label.text.contains("참가") and not main.lobby_p1_label.text.contains("완료"), "empty P1 slot prompts to join")

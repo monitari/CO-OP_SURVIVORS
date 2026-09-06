@@ -8,10 +8,14 @@ const G := preload("res://scripts/ui/layout_grid.gd")
 ## sized so the right edge lands flush with the panel. Shared rather than
 ## written twice — the builder and the per-frame refresh both place these, and
 ## when only one of them was updated the menu kept the old panel's width.
+## The left column is the run: resume, start over, leave. The right two columns
+## are the four toggles. Leaving the game had no entry at all before — the only
+## way out of a paused run was the window close button.
+const PAUSE_ITEM_COUNT := 7
 const PAUSE_SLOTS := [
 	Rect2(16, 112, 260, 62), Rect2(292, 138, 230, 72),
 	Rect2(538, 138, 230, 72), Rect2(292, 226, 230, 72),
-	Rect2(538, 226, 230, 72), Rect2(16, 188, 260, 48),
+	Rect2(538, 226, 230, 72), Rect2(16, 182, 260, 44), Rect2(16, 232, 260, 44),
 ]
 
 static func button(parent: Control, caption: String, rect: Rect2, action: Callable) -> Button:
@@ -31,7 +35,31 @@ static func button(parent: Control, caption: String, rect: Rect2, action: Callab
 	b.pressed.connect(action)
 	return b
 
+## Mouse hit areas over the title rows. The labels themselves carry the styling
+## and the state text; these sit on top of them so the same list works with a
+## cursor, a pad and a pointer without any of the three knowing about the others.
+static func refresh_title(main: Node) -> void:
+	if not main.title_overlay.has_node("TitleHit0"):
+		return
+	var rows: Array = main._title_rows()
+	for index in main.title_rows.size():
+		var hit: Button = main.title_overlay.get_node("TitleHit%d" % index)
+		var row: Label = main.title_rows[index]
+		hit.visible = index < rows.size()
+		hit.position = row.position
+		hit.size = row.size
+
+
 static func install(main: Node) -> void:
+	for index in main.title_rows.size():
+		var hit := button(main.title_overlay, "", Rect2(0, 0, 10, 10), func() -> void: main._activate_title_item(index))
+		hit.name = "TitleHit%d" % index
+		# Transparent: the Label underneath is what is actually drawn, so the
+		# button contributes a click target and nothing else.
+		hit.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+		hit.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+		hit.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+		hit.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	for index in main.character_catalog.size():
 		var tile: Panel = main.character_overlay.get_node("Roster%d" % index)
 		tile.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -90,18 +118,18 @@ static func install(main: Node) -> void:
 				main.resonance_cursors[slot] = index
 				main._refresh_resonance_vote_ui())
 	button(main.level_overlay, "상세 · TAB / X", Rect2(G.w(12) - 236.0 - G.PAD, 24, 236, 32), func() -> void: toggle_details(main))
-	button(main.result_overlay, "다시 결속하기", Rect2((G.w(8) - 300.0) * 0.5, 476, 300, 36), func() -> void:
+	button(main.result_overlay, "다시 결속하기", Rect2((G.w(8) - 300.0) * 0.5, 552, 300, 36), func() -> void:
 		main.get_tree().paused = false
 		main.get_tree().reload_current_scene())
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
 	settings.hide()
 	var pause_rects := PAUSE_SLOTS
-	for index in 6:
+	for index in PAUSE_ITEM_COUNT:
 		var action := button(main.pause_overlay, "", pause_rects[index], func() -> void: main._activate_pause_item(index))
 		action.name = "PauseAction%d" % index
 		action.add_theme_font_size_override("font_size", 17 if index == 0 else 15)
-	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(16, 250, 260, 48), func() -> void: toggle_details(main)).name = "PauseDetails"
-	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 318, G.w(8) - G.GUTTER * 2.0, 120), Palette.CARD)
+	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(16, 282, 260, 44), func() -> void: toggle_details(main)).name = "PauseDetails"
+	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 334, G.w(8) - G.GUTTER * 2.0, 112), Palette.CARD)
 	snapshot.name = "RunSnapshot"
 	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
 	for index in 4:
@@ -156,13 +184,13 @@ static func choose_cat(main: Node, slot: int, direction: int) -> void:
 static func refresh_pause(main: Node) -> void:
 	if not main.pause_overlay.has_node("PauseAction0"): return
 	main.pause_overlay.get_node("SettingsRows").hide()
-	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "처음부터 다시"]
+	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "처음부터 다시", "게임 종료"]
 	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled, main.feedback.sound_enabled, main.feedback.music_enabled]
-	main.pause_overlay.get_node("PauseHeading").text = "현재 판을 종료할까요?" if main.restart_pending else "잠시 쉬어가기"
-	for index in 6:
+	main.pause_overlay.get_node("PauseHeading").text = ("게임을 종료할까요?" if main.pending_quits else "현재 판을 종료할까요?") if main.restart_pending else "잠시 쉬어가기"
+	for index in PAUSE_ITEM_COUNT:
 		var b: Button = main.pause_overlay.get_node("PauseAction%d" % index)
 		b.visible = not main.restart_pending or index < 2
-		var caption: String = (["취소 · 계속 쉬기", "종료하고 처음부터"] [index] if main.restart_pending and index < 2 else names[index])
+		var caption: String = (["취소 · 계속 쉬기", "게임 종료" if main.pending_quits else "종료하고 처음부터"] [index] if main.restart_pending and index < 2 else names[index])
 		if not main.restart_pending and index in [1, 2, 3, 4]: caption += "\n" + ("● 켜짐" if states[index] else "○ 꺼짐")
 		b.text = ("▶  " if main.pause_cursor == index else "") + caption
 		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if main.pause_cursor == index else Palette.CARD, 10)
@@ -182,7 +210,7 @@ static func refresh_pause(main: Node) -> void:
 		main.pause_overlay.get_node("PauseAction1").position = Vector2(confirm_x + 252.0 + G.GUTTER, 190)
 		main.pause_overlay.get_node("PauseAction1").size = Vector2(252, 64)
 	if not main.restart_pending:
-		for index in 6:
+		for index in PAUSE_ITEM_COUNT:
 			var slot: Rect2 = PAUSE_SLOTS[index]
 			main.pause_overlay.get_node("PauseAction%d" % index).position = slot.position
 			main.pause_overlay.get_node("PauseAction%d" % index).size = slot.size

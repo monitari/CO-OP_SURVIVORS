@@ -197,6 +197,19 @@ var result_overlay: ColorRect
 var result_label: Label
 var pause_overlay: ColorRect
 var pause_label: Label
+## The screen the game opens on. The lobby used to be the front door, which
+## meant there was no way to change a setting, read the credits or leave without
+## first getting two people to press something. The title holds those, and hands
+## over to the lobby when someone asks to start.
+var title_overlay: ColorRect
+var title_active := true
+var title_cursor := 0
+## "menu", "settings" or "credits". Sub-pages rather than separate overlays: all
+## three are the same panel with a different list in it, and the cursor, the
+## confirm key and the back key behave identically in each.
+var title_mode := "menu"
+var title_rows: Array[Label] = []
+var title_note: Label
 var lobby_overlay: ColorRect
 var lobby_title: Label
 var lobby_p1_label: Label
@@ -212,7 +225,11 @@ var character_select_active := true
 var resonance_vote_active := false
 var pause_active := false
 var pause_cursor := 0
+## The pause menu holds one confirmation at a time. Both destructive entries —
+## starting over and leaving the game — go through it, so `pending_quits` is
+## what the confirmation will actually do if it is accepted.
 var restart_pending := false
+var pending_quits := false
 var restart_armed_at := 0
 var details_overlay: Panel
 var modal_input_guard := 0
@@ -419,7 +436,7 @@ func _ready() -> void:
 	weapon_controller.cue_requested.connect(feedback.play_cue)
 	_create_hud()
 	ReviewUI.install(self)
-	_begin_lobby()
+	_begin_title()
 	queue_redraw()
 
 
@@ -427,7 +444,10 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 	if device < 0 or device > 1:
 		return
 	last_input_gamepad[device] = connected
-	if not connected and not lobby_active and not character_select_active and not game_over and not level_up_active and not resonance_vote_active:
+	# Every screen that is not the run itself is listed here: a pause menu opened
+	# behind one of them is a menu nothing can reach or close. The title joined
+	# that list when it became the screen the game opens on.
+	if not connected and not title_active and not lobby_active and not character_select_active and not game_over and not level_up_active and not resonance_vote_active:
 		_set_pause(true)
 		EditorialUI.connection_notice(self, device)
 
@@ -487,7 +507,7 @@ func _physics_process(delta: float) -> void:
 	# Derived from the state flags every tick rather than toggled at each of
 	# the dozen places an overlay opens or closes, so it cannot drift out of
 	# sync with what is actually on screen.
-	var modal := (lobby_active or character_select_active or level_up_active
+	var modal := (title_active or lobby_active or character_select_active or level_up_active
 		or resonance_vote_active or pause_active or game_over or cinematic_active)
 	modal_dim.visible = modal
 	# Only the growth screen shows the run through; every other overlay replaces
@@ -501,7 +521,7 @@ func _physics_process(delta: float) -> void:
 	# The run is over on the result screen, so its bars are stale information
 	# drawn on top of the panel that replaced them — and the P2 panel reaches
 	# far enough right to clip the overlay's own corner.
-	combat_hud.visible = not lobby_active and not character_select_active and not game_over
+	combat_hud.visible = not title_active and not lobby_active and not character_select_active and not game_over
 	if modal:
 		for slot in 2:
 			combat_hud.get_node("Carried%d" % slot).visible = false
@@ -514,10 +534,21 @@ func _physics_process(delta: float) -> void:
 	# it, and the run must not advance underneath it.
 	if cinematic_active:
 		return
+	if title_active:
+		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
+		if lobby_input_cooldown <= 0.0:
+			_handle_title_input()
+		return
 	if lobby_active:
 		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
-		if lobby_input_cooldown <= 0.0 and Input.is_action_just_pressed("pause") and (lobby_joined[0] or lobby_joined[1]):
-			_begin_lobby()
+		if lobby_input_cooldown <= 0.0 and Input.is_action_just_pressed("pause"):
+			# Backing out of an empty lobby returns to the title; backing out of one
+			# somebody has already joined only clears the joins, so a mis-press does
+			# not throw the other player out of the room.
+			if lobby_joined[0] or lobby_joined[1]:
+				_begin_lobby()
+			else:
+				_begin_title()
 		return
 	if game_over:
 		_handle_result_input()
@@ -1060,6 +1091,33 @@ func _create_hud() -> void:
 	_confine_label(character_synergy_label, true)
 	character_overlay.add_child(character_synergy_label)
 
+	# Same panel geometry as the lobby it hands over to, so the two screens sit
+	# in the same frame and the hand-off reads as one page turning rather than
+	# the window jumping.
+	title_overlay = CatPanel.new()
+	title_overlay.position = Vector2(90.0, 55.0)
+	title_overlay.size = Vector2(1100.0, 610.0)
+	title_overlay.visible = false
+	layer.add_child(title_overlay)
+	title_rows = []
+	for index in maxi(TITLE_MENU.size(), TITLE_SETTINGS.size()):
+		var row := Label.new()
+		row.name = "TitleRow%d" % index
+		row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_theme_font_size_override("font_size", 20)
+		row.add_theme_color_override("font_color", CatTheme.CREAM)
+		_confine_label(row)
+		title_overlay.add_child(row)
+		title_rows.append(row)
+	title_note = Label.new()
+	title_note.name = "TitleNote"
+	title_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_note.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	title_note.add_theme_font_size_override("font_size", 15)
+	title_note.add_theme_color_override("font_color", CatTheme.MUTED)
+	_confine_label(title_note)
+	title_overlay.add_child(title_note)
+
 	lobby_overlay = CatPanel.new()
 	lobby_overlay.position = Vector2(90.0, 55.0)
 	lobby_overlay.size = Vector2(1100.0, 610.0)
@@ -1431,7 +1489,104 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 	return label
 
 
+## Menu rows, per page. The last entry of every page is the way out of it.
+const TITLE_MENU := ["게임 시작", "설정", "제작진", "게임 종료"]
+const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음", "음악", "전체 화면", "뒤로"]
+const TITLE_CREDITS := ["뒤로"]
+
+
+func _begin_title() -> void:
+	title_active = true
+	title_mode = "menu"
+	title_cursor = 0
+	lobby_active = false
+	character_select_active = false
+	lobby_input_cooldown = 0.25
+	title_overlay.visible = true
+	lobby_overlay.visible = false
+	character_overlay.visible = false
+	combat_hud.visible = false
+	help_label.text = ""
+	_refresh_title_ui()
+	get_tree().paused = true
+
+
+func _title_rows() -> Array:
+	match title_mode:
+		"settings": return TITLE_SETTINGS
+		"credits": return TITLE_CREDITS
+	return TITLE_MENU
+
+
+func _handle_title_input() -> void:
+	if Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
+		var step := 1 if Input.is_action_just_pressed("menu_next") else -1
+		title_cursor = wrapi(title_cursor + step, 0, _title_rows().size())
+		feedback.play_cue("select")
+		_refresh_title_ui()
+	elif Input.is_action_just_pressed("menu_confirm"):
+		_activate_title_item(title_cursor)
+	elif Input.is_action_just_pressed("menu_cancel") or Input.is_action_just_pressed("pause"):
+		# Cancel leaves a sub-page. On the menu itself it does nothing: quitting
+		# is an entry a player picks, not something a stray key press does.
+		if title_mode != "menu":
+			title_mode = "menu"
+			title_cursor = 0
+			_refresh_title_ui()
+
+
+func _activate_title_item(index: int) -> void:
+	if not title_active:
+		return
+	var rows := _title_rows()
+	if index < 0 or index >= rows.size():
+		return
+	title_cursor = index
+	feedback.play_cue("select")
+	if title_mode == "settings":
+		match index:
+			0: screen_shake_enabled = not screen_shake_enabled
+			1: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
+			2: feedback.sound_enabled = not feedback.sound_enabled
+			3:
+				feedback.music_enabled = not feedback.music_enabled
+				feedback.refresh_music()
+			4:
+				var mode := DisplayServer.window_get_mode()
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if mode == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
+			5:
+				title_mode = "menu"
+				title_cursor = 1
+		if index < 4:
+			_persist_settings()
+		_refresh_title_ui()
+		return
+	if title_mode == "credits":
+		title_mode = "menu"
+		title_cursor = 2
+		_refresh_title_ui()
+		return
+	match index:
+		0: _begin_lobby()
+		1:
+			title_mode = "settings"
+			title_cursor = 0
+			_refresh_title_ui()
+		2:
+			title_mode = "credits"
+			title_cursor = 0
+			_refresh_title_ui()
+		3: get_tree().quit()
+
+
+func _refresh_title_ui() -> void:
+	EditorialUI.refresh_title(self)
+	ReviewUI.refresh_title(self)
+
+
 func _begin_lobby() -> void:
+	title_active = false
+	title_overlay.visible = false
 	lobby_active = true
 	lobby_joined = [false, false]
 	lobby_devices = [-1, -1]
@@ -1622,6 +1777,13 @@ func _start_selected_run() -> void:
 		hud_portrait_icons[player_index].texture = IconCatalog.survivor(String(selected_characters[player_index]["id"]))
 	character_select_active = false
 	character_overlay.visible = false
+	# Cleared here as well as in the lobby. Every way into a run has to leave the
+	# front door shut behind it, and this is the only step all of them share —
+	# the lobby hands over here, and so does anything that skips straight to a
+	# chosen pair. Leaving it set kept the tree paused and the play field dimmed
+	# under a title screen nobody could see.
+	title_active = false
+	title_overlay.visible = false
 	# The leash is decided by who was picked. Two claw-range cats fight on a
 	# 275px rope, two anchors on 480px, and that single number changes more
 	# about how a run plays than any stat on the card above it.
@@ -2183,6 +2345,7 @@ func _on_player_revived(player: ChainPlayer) -> void:
 func _set_pause(enabled: bool) -> void:
 	pause_active = enabled
 	restart_pending = false
+	pending_quits = false
 	pause_cursor = 0
 	pause_overlay.visible = enabled
 	if enabled:
@@ -2204,7 +2367,7 @@ func _handle_pause_input() -> void:
 	if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
 		_set_pause(false)
 	elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
-		pause_cursor = wrapi(pause_cursor + (1 if Input.is_action_just_pressed("menu_next") else -1), 0, 6)
+		pause_cursor = wrapi(pause_cursor + (1 if Input.is_action_just_pressed("menu_next") else -1), 0, ReviewUI.PAUSE_ITEM_COUNT)
 		_update_pause_text()
 	elif Input.is_action_just_pressed("menu_confirm"):
 		_activate_pause_item(pause_cursor)
@@ -2249,7 +2412,10 @@ func _activate_pause_item(index: int) -> void:
 			_update_pause_text()
 		elif index == 1 and Time.get_ticks_msec() >= restart_armed_at:
 			get_tree().paused = false
-			get_tree().reload_current_scene()
+			if pending_quits:
+				get_tree().quit()
+			else:
+				get_tree().reload_current_scene()
 		return
 	match index:
 		0:
@@ -2261,9 +2427,13 @@ func _activate_pause_item(index: int) -> void:
 		4:
 			feedback.music_enabled = not feedback.music_enabled
 			feedback.refresh_music()
-		5:
+		5, 6:
+			# Both of these throw the run away, so both ask first, and both open on
+			# cancel. The arming delay is what stops a double click on the entry
+			# itself from landing on the confirmation underneath it.
 			restart_pending = true
-			pause_cursor = 0 # Cancel is always the initial focus.
+			pending_quits = index == 6
+			pause_cursor = 0
 			restart_armed_at = Time.get_ticks_msec() + 400
 	if index in [1, 2, 3, 4]:
 		_persist_settings()

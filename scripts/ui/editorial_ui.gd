@@ -57,13 +57,13 @@ static func icon(parent: Node, texture: Texture2D, rect: Rect2) -> TextureRect:
 
 
 static func apply(main: Node) -> void:
-	for screen in [main.lobby_overlay, main.character_overlay, main.level_overlay,
+	for screen in [main.title_overlay, main.lobby_overlay, main.character_overlay, main.level_overlay,
 		main.resonance_overlay, main.pause_overlay, main.result_overlay]:
 		_reink(screen)
 	# Six overlays used to sit at six unrelated origins. They are columns now:
 	# the two screens that need the whole page take all twelve, and the three
 	# that are a dialogue rather than a workspace take the middle eight.
-	for wide in [main.lobby_overlay, main.character_overlay]:
+	for wide in [main.title_overlay, main.lobby_overlay, main.character_overlay]:
 		wide.position = G.rect(0, 0).position
 		wide.size = Vector2(G.w(12), G.h(8))
 	for narrow in [main.resonance_overlay, main.pause_overlay, main.result_overlay]:
@@ -77,6 +77,7 @@ static func apply(main: Node) -> void:
 	# its horizontal placement and width come from the grid.
 	main.level_overlay.position.x = G.x(0)
 	main.level_overlay.size = Vector2(G.w(12), G.h(6))
+	_title(main)
 	_lobby(main)
 	_characters(main)
 	_growth(main)
@@ -105,6 +106,71 @@ static func _reink(node: Node) -> void:
 		node.add_theme_color_override("font_color", Palette.INK)
 	for child in node.get_children():
 		_reink(child)
+
+
+## The front door. Built from the same ambience node the lobby uses — logo, two
+## cats, a moon — with the menu laid down its left side, so starting a game is
+## the same picture gaining a room rather than a different screen entirely.
+static func _title(main: Node) -> void:
+	var screen: Control = main.title_overlay
+	var ambience = LobbyAmbience.new()
+	ambience.name = "TitleAmbience"
+	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
+	screen.add_child(ambience)
+	screen.move_child(ambience, 0)
+	for index in main.title_rows.size():
+		var row: Label = main.title_rows[index]
+		place(row, G.inner(0, 0, 0.5, 3.9 + float(index) * 0.56, 4.0, 0.52), 20)
+		row.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 10))
+		# The toggle state is its own right-aligned label rather than padding on
+		# the end of the caption: Korean names are different widths, so a padded
+		# string put every state marker at a different place down the column.
+		var state := label(row, "", Rect2(0, 0, row.size.x - 22, row.size.y), 17, Palette.P1)
+		state.name = "State"
+		state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Tall enough for the credits, which is the longest of the three pages.
+	place(main.title_note, G.inner(0, 0, 5.0, 3.9, 5.8, 3.4), 15, Palette.MUTED)
+	var version := label(screen, "v0.1.0", G.inner(0, 0, 0.5, 7.45, 3.0, 0.35), 13, Palette.MUTED)
+	version.name = "TitleVersion"
+	var keys := label(screen, "↑ ↓ 이동 · ENTER / A 선택 · ESC / B 뒤로",
+		G.inner(0, 0, 3.6, 7.45, 7.2, 0.35), 13, Palette.MUTED)
+	keys.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	keys.name = "TitleKeys"
+
+
+static func refresh_title(main: Node) -> void:
+	var rows: Array = main._title_rows()
+	for index in main.title_rows.size():
+		var row: Label = main.title_rows[index]
+		row.visible = index < rows.size()
+		if not row.visible:
+			continue
+		var caption := String(rows[index])
+		# Toggles carry their own state on the row. A settings list that only
+		# names the setting makes a player press it to find out what it was.
+		var state: Label = row.get_node("State")
+		state.text = ""
+		if main.title_mode == "settings" and index < 5:
+			var states := [main.screen_shake_enabled, main.feedback.damage_numbers_enabled,
+				main.feedback.sound_enabled, main.feedback.music_enabled,
+				DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN]
+			state.text = "● 켜짐" if states[index] else "○ 꺼짐"
+			state.add_theme_color_override("font_color", Palette.P1 if states[index] else Palette.MUTED)
+		row.text = ("▶  " if main.title_cursor == index else "     ") + caption
+		var focused: bool = main.title_cursor == index
+		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if focused else Palette.CARD, 10)
+		style.border_color = Palette.P1 if focused else Palette.OUTLINE
+		style.set_border_width_all(3 if focused else 1)
+		style.set_content_margin_all(10)
+		row.add_theme_stylebox_override("normal", style)
+	match main.title_mode:
+		"settings":
+			main.title_note.text = "설정은 바로 저장되고 다음에 켤 때도 그대로예요."
+		"credits":
+			main.title_note.text = "달빛 옥상 간식 수호대\n사슬로 묶인 두 고양이가 달빛 든 옥상을 지키는 2인 협동 서바이버.\n\n기획 · 프로그래밍 · 아트   monitari\n엔진   Godot 4\n\n함께 놀아준 모두에게 고맙습니다."
+		_:
+			main.title_note.text = "사슬로 묶인 두 고양이가 달빛 든 옥상을 지키는 이야기.\n\n둘이 함께여야 시작할 수 있어요."
 
 
 static func _lobby(main: Node) -> void:
@@ -184,7 +250,18 @@ static func _characters(main: Node) -> void:
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
 		place(body, Rect2(x + G.GUTTER, card.position.y + 210, card.size.x - G.GUTTER * 2.0, card.size.y - 222), 15)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	place(main.character_synergy_label, G.inner(0, 0, 0.25, 7.05, 11.5, 0.6), 15, Palette.MUTED)
+	# The one number the pair is actually choosing. A survivor's leash shows up on
+	# their own card as a word, which says what that cat contributes but never
+	# what the two of them add up to, and the leash is the constraint the whole
+	# run is played against. It sits on the pair row under both dossiers, next to
+	# the synergy line, because it belongs to neither cat on its own.
+	var leash := plate(screen, G.inner(0, 0, 0.25, 6.9, 2.9, 0.85))
+	leash.name = "ChainPlate"
+	icon(leash, Icons.upgrade("resolve"), Rect2(G.PAD, 13, 30, 30))
+	label(leash, "사슬 길이", Rect2(46, 7, 120, 18), 13, Palette.MUTED)
+	var leash_value := label(leash, "", Rect2(46, 25, 160, 24), 19)
+	leash_value.name = "ChainLength"
+	place(main.character_synergy_label, G.inner(0, 0, 3.35, 7.05, 8.4, 0.6), 15, Palette.MUTED)
 
 
 static func refresh_characters(main: Node) -> void:
@@ -203,6 +280,12 @@ static func refresh_characters(main: Node) -> void:
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
 			screen.get_node("CatStat%d_%d" % [slot, stat]).text = CharacterCatalog.stat_text(cat, String(entry["field"]))
+	# One number for the two of them, read after both dossiers are refreshed:
+	# it is the pair that has a leash, not either cat on its own.
+	var pair_leash := CharacterCatalog.chain_length_for(
+		main.character_catalog[main.selected_character_indices[0]],
+		main.character_catalog[main.selected_character_indices[1]])
+	screen.get_node("ChainPlate/ChainLength").text = "%d px" % roundi(pair_leash)
 	for index in main.character_catalog.size():
 		var tile: Panel = screen.get_node("Roster%d" % index)
 		var style := tile.get_theme_stylebox("panel") as StyleBoxFlat
@@ -446,13 +529,17 @@ static func _results(main: Node) -> void:
 		label(screen, "", Rect2(x + 100, 272, half.size.x - 116, 28), 18, Palette.P1 if slot == 0 else Palette.P2).name = "ResultName%d" % slot
 		for index in 4:
 			icon(screen, null, Rect2(x + 100 + index * 48, 310, 42, 42)).name = "ResultWeapon%d_%d" % [slot, index]
-	label(screen, "협동 기록", Rect2(G.GUTTER, 388, wide, 24), 14, Palette.GOLD)
-	label(screen, "", Rect2(G.GUTTER, 417, wide, 30), 16, Palette.MUTED).name = "CoopRecord"
-	var meta_title := label(screen, "", Rect2(G.GUTTER, 451, wide, 25), 15, Palette.GOLD)
+	label(screen, "협동 기록", Rect2(G.GUTTER, 384, wide, 24), 14, Palette.GOLD)
+	label(screen, "", Rect2(G.GUTTER, 411, wide, 30), 16, Palette.MUTED).name = "CoopRecord"
+	var meta_title := label(screen, "", Rect2(G.GUTTER, 442, wide, 25), 15, Palette.GOLD)
 	meta_title.name = "MetaTitle"
 	for index in 6:
 		var card_width := (wide - 5.0 * 8.0) / 6.0
-		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 482, card_width, 76), 12, Palette.INK)
+		# Moved up, and the restart button moved below, because the two used to
+		# occupy the same rows: the moon-fish row arrived on this screen after the
+		# button and nothing shifted to make space, so the button sat across two of
+		# the six cards. Their names were unreadable and they could not be clicked.
+		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 468, card_width, 76), 12, Palette.INK)
 		card.name = "MetaUpgrade%d" % index
 		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -460,7 +547,7 @@ static func _results(main: Node) -> void:
 		card.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 8))
 	# Sized to its own text rather than to the panel: an 850px plate holding one
 	# centred phrase read as two empty boxes with a button wedged between them.
-	place(main.result_label, Rect2((G.w(8) - 500.0) * 0.5, 580, 500, 40), 17, Palette.INK)
+	place(main.result_label, Rect2((G.w(8) - 500.0) * 0.5, 596, 500, 40), 17, Palette.INK)
 	main.result_label.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 10))
 	main.result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
