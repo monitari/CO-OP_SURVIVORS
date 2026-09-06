@@ -36,7 +36,7 @@ func _run() -> void:
 	# over the fused roster is a reachable endgame and must resolve to at least
 	# one candidate. A pair that fuses both weapons and is then told there is no
 	# resonance for them has hit a dead end at the top of the tech tree.
-	var evolutions := EvolutionCatalog.all_evolutions()
+	var evolutions := EvolutionCatalog.all_fusions()
 	var uncovered: Array[String] = []
 	for i in evolutions.size():
 		for j in range(i, evolutions.size()):

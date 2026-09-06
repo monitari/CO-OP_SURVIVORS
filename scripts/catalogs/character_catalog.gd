@@ -10,14 +10,14 @@ extends RefCounted
 ##
 ## The roster used to differ only in health (92-115) and speed (205-242) — a
 ## 25% spread on one axis and 18% on another, which is not a choice, it is a
-## rounding error. There are now six axes and every one of them is wide enough
+## rounding error. There are now five identity axes and every one of them is wide enough
 ## to feel, guarded by SPREAD_FLOORS below:
 ##
-##   health   78 - 165   how many mistakes the run affords
+##   health   89 - 156   how many mistakes the run affords
 ##   speed    152 - 288  whether you can leave
 ##   armor    0 - 4      flat damage shaved off every hit; a wall stat
 ##   crit     0 - 0.30   a spike stat that trades away bulk
-##   pickup   0.7 - 1.7  the pair's shared magnet radius, averaged over both
+##   pickup   1.0        economic stats no longer ride on a starting weapon
 ##   chain    -35 - +85  this cat's contribution to the leash length
 ##
 ## `chain` is the one that changes how the game is played rather than how the
@@ -26,14 +26,14 @@ extends RefCounted
 ## character select and never seen again as a stat screen, only as the length
 ## of the rope on the floor.
 ##
-## Fairness is one budget over all six axes rather than a band per axis, since
+## Fairness is one budget over all identity axes rather than a band per axis, since
 ## a band per axis is exactly what forced the old flat roster. A survivor may
 ## be extreme on any axis as long as it pays for it somewhere else:
 ##
 ##   defense  = health/100 + armor*0.10
 ##   mobility = speed/230 + chain/700
 ##   offense  = damage/cooldown*reach/34 * (1 + crit*1.5)
-##   utility  = pickup*0.32
+##   utility  = 0.32      neutral baseline; magnet is treasure/meta progression
 ##
 ## tests/survivor_balance_test.gd asserts the sum lands in TOTAL_BUDGET_MIN..MAX
 ## and, separately, that the roster still spreads across every axis — because a
@@ -46,11 +46,10 @@ const TOTAL_BUDGET_MAX := 4.00
 ## additive ones. These encode "the survivors are actually different" as a
 ## thing that fails a test rather than a thing someone remembers.
 const SPREAD_FLOORS := {
-	"health": 1.9, ## ratio
+	"health": 1.7, ## ratio; economy was removed from character compensation
 	"speed": 1.6, ## ratio
 	"armor": 3.0, ## difference
 	"crit": 0.2, ## difference
-	"pickup": 2.0, ## ratio
 	"chain": 100.0, ## difference, pixels
 }
 
@@ -287,11 +286,11 @@ static func all_characters() -> Array[Dictionary]:
 			# The roster's glass cannon: fastest cat, highest crit, and the
 			# thinnest health bar on the team. Every point she spends is spent
 			# on killing things before they arrive.
-			"health": 78.0,
+			"health": 89.0,
 			"speed": 288.0,
 			"armor": 0.0,
 			"crit": 0.30,
-			"pickup": 1.35,
+			"pickup": 1.0,
 			"chain": -20.0,
 			"might": 1.12, "area": 0.86, "haste": 0.90, "recovery": 0.0,
 			"projectile_speed": 1.18, "dodge": 0.06,
@@ -306,11 +305,11 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["lightning", "storm", "chain"],
 			"description": "정전기를 잔뜩 머금은 털이 가까운 것들을 차례로 타고 흐릅니다.",
 			"color": Color("b892ff"),
-			"health": 110.0,
+			"health": 112.0,
 			"speed": 262.0,
 			"armor": 1.0,
 			"crit": 0.10,
-			"pickup": 1.1,
+			"pickup": 1.0,
 			"chain": 10.0,
 			"might": 1.0, "area": 1.08, "haste": 0.96, "recovery": 0.2,
 			"weapon": {"damage": 27.5, "cooldown": 1.78, "jumps": 3, "range": 375.0, "reach": 2.05, "tier": 1}
@@ -371,7 +370,7 @@ static func all_characters() -> Array[Dictionary]:
 			"speed": 262.0,
 			"armor": 1.0,
 			"crit": 0.16,
-			"pickup": 0.95,
+			"pickup": 1.0,
 			"chain": -35.0,
 			"might": 1.16, "area": 0.90, "haste": 0.92, "recovery": 0.1,
 			"dodge": 0.04,
@@ -391,13 +390,13 @@ static func all_characters() -> Array[Dictionary]:
 			# The anchor: twice Lyra's health, half her speed, and the longest
 			# leash in the game. A Serin run is played by standing somewhere on
 			# purpose and letting the partner range.
-			"health": 165.0,
+			"health": 156.0,
 			"speed": 152.0,
 			# 1, not 2: the raw health bar and the leash are already the most
 			# expensive things on the roster, and Serin has to pay for them.
 			"armor": 1.0,
 			"crit": 0.0,
-			"pickup": 0.7,
+			"pickup": 1.0,
 			"chain": 85.0,
 			"might": 0.88, "area": 1.0, "haste": 1.08, "recovery": 1.3,
 			"thorns": 0.10, "resolve": 3.0,
@@ -412,11 +411,11 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["arcane", "aura", "control"],
 			"description": "장난감처럼 파편 몇 개를 계속 굴려 다가오는 것을 알아서 쳐냅니다.",
 			"color": Color("ffd166"),
-			"health": 120.0,
+			"health": 129.0,
 			"speed": 214.0,
 			"armor": 3.0,
 			"crit": 0.02,
-			"pickup": 1.3,
+			"pickup": 1.0,
 			"chain": 20.0,
 			"might": 0.94, "area": 1.12, "haste": 0.92, "recovery": 0.3,
 			"amount": 1,
@@ -433,11 +432,11 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["projectile", "holy", "burst"],
 			"description": "노린 것을 한 줄로 세워 앞발 한 번에 전부 꿰뚫습니다.",
 			"color": Color("caffbf"),
-			"health": 88.0,
+			"health": 95.0,
 			"speed": 274.0,
 			"armor": 0.0,
 			"crit": 0.24,
-			"pickup": 1.2,
+			"pickup": 1.0,
 			"chain": 15.0,
 			"might": 1.10, "area": 0.82, "haste": 1.0, "recovery": 0.0,
 			"projectile_speed": 1.25, "pierce": 1,
@@ -452,11 +451,11 @@ static func all_characters() -> Array[Dictionary]:
 			"tags": ["control", "burst", "shadow"],
 			"description": "지나가는 길목마다 발자국 결계를 묻어 두고 돌아섭니다.",
 			"color": Color("bdb2ff"),
-			"health": 135.0,
+			"health": 137.0,
 			"speed": 190.0,
 			"armor": 3.0,
 			"crit": 0.0,
-			"pickup": 1.05,
+			"pickup": 1.0,
 			"chain": 40.0,
 			"might": 0.98, "area": 1.16, "haste": 1.10, "recovery": 0.7,
 			"resolve": 2.0,
@@ -474,11 +473,11 @@ static func all_characters() -> Array[Dictionary]:
 			# Nova's identity is the pull, and not only the one the weapon casts:
 			# the biggest pickup radius on the roster means a Nova pair farms a
 			# whole screen of gems without walking to any of them.
-			"health": 105.0,
+			"health": 127.0,
 			"speed": 240.0,
 			"armor": 1.0,
 			"crit": 0.08,
-			"pickup": 1.7,
+			"pickup": 1.0,
 			"chain": 5.0,
 			"might": 1.0, "area": 1.20, "haste": 1.05, "recovery": 0.2,
 			"projectile_speed": 0.90,
@@ -490,7 +489,7 @@ static func all_characters() -> Array[Dictionary]:
 	# for what looks like a single projectile.
 	roster.append({"id": "echo", "name": "에코", "title": "메아리를 던지는 아비시니안", "weapon_id": "boomerang", "weapon_name": "생선 부메랑",
 		"tags": ["projectile", "tracking"], "description": "생선 장난감이 나갔다가 돌아오고, 멈추지 않고 반대편까지 지나갑니다.",
-		"color": Color("d59356"), "health": 95.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.2, "chain": -10.0,
+		"color": Color("d59356"), "health": 101.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.0, "chain": -10.0,
 		"might": 1.06, "area": 0.95, "haste": 0.98, "recovery": 0.1,
 		"weapon": {"damage": 39.0, "cooldown": 2.5, "range": 260.0, "count": 1, "reach": 2.3, "tier": 1}})
 	# 라떼 does not aim at anything. Milk lands where it lands, and what it
@@ -498,7 +497,7 @@ static func all_characters() -> Array[Dictionary]:
 	# decided by where the pair chooses to fight rather than by what it hits.
 	roster.append({"id": "latte", "name": "라떼", "title": "우유를 나르는 노르웨이숲", "weapon_id": "milk", "weapon_name": "우유 흩뿌리기",
 		"tags": ["aura", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
-		"color": Color("f2e2c4"), "health": 125.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
+		"color": Color("f2e2c4"), "health": 121.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
 		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
 		"weapon": {"damage": 15.0, "cooldown": 3.1, "range": 300.0, "count": 4, "radius": 74.0, "slow": 0.55, "reach": 7.4, "tier": 1}})
 	return roster

@@ -63,7 +63,11 @@ func _test_a_stack_spreads_out(main: Node) -> void:
 	main.spatial_grid.rebuild(main.enemies)
 	_check(_worst_overlap(stack) > 0.8, "the fixture really is a stack")
 
-	for tick in 90:
+	# Three seconds of play. The pass is driven once per physics frame now and
+	# each body takes its turn on every other one, so 180 calls is the same
+	# simulated time the 90 here used to stand for when the whole crowd was
+	# resolved on alternate frames. Same work per body, laid flat.
+	for tick in 180:
 		main.spatial_grid.rebuild(main.enemies)
 		main._separate_crowd()
 	var overlap := _worst_overlap(stack)
@@ -124,7 +128,7 @@ func _test_a_boss_is_not_shoved(main: Node) -> void:
 		minions.append(_spawn(main, boss.position + Vector2(randf_range(-6.0, 6.0), randf_range(-6.0, 6.0))))
 
 	var stood := boss.global_position
-	for tick in 90:
+	for tick in 180:
 		main.spatial_grid.rebuild(main.enemies)
 		main._separate_crowd()
 	_check(boss.global_position.distance_to(stood) < 0.5,

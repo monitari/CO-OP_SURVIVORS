@@ -12,7 +12,7 @@ func _initialize() -> void:
 
 ## Two questions, and they pull against each other on purpose.
 ##
-## "Is this survivor fair?" is answered by one budget over all six axes, so a
+## "Is this survivor fair?" is answered by one budget over the identity axes, so a
 ## cat may be extreme anywhere as long as it pays for it somewhere else.
 ##
 ## "Are these survivors actually different?" is the question the old test never

@@ -68,6 +68,7 @@ var boss_spawned := false ## True once the first boss of the run has arrived.
 var bosses_spawned := 0
 var boss_active := false ## Kept current by main; holds the next boss back while one is still alive.
 var enemy_cap := 620
+var curse_level := 0.0 ## Shared risk treasure: denser spawns and stronger, better-paying enemies.
 ## Host returns the number of ordinary enemies recycled for scheduled arrivals.
 var reclaim_capacity: Callable
 
@@ -84,17 +85,18 @@ func spawn_interval() -> float:
 	# The first two waves are the learning window: the pair is still on one
 	# weapon each and has not yet had time to establish armor, recovery, or a
 	# resonance. Ease the stream here, then join the original curve from wave 2.
+	var curse_density := 1.0 + curse_level * 0.06
 	if wave_index == 0:
-		return OPENING_SPAWN_INTERVAL
+		return OPENING_SPAWN_INTERVAL / curse_density
 	if wave_index == 1:
-		return SECOND_WAVE_SPAWN_INTERVAL
+		return SECOND_WAVE_SPAWN_INTERVAL / curse_density
 	if wave_index == 2:
-		return THIRD_WAVE_SPAWN_INTERVAL
+		return THIRD_WAVE_SPAWN_INTERVAL / curse_density
 	# Steeper and with a lower floor than before. The old curve flattened out
 	# around wave eight, so minute ten and minute twenty-five felt the same —
 	# and with bodies no longer able to stack, a given number of enemies now
 	# takes up much more room than it used to.
-	return maxf(0.10, 0.62 - float(wave_index) * 0.055)
+	return maxf(0.10, (0.62 - float(wave_index) * 0.055) / curse_density)
 
 
 func is_surge_wave(index: int) -> bool:
@@ -309,6 +311,7 @@ func _acquire_enemy(
 	else:
 		enemy = enemy_pool.pop_back()
 	enemy.setup(difficulty, archetype, elite, boss, boss_rank)
+	enemy.apply_curse(curse_level)
 	var angle := randf() * TAU
 	var distance := randf_range(610.0, 760.0) if not boss else 820.0
 	enemy.position = center + Vector2.from_angle(angle) * distance

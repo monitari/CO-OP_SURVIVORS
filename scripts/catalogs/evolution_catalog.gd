@@ -135,6 +135,62 @@ static func all_evolutions() -> Array[Dictionary]:
 	]
 
 
+## Alternate endgame route: two maxed weapons become one hybrid and free a
+## loadout slot. These recipes never need a treasure. The result is deliberately
+## absent from pre-discovery UI; only the two ingredients receive the fusion seal.
+static func all_hybrid_evolutions() -> Array[Dictionary]:
+	return [
+		{
+			"weapon_ids": ["homing", "lightning"], "weapon_id": "comet_storm",
+			"weapon_name": "별벼락 폭풍", "tags": ["projectile", "tracking", "lightning", "storm"],
+			"description": "추적 혜성이 번개를 끌고 다니며 착탄 경로 전체를 연쇄 타격합니다.",
+			"weapon": {"damage": 43.0, "cooldown": 1.18, "count": 4, "speed": 535.0, "range": 520.0, "width": 24.0, "jumps": 5, "reach": 3.2},
+		},
+		{
+			"weapon_ids": ["flame", "milk"], "weapon_id": "cream_volcano",
+			"weapon_name": "크림 화산", "tags": ["fire", "projectile", "aura", "control"],
+			"description": "불씨가 터진 자리에 뜨거운 크림 웅덩이가 남아 진입로를 닫습니다.",
+			"weapon": {"damage": 32.0, "cooldown": 1.55, "count": 10, "speed": 380.0, "range": 330.0, "radius": 112.0, "slow": 0.48, "reach": 5.4},
+		},
+		{
+			"weapon_ids": ["frost", "orbit"], "weapon_id": "glacial_satellite",
+			"weapon_name": "빙하 위성", "tags": ["frost", "control", "aura", "arcane"],
+			"description": "얼음 위성이 두 궤도를 돌고 중심의 냉기장이 얼어붙은 적을 파쇄합니다.",
+			"weapon": {"damage": 28.0, "cooldown": 4.7, "count": 6, "radius": 146.0, "speed": 3.5, "slow": 0.2, "reach": 5.0},
+		},
+		{
+			"weapon_ids": ["scythe", "lance"], "weapon_id": "eclipse_lance",
+			"weapon_name": "월식 송곳", "tags": ["melee", "shadow", "projectile", "holy", "arc"],
+			"description": "보름달 참격 사이로 세 갈래 창이 뻗어 근거리와 원거리를 동시에 벱니다.",
+			"weapon": {"damage": 62.0, "cooldown": 1.12, "range": 555.0, "width": 35.0, "arc": 6.28, "reach": 3.0},
+		},
+		{
+			"weapon_ids": ["gravity", "mine"], "weapon_id": "singularity_mine",
+			"weapon_name": "특이점 지뢰", "tags": ["arcane", "storm", "control", "burst"],
+			"description": "지뢰 고리가 적을 가둔 뒤 가장 먼 군집을 특이점으로 접어 버립니다.",
+			"weapon": {"damage": 48.0, "cooldown": 1.82, "count": 6, "radius": 218.0, "pull": 215.0, "cast_range": 500.0, "reach": 4.6},
+		},
+		{
+			"weapon_ids": ["chain", "boomerang"], "weapon_id": "return_bell",
+			"weapon_name": "회귀의 종", "tags": ["tether", "holy", "projectile", "tracking"],
+			"description": "사슬의 종이 울릴 때마다 생선 부메랑이 양 끝을 왕복하며 결속선을 태웁니다.",
+			"weapon": {"damage": 50.0, "cooldown": 1.28, "count": 3, "range": 355.0, "width": 92.0, "reach": 4.1},
+		},
+	]
+
+
+static func all_fusions() -> Array[Dictionary]:
+	return all_evolutions() + all_hybrid_evolutions()
+
+
+static func hybrids_for(base_weapon_id: String) -> Array[Dictionary]:
+	var matches: Array[Dictionary] = []
+	for evolution in all_hybrid_evolutions():
+		if base_weapon_id in (evolution["weapon_ids"] as Array):
+			matches.append(evolution)
+	return matches
+
+
 static func for_base(base_weapon_id: String) -> Dictionary:
 	for evolution in all_evolutions():
 		if String(evolution["base_weapon_id"]) == base_weapon_id:
@@ -143,7 +199,7 @@ static func for_base(base_weapon_id: String) -> Dictionary:
 
 
 static func by_weapon_id(weapon_id: String) -> Dictionary:
-	for evolution in all_evolutions():
+	for evolution in all_fusions():
 		if String(evolution["weapon_id"]) == weapon_id:
 			return evolution
 	return {}
@@ -163,7 +219,8 @@ static func build_state(evolution: Dictionary, base_state: Dictionary) -> Dictio
 	state["tags"] = (evolution["tags"] as Array).duplicate()
 	state["color"] = base_state["color"]
 	state["source_character"] = base_state.get("source_character", "")
-	state["base_weapon_id"] = String(evolution["base_weapon_id"])
+	state["base_weapon_id"] = String(evolution.get("base_weapon_id", (evolution.get("weapon_ids", [""]) as Array)[0]))
+	state["recipe_weapon_ids"] = (evolution.get("weapon_ids", []) as Array).duplicate()
 	state["evolved"] = true
 	state["tier"] = WEAPON_MAX_TIER
 	return state

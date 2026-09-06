@@ -48,7 +48,7 @@ func _test_starting_weapon_cadence(main: Node) -> void:
 	var cooldown_floors := {
 		"homing": 0.9, "lightning": 1.4, "flame": 1.6, "frost": 2.0,
 		"scythe": 1.3, "chain": 1.3, "orbit": 5.3, "lance": 1.5,
-		"mine": 2.9, "gravity": 2.3,
+		"mine": 2.9, "gravity": 2.3, "boomerang": 2.0, "milk": 2.5,
 	}
 	for character in main.character_catalog:
 		var weapon_id := String(character["weapon_id"])

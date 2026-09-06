@@ -32,7 +32,7 @@ const ORBIT_FADE_IN := 0.24
 const ORBIT_FADE_OUT := 0.42
 
 
-func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, shards: int, angular_speed: float, tint: Color) -> void:
+func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, shards: int, angular_speed: float, tint: Color, duration_scale := 1.0) -> void:
 	kind = Kind.ORBIT
 	anchor = p
 	spatial_grid = grid
@@ -47,7 +47,7 @@ func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius:
 	count = maxi(1, shards)
 	speed = angular_speed
 	color = tint
-	duration = 3.8
+	duration = 3.8 * duration_scale
 	z_index = 3
 	modulate.a = 0.0
 	global_position = anchor.global_position

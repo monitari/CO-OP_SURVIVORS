@@ -10,6 +10,12 @@ var velocity := Vector2.ZERO
 var magnetized := false
 
 
+func _ready() -> void:
+	# Pooled/inactive gems do no frame work. activate() turns processing back on.
+	visible = false
+	set_process(false)
+
+
 func activate(spawn_position: Vector2, experience_value: int, experience_grade := 0) -> void:
 	position = spawn_position
 	value = experience_value

@@ -29,7 +29,7 @@ func _run() -> void:
 		if not GameIconCatalog.has_atlas_art(weapon_id, "weapon"):
 			placeholders.append("weapon:" + weapon_id)
 
-	for evolution in EvolutionCatalog.all_evolutions():
+	for evolution in EvolutionCatalog.all_fusions():
 		var fused_id := String(evolution["weapon_id"])
 		covered += _require(GameIconCatalog.weapon(fused_id), "fused weapon " + fused_id)
 		if not GameIconCatalog.has_atlas_art(fused_id, "weapon"):

@@ -54,6 +54,13 @@ static func all_treasures() -> Array[Dictionary]:
 			"per_tier": "발사체 속도 +10%",
 		},
 		{
+			"id": "duration",
+			"name": "달빛 모래시계",
+			"shared": false,
+			"stat": "지속",
+			"per_tier": "투사체·장판 지속시간 +10%",
+		},
+		{
 			"id": "armor",
 			"name": "수호의 갑주",
 			"shared": false,
@@ -148,6 +155,13 @@ static func all_treasures() -> Array[Dictionary]:
 			"shared": true,
 			"stat": "행운",
 			"per_tier": "공유 행운 +1",
+		},
+		{
+			"id": "curse",
+			"name": "뒤집힌 방울",
+			"shared": true,
+			"stat": "저주",
+			"per_tier": "적 +8% · 출현/경험치 +6%",
 		},
 		{
 			"id": "catnip",

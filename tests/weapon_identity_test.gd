@@ -12,7 +12,7 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 
-## Ten weapons that play differently, not ten damage numbers.
+## Twelve weapons that play differently, not twelve damage numbers.
 ##
 ## Four of them — 궤도 파편, 관통 광선, 지뢰 결계, 중력 붕괴 — had no unique
 ## upgrades at all, so half the roster could only ever be handed "+25% damage"
@@ -49,7 +49,7 @@ func _run() -> void:
 	await _test_milk_lands_where_it_lands(main)
 
 	if failures.is_empty():
-		print("WEAPON_IDENTITY_PASS: ten weapons, twenty working specials, four reworked deliveries")
+		print("WEAPON_IDENTITY_PASS: twelve weapons, twenty-four working specials, four reworked deliveries")
 		quit(0)
 	else:
 		for failure in failures:
@@ -90,7 +90,7 @@ func _test_every_weapon_has_specials(main: Node) -> void:
 
 			# And the card pool has to be able to offer it, or it is unreachable.
 			# Fifteen draws rather than forty: each draw runs the whole scoring
-			# pass, and at twenty specials the old count made this the slowest
+			# pass, and at twenty-four specials the old count made this the slowest
 			# test in the suite for no extra confidence.
 			var offered := false
 			for draw in 15:

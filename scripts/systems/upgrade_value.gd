@@ -27,7 +27,7 @@ static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 static func attributes(player: Node) -> Dictionary:
 	return {"might": player.might, "haste": player.haste, "area": player.area,
 		"amount": player.amount, "pierce": player.pierce, "crit": player.crit_chance,
-		"projectile_speed": player.projectile_speed}
+		"projectile_speed": player.projectile_speed, "duration": player.duration}
 
 static func benefits_loadout(loadout: Array, effect: String) -> bool:
 	for w: Dictionary in loadout:
@@ -39,6 +39,8 @@ static func benefits_loadout(loadout: Array, effect: String) -> bool:
 				if id in ["homing", "flame", "starpiercer", "supernova"]: return true
 			"projectile_speed":
 				if w.has("speed"): return true
+			"duration":
+				if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide", "comet_storm", "cream_volcano", "glacial_satellite"]: return true
 			"area":
 				if id not in ["homing", "flame"]: return true
 			_: return true
@@ -47,7 +49,7 @@ static func benefits_loadout(loadout: Array, effect: String) -> bool:
 static func baseline(w: Dictionary) -> Dictionary:
 	for cat in Cats.all_characters():
 		if cat["weapon_id"] == w["weapon_id"]: return cat["weapon"]
-	for evo in Evolutions.all_evolutions():
+	for evo in Evolutions.all_fusions():
 		if evo["weapon_id"] == w["weapon_id"]: return evo["weapon"]
 	return w
 
@@ -65,6 +67,8 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 		coverage *= (1.0 - pow(0.82, float(w["jumps"]))) / (1.0 - pow(0.82, float(base["jumps"])))
 	if id in ["homing", "flame", "starpiercer", "supernova"]:
 		coverage *= 1.0 + float(a["pierce"]) * 0.35
+	if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide", "comet_storm", "cream_volcano", "glacial_satellite"]:
+		coverage *= float(a["duration"])
 	# Area is not a damage upgrade for homing or fixed-radius orbit shards.
 	if id not in ["homing", "flame", "orbit", "celestial", "lightning"]:
 		for key in ["radius", "range", "width"]:
@@ -89,7 +93,9 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 	var id := String(option["id"])
 	var index := int(option.get("weapon_slot", -1))
 	if id == "unlock_weapon": loadout.append(main._build_weapon_state(option["character"]))
-	elif id == "evolve_weapon": loadout[index] = Evolutions.build_state(option["evolution"], loadout[index])
+	elif id == "evolve_weapon":
+		loadout[index] = Evolutions.build_state(option["evolution"], loadout[index])
+		if option.has("consume_weapon_slot"): loadout.remove_at(int(option["consume_weapon_slot"]))
 	elif id in ["unlock_treasure", "treasure_upgrade"]:
 		match main._option_icon_id(slot, option):
 			"might": a["might"] += 0.09
@@ -98,10 +104,11 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 			"haste": a["haste"] = maxf(0.6, a["haste"] - 0.06)
 			"crit": a["crit"] = minf(0.60, a["crit"] + 0.05)
 			"pierce": a["pierce"] += 1
+			"duration": a["duration"] += 0.10
 	elif index >= 0:
 		var w: Dictionary = loadout[index]
 		match id:
-			"weapon_power": w["damage"] *= 1.16
+			"weapon_power": w["damage"] *= main.WEAPON_POWER_STEP
 			"weapon_rate": w["cooldown"] = maxf(0.32, w["cooldown"] * 0.93)
 			# Both specials run through the same table the real upgrade does, on
 			# this throwaway copy of the loadout. The old version listed six of

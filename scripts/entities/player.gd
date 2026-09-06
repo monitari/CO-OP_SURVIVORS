@@ -65,6 +65,7 @@ var contact_pressure := 1.0
 var might := 1.0 ## damage multiplier
 var area := 1.0 ## radius / range / arc / width multiplier
 var projectile_speed := 1.0 ## projectile travel speed multiplier
+var duration := 1.0 ## lifetime multiplier for projectiles and persistent weapon fields
 var amount := 0 ## extra projectiles per volley
 var haste := 1.0 ## cooldown multiplier, lower is faster
 var armor := 0.0 ## flat damage subtracted from every hit
@@ -104,6 +105,7 @@ func apply_character(character: Dictionary) -> void:
 	might = float(character.get("might", 1.0))
 	area = float(character.get("area", 1.0))
 	projectile_speed = float(character.get("projectile_speed", 1.0))
+	duration = float(character.get("duration", 1.0))
 	amount = int(character.get("amount", 0))
 	haste = float(character.get("haste", 1.0))
 	armor = float(character.get("armor", 0.0))

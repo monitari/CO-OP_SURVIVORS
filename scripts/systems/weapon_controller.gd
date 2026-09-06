@@ -65,6 +65,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["arc"] = minf(TAU, float(state.get("arc", 0.0)) * owner_player.area)
 	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
 	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
+	scaled["duration"] = owner_player.duration
 	match weapon_id:
 		"boomerang": _throw_toy(player_index, scaled, damage, color, 0.35)
 		"skipping_stone": _throw_toy(player_index, scaled, damage, color, TAU / maxf(1.0, float(scaled["count"])))
@@ -90,6 +91,15 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"judgement": _fire_judgement(player_index, scaled, damage, color)
 		"ruin_garden": _plant_ruin_garden(player_index, scaled, damage, color)
 		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
+		# Dual fusions consume two maxed weapons and retain both deliveries. Their
+		# catalog numbers are deliberately one shared damage budget; each half gets
+		# a fraction so combining weapons does not simply double endgame DPS.
+		"comet_storm": _cast_comet_storm(player_index, scaled, damage, color)
+		"cream_volcano": _cast_cream_volcano(player_index, scaled, damage, color)
+		"glacial_satellite": _cast_glacial_satellite(player_index, weapon_slot, scaled, damage, color)
+		"eclipse_lance": _cast_eclipse_lance(player_index, scaled, damage, color)
+		"singularity_mine": _cast_singularity_mine(player_index, scaled, damage, color)
+		"return_bell": _cast_return_bell(player_index, scaled, damage, color)
 	if play_cast_cue:
 		cue_requested.emit("weapon_" + weapon_id)
 
@@ -132,7 +142,7 @@ func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Col
 			at = origin + Vector2.from_angle(angle) * spread * sqrt(randf_range(0.16, 1.0))
 		var pool := MilkPoolScript.new() as MilkPool
 		pool.configure(at, spatial_grid, damage, float(state["radius"]),
-			float(state.get("slow", 0.55)), color)
+			float(state.get("slow", 0.55)), color, 4.6 * float(state.get("duration", 1.0)))
 		add_child(pool)
 	cue_requested.emit("weapon_milk")
 
@@ -321,6 +331,20 @@ func clear_transients() -> void:
 	sustained_fields.clear()
 
 
+func clear_sustained_for_player(player_index: int) -> void:
+	# Fusion may replace a frost aura or remove a lower weapon slot, invalidating
+	# every slot-key that follows it. Rebuild only this survivor's persistent
+	# fields on their next cast instead of leaving a retired aura alive.
+	for key: String in sustained_fields.keys():
+		var parts := key.split(":")
+		if parts.size() < 3 or int(parts[1]) != player_index:
+			continue
+		var field = sustained_fields[key]
+		if is_instance_valid(field):
+			field.queue_free()
+		sustained_fields.erase(key)
+
+
 func _acquire_projectile() -> HomingProjectile:
 	var projectile: HomingProjectile
 	if projectile_pool.is_empty():
@@ -375,6 +399,8 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.spatial_grid = spatial_grid
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
+		projectile.lifetime *= float(state.get("duration", 1.0))
+		projectile.spawn_lifetime = projectile.lifetime
 		projectile.projectile_color = color
 		projectile.remaining_hits = 1 + players[player_index].pierce
 	return true
@@ -409,6 +435,8 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		projectile.remaining_hits = 1 + players[player_index].pierce
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
+		projectile.lifetime *= float(state.get("duration", 1.0))
+		projectile.spawn_lifetime = projectile.lifetime
 		# A narrow ember could pass cleanly through the gaps in the opening
 		# ring, making Ignis survival depend heavily on random spawn angles.
 		# The modestly wider hit disc preserves the radial gaps but makes close
@@ -473,7 +501,7 @@ func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
 ## read as an orbit rather than as a pulsing ring.
 func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var field = WeaponFieldScript.new()
-	field.configure_orbit(players[player_index], spatial_grid, damage, float(state["radius"]), maxi(1, int(state["count"])), float(state.get("speed", 2.4)), color)
+	field.configure_orbit(players[player_index], spatial_grid, damage, float(state["radius"]), maxi(1, int(state["count"])), float(state.get("speed", 2.4)), color, float(state.get("duration", 1.0)))
 	add_child(field)
 
 
@@ -697,6 +725,42 @@ func _collapse_event_horizon(player_index: int, state: Dictionary, damage: float
 		_draw_ring(centre, radius * 0.7, color.lightened(0.35), 11.0)
 		_spawn_combat_flare(centre, color, Color.WHITE, radius * 0.4, 0.26)
 	get_tree().create_timer(0.55).timeout.connect(implode)
+
+
+## --- dual fusions --------------------------------------------------------
+## Each of these keeps the readable verbs of both consumed weapons. The
+## fractions are part of the balance: two deliveries, one endgame damage budget.
+func _cast_comet_storm(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_fire_starpiercer(player_index, state, damage * 0.72, color)
+	_fire_lightning(players[player_index].global_position, int(state.get("jumps", 5)),
+		damage * 0.62, float(state["range"]), Color("b892ff"))
+
+
+func _cast_cream_volcano(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_fire_supernova(player_index, state, damage * 0.68, color)
+	var pools := state.duplicate()
+	pools["count"] = mini(4, maxi(2, int(state["count"]) / 2))
+	_spill_milk(player_index, pools, damage * 0.34, Color("f2e2c4"))
+
+
+func _cast_glacial_satellite(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> void:
+	_sweep_celestial(player_index, state, damage * 0.64, color)
+	_ensure_absolute_aura(player_index, weapon_slot, state, damage * 0.42, Color("8ecae6"))
+
+
+func _cast_eclipse_lance(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_swing_black_moon(player_index, state, damage * 0.66, color)
+	_fire_judgement(player_index, state, damage * 0.72, Color("caffbf"))
+
+
+func _cast_singularity_mine(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_collapse_event_horizon(player_index, state, damage * 0.66, color)
+	_plant_ruin_garden(player_index, state, damage * 0.58, Color("bdb2ff"))
+
+
+func _cast_return_bell(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	_throw_toy(player_index, state, damage * 0.70, color, TAU / maxf(1.0, float(state["count"])))
+	_fire_chain_pulse(state, damage * 0.78)
 
 
 ## The lance shape decoupled from a survivor, so resonances can fire one from

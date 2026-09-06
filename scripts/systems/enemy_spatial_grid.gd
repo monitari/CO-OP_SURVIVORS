@@ -3,15 +3,30 @@ extends RefCounted
 
 var cell_size := 192.0
 var cells: Dictionary = {}
+var _bucket_pool: Array[Array] = []
 var occupied_min := Vector2i.ZERO
 var occupied_max := Vector2i.ZERO
+## The largest body currently in the grid. Separation uses it to decide whether a
+## body is close enough to a cell boundary for anything in the next cell to be
+## able to reach it — an exact test, so it skips only pairs that provably cannot
+## touch. Tracked here rather than written as a constant so a bigger boss cannot
+## silently invalidate it.
+var max_radius := 0.0
 
 
 func rebuild(enemies: Array[ChaserEnemy]) -> void:
+	# Rebuilding used to allocate one Array per occupied cell every physics tick.
+	# Recycle the buckets; dense waves then reuse stable storage instead of
+	# feeding the allocator and garbage collector hundreds of tiny arrays.
+	for bucket: Array in cells.values():
+		bucket.clear()
+		_bucket_pool.append(bucket)
 	cells.clear()
+	max_radius = 0.0
 	for enemy in enemies:
 		if not is_instance_valid(enemy) or enemy.dead or not enemy.active:
 			continue
+		max_radius = maxf(max_radius, enemy.radius)
 		var key := _cell_key(enemy.global_position)
 		if cells.is_empty():
 			occupied_min = key
@@ -20,7 +35,7 @@ func rebuild(enemies: Array[ChaserEnemy]) -> void:
 			occupied_min = occupied_min.min(key)
 			occupied_max = occupied_max.max(key)
 		if not cells.has(key):
-			cells[key] = []
+			cells[key] = _bucket_pool.pop_back() if not _bucket_pool.is_empty() else []
 		(cells[key] as Array).append(enemy)
 
 

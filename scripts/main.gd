@@ -16,6 +16,7 @@ const WeaponControllerScript := preload("res://scripts/systems/weapon_controller
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
 const SettingsScript := preload("res://scripts/systems/settings_system.gd")
+const MetaProgressionScript := preload("res://scripts/systems/meta_progression.gd")
 const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
 const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
@@ -34,6 +35,8 @@ const WEAPON_LOADOUT_CAP := 4
 ## Treasures are the other half of a build. Attributes used to be unlimited
 ## free-floating cards; a survivor now commits to four and deepens those.
 const TREASURE_LOADOUT_CAP := 4
+const BASE_WEAPON_DAMAGE_SCALE := 0.90
+const WEAPON_POWER_STEP := 1.20
 
 ## Enemies spawn 610-760px out and never stopped chasing, so anything that
 ## drifted off — a shooter backing away, a charger that overshot — stayed
@@ -41,6 +44,39 @@ const TREASURE_LOADOUT_CAP := 4
 ## cap filled with enemies that are actually part of the fight. Comfortably
 ## beyond the spawn ring so nothing is culled the moment it arrives.
 const ENEMY_CULL_RADIUS := 1500.0
+## How the crowd is split for steering. Each body carries a batch index and one
+## batch steers per tick, with the delta it missed handed back, so timers,
+## cooldowns and travel run at the rate they always did and only the granularity
+## of the steering drops. Two is deliberate: at three, a runner sprinting at
+## 145px/s covers seven pixels between updates, which is visible as a stutter.
+##
+## There is no distance tier here, and that is a measured decision rather than an
+## oversight. Exempting a ring around the pair looks obviously right and saves
+## almost nothing: every enemy walks at the survivors, so within seconds of
+## spawning the whole crowd has converged into exactly that ring. A 420px
+## exemption took the tick from 11.7ms to 11.7ms. What is safe to stagger is
+## decided by what the step does, not by where the body is.
+const AI_BATCHES := 2
+## The stagger rests on a compensated delta standing in for the ticks a body
+## missed, and that substitution is only honest while the doubled step stays
+## small next to the bodies and the distances involved. At the project's 60Hz it
+## is: the fastest thing on the field covers about five pixels. The soak tests
+## run the clock at twenty times speed, where a physics delta is a third of a
+## second and a doubled one is most of a screen — enemies overshoot the survivors
+## instead of closing on them, and the measured run stops being the game. Left
+## unguarded it turned the soak's three-of-four-bosses loss into a five-of-five
+## win and doubled the kill count, which is a balance instrument reporting a game
+## nobody plays. Godot's physics delta is fixed at the tick rate rather than
+## driven by how fast frames actually render, so this never switches itself off
+## on a slow machine — the one case where the stagger is most needed.
+## Just above one tick at 60Hz, so a modestly scaled clock still staggers and an
+## accelerated one does not.
+const MAX_STAGGER_DELTA := 0.02
+## Separation resolves each body every this many ticks. It is spread by batch
+## rather than by tick: running the whole pass on alternate frames costs the same
+## on average and twice as much on the frames it runs, and it was that peak — not
+## the average — that missed the deadline. Same work, laid flat.
+const CROWD_UPDATE_DIVISOR := 2
 
 ## P1 confirms with W and P2 with the up arrow — the same keys they move
 ## with. Without a beat of dead time the screen appearing mid-stride reads
@@ -97,6 +133,7 @@ var resonance_system: ResonanceSystem
 var weapon_controller: WeaponController
 var feedback: FeedbackSystem
 var settings: GameSettings
+var meta_progression: MetaProgression
 var hud_layer: CanvasLayer
 var combat_hud: Control
 var boss_hud_panel: ColorRect
@@ -168,6 +205,8 @@ const ReviewUI := preload("res://scripts/ui/review_ui.gd")
 const UpgradeValue := preload("res://scripts/systems/upgrade_value.gd")
 var lobby_active := true
 var run_won := false
+var run_reward := 0
+var meta_cursor := 0
 var boss_enemy: ChaserEnemy
 var camera_shake := 0.0
 var screen_shake_enabled := true
@@ -203,6 +242,25 @@ var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
 var crowd_phase := 0
+var simulation_phase := 0
+## Opt-in frame breakdown, off during play. Timing an algorithm on its own says
+## how fast that algorithm is, not where a frame actually goes; the performance
+## test turns this on and reads the real cost of each phase of one physics tick.
+var profiling := false
+var profile_totals: Dictionary = {}
+var profile_frames := 0
+var _profile_at := 0
+## Worst single tick seen, in microseconds. The average hides the thing a player
+## actually feels: a pass that runs every other frame costs nothing on one tick
+## and double on the next, and it is the double that misses the deadline.
+## Every measured tick, so the spread can be read as a distribution. The single
+## worst tick is not a useful number on a desktop: a scheduling hiccup inflates
+## every section of one frame at once and lands wherever it lands, which is why
+## the worst frame of a two hundred body run came out higher than the worst of a
+## four hundred body one. A high percentile survives that and still shows a pass
+## that genuinely costs double on alternate frames.
+var profile_frame_usec: PackedInt32Array = PackedInt32Array()
+var _profile_frame_at := 0
 var level_overlay_tween: Tween
 var chain_ward_remaining := 0.0
 var chain_ward_pulse_timer := 0.0
@@ -257,6 +315,7 @@ const EXPERIENCE_MAGNET_BASE := 155.0
 var team_magnet := 1.0 ## multiplier on the shared XP pickup radius
 var team_growth := 1.0 ## multiplier on all shared XP gained
 var team_luck := 0
+var team_curse := 0.0
 var team_overcharge := 0.0
 var team_greed := 0.0
 var team_level_heal := 0.0
@@ -296,6 +355,8 @@ func _ready() -> void:
 	randomize()
 	settings = SettingsScript.new() as GameSettings
 	settings.load_settings()
+	meta_progression = MetaProgressionScript.new() as MetaProgression
+	meta_progression.load_progress()
 	_setup_input_map()
 	if not Input.joy_connection_changed.is_connected(_on_joy_connection_changed):
 		Input.joy_connection_changed.connect(_on_joy_connection_changed)
@@ -362,6 +423,17 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+## Closes the section that started at the last mark and opens the next one.
+## Microseconds, accumulated across frames so one slow tick does not decide the
+## answer; `profile_frames` divides them back down.
+func _profile(section: String) -> void:
+	if not profiling:
+		return
+	var now := Time.get_ticks_usec()
+	profile_totals[section] = float(profile_totals.get(section, 0.0)) + float(now - _profile_at)
+	_profile_at = now
+
+
 func _physics_process(delta: float) -> void:
 	if modal_input_guard > 0:
 		modal_input_guard -= 1
@@ -404,8 +476,7 @@ func _physics_process(delta: float) -> void:
 			_begin_lobby()
 		return
 	if game_over:
-		if Input.is_action_just_pressed("restart"):
-			get_tree().reload_current_scene()
+		_handle_result_input()
 		return
 	if pause_active:
 		_handle_pause_input()
@@ -427,6 +498,10 @@ func _physics_process(delta: float) -> void:
 		return
 
 	elapsed += delta
+	if profiling:
+		profile_frames += 1
+		_profile_at = Time.get_ticks_usec()
+		_profile_frame_at = _profile_at
 	weapon_controller.elapsed = elapsed
 	for player in players:
 		player.step_movement(delta)
@@ -442,18 +517,47 @@ func _physics_process(delta: float) -> void:
 	var cull_origin := (players[0].position + players[1].position) * 0.5
 	_update_contact_pressure()
 	item_aura.step(delta)
-	for candidate in enemies.duplicate():
-		var enemy := candidate as ChaserEnemy
+	simulation_phase += 1
+	_profile("players_chain_camera")
+	# What is left of the tick after the crowd separation was fixed is not any one
+	# line inside the step — it is the six hundred calls themselves. So the crowd
+	# is split into batches and one batch steers per tick, with the skipped time
+	# handed back as a larger delta. Timers, cooldowns and travel therefore run at
+	# the same rate they always did; what drops is how often a body reconsiders
+	# where it is going, which for a body walking a straight line at the pair is
+	# the one thing that can be sampled coarsely without anyone being able to see
+	# it. Two exemptions steer every tick regardless: the bosses, because they are
+	# the fight, and anything mid-telegraph, because a warning has to be smooth to
+	# be readable. Contact needs no exemption — a touch is gated by a cooldown of
+	# three quarters of a second per body, so checking for it on alternate ticks
+	# delays a hit by at most a sixtieth of a second and changes no damage at all,
+	# and nothing on the field moves far enough between updates to pass through a
+	# survivor unnoticed. A body that starts a windup is telegraphing by the end
+	# of the same step, so it is back on the full-rate tick before its warning has
+	# drawn a single frame.
+	var cull_radius_squared := ENEMY_CULL_RADIUS * ENEMY_CULL_RADIUS
+	var stepping := time_stop_remaining <= 0.0
+	var staggering := delta <= MAX_STAGGER_DELTA
+	for enemy_index in range(enemies.size() - 1, -1, -1):
+		var enemy := enemies[enemy_index] as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
 		# The boss is the objective — it is never recycled for wandering off.
-		if not enemy.boss and enemy.global_position.distance_to(cull_origin) > ENEMY_CULL_RADIUS:
-			_cull_enemy(enemy)
+		if not enemy.boss and enemy.global_position.distance_squared_to(cull_origin) > cull_radius_squared:
+			enemies.remove_at(enemy_index)
+			wave_director.release_enemy(enemy)
 			continue
-		if time_stop_remaining <= 0.0:
+		if not stepping:
+			continue
+		if not staggering or enemy.boss or enemy.telegraphing:
 			enemy.step(players, delta)
+		elif (enemy.ai_batch + simulation_phase) % AI_BATCHES == 0:
+			enemy.step(players, delta * AI_BATCHES)
+	_profile("enemy_ai")
 	spatial_grid.rebuild(enemies)
+	_profile("grid_rebuild")
 	_separate_crowd()
+	_profile("crowd_separation")
 	# Ticked here rather than in _gain_shared_xp so the queue drains on run
 	# time: the pair gets the gap back as play, not as a paused screen.
 	if level_up_gap_remaining > 0.0:
@@ -464,8 +568,10 @@ func _physics_process(delta: float) -> void:
 	bursts.step(delta)
 	particles.step(delta)
 	_update_threat_indicator()
+	_profile("effects")
 	experience_system.step(players, delta)
 	field_items.step(players, delta)
+	_profile("pickups")
 
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
@@ -475,11 +581,13 @@ func _physics_process(delta: float) -> void:
 	if time_stop_remaining <= 0.0:
 		for enemy in wave_director.step(delta, elapsed, midpoint, enemies.size()):
 			_register_enemy(enemy)
+	_profile("spawning")
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
 			if attack_timers[player_index][weapon_slot] <= 0.0:
 				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
+	_profile("weapons")
 	weapon_controller.chain_length = chain_max_length
 	weapon_controller.chain_tension = clampf(
 		players[0].position.distance_to(players[1].position) / chain_max_length, 0.0, 1.0
@@ -492,7 +600,11 @@ func _physics_process(delta: float) -> void:
 		boss_bar.value = boss_enemy.health
 		boss_health_text_label.text = "%d / %d" % [int(ceil(boss_enemy.health)), int(ceil(boss_enemy.max_health))]
 
+	_profile("resonance")
 	_update_hud()
+	_profile("hud")
+	if profiling:
+		profile_frame_usec.append(Time.get_ticks_usec() - _profile_frame_at)
 	if (players[0].downed and players[1].downed) or players[0].bleedout_remaining <= 0.0 or players[1].bleedout_remaining <= 0.0:
 		_end_run()
 
@@ -949,13 +1061,13 @@ func _create_hud() -> void:
 	# The run summary grew (loadouts, then the co-op tally) while this panel
 	# stayed the size it was, and clip_text cuts silently — the last four
 	# lines, including "ENTER / A" and the whole tally, were simply gone.
-	result_overlay.position = Vector2(180.0, 132.0)
-	result_overlay.size = Vector2(920.0, 545.0)
+	result_overlay.position = Vector2(180.0, 35.0)
+	result_overlay.size = Vector2(920.0, 650.0)
 	result_overlay.visible = false
 	layer.add_child(result_overlay)
 	result_label = Label.new()
 	result_label.position = Vector2(40.0, 26.0)
-	result_label.size = Vector2(840.0, 493.0)
+	result_label.size = Vector2(840.0, 598.0)
 	result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	result_label.add_theme_font_size_override("font_size", 22)
@@ -1386,8 +1498,8 @@ func _format_character_card(player_index: int) -> String:
 			float(weapon["damage"]), float(weapon["cooldown"]),
 			_chain_note(character),
 		],
-		"자력 %.0f%%      사슬 %+.0f      회피 %.0f%%" % [
-			float(character["pickup"]) * 100.0, float(character["chain"]),
+		"투사체 속도 %.0f%%      사슬 %+.0f      회피 %.0f%%" % [
+			float(character.get("projectile_speed", 1.0)) * 100.0, float(character["chain"]),
 			float(character.get("dodge", 0.0)) * 100.0,
 		],
 		"",
@@ -1443,6 +1555,7 @@ func _start_selected_run() -> void:
 		selected_characters[player_index] = character_catalog[selected_character_indices[player_index]].duplicate(true)
 		weapon_loadouts[player_index] = [_build_weapon_state(selected_characters[player_index])]
 		players[player_index].apply_character(selected_characters[player_index])
+		meta_progression.apply_to_player(players[player_index])
 		attack_timers[player_index] = [0.15 + player_index * 0.12]
 		treasure_loadouts[player_index] = []
 		hud_portrait_icons[player_index].texture = IconCatalog.survivor(String(selected_characters[player_index]["id"]))
@@ -1466,7 +1579,9 @@ func _start_selected_run() -> void:
 	last_upgrade_choice_keys = [[], []]
 	team_magnet = 1.0
 	team_growth = 1.0
-	team_luck = 0
+	team_luck = meta_progression.team_luck_bonus()
+	team_curse = 0.0
+	wave_director.curse_level = 0.0
 	team_overcharge = 0.0
 	team_greed = 0.0
 	team_level_heal = 0.0
@@ -1476,7 +1591,7 @@ func _start_selected_run() -> void:
 	fusion_discovered = false
 	# The shared magnet is the average of what the two cats bring to it, so a
 	# Nova pair really does sweep a screen the other pairs have to walk across.
-	team_magnet = (float(selected_characters[0]["pickup"]) + float(selected_characters[1]["pickup"])) * 0.5
+	team_magnet = 1.0 + meta_progression.team_magnet_bonus()
 	_apply_team_magnet()
 	field_items.clear_all()
 	bursts.clear_all()
@@ -2073,22 +2188,77 @@ func _separate_crowd() -> void:
 	crowd_phase += 1
 	for key in spatial_grid.cells:
 		var bucket: Array = spatial_grid.cells[key]
-		for index in bucket.size():
+		var bucket_size := bucket.size()
+		var own_samples := mini(CROWD_SAMPLES, bucket_size - 1)
+		for index in bucket_size:
 			var first := bucket[index] as ChaserEnemy
+			# Hoisted out of the pair loops below. The grid was rebuilt from the
+			# live enemy list this same tick and nothing here frees a body, so one
+			# check per body is worth the twenty-three this used to make per body.
+			if first.dead:
+				continue
+			# This body's turn in the rota. A resolve moves both bodies in the
+			# pair, so a body still gets pushed out of whatever is standing on it
+			# on the ticks it is not itself driving the pass.
+			if (first.ai_batch + crowd_phase) % CROWD_UPDATE_DIVISOR != 0:
+				continue
+			var first_position := first.global_position
+			var first_radius := first.radius
 			# Bound work in dense cells. The offset mixes the caller's clock with
 			# the body's own index so two neighbours in the same bucket look at
 			# different partners on the same tick, which is what makes a partial
 			# sample converge instead of oscillating.
-			for sample in mini(CROWD_SAMPLES, bucket.size() - 1):
-				var other_index := (index + 1 + sample * 3 + crowd_phase) % bucket.size()
-				if other_index != index:
-					_resolve_overlap(first, bucket[other_index] as ChaserEnemy)
-			for offset in CROWD_NEIGHBOURS:
-				var neighbour: Variant = spatial_grid.cells.get(key + offset)
+			for sample in own_samples:
+				var other_index := (index + 1 + sample * 3 + crowd_phase) % bucket_size
+				if other_index == index:
+					continue
+				# Testing for overlap here rather than inside the resolver is the
+				# single largest saving in the tick. The test is a subtraction and
+				# a dot product; the call it guards costs more than both, and at a
+				# full crowd the overwhelming majority of sampled pairs are simply
+				# not touching, so the call never has to happen.
+				var second := bucket[other_index] as ChaserEnemy
+				var offset := second.global_position - first_position
+				var minimum := (first_radius + second.radius) * CROWD_OVERLAP_SLACK
+				if offset.length_squared() < minimum * minimum:
+					_resolve_overlap(first, second)
+					# The push moved us. The samples still to come in this loop have
+					# to be measured from where we are now — testing them against
+					# where we started is how a deep stack stops coming apart, since
+					# in a pile every sample lands on a body that has already moved.
+					first_position = first.global_position
+			# Sixteen of the twenty-three samples a body used to take were in the
+			# four neighbouring cells, and a cell is 192px against bodies whose
+			# combined reach is a fraction of that. A body sitting in the middle of
+			# its own cell cannot touch anything in the next one, so the neighbour
+			# walk is skipped unless it is actually near that boundary. Exact, not
+			# approximate: the reach below is the widest overlap the grid currently
+			# holds, so nothing that could touch is ever skipped.
+			var reach := (first_radius + spatial_grid.max_radius) * CROWD_OVERLAP_SLACK
+			var local_x := first_position.x - float(key.x) * spatial_grid.cell_size
+			var local_y := first_position.y - float(key.y) * spatial_grid.cell_size
+			var near_right := local_x > spatial_grid.cell_size - reach
+			var near_bottom := local_y > spatial_grid.cell_size - reach
+			var near_top := local_y < reach
+			for cell_offset in CROWD_NEIGHBOURS:
+				if cell_offset.x == 1 and not near_right:
+					continue
+				if cell_offset.y == 1 and not near_bottom:
+					continue
+				if cell_offset.y == -1 and not near_top:
+					continue
+				var neighbour: Variant = spatial_grid.cells.get(key + cell_offset)
 				if neighbour == null:
 					continue
-				for sample in mini(CROWD_NEIGHBOUR_SAMPLES, neighbour.size()):
-					_resolve_overlap(first, neighbour[(sample * 3 + crowd_phase + index) % neighbour.size()] as ChaserEnemy)
+				var neighbour_bucket: Array = neighbour
+				var neighbour_size := neighbour_bucket.size()
+				for sample in mini(CROWD_NEIGHBOUR_SAMPLES, neighbour_size):
+					var second := neighbour_bucket[(sample * 3 + crowd_phase + index) % neighbour_size] as ChaserEnemy
+					var offset := second.global_position - first_position
+					var minimum := (first_radius + second.radius) * CROWD_OVERLAP_SLACK
+					if offset.length_squared() < minimum * minimum:
+						_resolve_overlap(first, second)
+						first_position = first.global_position
 	# The survivors are solid too, but only one way: an enemy is pushed out of a
 	# cat, never the other way round. Shoving the player around would take the
 	# controls away at exactly the moment they matter most.
@@ -2499,9 +2669,10 @@ func _advance_showcase_queue() -> void:
 	var node := ShowcaseScript.new() as Showcase
 	match String(entry["kind"]):
 		"fusion":
+			var second_icon := IconCatalog.weapon(String(entry["material_weapon_id"])) if entry.has("material_weapon_id") else IconCatalog.upgrade(String(entry["treasure_id"]))
 			node.play_fusion(
 				IconCatalog.weapon(String(entry["base_weapon_id"])),
-				IconCatalog.upgrade(String(entry["treasure_id"])),
+				second_icon,
 				IconCatalog.weapon(String(entry["weapon_id"])),
 				String(entry["name"]), Color("ffd166"))
 			feedback.play_cue("resonance")
@@ -2604,6 +2775,8 @@ func _animate_level_overlay(opening: bool) -> void:
 
 func _option_key(option: Dictionary) -> String:
 	var option_id := String(option["id"])
+	if option_id == "evolve_weapon":
+		return "evolve_weapon:" + String((option["evolution"] as Dictionary)["weapon_id"])
 	if option_id == "unlock_weapon":
 		return "unlock_weapon:" + String((option["character"] as Dictionary)["id"])
 	if option_id == "unlock_treasure":
@@ -2644,6 +2817,22 @@ func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 	if _treasure_tier(slot, String(evolution["treasure_id"])) < Evolutions.REQUIRED_TREASURE_TIER:
 		return {}
 	return evolution
+
+
+func _available_hybrid_evolutions(slot: int) -> Array[Dictionary]:
+	var ready: Array[Dictionary] = []
+	for evolution in Evolutions.all_hybrid_evolutions():
+		var recipe: Array = evolution["weapon_ids"]
+		var slots: Array[int] = []
+		for wanted_id in recipe:
+			for weapon_slot in weapon_loadouts[slot].size():
+				var weapon: Dictionary = weapon_loadouts[slot][weapon_slot]
+				if String(weapon["weapon_id"]) == String(wanted_id) and not bool(weapon.get("evolved", false)) and int(weapon.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+					slots.append(weapon_slot)
+					break
+		if slots.size() == recipe.size():
+			ready.append({"evolution": evolution, "weapon_slot": mini(slots[0], slots[1]), "consume_weapon_slot": maxi(slots[0], slots[1])})
+	return ready
 
 
 func _treasure_tier(slot: int, treasure_id: String) -> int:
@@ -2719,7 +2908,14 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			continue
 		pool.append({
 			"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
-			"title": "합성: %s" % String(evolution["weapon_name"]),
+			"title": "합성: %s" % (String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"),
+		})
+	for hybrid in _available_hybrid_evolutions(slot):
+		var hybrid_evolution: Dictionary = hybrid["evolution"]
+		pool.append({
+			"id": "evolve_weapon", "weapon_slot": int(hybrid["weapon_slot"]),
+			"consume_weapon_slot": int(hybrid["consume_weapon_slot"]), "evolution": hybrid_evolution,
+			"title": "합성: %s" % (String(hybrid_evolution["weapon_name"]) if meta_progression.is_discovered(String(hybrid_evolution["weapon_id"])) else "???"),
 		})
 	if loadout.size() < WEAPON_LOADOUT_CAP:
 		for character in _pick_unowned_characters(slot, 2):
@@ -2790,7 +2986,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 
 ## Every base weapon's two unique upgrades, in one table.
 ##
-## Four of the ten weapons — 궤도 파편, 관통 광선, 지뢰 결계, 중력 붕괴 — had no
+## Four of the original ten weapons — 궤도 파편, 관통 광선, 지뢰 결계, 중력 붕괴 — had no
 ## specials at all: they could only ever be handed flat damage and cooldown,
 ## which is exactly the "every weapon plays the same" problem. They have them
 ## now, and the table is the reason all ten stay in step: the card pool, the
@@ -3095,6 +3291,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"projectile_speed":
 			score = 36.0
 			reason = "명중 안정화"
+		"duration":
+			score = 40.0
+			reason = "투사체·장판 유지"
 		"vitality":
 			score = 34.0 + (1.0 - health_ratio) * 48.0
 			reason = "체력 여유" if health_ratio >= 0.5 else "위기 생존"
@@ -3116,6 +3315,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"luck":
 			score = 40.0 - progression.level * 1.5
 			reason = "희귀 카드 확률"
+		"curse":
+			score = 30.0 + maxf(0.0, 20.0 - progression.level)
+			reason = "위험 증가 · 성장 가속"
 		"catnip":
 			score = 31.0 + (1.0 - health_ratio) * 38.0
 			reason = "성장 때 팀 회복"
@@ -3208,6 +3410,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 ## longer matches the player's own selected_characters[i].
 func _build_weapon_state(character: Dictionary) -> Dictionary:
 	var state: Dictionary = (character["weapon"] as Dictionary).duplicate(true)
+	# Starting and newly learned weapons begin modestly; committing upgrade tiers
+	# overtakes the old curve, while a fusion replaces this scaled base entirely.
+	state["damage"] = float(state["damage"]) * BASE_WEAPON_DAMAGE_SCALE
 	state["weapon_id"] = character["weapon_id"]
 	state["weapon_name"] = character["weapon_name"]
 	state["tags"] = (character["tags"] as Array).duplicate()
@@ -3239,9 +3444,10 @@ func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 			treasure_tier + 1 >= Evolutions.REQUIRED_TREASURE_TIER
 			and weapon_tier >= Evolutions.WEAPON_MAX_TIER
 		)
+		var known_name := String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "미지의 합성"
 		best = {
 			"value": 24.0 + progress * 90.0 + (40.0 if last_step else 0.0),
-			"reason": "%s 합성 재료" % String(evolution["weapon_name"]) if not last_step else "%s 합성까지 한 걸음" % String(evolution["weapon_name"]),
+			"reason": "%s 재료" % known_name if not last_step else "%s까지 한 걸음" % known_name,
 		}
 	return best
 
@@ -3260,6 +3466,8 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 		# fusion: a tier bump on an unfused weapon never reaches it.
 		var fusing_slot := int(option["weapon_slot"])
 		preview[slot][fusing_slot] = Evolutions.build_state(option["evolution"], preview[slot][fusing_slot])
+		if option.has("consume_weapon_slot"):
+			preview[slot].remove_at(int(option["consume_weapon_slot"]))
 	else:
 		var weapon_slot := int(option.get("weapon_slot", -1))
 		if weapon_slot < 0:
@@ -3281,6 +3489,8 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		return "%s\n피해 %.0f · %.2f초" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), float(character["weapon"]["damage"]), float(character["weapon"]["cooldown"])]
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
+		if not meta_progression.is_discovered(String(evolution["weapon_id"])):
+			return "두 재료를 하나로 합칩니다.\n결과는 완성 후 공개"
 		return "%s\n최종 단계 도달" % String(evolution["description"])
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
@@ -3303,7 +3513,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		tier_hint = "\n레벨 %d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
 	match upgrade_id:
 		"weapon_power":
-			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * 1.16, tier_hint]
+			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * WEAPON_POWER_STEP, tier_hint]
 		"weapon_rate":
 			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * 0.93), tier_hint]
 		"special_a", "special_b":
@@ -3393,17 +3603,29 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		var weapon_slot := int(option["weapon_slot"])
 		var base_state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
 		var evolution: Dictionary = option["evolution"]
+		weapon_controller.clear_sustained_for_player(player_slot)
 		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(evolution, base_state)
+		var material_weapon_id := ""
+		if option.has("consume_weapon_slot"):
+			var consumed_slot := int(option["consume_weapon_slot"])
+			material_weapon_id = String(weapon_loadouts[player_slot][consumed_slot]["weapon_id"])
+			weapon_loadouts[player_slot].remove_at(consumed_slot)
+			attack_timers[player_slot].remove_at(consumed_slot)
 		fusion_discovered = true
+		meta_progression.mark_discovered(String(evolution["weapon_id"]))
 		# The biggest single step in the tree used to be one line in the message
 		# banner, identical in weight to "+25% 피해". It gets the screen now.
-		_queue_showcase({
+		var showcase := {
 			"kind": "fusion",
 			"base_weapon_id": String(base_state["weapon_id"]),
-			"treasure_id": String(evolution["treasure_id"]),
 			"weapon_id": String(evolution["weapon_id"]),
 			"name": String(evolution["weapon_name"]),
-		})
+		}
+		if material_weapon_id.is_empty():
+			showcase["treasure_id"] = String(evolution["treasure_id"])
+		else:
+			showcase["material_weapon_id"] = material_weapon_id
+		_queue_showcase(showcase)
 		return
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
@@ -3421,7 +3643,7 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var weapon_id := String(state["weapon_id"])
 	match upgrade_id:
 		"weapon_power":
-			state["damage"] = float(state["damage"]) * 1.16
+			state["damage"] = float(state["damage"]) * WEAPON_POWER_STEP
 		"weapon_rate":
 			state["cooldown"] = maxf(0.32, float(state["cooldown"]) * 0.93)
 		"special_a", "special_b":
@@ -3455,6 +3677,8 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 			player.haste = maxf(0.6, player.haste - 0.06)
 		"projectile_speed":
 			player.projectile_speed += 0.10
+		"duration":
+			player.duration += 0.10
 		"armor":
 			player.armor += 1.5
 		"recovery":
@@ -3478,6 +3702,9 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 			team_growth += 0.10
 		"luck":
 			team_luck += 1
+		"curse":
+			team_curse += 1.0
+			wave_director.curse_level = team_curse
 		"catnip":
 			team_level_heal += 0.04
 		"bounty_bell":
@@ -3662,10 +3889,11 @@ func _fusion_progress_line(slot: int) -> String:
 		if progress <= best_progress:
 			continue
 		best_progress = progress
+		var result_name := String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"
 		best = "%s %d/%d + %s %d/%d → %s" % [
 			String(weapon["weapon_name"]), weapon_tier, Evolutions.WEAPON_MAX_TIER,
 			String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
-			String(evolution["weapon_name"]),
+			result_name,
 		]
 	if not fused.is_empty():
 		var done := "완료 " + "  ".join(fused)
@@ -3981,11 +4209,56 @@ func _show_message(text: String, color: Color) -> void:
 	tween.tween_callback(notice.queue_free)
 
 
+func _handle_result_input() -> void:
+	if run_won:
+		if Input.is_action_just_pressed("p1_select_previous") or Input.is_action_just_pressed("p2_select_previous"):
+			meta_cursor = wrapi(meta_cursor - 1, 0, MetaProgression.UPGRADES.size())
+			_refresh_meta_result_ui()
+		elif Input.is_action_just_pressed("p1_select_next") or Input.is_action_just_pressed("p2_select_next"):
+			meta_cursor = wrapi(meta_cursor + 1, 0, MetaProgression.UPGRADES.size())
+			_refresh_meta_result_ui()
+		elif Input.is_action_just_pressed("meta_buy"):
+			var entry: Dictionary = MetaProgression.UPGRADES[meta_cursor]
+			if meta_progression.purchase(String(entry["id"])):
+				feedback.play_cue("select")
+			_refresh_meta_result_ui()
+	if Input.is_action_just_pressed("restart"):
+		get_tree().reload_current_scene()
+
+
+func _refresh_meta_result_ui() -> void:
+	if not is_instance_valid(result_overlay) or not result_overlay.has_node("MetaTitle"):
+		return
+	var title := result_overlay.get_node("MetaTitle") as Label
+	title.visible = run_won
+	title.text = "클리어 보상 +%d 달빛 생선  ·  보유 %d  ·  다음 원정부터 적용" % [run_reward, meta_progression.points]
+	for index in MetaProgression.UPGRADES.size():
+		var card := result_overlay.get_node("MetaUpgrade%d" % index) as Label
+		card.visible = run_won
+		if not run_won:
+			continue
+		var entry: Dictionary = MetaProgression.UPGRADES[index]
+		var id := String(entry["id"])
+		var rank := meta_progression.rank(id)
+		var cap := int(entry["max_rank"])
+		var price := meta_progression.cost(id)
+		card.text = "%s%s\nLv.%d/%d · %s\n%s" % [
+			"◆ " if index == meta_cursor else "", String(entry["name"]), rank, cap,
+			"MAX" if price <= 0 else "%d개" % price, String(entry["summary"])]
+		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
+		if style != null:
+			style.set_border_width_all(3 if index == meta_cursor else 1)
+			style.border_color = Color("ffd166") if index == meta_cursor else Color("73858c")
+
+
 func _end_run(victory: bool = false) -> void:
 	if game_over:
 		return
 	game_over = true
 	run_won = victory
+	run_reward = 0
+	if victory and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT:
+		run_reward = meta_progression.award_clear()
 	level_up_active = false
 	level_overlay.visible = false
 	resonance_overlay.visible = false
@@ -4049,6 +4322,7 @@ func _setup_input_map() -> void:
 	_add_key_action("p2_reroll", KEY_SLASH)
 	_add_key_action("p1_dash", KEY_SPACE)
 	_add_key_action("p2_dash", KEY_PERIOD)
+	_add_key_action("meta_buy", KEY_SPACE)
 	_add_joy_axis("p1_left", 0, JOY_AXIS_LEFT_X, -1.0)
 	_add_joy_axis("p1_right", 0, JOY_AXIS_LEFT_X, 1.0)
 	_add_joy_axis("p1_up", 0, JOY_AXIS_LEFT_Y, -1.0)
@@ -4077,6 +4351,8 @@ func _setup_input_map() -> void:
 	_add_joy_button("restart", 1, JOY_BUTTON_A)
 	_add_joy_button("p1_reroll", 0, JOY_BUTTON_Y)
 	_add_joy_button("p2_reroll", 1, JOY_BUTTON_Y)
+	_add_joy_button("meta_buy", 0, JOY_BUTTON_Y)
+	_add_joy_button("meta_buy", 1, JOY_BUTTON_Y)
 	# The right trigger is the only pad control still free, and it is where a
 	# dash sits on most games anyway.
 	_add_joy_axis("p1_dash", 0, JOY_AXIS_TRIGGER_RIGHT, 1.0)

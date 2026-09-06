@@ -39,6 +39,14 @@ func _run() -> void:
 	var spawned: Array[int] = []
 	for gem in system.active_gems: spawned.append(gem.grade)
 	check(spawned == [0, 1, 2, 3], "gem grade is inferred safely when a caller omits it")
+	# All of these land on the first gem. Merged drops must not allocate hidden
+	# child nodes; that leak used to grow with lifetime kill count despite the
+	# visible gem cap and became expensive in late waves.
+	var children_before := system.get_child_count()
+	for index in 1000:
+		system.spawn_gem(Vector2.ZERO, 3)
+	check(system.get_child_count() == children_before, "1,000 merged drops allocate no hidden gem nodes")
+	check(system.active_gems.size() == 4, "merged drops preserve the active gem count")
 	if failures.is_empty(): print("XP_GRADE_PASS: four readable drops and stronger-enemy rewards")
 	else:
 		for failure in failures: push_error("XP_GRADE_FAIL: " + failure)

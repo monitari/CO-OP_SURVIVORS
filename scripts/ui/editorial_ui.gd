@@ -69,6 +69,10 @@ static func apply(main: Node) -> void:
 	for narrow in [main.resonance_overlay, main.pause_overlay, main.result_overlay]:
 		narrow.position = G.rect(2, 0.5).position
 		narrow.size = Vector2(G.w(8), G.h(7))
+	# Results gained a permanent-upgrade row. It uses the eighth grid row while
+	# the two shorter dialogue screens keep their original seven-row plate.
+	main.result_overlay.position = G.rect(2, 0).position
+	main.result_overlay.size = Vector2(G.w(8), G.h(8))
 	# The growth screen keeps the vertical slide main animates it with, so only
 	# its horizontal placement and width come from the grid.
 	main.level_overlay.position.x = G.x(0)
@@ -273,7 +277,7 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		card.get_node("CardTitle").text = String(option["title"]).replace("새 보물: ", "").replace("신규 기술: ", "").replace("합성: ", "")
 		card.text = String(option["description"])
 		card.text = card.text.replace(", ", "\n").replace("출혈 시간", "구조 시간").replace("내구도 소모", "내구 소모")
-		if kind == "evolve_weapon":
+		if kind == "evolve_weapon" and main.meta_progression.is_discovered(String(option["evolution"]["weapon_id"])):
 			card.text = short_evolution(String(option["evolution"]["weapon_id"]))
 		card.tooltip_text = String(option["title"]) + "\n" + String(option["description"])
 		# The badge carries whichever advice the card actually has. It used to
@@ -303,7 +307,10 @@ static func short_evolution(id: String) -> String:
 		"supernova": "불씨 뒤 2차 폭발\n공명 조합 해금", "absolute_zero": "빙결 후 파쇄\n공명 조합 해금",
 		"black_moon": "주변을 두 번 회전베기\n공명 조합 해금", "stigmata": "사슬 화상 + 공동 회복\n공명 조합 해금",
 		"celestial": "양방향 이중 궤도\n공명 조합 해금", "judgement": "세 갈래 관통 공격\n공명 조합 해금",
-		"ruin_garden": "원형 지뢰밭 설치\n공명 조합 해금", "event_horizon": "흡인 후 중심 폭발\n공명 조합 해금"
+		"ruin_garden": "원형 지뢰밭 설치\n공명 조합 해금", "event_horizon": "흡인 후 중심 폭발\n공명 조합 해금",
+		"comet_storm": "유도하는 연쇄 별벼락\n공명 조합 해금", "cream_volcano": "끓어오르는 화염 웅덩이\n공명 조합 해금",
+		"glacial_satellite": "공전하며 얼리는 위성\n공명 조합 해금", "eclipse_lance": "월식 궤적의 관통 참격\n공명 조합 해금",
+		"singularity_mine": "끌어당긴 뒤 붕괴하는 지뢰\n공명 조합 해금", "return_bell": "되돌아오는 결속 파동\n공명 조합 해금"
 	}.get(id, "최종 공격 · 상세 확인")
 
 
@@ -382,7 +389,7 @@ static func refresh_hud(main: Node) -> void:
 	if main.chain_warded():
 		readout = "사슬 결계  %.1f초" % main.chain_ward_remaining
 	elif director.boss_active:
-		readout = ""
+		readout = "%d/%d 보스 전투" % [director.bosses_spawned, WaveDirector.BOSS_COUNT]
 	elif director.bosses_remaining() <= 0:
 		readout = "최종 격파"
 	else:
@@ -440,9 +447,19 @@ static func _results(main: Node) -> void:
 			icon(screen, null, Rect2(x + 100 + index * 48, 310, 42, 42)).name = "ResultWeapon%d_%d" % [slot, index]
 	label(screen, "협동 기록", Rect2(G.GUTTER, 388, wide, 24), 14, Palette.GOLD)
 	label(screen, "", Rect2(G.GUTTER, 417, wide, 30), 16, Palette.MUTED).name = "CoopRecord"
+	var meta_title := label(screen, "", Rect2(G.GUTTER, 451, wide, 25), 15, Palette.GOLD)
+	meta_title.name = "MetaTitle"
+	for index in 6:
+		var card_width := (wide - 5.0 * 8.0) / 6.0
+		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 482, card_width, 76), 12, Palette.INK)
+		card.name = "MetaUpgrade%d" % index
+		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		card.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 8))
 	# Sized to its own text rather than to the panel: an 850px plate holding one
 	# centred phrase read as two empty boxes with a button wedged between them.
-	place(main.result_label, Rect2((G.w(8) - 292.0) * 0.5, 470, 292, 42), 18, Palette.INK)
+	place(main.result_label, Rect2((G.w(8) - 500.0) * 0.5, 580, 500, 40), 17, Palette.INK)
 	main.result_label.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 10))
 	main.result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -462,7 +479,8 @@ static func refresh_result(main: Node, victory: bool) -> void:
 			if art.visible:
 				art.texture = Icons.weapon(String(main.weapon_loadouts[slot][index]["weapon_id"]))
 	screen.get_node("CoopRecord").text = main._run_stats_summary()
-	main.result_label.text = "ENTER / A  다시 결속하기"
+	main._refresh_meta_result_ui()
+	main.result_label.text = "SPACE / Y  강화 구매    ENTER / A  다시 결속하기" if victory else "ENTER / A  다시 결속하기"
 
 
 static func _pause(main: Node) -> void:

@@ -75,7 +75,7 @@ func _run() -> void:
 			found = found or option["id"] == "evolve_weapon"
 		check(found, "fusion guaranteed even across repeated rerolls")
 	var power := {"id": "weapon_power", "weapon_slot": 0}
-	check(is_equal_approx(Value.gain(main, 0, power), 0.16), "single weapon damage gain is 16 percent")
+	check(is_equal_approx(Value.gain(main, 0, power), 0.20), "single weapon damage gain is 20 percent")
 	main.weapon_loadouts[0].append(main._build_weapon_state(main.character_catalog[1]))
 	check(Value.gain(main, 0, power) < 0.25, "single weapon gain weighted by whole loadout")
 	var lightning: Dictionary = main.weapon_loadouts[0][1]
@@ -111,8 +111,15 @@ func _run() -> void:
 	health = dummy.health
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	check(is_equal_approx(health - dummy.health, normal * 2.0), "critical attack actually doubles damage")
-	dummy.rotation = 1.3
-	await process_frame
+	# Driven through a real step rather than by writing rotation and waiting. The
+	# body used to be re-oriented by a transform notification, which fired on every
+	# position write the crowd made and cost more than the work it guarded; the
+	# step now does it once at the end, after it has chosen this frame's heading.
+	# So the step is what has to be exercised, and it is also the stronger check:
+	# the enemy picks its own rotation here, and the painted body still ends level.
+	dummy.position = main.players[0].position + Vector2(80, 55)
+	dummy.step(main.players, 1.0 / 60.0)
+	check(absf(dummy.rotation) > 0.001, "the enemy node really is rotated to face its target")
 	check(absf(dummy.body_sprite.global_rotation) < 0.001, "sprite stays upright while telegraph rotates")
 	check(dummy.z_index > 3, "enemy warnings stay above friendly rings")
 	# This used to assert the opposite: that the select card printed the fusion

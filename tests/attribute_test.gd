@@ -34,13 +34,15 @@ func _run() -> void:
 	await _test_might(main)
 	await _test_area(main)
 	await _test_amount(main)
+	await _test_projectile_speed_and_duration(main)
 	_test_haste(main)
 	_test_armor_and_recovery(main)
 	_test_shared_attributes(main)
+	_test_curse(main)
 	_test_card_rules(main)
 
 	if failures.is_empty():
-		print("ATTRIBUTE_PASS: might/area/amount/haste/armor/recovery apply, shared stats are shared, weapon card guaranteed")
+		print("ATTRIBUTE_PASS: combat/duration/projectile stats apply, curse trades pressure for XP, weapon card guaranteed")
 		quit(0)
 	else:
 		for failure in failures:
@@ -136,6 +138,27 @@ func _test_amount(main: Node) -> void:
 	await _clear_enemies(main)
 
 
+func _test_projectile_speed_and_duration(main: Node) -> void:
+	await _clear_enemies(main)
+	_spawn_dummy(main, main.players[0].position + Vector2(500.0, 0.0))
+	main.players[0].projectile_speed = 1.0
+	main.players[0].duration = 1.0
+	main.weapon_controller.perform_attack(0, 0, 1.0)
+	var normal = main.weapon_controller.active_projectiles[0]
+	var base_speed: float = normal.speed
+	var base_lifetime: float = normal.lifetime
+	main.weapon_controller.clear_transients()
+	main.players[0].projectile_speed = 1.5
+	main.players[0].duration = 1.8
+	main.weapon_controller.perform_attack(0, 0, 1.0)
+	var extended = main.weapon_controller.active_projectiles[0]
+	_check(extended.speed > base_speed * 1.4, "projectile speed reaches the launched projectile")
+	_check(extended.lifetime > base_lifetime * 1.7, "duration extends projectile lifetime")
+	main.players[0].projectile_speed = 1.0
+	main.players[0].duration = 1.0
+	await _clear_enemies(main)
+
+
 func _test_haste(main: Node) -> void:
 	main.players[0].haste = 1.0
 	var base_interval: float = main._weapon_interval(0, 0)
@@ -215,6 +238,25 @@ func _test_shared_attributes(main: Node) -> void:
 	main.level_overlay.visible = false
 	main.resonance_overlay.visible = false
 	paused = false
+
+
+func _test_curse(main: Node) -> void:
+	var director: WaveDirector = main.wave_director
+	director.wave_index = 3
+	director.curse_level = 0.0
+	var base_interval := director.spawn_interval()
+	var base_enemy := director._acquire_enemy("bulwark", 0.0, Vector2.ZERO, false, false)
+	var base_health := base_enemy.max_health
+	var base_xp := base_enemy.xp_value
+	director.release_enemy(base_enemy)
+	main._apply_attribute(0, "curse")
+	var cursed_enemy := director._acquire_enemy("bulwark", 0.0, Vector2.ZERO, false, false)
+	_check(director.spawn_interval() < base_interval, "curse increases spawn density")
+	_check(cursed_enemy.max_health > base_health, "curse raises enemy health")
+	_check(cursed_enemy.xp_value > base_xp, "curse returns extra experience")
+	director.release_enemy(cursed_enemy)
+	director.curse_level = 0.0
+	main.team_curse = 0.0
 
 
 func _test_card_rules(main: Node) -> void:

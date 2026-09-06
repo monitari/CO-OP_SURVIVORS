@@ -33,18 +33,21 @@ const MAX_ACTIVE := 320
 
 
 func spawn_gem(spawn_position: Vector2, value: int, grade := -1) -> void:
+	if grade < 0:
+		grade = 3 if value >= 100 else (2 if value >= 24 else (1 if value >= 7 else 0))
+	# Find a merge target before acquiring a node. The previous order allocated
+	# an inactive child for every merged drop, so a long run accumulated one
+	# invisible processing node per kill even though active_gems stayed capped.
+	var host := _merge_target(spawn_position)
+	if host != null:
+		host.absorb(value, grade)
+		return
 	var gem: ExperienceGem
 	if gem_pool.is_empty():
 		gem = GemScript.new() as ExperienceGem
 		add_child(gem)
 	else:
 		gem = gem_pool.pop_back()
-	if grade < 0:
-		grade = 3 if value >= 100 else (2 if value >= 24 else (1 if value >= 7 else 0))
-	var host := _merge_target(spawn_position)
-	if host != null:
-		host.absorb(value, grade)
-		return
 	gem.activate(spawn_position, value, grade)
 	active_gems.append(gem)
 
@@ -71,8 +74,8 @@ func _merge_target(at: Vector2) -> ExperienceGem:
 
 
 func step(players: Array[ChainPlayer], delta: float) -> void:
-	for candidate in active_gems.duplicate():
-		var gem := candidate as ExperienceGem
+	for index in range(active_gems.size() - 1, -1, -1):
+		var gem := active_gems[index] as ExperienceGem
 		if not is_instance_valid(gem) or not gem.active:
 			continue
 		var nearest: ChainPlayer = players[0]
@@ -89,7 +92,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			var speed := lerpf(170.0, 760.0, 1.0 - clampf(distance / magnet_radius, 0.0, 1.0))
 			gem.position += gem.global_position.direction_to(nearest.global_position) * speed * delta
 		if gem.global_position.distance_to(nearest.global_position) <= pickup_radius + nearest.radius:
-			_collect(gem)
+			_collect_at(index, gem)
 
 
 ## Puts every gem on the map into flight toward the nearest survivor. It used to
@@ -109,7 +112,14 @@ func magnetize_all() -> int:
 
 
 func _collect(gem: ExperienceGem) -> void:
-	active_gems.erase(gem)
+	var index := active_gems.find(gem)
+	if index < 0:
+		return
+	_collect_at(index, gem)
+
+
+func _collect_at(index: int, gem: ExperienceGem) -> void:
+	active_gems.remove_at(index)
 	experience_collected.emit(gem.value)
 	gem.deactivate()
 	gem_pool.append(gem)

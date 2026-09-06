@@ -8,13 +8,9 @@ func _ready() -> void:
 	if is_instance_valid(body_sprite):
 		_update_body_facing()
 
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED and is_instance_valid(body_sprite):
-		_update_body_facing()
-
 func _update_body_facing() -> void:
 	body_sprite.rotation = -rotation
-	body_sprite.flip_h = archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"] and cos(rotation) < 0.0
+	body_sprite.flip_h = faces_along_heading and cos(rotation) < 0.0
 
 signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
@@ -60,6 +56,11 @@ const BOSS_CHARGE_WINDUP := 0.85
 ## stepped with everything else, and it drives a colour flash too — a dark
 ## enemy taking damage on a dark field was previously almost invisible.
 const HIT_FLASH_TIME := 0.12 ## Shared by the emitted hit radius and the drawn telegraph so they can never drift apart.
+## Constructing a Color from a string parses that string. These two sat in the
+## body-tint line that every enemy runs every tick, so a full crowd was parsing
+## tens of thousands of colour literals a second to arrive at the same two values.
+const ENRAGED_TINT := Color("ffc4a1")
+const HIT_TINT := Color("fff1b5")
 
 var archetype := "chaser"
 var active := false
@@ -92,6 +93,25 @@ var boss_slam_point := Vector2.ZERO
 var boss_enraged := false
 var boss_rank := 0 ## 1-5 for the run's bosses, 0 for everything else.
 var hit_flash := 0.0
+## Archetype tests that used to sit inside the per-frame step. Each `archetype in
+## [...]` builds a fresh array every time it is evaluated — once per enemy per
+## tick for the steering ones, and again on every transform notification for the
+## facing one, which at a full crowd is tens of thousands of throwaway arrays a
+## second for a question whose answer cannot change until setup() runs again.
+var faces_along_heading := false ## Painted facing +X, so it mirrors rather than spins.
+var leads_its_target := false ## Aims where the survivor is going, not where they are.
+var hunts_the_chain := false ## Walks the midpoint between the pair, not the nearer cat.
+var _tinted := false ## Whether body_sprite.modulate currently holds anything but white.
+## Whether a warning is currently drawn on this body. The crowd loop reads it to
+## keep anything mid-telegraph on the full-rate tick: a slam ring that fills in
+## coarse jumps is not a fair warning, and the windup timers behind it are the
+## one piece of enemy state a player is expected to read precisely.
+var telegraphing := false
+## Which stagger batch this body belongs to. Handed out round-robin at setup so
+## the split is even and stable for as long as the body lives, rather than
+## derived from an instance id whose spacing nothing guarantees.
+var ai_batch := 0
+static var _batch_cursor := 0
 
 
 ## `boss_rank` is 1-5 for the run's five bosses and 0 for everything else. Each
@@ -100,6 +120,9 @@ var hit_flash := 0.0
 ## from the start instead of only below half health.
 func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false, rank: int = 0) -> void:
 	archetype = new_archetype
+	faces_along_heading = archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]
+	leads_its_target = archetype in ["wasp", "owl", "mole"]
+	hunts_the_chain = archetype == "chain_hunter" or archetype == "brute"
 	elite = is_elite
 	boss = is_boss
 	active = true
@@ -124,6 +147,9 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	boss_enraged = false
 	boss_rank = rank if is_boss else 0
 	hit_flash = 0.0
+	telegraphing = false
+	ai_batch = _batch_cursor
+	_batch_cursor += 1
 	scale = Vector2.ONE
 
 	match archetype:
@@ -198,7 +224,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			enemy_color = Color("ef476f")
 
 	move_speed += minf(difficulty * 2.6, SPEED_RAMP_CAP) + randf_range(-7.0, 9.0)
-	if archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]:
+	if faces_along_heading:
 		var stats: Array = {
 			"rat_runner": [145.0, 13.0, 28.0, 8.0, 7],
 			"wasp": [76.0, 13.0, 30.0, 7.0, 9],
@@ -283,7 +309,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	body_sprite.texture = EnemyIcons.get_icon(archetype)
 	body_sprite.scale = Vector2.ONE * (radius * 2.65 / maxf(body_sprite.texture.get_width(), body_sprite.texture.get_height()))
 	body_sprite.modulate = Color.WHITE
-	set_notify_local_transform(true)
+	_tinted = false
 	add_to_group("enemies")
 	queue_redraw()
 
@@ -296,23 +322,33 @@ func deactivate() -> void:
 		remove_from_group("enemies")
 
 
+func apply_curse(level: float) -> void:
+	if level <= 0.0:
+		return
+	var stat_scale := 1.0 + level * 0.08
+	max_health *= stat_scale
+	health = max_health
+	contact_damage *= stat_scale
+	move_speed *= 1.0 + level * 0.025
+	xp_value = maxi(1, roundi(float(xp_value) * (1.0 + level * 0.06)))
+
+
 func step(players: Array[ChainPlayer], delta: float) -> void:
 	if dead or not active:
 		return
 	contact_cooldown = maxf(0.0, contact_cooldown - delta)
-	if is_instance_valid(body_sprite):
-		_update_body_facing()
-		body_sprite.modulate = Color("ffc4a1") if boss_enraged else Color.WHITE.lerp(Color("fff1b5"), hit_flash * 0.8)
 	var was_slowed := slow_timer > 0.0
 	slow_timer = maxf(0.0, slow_timer - delta)
 	if was_slowed and slow_timer <= 0.0:
 		slow_multiplier = 1.0
-	var target := _nearest_living_player(players)
+		modulate = Color.WHITE
+	var here := global_position
+	var target := _nearest_living_player(players, here)
 	var target_position := target.global_position
 	# Predict ranged aim and the mole's committed dash before their warning.
-	if archetype in ["wasp", "owl", "mole"]:
+	if leads_its_target:
 		target_position += target.current_input.limit_length() * target.move_speed * 0.65
-	if archetype == "chain_hunter" or archetype == "brute":
+	if hunts_the_chain:
 		target_position = (players[0].global_position + players[1].global_position) * 0.5
 	var speed_scale := slow_multiplier if slow_timer > 0.0 else 1.0
 	var had_telegraph := charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0
@@ -327,18 +363,19 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		"wasp", "owl":
 			_step_shooter(target_position, speed_scale, delta)
 			if archetype == "wasp" and shooter_windup <= 0.0:
-				position += global_position.direction_to(target_position).orthogonal() * move_speed * speed_scale * delta * 0.65
+				position += here.direction_to(target_position).orthogonal() * move_speed * speed_scale * delta * 0.65
 			if boss:
 				boss_attack_timer -= delta
 				if boss_attack_timer <= 0.0:
 					boss_attack_timer = 4.0
 					shooter_windup = 1.0
-					telegraph_direction = global_position.direction_to(target_position)
+					telegraph_direction = here.direction_to(target_position)
 		"mole":
 			_step_charger(target_position, speed_scale, delta)
 		"hedgehog":
-			position += global_position.direction_to(target_position) * move_speed * speed_scale * delta
-			rotation = global_position.direction_to(target_position).angle()
+			var hedgehog_direction := here.direction_to(target_position)
+			position += hedgehog_direction * move_speed * speed_scale * delta
+			rotation = hedgehog_direction.angle()
 		"charger":
 			_step_charger(target_position, speed_scale, delta)
 		"shooter":
@@ -347,11 +384,11 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			if boss:
 				_step_boss(players, target_position, speed_scale, delta)
 			else:
-				var direction := global_position.direction_to(target_position)
+				var direction := here.direction_to(target_position)
 				position += direction * move_speed * speed_scale * delta
 				rotation = direction.angle()
 		_:
-			var direction := global_position.direction_to(target_position)
+			var direction := here.direction_to(target_position)
 			position += direction * move_speed * speed_scale * delta
 			rotation = direction.angle()
 
@@ -359,6 +396,26 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		_try_damage_chain(players, delta)
 	else:
 		_try_contact_damage(players)
+	# Runs here rather than at the top of the step so it reads the heading this
+	# step just chose. It used to be driven by NOTIFICATION_LOCAL_TRANSFORM_CHANGED,
+	# which meant every position write in the step — and every push the crowd
+	# separation applied afterwards — re-entered GDScript to recompute a facing
+	# that only depends on rotation. At a few hundred bodies that was thousands of
+	# callbacks a frame to answer the same question this one line answers once.
+	if is_instance_valid(body_sprite):
+		_update_body_facing()
+		# Skipped entirely in the ordinary case. Almost every body on the field is
+		# neither enraged nor mid-flash on any given tick, and writing white over
+		# white is still a property write across the engine boundary.
+		if boss_enraged:
+			body_sprite.modulate = ENRAGED_TINT
+			_tinted = true
+		elif hit_flash > 0.0:
+			body_sprite.modulate = Color.WHITE.lerp(HIT_TINT, hit_flash * 0.8)
+			_tinted = true
+		elif _tinted:
+			body_sprite.modulate = Color.WHITE
+			_tinted = false
 	# Position and rotation move the node via its transform, which Godot composites
 	# without a redraw. The only per-frame state _draw() actually reads is the
 	# telegraph windup timers (their pulsing alpha and presence); everything else
@@ -370,7 +427,8 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# what keeps a few hundred pooled enemies from redrawing every physics tick
 	# regardless of whether anything they draw actually changed.
 	# Sprite tint/scale handle hit flashes without rebuilding health/elite art.
-	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
+	telegraphing = charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0
+	if had_telegraph or telegraphing:
 		queue_redraw()
 
 
@@ -520,10 +578,15 @@ func _closest_point_on_chain(players: Array[ChainPlayer]) -> Vector2:
 func _try_contact_damage(players: Array[ChainPlayer]) -> void:
 	if contact_cooldown > 0.0:
 		return
+	# Read once after the step has moved us, then compared squared: the loop ran
+	# for every body on the field every tick, and a square root per player per
+	# body is a real cost for a test that never needed the actual distance.
+	var at := global_position
 	for player in players:
-		if global_position.distance_to(player.global_position) <= radius + player.radius:
+		var reach := radius + player.radius
+		if at.distance_squared_to(player.global_position) <= reach * reach:
 			# Passing our position lets 가시의 견장 send part of the hit back.
-			if player.hurt(contact_damage * player.contact_pressure, global_position):
+			if player.hurt(contact_damage * player.contact_pressure, at):
 				contact_cooldown = 0.75
 			break
 
@@ -548,12 +611,14 @@ func _try_damage_chain(players: Array[ChainPlayer], delta: float) -> void:
 		chain_windup = 0.0
 
 
-func _nearest_living_player(players: Array[ChainPlayer]) -> ChainPlayer:
+## Takes the caller's own position so the hot path does not pay for the global
+## transform twice more on top of the read it has already made.
+func _nearest_living_player(players: Array[ChainPlayer], from: Vector2 = global_position) -> ChainPlayer:
 	if players[0].downed and not players[1].downed:
 		return players[1]
 	if players[1].downed and not players[0].downed:
 		return players[0]
-	if global_position.distance_squared_to(players[1].global_position) < global_position.distance_squared_to(players[0].global_position):
+	if from.distance_squared_to(players[1].global_position) < from.distance_squared_to(players[0].global_position):
 		return players[1]
 	return players[0]
 
@@ -575,7 +640,6 @@ func take_damage(amount: float) -> bool:
 	damage_taken.emit(self, amount)
 	hit_flash = 1.0
 	scale = Vector2(1.22, 1.22)
-	queue_redraw()
 	if health <= 0.0:
 		dead = true
 		died.emit(self)
@@ -590,9 +654,6 @@ func apply_slow(duration: float, multiplier: float) -> void:
 	slow_timer = maxf(slow_timer, duration)
 	slow_multiplier = minf(slow_multiplier, multiplier)
 	modulate = Color("bde0fe")
-	var tween := create_tween()
-	tween.tween_interval(duration)
-	tween.tween_property(self, "modulate", Color.WHITE, 0.2)
 
 
 func _draw() -> void:

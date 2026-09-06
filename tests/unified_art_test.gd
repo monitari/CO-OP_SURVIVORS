@@ -19,6 +19,10 @@ func _run() -> void:
 	root.add_child(enemy)
 	enemy.setup(2, "mole")
 	enemy.rotation = PI
+	# Facing is refreshed by step() rather than by a transform notification, so
+	# the drive is explicit here too — the invariant under test is that a heading
+	# to the left mirrors the art, not which callback noticed the heading.
+	enemy._update_body_facing()
 	if not enemy.body_sprite.flip_h: failures.append("New enemy does not face left")
 	enemy.setup(2, "chaser")
 	enemy._update_body_facing()
