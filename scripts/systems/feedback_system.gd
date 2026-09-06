@@ -26,7 +26,7 @@ const MAX_DAMAGE_NUMBERS_PER_FRAME := 8
 ## frames, and without a floor between repeats the result is mush.
 const CUE_PARAMS := {
 	"weapon_boomerang": {"freq": 460.0, "to": 220.0, "dur": 0.14, "vol": 0.08, "wave": "sine", "gap": 0.2},
-	"weapon_bell": {"freq": 1320.0, "to": 880.0, "dur": 0.3, "vol": 0.08, "wave": "sine", "gap": 0.4},
+	"weapon_milk": {"freq": 520.0, "to": 300.0, "dur": 0.26, "vol": 0.09, "wave": "sine", "gap": 0.4},
 	# --- combat feedback -----------------------------------------------------
 	"hit": {"freq": 170.0, "dur": 0.045, "vol": 0.10, "wave": "square", "gap": 0.045},
 	"kill": {"freq": 290.0, "to": 200.0, "dur": 0.075, "vol": 0.15, "wave": "sine", "gap": 0.04},
@@ -199,10 +199,6 @@ func play_cue(cue: String) -> void:
 
 ## Convenience wrappers so callers name the thing that happened rather than
 ## assembling cue ids inline.
-func play_weapon_cue(weapon_id: String) -> void:
-	play_cue("weapon_" + weapon_id)
-
-
 func play_item_cue(item_id: String) -> void:
 	play_cue("item_" + item_id)
 

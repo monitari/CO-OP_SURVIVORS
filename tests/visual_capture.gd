@@ -55,6 +55,17 @@ func _run() -> void:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/gameplay.png")
+	main.guard_remaining = 5.0
+	main.frenzy_remaining = 6.0
+	main.time_stop_remaining = 4.0
+	main.item_aura.step(0.3)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/field-item-auras.png")
+	main.guard_remaining = 0.0
+	main.frenzy_remaining = 0.0
+	main.time_stop_remaining = 0.0
+	main.item_aura.step(0.016)
 	main._set_pause(true)
 	await process_frame
 	await RenderingServer.frame_post_draw
@@ -64,6 +75,7 @@ func _run() -> void:
 	for index in 5:
 		var enemy := main.wave_director._acquire_enemy(["rat_runner", "wasp", "hedgehog", "mole", "owl"][index], 3.0, Vector2.ZERO, false, index == 4, 2) as ChaserEnemy
 		enemy.position = Vector2(-220 + index * 110, -100)
+		enemy.rotation = -PI * 0.25 + index * 0.4
 		main._register_enemy(enemy)
 	await process_frame
 	await RenderingServer.frame_post_draw
@@ -141,8 +153,10 @@ func _run() -> void:
 	main._refresh_level_up_ui()
 	# The modal backdrop is switched on inside _physics_process, so a capture
 	# that never ticks physics shows the play field around the panel and the
-	# shot reads as a layout bug that is not in the game.
-	await _tick_physics(main, 4)
+	# shot reads as a layout bug that is not in the game. Long enough to also
+	# let the growth screen finish arriving — catching it mid-entrance makes
+	# the whole panel look washed out.
+	await _tick_physics(main, 40)
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/level-up.png")
 

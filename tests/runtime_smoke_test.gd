@@ -68,9 +68,10 @@ func _test_weapon(main: Node, character_index: int) -> void:
 	var weapon_id := String(character["weapon_id"])
 	if weapon_id == "chain":
 		enemy.position = (main.players[0].position + main.players[1].position) * 0.5
-	elif weapon_id == "mine":
-		# Mines are planted underfoot and wait to be walked into, so the standard
-		# "enemy standing 105px away" fixture would never set one off.
+	elif weapon_id in ["mine", "milk"]:
+		# Mines are planted underfoot and wait to be walked into, and milk is
+		# scattered rather than aimed, so the standard "enemy standing 105px
+		# away" fixture would never set one off or land a pool on it.
 		enemy.position = main.players[0].position + Vector2(24.0, 0.0)
 	else:
 		enemy.position = main.players[0].position + Vector2(105.0, 0.0)

@@ -54,6 +54,8 @@ var downed := false
 var bleedout_remaining := 18.0
 var revive_progress := 0.0
 var current_input := Vector2.ZERO
+## Contact-only pack pressure; shields and dash immunity still use hurt().
+var contact_pressure := 1.0
 
 ## Personal attributes, applied across this player's whole weapon loadout
 ## rather than to a single weapon. Multipliers start neutral at 1.0; `amount`

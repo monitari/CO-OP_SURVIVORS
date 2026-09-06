@@ -155,6 +155,11 @@ func _test_armor_and_recovery(main: Node) -> void:
 	player.health = 100.0
 	player.armor = 0.0
 	player.invulnerability = 0.0
+	# Earlier sub-tests hand out 행운의 앞발 and 아홉 목숨. Either will eat the
+	# baseline hit at random and make an unarmoured survivor look armoured —
+	# which is how this measured 0 damage before armour and 12 after it.
+	player.dodge_chance = 0.0
+	player.second_chances = 0
 	player.hurt(20.0)
 	var unarmored_loss := 100.0 - player.health
 

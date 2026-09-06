@@ -62,11 +62,11 @@ static func install(main: Node) -> void:
 					toggle_details(main)
 				elif e.button_index == MOUSE_BUTTON_LEFT and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
 					main._select_upgrade(slot + 1, index))
-		button(main.level_overlay, "선택 취소", Rect2(278 + slot * 616, 418, 145, 32), func() -> void:
+		button(main.level_overlay, "선택 취소", Rect2(352 + slot * 616, 446, 116, 26), func() -> void:
 			if main.level_up_active:
 				main.selected_upgrade_indices[slot] = -1
 				main._refresh_level_up_ui()).name = "Cancel%d" % slot
-		button(main.level_overlay, "다시 뽑기", Rect2(433 + slot * 616, 418, 165, 32), func() -> void:
+		button(main.level_overlay, "다시 뽑기", Rect2(482 + slot * 616, 446, 116, 26), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0 and main.rerolls_remaining[slot] > 0:
 				main._reroll_choices(slot + 1)).name = "Reroll%d" % slot
 		for index in main.resonance_cards.size():

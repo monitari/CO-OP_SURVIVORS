@@ -155,13 +155,18 @@ func _test_tier_is_capped(main: Node) -> void:
 ## in its place would leave a player with no way at all to see a fusion coming.
 func _test_the_tech_tree_is_shown_on_the_cards(main: Node) -> void:
 	main.fusion_discovered = false
-	main._refresh_team_stats_ui()
-	var strip := String(main.team_stats_label.text)
+	main._refresh_level_up_ui()
+	# The whole screen rather than the one label the table used to live in: the
+	# strip is gone entirely now, and an assertion pointed at an empty label
+	# would pass no matter what the rest of the screen said.
+	var shown := _growth_screen_text(main)
 	for evolution in EvolutionCatalog.all_evolutions():
-		_check(not strip.contains(String(evolution["weapon_name"])),
-			"the strip does not name the fusion %s" % String(evolution["weapon_name"]))
-	_check(not strip.contains("→"), "the strip is not a requirements table any more (%s)" % strip)
-	_check(strip.contains("LV."), "the strip still carries the run state it replaced it with")
+		_check(not shown.contains(String(evolution["weapon_name"])),
+			"the growth screen does not name the fusion %s" % String(evolution["weapon_name"]))
+	_check(not shown.contains("→ "), "and does not lay the requirements out as a table")
+	# It still has to say where the run is, or the screen is a card rack with no
+	# context: the title carries the shared level.
+	_check(shown.contains("LV."), "the screen still says what level this is")
 
 	# P2 carries an unfused weapon at max tier with no treasure, so its weapon
 	# upgrades have to be marked as fusion material rather than as nothing.
@@ -188,6 +193,21 @@ func _test_the_tech_tree_is_shown_on_the_cards(main: Node) -> void:
 	# the mark would be decoration rather than information.
 	_check(main._fusion_hint(1, {"id": "move", "weapon_slot": -1}).is_empty(),
 		"an unrelated card is not marked")
+
+
+## Every piece of text on the growth screen, joined.
+func _growth_screen_text(main: Node) -> String:
+	var parts: Array[String] = []
+	_collect_text(main.level_overlay, parts)
+	return "\n".join(parts)
+
+
+func _collect_text(node: Node, parts: Array[String]) -> void:
+	for child in node.get_children():
+		var item := child as Label
+		if item != null:
+			parts.append(String(item.text))
+		_collect_text(child, parts)
 
 
 func _check(condition: bool, label: String) -> void:

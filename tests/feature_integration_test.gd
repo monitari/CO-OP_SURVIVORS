@@ -147,7 +147,44 @@ func _test_enemy_pool_and_archetypes(main: Node) -> void:
 	_check(enemy.active and enemy.archetype == "charger", "charger archetype activates")
 	enemy.take_damage(99999.0)
 	_check(main.wave_director.enemy_pool.size() >= 1, "dead enemy returns to pool")
-	_check(not main.experience_system.active_gems.is_empty(), "dead enemy drops an XP gem")
+	# Ordinary kills pay into a bank rather than each dropping their own gem —
+	# twenty thousand kills a run was twenty thousand crumbs, none of which was
+	# worth walking to. What has to hold is that the experience is not lost:
+	# keep killing and a single, much larger gem comes out.
+	var banked_before: int = main.experience_bank
+	_check(banked_before > 0 or not main.experience_system.active_gems.is_empty(),
+		"a small kill either banks its experience or drops it")
+	var spawned: int = main.experience_system.active_gems.size()
+	for extra in 40:
+		var filler := main.wave_director._acquire_enemy("charger", 0.0, center, false, false) as ChaserEnemy
+		main._register_enemy(filler)
+		filler.take_damage(99999.0)
+		if main.experience_system.active_gems.size() > spawned:
+			break
+	_check(main.experience_system.active_gems.size() > spawned,
+		"and a full bank drops one (%d gems)" % main.experience_system.active_gems.size())
+	var heaviest := 0
+	for gem in main.experience_system.active_gems:
+		heaviest = maxi(heaviest, int((gem as ExperienceGem).value))
+	# A plain instance rather than main.wave_director._acquire_enemy(): that
+	# call pops from the same pool the test is about to check for reuse, and
+	# reading xp_value off it without ever releasing it back orphaned the
+	# instance and made the final reuse check fail.
+	var reference := ChaserEnemy.new()
+	reference.setup(0.0, "charger")
+	var one_kill: int = reference.xp_value
+	reference.free()
+	_check(heaviest >= one_kill * 3,
+		"worth several kills rather than one crumb (%d, one kill is %d)" % [heaviest, one_kill])
+	# And the bank fills faster as the run goes on, so the gem count stays flat
+	# instead of climbing with the kill rate.
+	var opening: int = main._experience_merge_threshold()
+	var was_elapsed: float = main.elapsed
+	main.elapsed = 1200.0
+	var late: int = main._experience_merge_threshold()
+	main.elapsed = was_elapsed
+	_check(late > opening * 3,
+		"a late gem is worth far more than an early one (%d then %d)" % [opening, late])
 	var reused := main.wave_director._acquire_enemy("shooter", 1.0, center, true, false) as ChaserEnemy
 	_check(reused.get_instance_id() == original_id, "enemy instance is reused from pool")
 	_check(reused.archetype == "shooter" and reused.elite, "pooled enemy resets as elite shooter")

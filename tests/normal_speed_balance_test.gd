@@ -6,7 +6,7 @@ var first_down := -1.0
 var main: Node
 
 func _initialize() -> void:
-	Harness.arm_watchdog(self, "NORMAL_SPEED_FAIL", 150.0)
+	Harness.arm_watchdog(self, "NORMAL_SPEED_FAIL", 240.0)
 	call_deferred("_run")
 
 func _run() -> void:
@@ -29,7 +29,7 @@ func _run() -> void:
 	var max_step := 0.0
 	# No teleportation, health override or giant XP magnet. Only movement input,
 	# dodge, revive approach and the displayed recommendation are automated.
-	for frame in 6500:
+	for frame in 14000:
 		if main.game_over or main.elapsed >= 90.0: break
 		if main.level_up_active or main.resonance_vote_active:
 			_release()
@@ -39,9 +39,15 @@ func _run() -> void:
 				for slot in 2:
 					if not main.level_up_active: break
 					var options: Array = main.p1_choices if slot == 0 else main.p2_choices
+					var pick := -1
+					var best := -INF
 					for index in options.size():
-						if options[index].get("recommended", false):
-							main._select_upgrade(slot + 1, index)
+						var score := float(options[index].get("recommendation_score", 0))
+						if score > best:
+							best = score
+							pick = index
+					# A neutral hand is valid: don't wait forever for a star badge.
+					if pick >= 0: main._select_upgrade(slot + 1, pick)
 		else:
 			var t: float = main.elapsed
 			var center := Vector2(cos(t * 0.32), sin(t * 0.32)) * 280.0
@@ -66,7 +72,7 @@ func _run() -> void:
 		await physics_frame
 	_release()
 	print("NORMAL_SPEED_METRICS: seed=%d pair=%s+%s survived=%.1f first_down=%.1f downs=%d kills=%d level=%d hp=%.0f/%.0f peak=%d max_delta=%.4f" % [run_seed, main.players[0].character_name, main.players[1].character_name, main.elapsed, first_down, downs, main.kills, main.progression.level, main.players[0].health, main.players[1].health, peak, max_step])
-	var ok: bool = main.elapsed >= 40 and (first_down < 0 or first_down >= 30) and main.kills >= 20 and max_step < 0.018
+	var ok: bool = main.elapsed >= 90 and (first_down < 0 or first_down >= 30) and main.kills >= 20 and max_step < 0.018
 	print("NORMAL_SPEED_PASS" if ok else "NORMAL_SPEED_FAIL")
 	quit(0 if ok else 1)
 

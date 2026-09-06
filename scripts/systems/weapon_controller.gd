@@ -2,6 +2,7 @@ class_name WeaponController
 extends Node2D
 
 const ProjectileScript := preload("res://scripts/projectile.gd")
+const MilkPoolScript := preload("res://scripts/effects/milk_pool.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
 const MineScript := preload("res://scripts/proximity_mine.gd")
 const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
@@ -65,18 +66,9 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
 	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
 	match weapon_id:
-		"boomerang", "bell":
-			for index in (1 if weapon_id == "bell" else int(scaled["count"])):
-				var toy = ReturningToyScript.new()
-				toy.anchor = owner_player
-				toy.grid = spatial_grid
-				toy.damage = damage
-				toy.reach = float(scaled["range"])
-				toy.tint = color
-				toy.ring = weapon_id == "bell"
-				toy.heading = _aim_direction(player_index, toy.reach).rotated((index - (int(scaled["count"]) - 1) * 0.5) * 0.35)
-				add_child(toy)
-				toy.global_position = owner_player.global_position
+		"boomerang": _throw_toy(player_index, scaled, damage, color, 0.35)
+		"skipping_stone": _throw_toy(player_index, scaled, damage, color, TAU / maxf(1.0, float(scaled["count"])))
+		"milk", "cream_tide": _spill_milk(player_index, scaled, damage, color)
 		"homing": play_cast_cue = _fire_homing(player_index, scaled, damage, color)
 		"lightning": play_cast_cue = _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color) > 0
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
@@ -100,6 +92,49 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
 	if play_cast_cue:
 		cue_requested.emit("weapon_" + weapon_id)
+
+
+## 생선 부메랑, and the fused form that throws several at once. `fan` is the
+## angle between consecutive toys: a small spread for the base weapon, a full
+## circle for 물수제비 물고기, which is the whole difference between them.
+func _throw_toy(player_index: int, state: Dictionary, damage: float, color: Color, fan: float) -> void:
+	var owner_player := players[player_index]
+	var count := maxi(1, int(state.get("count", 1)))
+	var aim := _aim_direction(player_index, float(state["range"]))
+	for index in count:
+		var toy = ReturningToyScript.new()
+		toy.anchor = owner_player
+		toy.grid = spatial_grid
+		toy.damage = damage
+		toy.reach = float(state["range"])
+		toy.tint = color
+		toy.heading = aim.rotated((float(index) - float(count - 1) * 0.5) * fan)
+		add_child(toy)
+		toy.global_position = owner_player.global_position
+
+
+## 우유 흩뿌리기. Scattered around the caster rather than aimed: where the milk
+## lands is not a decision the weapon makes, which is why the survivor's own
+## position is the only thing that decides whether a cast was worth anything.
+func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var origin := players[player_index].global_position
+	var spread := float(state["range"])
+	var count := maxi(1, int(state.get("count", 1)))
+	for index in count:
+		# The first one lands underfoot, so a cast is never entirely wasted by
+		# an unlucky scatter and the survivor always has one patch of ground
+		# they know is theirs. The rest divide the circle and are then jittered,
+		# so a cast covers the area around the pair rather than clumping on one
+		# bearing — and never lands in the same pattern twice.
+		var at := origin
+		if index > 0:
+			var angle := TAU * (float(index) + randf() * 0.7) / float(count)
+			at = origin + Vector2.from_angle(angle) * spread * sqrt(randf_range(0.16, 1.0))
+		var pool := MilkPoolScript.new() as MilkPool
+		pool.configure(at, spatial_grid, damage, float(state["radius"]),
+			float(state.get("slow", 0.55)), color)
+		add_child(pool)
+	cue_requested.emit("weapon_milk")
 
 
 ## Resonance now sits behind two fused weapons rather than two tier-3 base
@@ -806,19 +841,6 @@ func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> v
 	grow.tween_property(ring, "scale", Vector2.ONE * 1.12, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
-func _draw_scythe_arc(center: Vector2, angle: float, radius: float, arc: float, color: Color) -> void:
-	var slash := Line2D.new()
-	slash.position = center
-	slash.width = 16.0
-	slash.default_color = color.lightened(0.25)
-	slash.z_index = 3
-	slash.antialiased = true
-	for index in 19:
-		slash.add_point(Vector2.from_angle(angle - arc * 0.5 + arc * float(index) / 18.0) * radius)
-	add_child(slash)
-	_flash_and_free(slash, 0.1, 0.26)
-
-
 func _draw_chain_pulse(from: Vector2, to: Vector2, width: float) -> void:
 	var strike = ChainStrikeScript.new()
 	strike.setup(from, to, width, Color("80ed99"))
@@ -838,6 +860,3 @@ func _flash_and_free(node: CanvasItem, hold: float, fade: float) -> void:
 	tween.tween_property(node, "modulate:a", 0.0, fade).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	tween.tween_callback(node.queue_free)
 
-
-func _fade_and_free(node: CanvasItem, duration: float) -> void:
-	_flash_and_free(node, duration * 0.55, duration)

@@ -1,7 +1,6 @@
 extends Node2D
 
 const PlayerScene := preload("res://scripts/player.gd")
-const ProjectileScene := preload("res://scripts/projectile.gd")
 const CharacterData := preload("res://scripts/character_catalog.gd")
 const EnemyProjectileScript := preload("res://scripts/enemy_projectile.gd")
 const SpatialGridScript := preload("res://scripts/systems/enemy_spatial_grid.gd")
@@ -150,7 +149,6 @@ var lobby_overlay: ColorRect
 var lobby_title: Label
 var lobby_p1_label: Label
 var lobby_p2_label: Label
-var tutorial_label: Label
 var team_stats_label: Label
 var threat_edge_indicator: Label
 
@@ -186,15 +184,6 @@ var last_upgrade_choice_keys: Array = [[], []]
 var level_up_input_delay := 0.0
 var level_up_gap_remaining := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
 var resonance_cursors: Array[int] = [0, 0]
-var tutorial_active := false
-var tutorial_step := 0
-var tutorial_start_kills := 0
-var tutorial_start_xp := 0
-var quick_ping_cooldowns: Array[float] = [0.0, 0.0]
-var chain_combo_cooldown := 0.0
-var boss_chain_damage_cooldown := 0.0
-var pacing_announced: Dictionary = {}
-var last_countdown_second := -1
 ## Run-long tally shown on the result screen. "pings" and "chain_bursts"
 ## named features that were never built; these six are events the game
 ## actually raises, and each is counted at the one place it happens so the
@@ -213,11 +202,14 @@ var run_stats := {
 var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
+var crowd_phase := 0
+var level_overlay_tween: Tween
 var chain_ward_remaining := 0.0
 var chain_ward_pulse_timer := 0.0
 var guard_remaining := 0.0
 var frenzy_remaining := 0.0
 var time_stop_remaining := 0.0
+var item_aura: Node2D
 
 ## Team attributes. Experience is a shared pool and both survivors level
 ## together, so the stats that act on that pool are shared too — one player
@@ -382,6 +374,12 @@ func _physics_process(delta: float) -> void:
 	var modal := (lobby_active or character_select_active or level_up_active
 		or resonance_vote_active or pause_active or game_over or cinematic_active)
 	modal_dim.visible = modal
+	# Only the growth screen shows the run through; every other overlay replaces
+	# a screen there is nothing behind.
+	var veil := level_up_active and not (lobby_active or character_select_active or game_over)
+	if modal_dim.veil_only != veil:
+		modal_dim.veil_only = veil
+		modal_dim.queue_redraw()
 	for notice in notice_stack:
 		if is_instance_valid(notice): notice.visible = not modal
 	# The run is over on the result screen, so its bars are stale information
@@ -391,6 +389,7 @@ func _physics_process(delta: float) -> void:
 	if modal:
 		for slot in 2:
 			combat_hud.get_node("Carried%d" % slot).visible = false
+		_hide_boss_readout()
 		# Both of these live above the dim, so a fading banner or an off-screen
 		# arrow would otherwise sit on top of the overlay panel.
 		threat_edge_indicator.visible = false
@@ -441,6 +440,8 @@ func _physics_process(delta: float) -> void:
 	_update_camera(delta)
 
 	var cull_origin := (players[0].position + players[1].position) * 0.5
+	_update_contact_pressure()
+	item_aura.step(delta)
 	for candidate in enemies.duplicate():
 		var enemy := candidate as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
@@ -496,6 +497,15 @@ func _physics_process(delta: float) -> void:
 		_end_run()
 
 
+## The boss bar, its name and its health text are parented to the HUD layer
+## rather than to combat_hud, so hiding the HUD left the readout drawn across
+## every overlay — a stray "4799 / 4799" floating over the growth screen.
+func _hide_boss_readout() -> void:
+	boss_bar.visible = false
+	boss_label.visible = false
+	boss_health_text_label.visible = false
+
+
 func _create_world() -> void:
 	spatial_grid = SpatialGridScript.new() as EnemySpatialGrid
 	progression = ProgressionScript.new() as SharedProgression
@@ -507,10 +517,15 @@ func _create_world() -> void:
 	field_items.item_collected.connect(_on_field_item_collected)
 	add_child(field_items)
 	wave_director = WaveDirectorScript.new() as WaveDirector
+	wave_director.reclaim_capacity = _reclaim_spawn_capacity
 	wave_director.wave_started.connect(_on_wave_started)
 	wave_director.wave_calm_started.connect(_on_wave_calm_started)
 	wave_director.encounter_started.connect(_on_encounter_started)
 	add_child(wave_director)
+	item_aura = preload("res://scripts/effects/item_aura.gd").new()
+	item_aura.game = self
+	item_aura.z_index = 7
+	add_child(item_aura)
 	resonance_system = ResonanceScript.new() as ResonanceSystem
 	add_child(resonance_system)
 
@@ -732,7 +747,13 @@ func _create_hud() -> void:
 
 	layer = screen_host
 	level_overlay = CatPanel.new()
-	level_overlay.position = Vector2(20.0, 132.0)
+	# The growth screen interrupts a fight rather than replacing it, so the run
+	# stays visible behind both the veil and the panel itself.
+	level_overlay.translucent = true
+	# Its own clock: the tree is paused while it is open, so the entrance and
+	# exit have to run on a node that ignores that.
+	level_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	level_overlay.position = Vector2(20.0, LEVEL_OVERLAY_Y)
 	level_overlay.size = Vector2(1240.0, 490.0)
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
@@ -749,13 +770,13 @@ func _create_hud() -> void:
 	level_card_labels[0] = _create_level_cards(level_overlay, 8.0, Color("43d9ff"))
 	level_card_labels[1] = _create_level_cards(level_overlay, 624.0, Color("b892ff"))
 	level_portrait_icons = [
-		_create_icon_rect(level_overlay, Vector2(8.0, 374.0), Vector2(68.0, 68.0)),
-		_create_icon_rect(level_overlay, Vector2(624.0, 374.0), Vector2(68.0, 68.0)),
+		_create_icon_rect(level_overlay, Vector2(20.0, 376.0), Vector2(60.0, 60.0)),
+		_create_icon_rect(level_overlay, Vector2(636.0, 376.0), Vector2(60.0, 60.0)),
 	]
-	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 374.0, WEAPON_LOADOUT_CAP)
-	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 374.0, WEAPON_LOADOUT_CAP)
-	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 84.0, 418.0, TREASURE_LOADOUT_CAP)
-	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 700.0, 418.0, TREASURE_LOADOUT_CAP)
+	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 90.0, 372.0, WEAPON_LOADOUT_CAP)
+	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 706.0, 372.0, WEAPON_LOADOUT_CAP)
+	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 90.0, 414.0, TREASURE_LOADOUT_CAP)
+	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 706.0, 414.0, TREASURE_LOADOUT_CAP)
 	p1_level_footer = _create_level_footer(level_overlay, 8.0, Color("43d9ff"))
 	p2_level_footer = _create_level_footer(level_overlay, 624.0, Color("b892ff"))
 
@@ -944,23 +965,11 @@ func _create_hud() -> void:
 		var portrait := _create_icon_rect(result_overlay, Vector2(55 + slot * 735, 58), Vector2(75, 75))
 		portrait.name = "ResultCat%d" % slot
 
-	tutorial_label = Label.new()
-	tutorial_label.position = Vector2(340.0, 570.0)
-	tutorial_label.size = Vector2(600.0, 72.0)
-	tutorial_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tutorial_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	tutorial_label.add_theme_font_size_override("font_size", 19)
-	tutorial_label.add_theme_color_override("font_color", CatTheme.GOLD)
-	_confine_label(tutorial_label, true)
-	tutorial_label.visible = false
-	_make_label_background(tutorial_label, Color(0.02, 0.03, 0.07, 0.9))
-	layer.add_child(tutorial_label)
-
 	team_stats_label = Label.new()
 	# One shared line under the cards. The personal build sits in each
 	# player’s own footer; only the pooled stats belong in the middle.
 	team_stats_label.position = Vector2(150.0, 480.0)
-	team_stats_label.size = Vector2(940.0, 58.0)
+	team_stats_label.size = Vector2(940.0, 40.0)
 	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	team_stats_label.add_theme_font_size_override("font_size", 16)
@@ -1133,6 +1142,7 @@ func _slot_placeholder_style() -> StyleBoxFlat:
 
 ## Widened twice now. The recommendation lines added to card copy made the
 ## old width break Korean words mid-syllable on nearly every card.
+const LEVEL_OVERLAY_Y := 132.0
 const LEVEL_CARD_WIDTH := 196.0
 const LEVEL_CARD_HEIGHT := 262.0
 const LEVEL_CARD_GAP := 10.0
@@ -1465,6 +1475,7 @@ func _start_selected_run() -> void:
 	field_items.clear_all()
 	bursts.clear_all()
 	particles.clear_all()
+	experience_bank = 0
 	showcase_queue.clear()
 	cinematic_active = false
 	cinematic_continuation = Callable()
@@ -2025,6 +2036,12 @@ const CROWD_OVERLAP_SLACK := 0.82
 ## The four forward neighbours. Walking only these plus the cell itself visits
 ## every neighbouring pair exactly once; the backward four would visit each pair
 ## a second time and cancel half the correction.
+## How many partners one body resolves against per tick. Capped because a
+## gravity pile in a single cell would otherwise make separation quadratic;
+## raised from 4/2 because at those numbers a twenty-body stack never came
+## apart and a crowd standing on a boss stayed standing on it.
+const CROWD_SAMPLES := 7
+const CROWD_NEIGHBOUR_SAMPLES := 4
 const CROWD_NEIGHBOURS: Array[Vector2i] = [
 	Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1),
 ]
@@ -2044,23 +2061,29 @@ const CROWD_NEIGHBOURS: Array[Vector2i] = [
 ## allocations every physics tick. Cell size (192) is far wider than the largest
 ## pair of radii, so own-cell plus four forward neighbours covers every overlap.
 func _separate_crowd() -> void:
-	var phase := Engine.get_physics_frames()
+	# Advanced per call rather than read from the physics frame counter: inside
+	# one tick the frame number is constant, so every body sampled the same
+	# neighbours and a deep pile — a gravity cluster, a crowd on a boss — took
+	# dozens of frames to unstick, or never did.
+	crowd_phase += 1
 	for key in spatial_grid.cells:
 		var bucket: Array = spatial_grid.cells[key]
 		for index in bucket.size():
 			var first := bucket[index] as ChaserEnemy
-			# Bound work in dense cells; rotate sampled neighbours each tick so
-			# a gravity pile cannot turn separation into quadratic frame cost.
-			for sample in mini(4, bucket.size() - 1):
-				var other_index := (index + 1 + sample + phase * 4) % bucket.size()
+			# Bound work in dense cells. The offset mixes the caller's clock with
+			# the body's own index so two neighbours in the same bucket look at
+			# different partners on the same tick, which is what makes a partial
+			# sample converge instead of oscillating.
+			for sample in mini(CROWD_SAMPLES, bucket.size() - 1):
+				var other_index := (index + 1 + sample * 3 + crowd_phase) % bucket.size()
 				if other_index != index:
 					_resolve_overlap(first, bucket[other_index] as ChaserEnemy)
 			for offset in CROWD_NEIGHBOURS:
 				var neighbour: Variant = spatial_grid.cells.get(key + offset)
 				if neighbour == null:
 					continue
-				for sample in mini(2, neighbour.size()):
-					_resolve_overlap(first, neighbour[(sample + phase * 2 + index) % neighbour.size()] as ChaserEnemy)
+				for sample in mini(CROWD_NEIGHBOUR_SAMPLES, neighbour.size()):
+					_resolve_overlap(first, neighbour[(sample * 3 + crowd_phase + index) % neighbour.size()] as ChaserEnemy)
 	# The survivors are solid too, but only one way: an enemy is pushed out of a
 	# cat, never the other way round. Shoving the player around would take the
 	# controls away at exactly the moment they matter most.
@@ -2101,6 +2124,34 @@ func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 	second.position += direction * push * second_share
 
 
+func _update_contact_pressure() -> void:
+	# Two bounded neighbourhood queries, not a neighbour scan for every enemy.
+	var ramp := clampf((elapsed - 90.0) / 150.0, 0.0, 1.0)
+	for player in players:
+		var touching := 0
+		if ramp > 0.0:
+			for enemy in spatial_grid.query_radius(player.global_position, 100.0):
+				if enemy.dead: continue
+				var reach: float = player.radius + enemy.radius + 12.0
+				if enemy.global_position.distance_squared_to(player.global_position) <= reach * reach:
+					touching += 1
+					if touching >= 6: break
+		player.contact_pressure = 1.0 + minf(4.0, maxf(0.0, touching - 2.0)) * 0.15 * ramp
+
+
+func _reclaim_spawn_capacity(count: int, center: Vector2) -> int:
+	var candidates: Array[ChaserEnemy] = []
+	for enemy in enemies:
+		if is_instance_valid(enemy) and not enemy.dead and not enemy.boss and not enemy.elite:
+			candidates.append(enemy)
+	candidates.sort_custom(func(a: ChaserEnemy, b: ChaserEnemy) -> bool:
+		return a.global_position.distance_squared_to(center) > b.global_position.distance_squared_to(center))
+	var reclaimed := mini(count, candidates.size())
+	for index in reclaimed:
+		_cull_enemy(candidates[index])
+	return reclaimed
+
+
 func _cull_enemy(enemy: ChaserEnemy) -> void:
 	enemies.erase(enemy)
 	wave_director.release_enemy(enemy)
@@ -2116,7 +2167,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		dropped_xp = roundi(float(dropped_xp) * (1.0 + team_hunt_bonus))
 	enemies.erase(enemy)
 	kills += 1
-	experience_system.spawn_gem(death_position, dropped_xp, dropped_grade)
+	_drop_experience(death_position, dropped_xp, dropped_grade, was_elite or defeated_boss)
 	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
 	feedback.play_cue("kill")
 	wave_director.release_enemy(enemy)
@@ -2160,6 +2211,41 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 ## Elites always leave a drop; ordinary kills roll against a small chance that
 ## team luck raises. The boss is excluded because defeating it ends the run,
 ## so a pickup nobody can reach would just be noise.
+## What a kill leaves on the floor.
+##
+## Every kill used to drop its own gem. At twenty thousand kills a run that is
+## twenty thousand crumbs — the floor was permanently littered with specks worth
+## four experience each, none of which was worth walking to, and picking one up
+## was not an event. Ordinary kills now pay into a bank and the bank drops a
+## single gem once it is worth collecting, so the same total experience arrives
+## as far fewer, far larger pickups.
+##
+## Anything that was already worth something — an elite, a boss, a bulwark —
+## skips the bank and drops on its own, because the whole point of killing one
+## is that it pays out.
+var experience_bank := 0
+var experience_bank_position := Vector2.ZERO
+
+
+## The bank fills faster as the run goes on, so the gem count stays roughly flat
+## instead of climbing with the kill rate. At the opening this is a handful of
+## mice; by the last boss it is a whole swarm pack.
+func _experience_merge_threshold() -> int:
+	return 26 + int(elapsed * 0.16)
+
+
+func _drop_experience(at: Vector2, amount: int, grade: int, notable: bool) -> void:
+	if notable or amount >= _experience_merge_threshold():
+		experience_system.spawn_gem(at, amount, grade)
+		return
+	experience_bank += amount
+	experience_bank_position = at
+	var threshold := _experience_merge_threshold()
+	if experience_bank >= threshold:
+		experience_system.spawn_gem(experience_bank_position, experience_bank, -1)
+		experience_bank = 0
+
+
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
 	# Chests come from elites and bosses and nothing else. A chest that could
 	# fall off any of the six thousand ordinary kills in a run is a slot machine
@@ -2476,6 +2562,7 @@ func _begin_level_up() -> void:
 	p1_choices = _get_upgrade_choices(1)
 	p2_choices = _get_upgrade_choices(2)
 	level_overlay.visible = true
+	_animate_level_overlay(true)
 	_refresh_level_up_ui()
 	_update_hud()
 	get_tree().paused = true
@@ -2485,6 +2572,55 @@ func _begin_level_up() -> void:
 ## A key that identifies one specific offered option (not just its id, since
 ## e.g. "weapon_power" exists once per owned weapon) so _get_upgrade_choices
 ## can avoid repeating the exact same 3-card set the very next level-up.
+## The growth screen used to blink into existence between two frames, which
+## after a wave of experience reads as the game glitching rather than as a
+## moment arriving. It now drops in and lifts out over a fifth of a second.
+##
+## Runs on the overlay's own tween, which processes while the tree is paused
+## because the overlay is PROCESS_MODE_ALWAYS — everything else on screen is
+## frozen at this point, including the tween server's usual clock.
+const LEVEL_OVERLAY_ENTER := 0.22
+const LEVEL_OVERLAY_EXIT := 0.16
+
+
+func _animate_level_overlay(opening: bool) -> void:
+	if not is_instance_valid(level_overlay):
+		return
+	# Killed rather than left running: queued level-ups can open a new screen
+	# while the previous one is still lifting out, and two tweens on the same
+	# properties fight each other into a stuck half-faded panel.
+	if level_overlay_tween != null and level_overlay_tween.is_valid():
+		level_overlay_tween.kill()
+	level_overlay.pivot_offset = level_overlay.size * 0.5
+	var tween := level_overlay.create_tween()
+	level_overlay_tween = tween
+	tween.set_parallel(true)
+	if opening:
+		level_overlay.modulate.a = 0.0
+		level_overlay.scale = Vector2(0.94, 0.9)
+		level_overlay.position.y = LEVEL_OVERLAY_Y + 26.0
+		tween.tween_property(level_overlay, "modulate:a", 1.0, LEVEL_OVERLAY_ENTER)
+		tween.tween_property(level_overlay, "scale", Vector2.ONE, LEVEL_OVERLAY_ENTER)\
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(level_overlay, "position:y", LEVEL_OVERLAY_Y, LEVEL_OVERLAY_ENTER)\
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		return
+	tween.tween_property(level_overlay, "modulate:a", 0.0, LEVEL_OVERLAY_EXIT)
+	tween.tween_property(level_overlay, "scale", Vector2(0.96, 0.94), LEVEL_OVERLAY_EXIT)\
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_property(level_overlay, "position:y", LEVEL_OVERLAY_Y - 18.0, LEVEL_OVERLAY_EXIT)\
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	# The panel is only actually taken down once the exit has played; the run is
+	# already unpaused underneath it, which is what makes the lift-out read as
+	# handing control back rather than as a second pause.
+	tween.chain().tween_callback(func() -> void:
+		if not level_up_active:
+			level_overlay.visible = false
+			level_overlay.modulate.a = 1.0
+			level_overlay.scale = Vector2.ONE
+			level_overlay.position.y = LEVEL_OVERLAY_Y)
+
+
 func _option_key(option: Dictionary) -> String:
 	var option_id := String(option["id"])
 	if option_id == "unlock_weapon":
@@ -2688,9 +2824,9 @@ const WEAPON_SPECIALS := {
 		"a": {"title": "장난감 바구니", "label": "발사 수", "field": "count", "delta": 1, "integer": true},
 		"b": {"title": "멀리 던지기", "label": "왕복 거리", "field": "range", "delta": 30.0},
 	},
-	"bell": {
-		"a": {"title": "큰 울림", "label": "파동 거리", "field": "range", "delta": 28.0},
-		"b": {"title": "맑은 울림", "label": "피해", "field": "damage", "delta": 8.0},
+	"milk": {
+		"a": {"title": "한 통 더", "label": "웅덩이 수", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "흥건하게", "label": "웅덩이 크기", "field": "radius", "delta": 11.0},
 	},
 	"homing": {
 		"a": {"title": "다중 유도", "label": "동시 발사", "field": "count", "delta": 1, "integer": true},
@@ -2822,8 +2958,8 @@ func _has_weapon_upgrade(options: Array) -> bool:
 ## the screen and one who guesses.
 const RECOMMEND_MIN_SCORE := 42.0
 const RECOMMEND_RELATIVE := 0.80
-const DISCOURAGE_MAX_SCORE := 18.0
-const DISCOURAGE_RELATIVE := 0.25
+const DISCOURAGE_MAX_SCORE := 38.0
+const DISCOURAGE_RELATIVE := 0.60
 
 
 func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
@@ -3558,7 +3694,7 @@ func _fusion_progress_line(slot: int) -> String:
 
 func _finish_level_up() -> void:
 	level_up_active = false
-	level_overlay.visible = false
+	_animate_level_overlay(false)
 	get_tree().paused = false
 	if team_level_heal > 0.0:
 		for player in players:
@@ -3753,7 +3889,7 @@ func _base_tension_multiplier() -> float:
 
 
 func _update_hud() -> void:
-	boss_hud_panel.visible = boss_bar.visible
+	boss_hud_panel.visible = false
 	var distance := players[0].position.distance_to(players[1].position)
 	var tension := clampf(distance / chain_max_length, 0.0, 1.0)
 	p1_status_label.text = _player_status_text(0)
@@ -3823,19 +3959,6 @@ func _player_health_text(player_index: int) -> String:
 	if player.downed:
 		return "DOWN %.1f초   구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
 	return "%d / %d" % [int(player.health), int(player.max_health)]
-
-
-## Compact HUD summary of a player's whole loadout: the weapon name when they
-## only carry one (matches how this used to read before extra weapons existed),
-## or a tier list once they have picked up more.
-func _loadout_summary(player_index: int) -> String:
-	var loadout: Array = weapon_loadouts[player_index]
-	if loadout.size() == 1:
-		return "%s Lv.%d" % [String(loadout[0]["weapon_name"]), int(loadout[0].get("tier", 1))]
-	var tiers: Array[String] = []
-	for weapon in loadout:
-		tiers.append("Lv.%d" % int(weapon.get("tier", 1)))
-	return "무기 %d종 %s" % [loadout.size(), "/".join(tiers)]
 
 
 ## The co-op line of the result screen: what the pair did together, next to

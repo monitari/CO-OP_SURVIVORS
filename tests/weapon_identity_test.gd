@@ -8,7 +8,7 @@ var failures: Array[String] = []
 
 
 func _initialize() -> void:
-	TestHarness.arm_watchdog(self, "WEAPON_IDENTITY_FAIL", 240.0)
+	TestHarness.arm_watchdog(self, "WEAPON_IDENTITY_FAIL", 420.0)
 	call_deferred("_run")
 
 
@@ -45,6 +45,8 @@ func _run() -> void:
 	await _test_lance_splits_into_beams(main)
 	_test_leash_upgrade_lengthens_the_chain(main)
 	await _test_orbit_hits_once_per_shard(main)
+	await _test_the_toy_carries_on_through(main)
+	await _test_milk_lands_where_it_lands(main)
 
 	if failures.is_empty():
 		print("WEAPON_IDENTITY_PASS: ten weapons, twenty working specials, four reworked deliveries")
@@ -151,12 +153,19 @@ func _test_chain_pulse_reads_the_leash(main: Node) -> void:
 	_check(String(main.weapon_loadouts[0][0]["weapon_id"]) == "chain", "the fixture picked the tether survivor")
 	main.players[0].position = Vector2(-100.0, 0.0)
 	main.players[1].position = Vector2(100.0, 0.0)
+	# Player 0 is 라이라, who carries a 30% crit chance. Left alone, each of the
+	# two casts below independently rolls a crit and can invert the comparison
+	# about one time in five — this is what makes it a tension measurement
+	# rather than a coin flip.
+	var crit_backup: float = main.players[0].crit_chance
+	main.players[0].crit_chance = 0.0
 
 	var slack := _measure_chain_hit(main, 0.0)
 	var stretched := _measure_chain_hit(main, 1.0)
 	_check(slack > 0.0, "the tether damages what stands on it (%.1f)" % slack)
 	_check(stretched > slack * 1.2,
 		"a stretched chain hits harder than a slack one (%.1f vs %.1f)" % [stretched, slack])
+	main.players[0].crit_chance = crit_backup
 	await _clear_enemies(main)
 
 
@@ -293,6 +302,120 @@ func _measure_orbit(main: Node, base: Dictionary, shards: int) -> int:
 	victim.queue_free()
 	await process_frame
 	return hits
+
+
+## 생선 부메랑 used to stop dead the instant it got home, which made the return
+## half of the throw a formality — the pair already knew that path was clear.
+## It now carries straight on out the far side, so the throw is a line the
+## survivor stands in the middle of and the cast is about which way you face.
+func _test_the_toy_carries_on_through(main: Node) -> void:
+	await _clear_enemies(main)
+	var toy_weapon: Dictionary = main._build_weapon_state(_character_by_id("echo"))
+	_check(String(toy_weapon["weapon_id"]) == "boomerang", "the fixture picked the toy survivor")
+	main.weapon_loadouts[0] = [toy_weapon]
+	main.players[0].position = Vector2.ZERO
+	main.players[1].position = Vector2(0.0, 240.0)
+	main.players[0].facing = Vector2.RIGHT
+	main.players[0].last_input = Vector2.RIGHT
+
+	var reach := float(toy_weapon["range"])
+	# One body on each side of the thrower. The near one is deliberately nearer,
+	# because the weapon aims at whatever is closest and two bodies at equal
+	# range would make which way it is thrown a coin flip.
+	var ahead := _spawn(main, Vector2(reach * 0.55, 0.0))
+	var behind := _spawn(main, Vector2(-reach * 0.8, 0.0))
+	for victim in [ahead, behind]:
+		victim.health = 100000.0
+		victim.max_health = 100000.0
+	main.spatial_grid.rebuild(main.enemies)
+	main.weapon_controller.perform_attack(0, 0, 1.0)
+
+	var toy: Node2D = null
+	for child in main.weapon_controller.get_children():
+		if child.get_script() != null and child.has_method("_physics_process") and "heading" in child:
+			toy = child
+	_check(toy != null, "the cast actually threw something")
+	if toy == null:
+		return
+	var furthest_out := 0.0
+	var furthest_back := 0.0
+	for step in 200:
+		if not is_instance_valid(toy):
+			break
+		toy._physics_process(1.0 / 60.0)
+		var along: float = toy.global_position.x
+		furthest_out = maxf(furthest_out, along)
+		furthest_back = minf(furthest_back, along)
+	_check(furthest_out > reach * 0.9, "the toy goes out (%.0f of %.0f)" % [furthest_out, reach])
+	_check(furthest_back < -reach * 0.9,
+		"and carries on past the thrower rather than stopping there (%.0f)" % furthest_back)
+	_check(behind.health < behind.max_health, "so it hits what is behind the survivor too")
+	# Three passes over the same spot, one hit each: out, home, and away.
+	var hits_ahead := (ahead.max_health - ahead.health) / maxf(1.0, float(toy_weapon["damage"]))
+	_check(hits_ahead >= 1.9,
+		"a body on the outbound line is hit on the way back as well (%.1f hits)" % hits_ahead)
+	print("TOY_METRICS: out %.0f back %.0f, %.1f hits on the near side" % [furthest_out, furthest_back, hits_ahead])
+	await _clear_enemies(main)
+
+
+## 우유 흩뿌리기 is the one weapon that does not aim. It scatters, one pool lands
+## underfoot so a cast is never wasted, and what stands in a pool keeps taking
+## damage and keeps being slowed.
+func _test_milk_lands_where_it_lands(main: Node) -> void:
+	await _clear_enemies(main)
+	var milk: Dictionary = main._build_weapon_state(_character_by_id("latte"))
+	_check(String(milk["weapon_id"]) == "milk", "the fixture picked the milk survivor")
+	main.weapon_loadouts[0] = [milk]
+	main.players[0].position = Vector2.ZERO
+	main.players[1].position = Vector2(0.0, 260.0)
+
+	var underfoot := _spawn(main, Vector2(10.0, 0.0))
+	underfoot.health = 100000.0
+	underfoot.max_health = 100000.0
+	main.spatial_grid.rebuild(main.enemies)
+	main.weapon_controller.perform_attack(0, 0, 1.0)
+
+	var pools: Array[MilkPool] = []
+	for child in main.weapon_controller.get_children():
+		var pool := child as MilkPool
+		if pool != null:
+			pools.append(pool)
+	_check(pools.size() == int(milk["count"]),
+		"a cast spills every pool it says it does (%d of %d)" % [pools.size(), int(milk["count"])])
+	var nearest := INF
+	var furthest := 0.0
+	for pool in pools:
+		var distance: float = pool.global_position.distance_to(main.players[0].global_position)
+		nearest = minf(nearest, distance)
+		furthest = maxf(furthest, distance)
+	_check(nearest < 1.0, "one lands underfoot, so a cast is never wasted (%.0fpx)" % nearest)
+	_check(furthest > 40.0, "and the rest are scattered rather than stacked (%.0fpx)" % furthest)
+
+	# It is a place, not a hit: standing in it costs more the longer you stand.
+	var after_one := 0.0
+	for step in 120:
+		for pool in pools:
+			if is_instance_valid(pool):
+				pool._physics_process(1.0 / 60.0)
+		if step == 40:
+			after_one = underfoot.max_health - underfoot.health
+	var total := underfoot.max_health - underfoot.health
+	_check(after_one > 0.0, "a pool damages what stands in it (%.0f)" % after_one)
+	_check(total > after_one, "and keeps doing it (%.0f then %.0f)" % [after_one, total])
+	_check(underfoot.slow_timer > 0.0 or underfoot.slow_multiplier < 1.0, "and slows it")
+	print("MILK_METRICS: %d pools, nearest %.0fpx, furthest %.0fpx, %.0f damage over 2s" % [
+		pools.size(), nearest, furthest, total])
+	for pool in pools:
+		if is_instance_valid(pool):
+			pool.queue_free()
+	await _clear_enemies(main)
+
+
+func _character_by_id(id: String) -> Dictionary:
+	for character in CharacterCatalog.all_characters():
+		if String(character["id"]) == id:
+			return character
+	return {}
 
 
 func _spawn(main: Node, at: Vector2) -> ChaserEnemy:

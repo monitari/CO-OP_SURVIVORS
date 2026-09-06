@@ -38,13 +38,13 @@ static var _atlas_icons: Dictionary = {}
 
 
 static func survivor(character_id: String) -> Texture2D:
-	if character_id in ["mikan", "suzu"]: return load("res://assets/ui/icons/%s.svg" % character_id)
+	if character_id in ["echo", "latte"]: return load("res://assets/art/unified/cats/%s.png" % character_id)
 	var atlas_icon := _by_id(SURVIVOR_ATLAS, SURVIVOR_ORDER, character_id, 5, 2)
 	return atlas_icon if atlas_icon != null else generated(character_id, "survivor")
 
 
 static func weapon(weapon_id: String) -> Texture2D:
-	if weapon_id in ["boomerang", "bell"]: return load("res://assets/ui/icons/%s.svg" % weapon_id)
+	if weapon_id in ["boomerang", "milk", "skipping_stone", "cream_tide"]: return load("res://assets/art/unified/weapons/%s.png" % weapon_id)
 	var atlas_icon := _by_id(WEAPON_ATLAS, WEAPON_ORDER, weapon_id, 5, 4)
 	if atlas_icon != null:
 		return atlas_icon
@@ -62,7 +62,7 @@ static func upgrade(upgrade_id: String, weapon_id := "") -> Texture2D:
 ## Whether this id is covered by real art. Used by the icon test to report what
 ## still needs drawing rather than to fail the build over it.
 static func has_atlas_art(id: String, kind: String) -> bool:
-	if id in ["mikan", "suzu", "boomerang", "bell"]: return true
+	if id in ["echo", "latte", "boomerang", "milk", "skipping_stone", "cream_tide"]: return true
 	match kind:
 		"survivor":
 			return SURVIVOR_ORDER.has(id)

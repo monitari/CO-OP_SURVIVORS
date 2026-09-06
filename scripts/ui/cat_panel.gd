@@ -2,6 +2,13 @@ extends ColorRect
 ## Code-native decorations: no bitmap scaling, input interception or per-frame work.
 const CatStyle := preload("res://scripts/ui/cat_theme.gd")
 var backdrop := false
+## A backdrop can either replace what is behind it (lobby, character select,
+## results — screens with no run to look at) or veil it (the growth screen,
+## which interrupts a fight the pair is in the middle of). Painting the night
+## sky over a level-up hid the very thing the choice is about.
+var veil_only := false
+## Panels the run shows through rather than sits behind.
+var translucent := false
 
 
 func _ready() -> void:
@@ -12,6 +19,9 @@ func _ready() -> void:
 
 func _draw() -> void:
 	if backdrop:
+		if veil_only:
+			draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, 0.62))
+			return
 		_draw_backdrop()
 		return
 	var compact := size.y < 150.0
@@ -20,6 +30,8 @@ func _draw() -> void:
 	style.shadow_color = Color(0.02, 0.01, 0.04, 0.45)
 	style.shadow_size = 10
 	style.shadow_offset = Vector2(0, 5)
+	if translucent:
+		style.bg_color = Color(style.bg_color, 0.88)
 	draw_style_box(style, Rect2(Vector2.ZERO, size))
 	if compact:
 		return

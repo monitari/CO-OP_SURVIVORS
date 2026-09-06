@@ -297,7 +297,7 @@ func _test_layout(main: Node) -> void:
 		main.chain_status_label, main.resonance_status_label,
 		main.message_label, main.character_p1_label, main.character_p2_label,
 		main.character_synergy_label, main.resonance_status,
-		main.pause_label, main.result_label, main.tutorial_label,
+		main.pause_label, main.result_label,
 	]
 	for label: Label in bounded_labels:
 		_check(label.clip_text, "%s clips text to its UI bounds" % label.name)

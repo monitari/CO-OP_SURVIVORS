@@ -1,7 +1,10 @@
 extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 var failures: Array[String] = []
-func _initialize() -> void: call_deferred("_run")
+const TestHarness := preload("res://tests/test_harness.gd")
+func _initialize() -> void:
+	TestHarness.arm_watchdog(self, "EXPANSION_FAIL", 240.0)
+	call_deferred("_run")
 func check(ok: bool, reason: String) -> void:
 	if not ok: failures.append(reason)
 func _run() -> void:
@@ -17,7 +20,11 @@ func _run() -> void:
 		var enemy := ChaserEnemy.new()
 		enemy.setup(0)
 		enemy.health = 10000
-		enemy.position = Vector2(120, 0)
+		# 우유 흩뿌리기 scatters rather than aiming, so the only pool it is
+		# guaranteed to land is the one underfoot. A body standing 120px away
+		# is outside it, and whether any of the scattered pools happen to cover
+		# that spot is a coin flip.
+		enemy.position = Vector2(24, 0) if main.character_catalog[index]["weapon_id"] == "milk" else Vector2(120, 0)
 		main.add_child(enemy)
 		var targets: Array[ChaserEnemy] = [enemy]
 		main.spatial_grid.rebuild(targets)

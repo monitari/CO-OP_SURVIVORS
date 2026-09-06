@@ -223,10 +223,11 @@ static func _growth(main: Node) -> void:
 			badge.add_theme_font_size_override("font_size", 14)
 		var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 		footer.add_theme_color_override("font_color", Palette.MUTED)
-		var stats := label(screen, "", Rect2(x + 420, 370, 178, 40), 12, Palette.INK)
+		var stats := label(screen, "", Rect2(x + 268, 372, 330, 44), 12, Palette.MUTED)
 		stats.name = "BuildStats%d" % slot
-		stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		stats.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	place(main.team_stats_label, Rect2(24, 430, 1192, 26), 13, Palette.MUTED)
 	main.team_stats_label.visible = false
 
 
@@ -259,7 +260,8 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		badge.add_theme_stylebox_override("normal",
 			Palette.surface(Color("efdcd6") if against else Color("dfebda"), 8))
 	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
-	place(footer, Rect2(278 + slot * 616, 370, 142, 28), 13, Palette.MUTED)
+	place(footer, Rect2(268 + slot * 616, 418, 330, 22), 13, Palette.MUTED)
+	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	footer.text = "무기 %d/4 · 보물 %d/4 · 뽑기 %d" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size(), main.rerolls_remaining[slot]]
 	if main.level_up_input_delay > 0.0:
 		footer.text = "무기 %d/4 · 보물 %d/4 · 잠시 후 선택" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
@@ -301,6 +303,12 @@ static func _hud(main: Node) -> void:
 	place(main.chain_status_label, Rect2(480, 77, 205, 20), 12, Palette.CREAM)
 	place(main.resonance_status_label, Rect2(685, 77, 115, 20), 12, Palette.CREAM)
 	main.boss_label.add_theme_color_override("font_color", Color("f0cca2"))
+	place(main.boss_label, Rect2(440, 100, 180, 22), 13, Palette.CREAM)
+	main.boss_bar.position = Vector2(626, 103)
+	main.boss_bar.size = Vector2(214, 16)
+	main.boss_health_text_label.position = main.boss_bar.position
+	main.boss_health_text_label.size = main.boss_bar.size
+	main.boss_health_text_label.add_theme_font_size_override("font_size", 11)
 	main.tutorial_label.add_theme_color_override("font_color", Color("f0cca2"))
 	place(main.hud_label, Rect2(584, 14, 112, 36), 29, Palette.CREAM)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -344,9 +352,7 @@ static func refresh_hud(main: Node) -> void:
 	if main.chain_warded():
 		readout = "사슬 결계  %.1f초" % main.chain_ward_remaining
 	elif director.boss_active:
-		readout = "%s  %d/%d" % [
-			main.boss_name(director.bosses_spawned), director.bosses_spawned, WaveDirector.BOSS_COUNT
-		]
+		readout = ""
 	elif director.bosses_remaining() <= 0:
 		readout = "최종 격파"
 	else:

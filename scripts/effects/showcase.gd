@@ -29,8 +29,13 @@ enum Mode { FUSION, RESONANCE, CHEST }
 
 const FUSION_DURATION := 2.15
 const RESONANCE_DURATION := 2.45
-const CHEST_DURATION := 2.35
-const REWARD_STAGGER := 0.24
+const CHEST_DURATION := 2.9
+## Each reward gets its own beat. The old stagger was a quarter second, which
+## on a four-item chest read as everything arriving at once — the exact thing
+## the stagger exists to avoid. A full chest now takes twice as long to open as
+## a single-item one, which is the difference the player is being told about.
+const REWARD_STAGGER := 0.5
+const CHEST_BURST_AT := 0.72
 
 var mode := Mode.FUSION
 var age := 0.0
@@ -85,7 +90,7 @@ func play_resonance(first: Texture2D, second: Texture2D, name: String, tint: Col
 func play_chest(entries: Array) -> void:
 	mode = Mode.CHEST
 	rewards = entries
-	duration = maxf(CHEST_DURATION, 1.0 + float(entries.size()) * REWARD_STAGGER + 0.9)
+	duration = maxf(CHEST_DURATION, CHEST_BURST_AT + 0.5 + float(entries.size()) * REWARD_STAGGER + 1.05)
 	accent = Color("ffd166")
 	headline = "수염 상자"
 	subtitle = "%d개 획득" % entries.size()
@@ -198,16 +203,26 @@ func _step_resonance() -> void:
 	_place_captions(centre - Vector2(0.0, 236.0), smoothstep(0.9, 1.3, age))
 
 
+## When reward `index` leaves the box.
+func _reward_beat(index: int) -> float:
+	return CHEST_BURST_AT + 0.18 + float(index) * REWARD_STAGGER
+
+
 func _step_chest() -> void:
 	var centre := _centre()
+	var spacing: float = minf(120.0, 470.0 / maxf(1.0, float(reward_icons.size())))
 	for index in reward_icons.size():
 		var art := reward_icons[index]
-		var at := 0.72 + float(index) * REWARD_STAGGER
-		var pop := smoothstep(at, at + 0.3, age)
+		var at := _reward_beat(index)
+		var pop := smoothstep(at, at + 0.34, age)
 		var spread := float(index) - float(reward_icons.size() - 1) * 0.5
-		var target := centre + Vector2(spread * 116.0, 74.0)
-		art.position = centre.lerp(target, ease(pop, -2.4)) - art.size * 0.5
-		art.scale = Vector2.ONE * lerpf(0.2, 1.0, ease(pop, -2.6))
+		var target := centre + Vector2(spread * spacing, 78.0)
+		# Thrown up out of the box and caught, rather than sliding into place:
+		# the arc is what makes each one land rather than appear.
+		var lift := sin(pop * PI) * 62.0
+		art.position = centre.lerp(target, ease(pop, -2.4)) - Vector2(0.0, lift) - art.size * 0.5
+		art.scale = Vector2.ONE * lerpf(0.15, 1.0, ease(pop, -3.0))
+		art.rotation = (1.0 - pop) * signf(spread if spread != 0.0 else 1.0) * 1.1
 		art.modulate.a = pop * minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
 	# Clear of where the rewards land, which is the whole point of throwing them
 	# downward: the subtitle used to sit exactly on the first icon.
@@ -284,7 +299,7 @@ func _draw_resonance(centre: Vector2, veil: float) -> void:
 ## A box that resists, then gives. The shake is on the drawn lid, not on the
 ## camera, so it reads as the chest struggling rather than as an impact.
 func _draw_chest(centre: Vector2, veil: float) -> void:
-	var burst_at := 0.6
+	var burst_at := CHEST_BURST_AT
 	var struggle := clampf(age / burst_at, 0.0, 1.0)
 	if age < burst_at:
 		var shake := Vector2(sin(age * 46.0), cos(age * 39.0)) * (2.0 + struggle * 9.0)
@@ -299,15 +314,40 @@ func _draw_chest(centre: Vector2, veil: float) -> void:
 			Color(1.0, 0.96, 0.8, struggle * struggle * veil))
 		return
 	var since := age - burst_at
-	var rays := clampf(1.0 - since / 0.7, 0.0, 1.0)
+	# More in the box, more coming out of it: the burst itself reports the haul
+	# before the first icon has even landed.
+	var spokes := 18 + reward_icons.size() * 6
+	var rays := clampf(1.0 - since / 0.8, 0.0, 1.0)
 	if rays > 0.0:
-		for index in 18:
-			var angle := TAU * float(index) / 18.0 + since * 1.4
+		for index in spokes:
+			var angle := TAU * float(index) / float(spokes) + since * 1.4
+			var length := 60.0 + (1.0 - rays) * (520.0 + reward_icons.size() * 60.0)
 			draw_line(centre + Vector2.from_angle(angle) * 40.0,
-				centre + Vector2.from_angle(angle) * (60.0 + (1.0 - rays) * 520.0),
+				centre + Vector2.from_angle(angle) * length,
 				Color(accent.lightened(0.3), rays * 0.75 * veil), 6.0 * rays + 1.0, true)
-	var flash := 1.0 - clampf(since / 0.18, 0.0, 1.0)
+	var flash := 1.0 - clampf(since / 0.2, 0.0, 1.0)
 	if flash > 0.0:
-		draw_circle(centre, 40.0 + flash * 420.0, Color(1.0, 1.0, 1.0, 0.5 * flash))
-	# A soft column the rewards rise out of.
+		draw_circle(centre, 40.0 + flash * 460.0, Color(1.0, 1.0, 1.0, 0.5 * flash))
+	# A soft column the rewards rise out of, and three rings still leaving it.
 	draw_rect(Rect2(centre.x - 90.0, centre.y - 40.0, 180.0, 260.0), Color(accent, 0.07 * veil))
+	for wave in 3:
+		var phase := fmod(since * 0.7 + float(wave) / 3.0, 1.0)
+		draw_arc(centre, 50.0 + phase * 300.0, 0.0, TAU, 48,
+			Color(accent, (1.0 - phase) * 0.3 * veil), 4.0 * (1.0 - phase) + 1.0, true)
+	# One halo per reward, fired on that reward's own beat, so a four-item chest
+	# is four distinct moments rather than one long one.
+	for index in reward_icons.size():
+		var at := _reward_beat(index)
+		var pulse := 1.0 - clampf((age - at) / 0.42, 0.0, 1.0)
+		if pulse <= 0.0 or age < at:
+			continue
+		var art := reward_icons[index]
+		var landing := art.position + art.size * 0.5
+		draw_arc(landing, 26.0 + (1.0 - pulse) * 70.0, 0.0, TAU, 32,
+			Color(Color.WHITE, pulse * 0.75 * veil), 5.0 * pulse + 1.0, true)
+		for spark in 8:
+			var angle := TAU * float(spark) / 8.0 + float(index)
+			var reach := 30.0 + (1.0 - pulse) * 54.0
+			draw_line(landing + Vector2.from_angle(angle) * reach * 0.55,
+				landing + Vector2.from_angle(angle) * reach,
+				Color(accent.lightened(0.4), pulse * 0.8 * veil), 3.0 * pulse + 0.6, true)

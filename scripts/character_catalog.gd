@@ -157,7 +157,7 @@ static func difficulty_profile(character: Dictionary) -> Dictionary:
 		+ mobility * float(DIFFICULTY_WEIGHTS["mobility"])
 	)
 	# Handling and recovery matter even when two weapons have equal coverage.
-	var handling: float = {"homing": 0.9, "lightning": 0.85, "frost": 0.8, "bell": 0.75,
+	var handling: float = {"homing": 0.9, "lightning": 0.85, "frost": 0.8,
 		"flame": 0.55, "lance": 0.65, "scythe": 0.35, "orbit": 0.3,
 		"chain": 0.35, "mine": 0.25, "gravity": 0.4, "boomerang": 0.3}.get(character["weapon_id"], 0.5)
 	var sustain := clampf(float(character.get("recovery", 0.0)) / 1.3, 0.0, 1.0)
@@ -185,24 +185,6 @@ static func difficulty(character: Dictionary) -> int:
 static func difficulty_stars(character: Dictionary) -> String:
 	var rating := difficulty(character)
 	return "★".repeat(rating) + "☆".repeat(5 - rating)
-
-
-static func difficulty_label(character: Dictionary) -> String:
-	match difficulty(character):
-		1:
-			return "아주 쉬움"
-		2:
-			return "쉬움"
-		3:
-			return "보통"
-		4:
-			return "어려움"
-		_:
-			return "매우 어려움"
-
-
-static func difficulty_reason(character: Dictionary) -> String:
-	return String(difficulty_profile(character)["headline"])
 
 
 ## Names the axis that actually makes this survivor hard, rather than reciting
@@ -503,14 +485,20 @@ static func all_characters() -> Array[Dictionary]:
 			"weapon": {"damage": 30.0, "cooldown": 2.87, "radius": 182.0, "pull": 135.0, "cast_range": 460.0, "reach": 3.0, "tier": 1}
 		}
 	]
-	roster.append({"id": "mikan", "name": "미캉", "title": "장난꾸러기 치즈냥", "weapon_id": "boomerang", "weapon_name": "생선 부메랑",
-		"tags": ["projectile", "tracking"], "description": "생선 장난감을 던져 왕복으로 두 번 때립니다. 돌아오는 길에 적을 유도하세요.",
-		"color": Color("ffc67b"), "health": 95.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.2, "chain": -10.0,
+	# 에코 throws the toy out, catches nothing, and lets it carry straight on
+	# past — three passes from one cast, which is why the reach factor is high
+	# for what looks like a single projectile.
+	roster.append({"id": "echo", "name": "에코", "title": "메아리를 던지는 아비시니안", "weapon_id": "boomerang", "weapon_name": "생선 부메랑",
+		"tags": ["projectile", "tracking"], "description": "생선 장난감이 나갔다가 돌아오고, 멈추지 않고 반대편까지 지나갑니다.",
+		"color": Color("d59356"), "health": 95.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.2, "chain": -10.0,
 		"might": 1.06, "area": 0.95, "haste": 0.98, "recovery": 0.1,
-		"weapon": {"damage": 45.0, "cooldown": 2.5, "range": 260.0, "count": 1, "reach": 2.0, "tier": 1}})
-	roster.append({"id": "suzu", "name": "스즈", "title": "방울 지킴이 삼색냥", "weapon_id": "bell", "weapon_name": "방울 파동",
-		"tags": ["aura", "control"], "description": "방울 소리가 바깥으로 퍼집니다. 파동 가장자리가 적에게 닿으면 피해를 줍니다.",
-		"color": Color("8ee4be"), "health": 125.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
+		"weapon": {"damage": 39.0, "cooldown": 2.5, "range": 260.0, "count": 1, "reach": 2.3, "tier": 1}})
+	# 라떼 does not aim at anything. Milk lands where it lands, and what it
+	# lands on stands in it — the one weapon in the roster whose value is
+	# decided by where the pair chooses to fight rather than by what it hits.
+	roster.append({"id": "latte", "name": "라떼", "title": "우유를 나르는 노르웨이숲", "weapon_id": "milk", "weapon_name": "우유 흩뿌리기",
+		"tags": ["aura", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
+		"color": Color("f2e2c4"), "health": 125.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
 		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
-		"weapon": {"damage": 43.0, "cooldown": 3.1, "range": 240.0, "reach": 2.5, "tier": 1}})
+		"weapon": {"damage": 15.0, "cooldown": 3.1, "range": 300.0, "count": 4, "radius": 74.0, "slow": 0.55, "reach": 7.4, "tier": 1}})
 	return roster

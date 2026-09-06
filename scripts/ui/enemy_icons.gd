@@ -5,8 +5,10 @@ static var textures: Dictionary = {}
 
 static func get_icon(id: String) -> Texture2D:
 	if id in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]:
-		return load("res://assets/ui/icons/%s.svg" % id)
-	if textures.is_empty():
+		if not textures.has(id):
+			textures[id] = load("res://assets/art/unified/enemies/%s.png" % id)
+		return textures[id]
+	if not textures.has("chaser"):
 		var pixels := ATLAS.get_image()
 		# Generated silhouettes do not obey exact cell boundaries (crow wings
 		# cross the nominal third cell). Explicit normalized cutouts avoid bleed.

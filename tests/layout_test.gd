@@ -72,6 +72,8 @@ func _run() -> void:
 	await process_frame
 	_audit("성장 선택", main.level_overlay)
 	_test_nothing_says_tier(main, "성장 선택", main.level_overlay)
+	await _test_the_growth_screen_shows_the_run(main)
+	await _test_the_growth_screen_arrives_and_leaves(main)
 	main.level_up_active = false
 	main.level_overlay.visible = false
 	paused = false
@@ -130,6 +132,81 @@ func _collect_tier_jargon(pattern: RegEx, screen_name: String, node: Node) -> vo
 			_check(false, "%s · %s still writes a tier as T-number: %s" % [
 				screen_name, item.name, String(item.text).replace("\n", " / ")])
 		_collect_tier_jargon(pattern, screen_name, child)
+
+
+## The growth screen interrupts a fight; it does not replace it. Painting the
+## night-sky backdrop over a level-up hid the very thing the choice is about —
+## what is on the field right now — and left the boss health readout floating
+## across the panel, because that one is parented to the HUD layer rather than
+## to the HUD.
+func _test_the_growth_screen_shows_the_run(main: Node) -> void:
+	# A boss on the field, or the readout being hidden proves nothing: it was
+	# never shown. This is the state the bug actually appeared in.
+	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, false, true, 1) as ChaserEnemy
+	main._register_enemy(boss)
+	_check(main.boss_bar.visible, "the fixture really does have a boss readout up")
+	main.set_physics_process(true)
+	for frame in 4:
+		await physics_frame
+	main.set_physics_process(false)
+	_check(main.modal_dim.visible, "something dims the field behind the cards")
+	_check(main.modal_dim.veil_only,
+		"but it veils the run rather than replacing it with a backdrop")
+	_check(main.level_overlay.translucent, "and the panel itself lets the run through")
+	_check(not main.boss_bar.visible and not main.boss_health_text_label.visible,
+		"the boss readout is not drawn across the panel")
+
+	# Every other overlay replaces a screen there is nothing behind, so the
+	# backdrop still belongs to those.
+	var was_level: bool = main.level_up_active
+	main.level_up_active = false
+	main._set_pause(true)
+	main.set_physics_process(true)
+	for frame in 4:
+		await physics_frame
+	main.set_physics_process(false)
+	_check(not main.modal_dim.veil_only, "the pause screen keeps its own backdrop")
+	main._set_pause(false)
+	main.level_up_active = was_level
+	main.level_overlay.visible = true
+	boss.take_damage(9999999.0)
+
+
+## It used to blink into existence between two frames, which after a wave of
+## experience reads as the game glitching rather than as a moment arriving.
+func _test_the_growth_screen_arrives_and_leaves(main: Node) -> void:
+	var resting: float = main.LEVEL_OVERLAY_Y
+	# Opened the way the run opens it, not by calling the animation directly:
+	# a screen that animates beautifully but is never asked to would pass that.
+	main.level_up_active = false
+	main.progression.add_experience(main.progression.required_experience)
+	main._begin_level_up()
+	main.level_up_input_delay = 0.0
+	_check(main.level_overlay.modulate.a < 0.2, "it starts invisible")
+	_check(main.level_overlay.scale != Vector2.ONE, "and starts smaller than it ends")
+	_check(main.level_overlay.position.y > resting, "and starts low")
+	for frame in 90:
+		await process_frame
+		if is_equal_approx(main.level_overlay.modulate.a, 1.0):
+			break
+	_check(is_equal_approx(main.level_overlay.modulate.a, 1.0), "it settles fully opaque")
+	_check(main.level_overlay.scale.is_equal_approx(Vector2.ONE), "at its own size")
+	_check(is_equal_approx(main.level_overlay.position.y, resting), "and back on its mark")
+
+	# Leaving is the same in reverse, and the panel is only actually taken down
+	# once it has played — the run underneath is already live by then.
+	main.level_up_active = false
+	main._animate_level_overlay(false)
+	_check(main.level_overlay.visible, "the panel stays up while it lifts out")
+	for frame in 90:
+		await process_frame
+		if not main.level_overlay.visible:
+			break
+	_check(not main.level_overlay.visible, "and is gone when it finishes")
+	_check(is_equal_approx(main.level_overlay.modulate.a, 1.0),
+		"left ready for the next one rather than half-faded")
+	main.level_overlay.visible = true
+	main.level_up_active = true
 
 
 ## The play screen is where a build lives, so it has to show the build: both

@@ -6,11 +6,15 @@ var body_sprite: Sprite2D
 
 func _ready() -> void:
 	if is_instance_valid(body_sprite):
-		body_sprite.rotation = -rotation
+		_update_body_facing()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_LOCAL_TRANSFORM_CHANGED and is_instance_valid(body_sprite):
-		body_sprite.rotation = -rotation
+		_update_body_facing()
+
+func _update_body_facing() -> void:
+	body_sprite.rotation = -rotation
+	body_sprite.flip_h = archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"] and cos(rotation) < 0.0
 
 signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
@@ -33,9 +37,8 @@ const LATE_DAMAGE_PER_STEP := 0.20
 ## the thing a player cannot out-build is a one-shot.
 const LATE_DAMAGE_CAP := 2.8
 const LATE_HEALTH_CAP := 9.0
-## Speed is capped separately and much harder: enemies faster than the survivors
-## remove the option of leaving, and the chain already limits how far the pair
-## can go. This lands the fastest late chaser just under the slowest cat.
+## Ordinary walking speed remains bounded. Runners use a warned, turn-limited
+## sprint; moles charge straight, and ranged enemies aim ahead of movement.
 const SPEED_RAMP_CAP := 34.0
 ## Experience per kill rises with the run, so a level-up curve steep enough to
 ## last twenty-five minutes is not paid for entirely by killing more things.
@@ -195,7 +198,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	move_speed += minf(difficulty * 2.6, SPEED_RAMP_CAP) + randf_range(-7.0, 9.0)
 	if archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]:
 		var stats: Array = {
-			"rat_runner": [110.0, 13.0, 28.0, 8.0, 7],
+			"rat_runner": [145.0, 13.0, 28.0, 8.0, 7],
 			"wasp": [76.0, 13.0, 30.0, 7.0, 9],
 			"hedgehog": [48.0, 24.0, 125.0, 18.0, 20],
 			"mole": [92.0, 18.0, 60.0, 14.0, 13],
@@ -214,13 +217,13 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	xp_value = maxi(1, int(round(float(xp_value) * (1.0 + difficulty * XP_PER_DIFFICULTY))))
 	# Spawn pacing alone cannot protect a pair whose first ring closes from an
 	# unlucky set of angles. Let contact damage teach pressure before it fully
-	# punishes it, reaching the original value at 30 seconds. Special enemies
-	# unlock at that same boundary, so they are never softened by this ramp.
+	# punishes it, reaching the original value near 87 seconds. The quadratic
+	# ramp keeps the first minute gentler while the pair earns its initial picks.
 	if difficulty < EARLY_GAME_DIFFICULTY:
 		contact_damage *= lerpf(
 			OPENING_CONTACT_DAMAGE_MULTIPLIER,
 			1.0,
-			clampf(difficulty / EARLY_GAME_DIFFICULTY, 0.0, 1.0)
+			pow(clampf(difficulty / EARLY_GAME_DIFFICULTY, 0.0, 1.0), 2.0)
 		)
 	# The boss is excluded: it carries its own multiplier, and compounding the
 	# two is how it ended up unkillable.
@@ -233,7 +236,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		move_speed *= 1.08
 		radius *= 1.3
 		contact_damage *= 1.4
-		xp_value *= 4
+		xp_value *= 7
 		xp_grade = maxi(xp_grade, 2)
 	if boss:
 		# One explicit multiplier instead of elite x boss, and a gentler contact
@@ -278,7 +281,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		return
 	contact_cooldown = maxf(0.0, contact_cooldown - delta)
 	if is_instance_valid(body_sprite):
-		body_sprite.rotation = -rotation
+		_update_body_facing()
 		body_sprite.modulate = Color("ffc4a1") if boss_enraged else Color.WHITE.lerp(Color("fff1b5"), hit_flash * 0.8)
 	var was_slowed := slow_timer > 0.0
 	slow_timer = maxf(0.0, slow_timer - delta)
@@ -286,6 +289,9 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		slow_multiplier = 1.0
 	var target := _nearest_living_player(players)
 	var target_position := target.global_position
+	# Predict ranged aim and the mole's committed dash before their warning.
+	if archetype in ["wasp", "owl", "mole"]:
+		target_position += target.current_input.limit_length() * target.move_speed * 0.65
 	if archetype == "chain_hunter" or archetype == "brute":
 		target_position = (players[0].global_position + players[1].global_position) * 0.5
 	var speed_scale := slow_multiplier if slow_timer > 0.0 else 1.0
@@ -297,9 +303,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 
 	match archetype:
 		"rat_runner":
-			behavior_timer += delta
-			var toward := global_position.direction_to(target_position)
-			position += (toward + toward.orthogonal() * sin(behavior_timer * 4.0) * 0.65).normalized() * move_speed * speed_scale * delta
+			_step_runner(target_position, speed_scale, delta)
 		"wasp", "owl":
 			_step_shooter(target_position, speed_scale, delta)
 			if archetype == "wasp" and shooter_windup <= 0.0:
@@ -314,6 +318,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			_step_charger(target_position, speed_scale, delta)
 		"hedgehog":
 			position += global_position.direction_to(target_position) * move_speed * speed_scale * delta
+			rotation = global_position.direction_to(target_position).angle()
 		"charger":
 			_step_charger(target_position, speed_scale, delta)
 		"shooter":
@@ -347,6 +352,30 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# Sprite tint/scale handle hit flashes without rebuilding health/elite art.
 	if had_telegraph or charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0:
 		queue_redraw()
+
+
+func _step_runner(target_position: Vector2, speed_scale: float, delta: float) -> void:
+	if charge_timer > 0.0:
+		charge_timer = maxf(0.0, charge_timer - delta)
+		# A runner pursues through a broad turn, unlike the mole's straight dash.
+		# Reversing or dashing across its nose exploits the limited turn rate.
+		var heading := rotate_toward(charge_direction.angle(), global_position.direction_to(target_position).angle(), delta * 1.8)
+		charge_direction = Vector2.from_angle(heading)
+		position += charge_direction * maxf(340.0, move_speed * 2.8) * speed_scale * delta
+		rotation = charge_direction.angle()
+		return
+	if charge_windup > 0.0:
+		charge_windup -= delta
+		if charge_windup <= 0.0: charge_timer = 1.5
+		return
+	behavior_timer -= delta
+	rotation = global_position.direction_to(target_position).angle()
+	position += Vector2.from_angle(rotation) * move_speed * speed_scale * delta
+	if behavior_timer <= 0.0 and global_position.distance_squared_to(target_position) < 680.0 * 680.0:
+		behavior_timer = 1.8
+		charge_direction = global_position.direction_to(target_position)
+		telegraph_direction = charge_direction
+		charge_windup = 0.75
 
 
 func _step_charger(target_position: Vector2, speed_scale: float, delta: float) -> void:
@@ -474,7 +503,7 @@ func _try_contact_damage(players: Array[ChainPlayer]) -> void:
 	for player in players:
 		if global_position.distance_to(player.global_position) <= radius + player.radius:
 			# Passing our position lets 가시의 견장 send part of the hit back.
-			if player.hurt(contact_damage, global_position):
+			if player.hurt(contact_damage * player.contact_pressure, global_position):
 				contact_cooldown = 0.75
 			break
 
@@ -548,9 +577,14 @@ func apply_slow(duration: float, multiplier: float) -> void:
 
 func _draw() -> void:
 	redraw_count += 1
+	# Wings, claws and spines are now part of the painted sprite itself.
 	if charge_windup > 0.0:
 		var charge_alpha := 0.25 + sin(charge_windup * 34.0) * 0.12
-		draw_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 240.0, Color(1.0, 0.25, 0.2, charge_alpha), 12.0, true)
+		if archetype == "rat_runner":
+			draw_circle(Vector2.ZERO, radius + 12, Color(1.0, 0.55, 0.15, charge_alpha))
+			draw_arc(Vector2.ZERO, radius + 16, -1.0, 1.0, 16, Color("ffbf69"), 4, true)
+		else:
+			draw_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 240.0, Color(1.0, 0.25, 0.2, charge_alpha), 12.0, true)
 	if shooter_windup > 0.0:
 		draw_dashed_line(Vector2.ZERO, telegraph_direction.rotated(-rotation) * 320.0, Color(1.0, 0.35, 0.42, 0.8), 3.0, 10.0, true)
 		if archetype == "owl":
@@ -584,6 +618,6 @@ func _draw() -> void:
 			draw_arc(Vector2.ZERO, radius + 12.0, start, start + 0.8, 10,
 				Color("ff5a53") if boss_enraged else Color("e8c98a"), 4.0 if boss_enraged else 2.5, true)
 	var health_ratio := clampf(health / max_health, 0.0, 1.0)
-	if health_ratio < 0.99 or elite:
+	if not boss and (health_ratio < 0.99 or elite):
 		draw_rect(Rect2(-radius, -radius - 10.0, radius * 2.0, 4.0), Color("351d3c"))
 		draw_rect(Rect2(-radius, -radius - 10.0, radius * 2.0 * health_ratio, 4.0), Color("80ed99"))

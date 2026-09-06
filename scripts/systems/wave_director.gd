@@ -68,6 +68,8 @@ var boss_spawned := false ## True once the first boss of the run has arrived.
 var bosses_spawned := 0
 var boss_active := false ## Kept current by main; holds the next boss back while one is still alive.
 var enemy_cap := 620
+## Host returns the number of ordinary enemies recycled for scheduled arrivals.
+var reclaim_capacity: Callable
 
 var wave_index := 0
 var wave_elapsed := 0.0
@@ -110,10 +112,6 @@ func bosses_remaining() -> int:
 	return maxi(0, BOSS_COUNT - bosses_spawned)
 
 
-func is_final_boss(rank: int) -> bool:
-	return rank >= BOSS_COUNT
-
-
 func encounter_name(encounter_id: String) -> String:
 	return String(ENCOUNTER_NAMES.get(encounter_id, encounter_id))
 
@@ -121,6 +119,11 @@ func encounter_name(encounter_id: String) -> String:
 func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> Array[ChaserEnemy]:
 	var spawned: Array[ChaserEnemy] = []
 	var difficulty := elapsed / DIFFICULTY_SECONDS
+	var reserved := scheduled_slots(delta, elapsed)
+	var shortage := maxi(0, active_count + reserved - enemy_cap)
+	if reserved > 0 and shortage > 0 and reclaim_capacity.is_valid():
+		active_count -= int(reclaim_capacity.call(shortage, center))
+	var ordinary_cap := maxi(0, enemy_cap - reserved)
 
 	# --- wave clock ---------------------------------------------------------
 	wave_elapsed += delta
@@ -140,7 +143,7 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		var surge := (10 + growth * 2) if is_surge_wave(wave_index) else (
 			FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4 + growth)
 		for index in surge:
-			if active_count + spawned.size() >= enemy_cap:
+			if active_count + spawned.size() >= ordinary_cap:
 				break
 			spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, false, false))
 	elif not in_calm and wave_elapsed >= WAVE_DURATION - WAVE_CALM:
@@ -149,14 +152,12 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 
 	spawn_timer -= delta
 	elite_timer -= delta
-	if active_count >= enemy_cap:
-		return spawned
 
 	# --- bosses -------------------------------------------------------------
 	# One every five minutes, each stronger than the last, and never two at
 	# once: if the pair is still fighting boss three when boss four comes due,
 	# the schedule waits rather than stacking two health bars on one HUD.
-	if bosses_spawned < BOSS_COUNT and not boss_active and elapsed >= next_boss_time():
+	if bosses_spawned < BOSS_COUNT and not boss_active and elapsed >= next_boss_time() and active_count + spawned.size() < enemy_cap:
 		bosses_spawned += 1
 		boss_spawned = true
 		boss_active = true
@@ -167,7 +168,7 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		spawned.append(_acquire_enemy("owl" if bosses_spawned == 2 or bosses_spawned == 4 else "brute", difficulty, center, false, true, bosses_spawned))
 	# Elites and the boss ignore the lull — the calm is a break from the swarm,
 	# not a guarantee that nothing happens.
-	if elite_timer <= 0.0:
+	if elite_timer <= 0.0 and active_count + spawned.size() < enemy_cap:
 		elite_timer = 38.0
 		spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, true, false))
 
@@ -178,13 +179,13 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 	if swarm_timer <= 0.0 and elapsed >= SWARM_UNLOCK_TIME:
 		swarm_timer = SWARM_INTERVAL
 		for index in _swarm_pack_size(elapsed):
-			if active_count + spawned.size() >= enemy_cap:
+			if active_count + spawned.size() >= ordinary_cap:
 				break
 			spawned.append(_acquire_enemy("swarm", difficulty, center, false, false))
 
 	# --- named encounters ---------------------------------------------------
 	encounter_timer -= delta
-	if encounter_timer <= 0.0:
+	if encounter_timer <= 0.0 and enemy_cap - active_count - spawned.size() >= encounter_size(elapsed):
 		encounter_timer = ENCOUNTER_INTERVAL
 		var encounter_id: String = ENCOUNTER_ORDER[encounters_run % ENCOUNTER_ORDER.size()]
 		encounters_run += 1
@@ -206,6 +207,28 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 				break
 			spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, false, false))
 	return spawned
+
+
+func encounter_size(elapsed: float) -> int:
+	match String(ENCOUNTER_ORDER[encounters_run % ENCOUNTER_ORDER.size()]):
+		"stampede": return 12
+		"ring_siege": return 16
+		"elite_squad": return 4
+		"deluge":
+			if elapsed >= DELUGE_UNLOCK_TIME:
+				return DELUGE_BASE_COUNT + int(elapsed / 60.0 * DELUGE_PER_MINUTE)
+	return _swarm_pack_size(elapsed) * 2
+
+
+func scheduled_slots(delta: float, elapsed: float) -> int:
+	var count := 0
+	if bosses_spawned < BOSS_COUNT and not boss_active and elapsed >= next_boss_time():
+		count += 1
+	if elite_timer <= delta:
+		count += 1
+	if encounter_timer <= delta:
+		count += encounter_size(elapsed)
+	return mini(enemy_cap, count)
 
 
 ## Appends this encounter's arrivals to `spawned`. Written as one function per
