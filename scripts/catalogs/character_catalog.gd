@@ -78,7 +78,9 @@ static func raw_power(character: Dictionary) -> float:
 	# Their catalog cooldown now describes that real cast cycle, so the roster
 	# budget prices the active window/lasting trap rather than pretending they
 	# are one-frame hits.
-	if character["weapon_id"] == "orbit": raw *= 4.8
+	# The ring multiplier prices how much board a cast holds, so it moved with the
+	# ring: 궤도 파편 opens with one shard where it used to open with three.
+	if character["weapon_id"] == "orbit": raw *= 2.8
 	if character["weapon_id"] == "mine": raw *= 1.42
 	return raw
 
@@ -312,7 +314,7 @@ static func all_characters() -> Array[Dictionary]:
 			"pickup": 1.0,
 			"chain": 10.0,
 			"might": 1.0, "area": 1.08, "haste": 0.96, "recovery": 0.2,
-			"weapon": {"damage": 27.5, "cooldown": 1.78, "jumps": 3, "range": 375.0, "reach": 2.05, "tier": 1}
+			"weapon": {"damage": 27.5, "cooldown": 1.78, "jumps": 2, "range": 375.0, "reach": 2.05, "tier": 1}
 		},
 		{
 			"id": "ignis",
@@ -330,10 +332,12 @@ static func all_characters() -> Array[Dictionary]:
 			"pickup": 1.0,
 			"chain": 25.0,
 			"might": 1.08, "area": 1.12, "haste": 1.08, "recovery": 0.25,
-			# Radial shots trade reliability for coverage. Nine slightly stronger
-			# embers give the starting version enough intersections to finish a
-			# basic enemy before the ring has already closed on both survivors.
-			"weapon": {"damage": 26.5, "cooldown": 2.02, "count": 8, "speed": 280.0, "reach": 2.4, "tier": 1}
+			# Radial shots trade reliability for coverage, and the opening version
+			# now has very little of it: three embers is a direction you picked
+			# badly or well, not a wall. Everything that raises 개수 — the weapon's
+			# own cards, 증폭 treasures, a survivor's amount — turns this into the
+			# nebula the name promises, which is the point of starting it small.
+			"weapon": {"damage": 26.5, "cooldown": 2.02, "count": 3, "speed": 280.0, "reach": 2.4, "tier": 1}
 		},
 		{
 			"id": "neve",
@@ -419,9 +423,13 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 20.0,
 			"might": 0.94, "area": 1.12, "haste": 0.92, "recovery": 0.3,
 			"amount": 1,
-			# Orbiting shards hit whatever walks into them without any aiming at
-			# all, so the per-shard number is small and reach carries the weight.
-			"weapon": {"damage": 14.0, "cooldown": 6.6, "count": 3, "radius": 86.0, "speed": 2.85, "reach": 3.0, "tier": 1}
+			# One shard in the catalogue, two on the field: 카일 carries a point of
+			# 개수 of their own, so the character still opens with a ring rather
+			# than a single stone while the weapon itself starts where every other
+			# multi-projectile weapon now starts. Shards hit whatever walks into
+			# them without any aiming at all, so the per-shard number stays small
+			# and reach carries the weight.
+			"weapon": {"damage": 24.0, "cooldown": 6.6, "count": 1, "radius": 86.0, "speed": 2.85, "reach": 3.0, "tier": 1}
 		},
 		{
 			"id": "rian",
@@ -499,5 +507,5 @@ static func all_characters() -> Array[Dictionary]:
 		"tags": ["aura", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
 		"color": Color("f2e2c4"), "health": 121.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
 		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
-		"weapon": {"damage": 15.0, "cooldown": 3.1, "range": 300.0, "count": 4, "radius": 74.0, "slow": 0.55, "reach": 7.4, "tier": 1}})
+		"weapon": {"damage": 15.0, "cooldown": 3.1, "range": 300.0, "count": 1, "radius": 74.0, "slow": 0.55, "reach": 7.4, "tier": 1}})
 	return roster

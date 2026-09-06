@@ -235,9 +235,12 @@ func _test_timed_windows(main: Node) -> void:
 	# 멈춘 회중시계 — the world stops. Checked by moving something: a timer that
 	# runs while enemies keep walking is not a time stop.
 	var walker := _spawn_enemy(main, Vector2(400.0, 0.0))
-	var shot := EnemyProjectileScript.new() as EnemyProjectile
-	shot.setup(Vector2(0.0, 300.0), Vector2.UP, 5.0, main.players)
-	main.add_child(shot)
+	# Spawned through the run's own path rather than hand-built and parented.
+	# Shots are now tracked in a list — four weapons shoot them down, and they
+	# reach them from other nodes — so a projectile that never went through here
+	# is one the run does not know exists, freeze included.
+	main._on_enemy_ranged_attack(Vector2(0.0, 300.0), Vector2.UP, 5.0)
+	var shot := main.enemy_shots[main.enemy_shots.size() - 1] as EnemyProjectile
 	main._on_field_item_collected("time_stop")
 	_check(main.world_stopped(), "멈춘 회중시계 stops the world")
 	var stood: Vector2 = walker.global_position
@@ -357,15 +360,29 @@ func _test_chest(main: Node) -> void:
 	_check(depth_after == depth_before + rewards.size(),
 		"every chest reward deepens existing gear while upgrades remain (%d -> %d)" % [depth_before, depth_after])
 
+	# Sampled over a hundred thousand rolls rather than a thousand. The top of
+	# the ladder is under a tenth of a percent on purpose — it is a thing to be
+	# told about, not a thing to plan around — so a thousand rolls would find it
+	# once if it were lucky and the check would fail on the runs where it was not.
 	seed(74291)
 	var singles := 0
 	var jackpots := 0
-	for roll in 1000:
+	var counts: Dictionary = {}
+	for roll in 100000:
 		var count: int = main._roll_chest_reward_count()
+		counts[count] = int(counts.get(count, 0)) + 1
 		if count == 1: singles += 1
 		if count == main.CHEST_MAX_REWARDS: jackpots += 1
-	_check(singles > 650, "single-item chests stay the common result (%d/1000)" % singles)
-	_check(jackpots > 0 and jackpots < 50, "maximum chests are possible but rare (%d/1000)" % jackpots)
+	_check(singles > 65000, "single-item chests stay the common result (%d/100000)" % singles)
+	_check(jackpots > 0 and jackpots < 400, "maximum chests are possible but vanishingly rare (%d/100000)" % jackpots)
+	# Every rung has to be reachable, or the ladder is shorter than it claims.
+	for rung in range(1, main.CHEST_MAX_REWARDS + 1):
+		_check(int(counts.get(rung, 0)) > 0, "a chest can hand out exactly %d" % rung)
+	# ...and each one rarer than the one below it, which is what makes a big
+	# chest read as a big chest rather than as noise.
+	for rung in range(2, main.CHEST_MAX_REWARDS + 1):
+		_check(int(counts.get(rung, 0)) < int(counts.get(rung - 1, 0)),
+			"%d rewards is rarer than %d (%d vs %d)" % [rung, rung - 1, int(counts.get(rung, 0)), int(counts.get(rung - 1, 0))])
 
 
 func _test_table_integrity(main: Node) -> void:

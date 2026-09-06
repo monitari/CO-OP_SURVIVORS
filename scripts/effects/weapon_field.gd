@@ -26,6 +26,10 @@ var struck: Dictionary = {}
 var shard_hits: Dictionary = {}
 var pulls: Array[Dictionary] = []
 var finished_callback: Callable
+## Hostile shots this field is allowed to knock down — the controller's own
+## array, shared rather than copied, so a shot removed here is gone everywhere.
+## Left empty for the fields whose weapons do not shoot things out of the air.
+var enemy_shots: Array = []
 var shatter_frozen := false
 const MAX_RENDER_RADIUS := 1800.0
 const ORBIT_FADE_IN := 0.24
@@ -119,6 +123,7 @@ func _physics_process(delta: float) -> void:
 		# ticks used to miss it entirely, which is why a visibly-connecting ring
 		# often did nothing.
 		_hit_orbit()
+		_break_orbit_shots()
 	elif kind == Kind.FROST:
 		tick -= delta
 		if tick <= 0.0:
@@ -155,6 +160,18 @@ func _hit_orbit() -> void:
 			enemy.take_damage(damage)
 
 
+## Shards bat away what flies into them. Swept every frame at each shard's own
+## position, like the enemy hit above, so a shot crossing the ring between two
+## frames is caught by the same geometry that would have caught a body there.
+func _break_orbit_shots() -> void:
+	if enemy_shots.is_empty():
+		return
+	var phase := age * speed
+	for shard in count:
+		var point := global_position + Vector2.from_angle(phase + TAU * float(shard) / count) * effect_radius
+		EnemyProjectile.break_within(enemy_shots, point, 26.0)
+
+
 func _update_orbit_fade() -> void:
 	var fade_in := smoothstep(0.0, ORBIT_FADE_IN, age)
 	var fade_out := smoothstep(0.0, ORBIT_FADE_OUT, maxf(0.0, duration - age))
@@ -180,6 +197,13 @@ func _hit_scythe() -> void:
 		if offset.length() <= effect_radius + enemy.radius and absf(blade.angle_to(offset.normalized())) <= 0.18 + enemy.radius / maxf(1.0, offset.length()):
 			struck[enemy.get_instance_id()] = true
 			enemy.take_damage(damage)
+	# The crescent cuts shots out of the air on the same pass. Sampled along the
+	# blade line rather than over the whole sector, so a swing clears what it
+	# actually swept through and not everything standing in front of the survivor.
+	if not enemy_shots.is_empty():
+		for step in 4:
+			var along := effect_radius * (0.25 + 0.25 * float(step))
+			EnemyProjectile.break_within(enemy_shots, global_position + blade * along, effect_radius * 0.22)
 
 
 func _step_gravity() -> void:

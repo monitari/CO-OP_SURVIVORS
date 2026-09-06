@@ -23,9 +23,16 @@ signal enraged(enemy: ChaserEnemy)
 ## gaining a flat +5 health per difficulty step. The ramp below is deliberately
 ## zero until this threshold: the early game is already the lethal part, and
 ## making it harder is not what the late curve needs.
-const LATE_GAME_DIFFICULTY := 4.0 ## ~250s at the current DIFFICULTY_SECONDS
-const LATE_HEALTH_PER_STEP := 0.35
-const LATE_DAMAGE_PER_STEP := 0.20
+## Where the stat ramp starts. It used to open at difficulty four — a little
+## over four minutes — so by minute ten an ordinary chaser already carried three
+## times its base health and twice its touch, on top of a spawn rate that had
+## also bottomed out by then. Two curves both finishing early is what made the
+## five-to-ten minute stretch read as the hard part of the run. Starting later
+## and climbing slightly faster puts the same numbers at the twenty-five minute
+## mark while leaving the first ten minutes to the build.
+const LATE_GAME_DIFFICULTY := 5.5 ## ~340s at the current DIFFICULTY_SECONDS
+const LATE_HEALTH_PER_STEP := 0.42
+const LATE_DAMAGE_PER_STEP := 0.22
 ## A twenty-five-minute run reaches difficulty ~24, and an uncapped linear ramp
 ## there means a basic chaser that hits for six times its archetype value —
 ## which is not "harder", it is "one touch kills anyone regardless of build".
@@ -98,6 +105,16 @@ var hit_flash := 0.0
 ## tick for the steering ones, and again on every transform notification for the
 ## facing one, which at a full crowd is tens of thousands of throwaway arrays a
 ## second for a question whose answer cannot change until setup() runs again.
+## Rooftop planters. Not an enemy — it never moves, never touches anyone, and
+## pays out a field drop when it is broken — but modelled as one because "a thing
+## on the field that every weapon can hit" is precisely what this class already
+## is. Making it its own system would have meant teaching a dozen separate damage
+## paths about a second kind of target.
+var scenery := false
+## Bosses and scenery both hold their ground when a crowd walks into them. One
+## flag rather than two tests, because the separation pass reads it for every
+## sampled pair.
+var immovable := false
 var faces_along_heading := false ## Painted facing +X, so it mirrors rather than spins.
 var leads_its_target := false ## Aims where the survivor is going, not where they are.
 var hunts_the_chain := false ## Walks the midpoint between the pair, not the nearer cat.
@@ -120,6 +137,8 @@ static var _batch_cursor := 0
 ## from the start instead of only below half health.
 func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false, rank: int = 0) -> void:
 	archetype = new_archetype
+	scenery = archetype == "planter"
+	immovable = is_boss or scenery
 	faces_along_heading = archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]
 	leads_its_target = archetype in ["wasp", "owl", "mole"]
 	hunts_the_chain = archetype == "chain_hunter" or archetype == "brute"
@@ -223,6 +242,17 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			xp_value = 5
 			enemy_color = Color("ef476f")
 
+	if scenery:
+		# Deliberately fragile and deliberately flat on the difficulty curve: this
+		# is a thing to notice and break, not a fight. Late in a run a planter
+		# should still fall to a single sweep of whatever the pair is carrying.
+		move_speed = 0.0
+		radius = randf_range(20.0, 26.0)
+		max_health = 26.0 + difficulty * 3.0
+		contact_damage = 0.0
+		xp_value = 0
+		xp_grade = 0
+		enemy_color = Color("80ed99")
 	move_speed += minf(difficulty * 2.6, SPEED_RAMP_CAP) + randf_range(-7.0, 9.0)
 	if faces_along_heading:
 		var stats: Array = {
@@ -264,7 +294,6 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		move_speed *= 1.08
 		radius *= 1.3
 		contact_damage *= 1.4
-		xp_value *= 7
 		xp_grade = maxi(xp_grade, 2)
 	if boss:
 		# One explicit multiplier instead of elite x boss, and a gentler contact
@@ -306,6 +335,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	if not is_instance_valid(body_sprite):
 		body_sprite = Sprite2D.new()
 		add_child(body_sprite)
+	body_sprite.visible = true
 	body_sprite.texture = EnemyIcons.get_icon(archetype)
 	body_sprite.scale = Vector2.ONE * (radius * 2.65 / maxf(body_sprite.texture.get_width(), body_sprite.texture.get_height()))
 	body_sprite.modulate = Color.WHITE
@@ -335,6 +365,15 @@ func apply_curse(level: float) -> void:
 
 func step(players: Array[ChainPlayer], delta: float) -> void:
 	if dead or not active:
+		return
+	if scenery:
+		# No steering, no target, no contact. All a planter needs from a tick is
+		# for its hit flash to fade, and at a hundred of them on a late field
+		# that difference is the whole reason this returns here.
+		if hit_flash > 0.0:
+			hit_flash = maxf(0.0, hit_flash - delta / HIT_FLASH_TIME)
+			scale = Vector2.ONE * (1.0 + hit_flash * 0.22)
+			queue_redraw()
 		return
 	contact_cooldown = maxf(0.0, contact_cooldown - delta)
 	var was_slowed := slow_timer > 0.0

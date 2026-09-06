@@ -75,7 +75,8 @@ func _run() -> void:
 			found = found or option["id"] == "evolve_weapon"
 		check(found, "fusion guaranteed even across repeated rerolls")
 	var power := {"id": "weapon_power", "weapon_slot": 0}
-	check(is_equal_approx(Value.gain(main, 0, power), 0.20), "single weapon damage gain is 20 percent")
+	check(is_equal_approx(Value.gain(main, 0, power), main.WEAPON_POWER_STEP - 1.0),
+		"single weapon damage gain matches the card (%.0f percent)" % ((main.WEAPON_POWER_STEP - 1.0) * 100.0))
 	main.weapon_loadouts[0].append(main._build_weapon_state(main.character_catalog[1]))
 	check(Value.gain(main, 0, power) < 0.25, "single weapon gain weighted by whole loadout")
 	var lightning: Dictionary = main.weapon_loadouts[0][1]

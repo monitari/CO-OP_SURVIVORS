@@ -97,6 +97,11 @@ func play_chest(entries: Array) -> void:
 	for entry in entries:
 		var art := _add_icon(entry.get("icon"), 84.0)
 		art.modulate.a = 0.0
+		# Whose it is, parented to the reward so it rides the same arc out of the
+		# box. Eight things can come out at once and each one belongs to one of
+		# two survivors — without this the showcase is a pile of icons and the
+		# only way to find out who got what is to go and read both build rows.
+		_add_owner_badge(art, entry)
 		reward_icons.append(art)
 
 
@@ -120,6 +125,36 @@ func _make_label(font_size: int, ink: Color) -> Label:
 	item.modulate.a = 0.0
 	add_child(item)
 	return item
+
+
+## A portrait plus a P-number under a reward icon. Reward entries with a slot of
+## -1 are the ones that paid out in moon-fish and belong to nobody, so they get
+## no badge at all rather than a badge saying so.
+func _add_owner_badge(art: TextureRect, entry: Dictionary) -> void:
+	var slot := int(entry.get("slot", -1))
+	if slot < 0:
+		return
+	var portrait := entry.get("owner_icon") as Texture2D
+	if portrait != null:
+		var face := TextureRect.new()
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.texture = portrait
+		face.size = Vector2(38.0, 38.0)
+		face.position = Vector2(art.size.x * 0.5 - 19.0, art.size.y - 8.0)
+		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		art.add_child(face)
+	var tag := Label.new()
+	tag.text = "P%d" % (slot + 1)
+	tag.size = Vector2(art.size.x, 20.0)
+	tag.position = Vector2(0.0, art.size.y + 30.0)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tag.add_theme_font_size_override("font_size", 16)
+	tag.add_theme_color_override("font_color", Color("9bf6ff") if slot == 0 else Color("ffb4a2"))
+	tag.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
+	tag.add_theme_constant_override("outline_size", 5)
+	art.add_child(tag)
 
 
 func _add_source(texture: Texture2D) -> void:

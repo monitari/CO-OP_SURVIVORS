@@ -122,17 +122,24 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	_check(main.players[0].global_position.distance_to(anchor.global_position) > radius,
 		"the fixture puts the crowd outside the collapse radius")
 
-	var neighbour_before := neighbour.global_position.x
+	# Measured on the outer body. The well is placed by scoring where it would
+	# catch the most at a useful stand-off, and with two bodies in a line that is
+	# the inner one — so the inner one is the centre and does not travel at all.
+	# The outer one is what has to be seen closing on it.
+	var centre: Vector2 = main.weapon_controller._gravity_centre(0, gravity)
+	_check(centre.distance_to(neighbour.global_position) < 1.0,
+		"the well opens on the near half of the crowd rather than behind it")
+	var anchor_before := anchor.global_position.x
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	await create_timer(0.16).timeout
-	_check(neighbour.global_position.x > neighbour_before and neighbour.global_position.x < anchor.global_position.x,
+	_check(anchor.global_position.x < anchor_before and anchor.global_position.x > centre.x,
 		"the pull travels over time instead of teleporting the crowd")
 	await create_timer(0.7).timeout
-	print("GRAVITY_METRICS: anchor=%.1f neighbour=%.1f moved=%.1f" % [anchor.max_health - anchor.health, neighbour.max_health - neighbour.health, neighbour.global_position.x - neighbour_before])
+	print("GRAVITY_METRICS: anchor=%.1f neighbour=%.1f moved=%.1f" % [anchor.max_health - anchor.health, neighbour.max_health - neighbour.health, anchor_before - anchor.global_position.x])
 	_check(anchor.health < anchor.max_health, "the collapse lands on the crowd, not on the caster")
 	_check(neighbour.health < neighbour.max_health, "and catches what is standing with it")
-	_check(neighbour.global_position.x > neighbour_before,
-		"and finishes closer to the anchor rather than the survivors")
+	_check(anchor.global_position.x < anchor_before,
+		"and finishes drawn in toward the well rather than left where it stood")
 
 	# With nothing in range it must not silently revert to the old behaviour of
 	# detonating on top of the pair.
@@ -373,6 +380,13 @@ func _test_milk_lands_where_it_lands(main: Node) -> void:
 	underfoot.health = 100000.0
 	underfoot.max_health = 100000.0
 	main.spatial_grid.rebuild(main.enemies)
+	# 우유 흩뿌리기 opens with a single pool now, like every other weapon that
+	# throws more than one thing. The scatter is what 개수 buys, so the fixture
+	# asks for four to check that the scatter still works — and asserts the
+	# catalogue really does hand out one, which is the part that changed.
+	_check(int(CharacterCatalog.all_characters()[11]["weapon"]["count"]) == 1,
+		"the catalogue starts 라떼 on a single pool")
+	milk["count"] = 4
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 
 	var pools: Array[MilkPool] = []

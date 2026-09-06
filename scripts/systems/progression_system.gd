@@ -40,6 +40,15 @@ func consume_level_up() -> bool:
 	# again. What moved it was raising what elites and bosses pay out, which
 	# had the run landing at fifty-four level-ups rather than the high forties
 	# the tech tree is sized for.
-	required_experience = int(round(float(required_experience) * 1.05 + 315.0))
+	# Raised alongside the grade payout in main. Weighting the rungs so a late
+	# prism is worth five motes is what stops the back half of a run drifting into
+	# a level-up drought, but on its own it also handed the front half far more
+	# than it needed — the soak came out at seventy-one levels. This takes the
+	# surplus back out and leaves the shape the payout was there to fix: the run
+	# lands around fifty-seven levels with the late gap no longer wider than the
+	# early one (28.4s early, 25.8s late, against 27.7 and 34.0 before). A few
+	# more levels than the high forties is deliberate — weapons now open much
+	# weaker and are meant to be carried by what a player spends on them.
+	required_experience = int(round(float(required_experience) * 1.05 + 470.0))
 	return true
 

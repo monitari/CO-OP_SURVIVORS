@@ -66,9 +66,20 @@ func save_progress() -> Error:
 
 
 func award_clear() -> int:
-	points += CLEAR_REWARD
+	return award(CLEAR_REWARD)
+
+
+## Moon-fish from anywhere else. A chest opened by a pair who already own
+## everything it could have contained pays out here instead of finding something
+## to inflate, so the box is never a disappointment and the run still banks
+## something the next one keeps.
+func award(amount: int) -> int:
+	var granted := maxi(0, amount)
+	if granted <= 0:
+		return 0
+	points += granted
 	save_progress()
-	return CLEAR_REWARD
+	return granted
 
 
 func rank(id: String) -> int:

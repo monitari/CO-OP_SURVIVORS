@@ -23,6 +23,12 @@ func _initialize() -> void:
 ## Solid bodies are also what makes a bigger crowd mean anything: two hundred
 ## enemies that can occupy the same point are not a horde, they are a stack.
 func _run() -> void:
+	# Seeded like the other instruments here. The stack fixture is twenty bodies
+	# scattered by a few pixels, and separation resolves each body on alternate
+	# ticks, so an unseeded draw occasionally put the whole stack on one side of
+	# a cell boundary and the settle measurement swung from 0.19 to 0.67 with no
+	# code change behind it.
+	seed(20260906)
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame

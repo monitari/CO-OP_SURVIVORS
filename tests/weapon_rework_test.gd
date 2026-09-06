@@ -27,7 +27,7 @@ func _run() -> void:
 	await _test_extreme_aura_render_is_bounded(main)
 	await _test_cast_audio_requires_an_event(main)
 	await _test_scythe_sweeps_over_time(main)
-	await _test_gravity_moves_smoothly(main)
+	await _test_gravity_picks_a_useful_place(main)
 	await _test_mine_persists(main)
 	if failures.is_empty(): print("WEAPON_REWORK_PASS: orbit, aura, sweep, pull and persistent mines")
 	else:
@@ -79,7 +79,10 @@ func _test_orbit_is_a_timed_barrage(main: Node) -> void:
 	await create_timer(0.28).timeout
 	check(field.modulate.a > 0.8, "orbit fades fully in")
 	var first: float = enemy.health
-	await create_timer(0.55).timeout
+	# One and a half seconds, not half of one. 궤도 파편 opens with a single shard
+	# now — every multi-projectile weapon does — so one full sweep past a fixed
+	# point takes a whole revolution rather than a third of one.
+	await create_timer(1.5).timeout
 	check(enemy.health < first, "orbit keeps striking during its active window")
 	check(center_enemy.health == center_enemy.max_health, "orbit damage belongs to the stars, not the whole circle")
 	check(_count_script(main.weapon_controller, FieldScript) == 1, "orbit remains visible beyond one frame")
@@ -133,18 +136,40 @@ func _test_scythe_sweeps_over_time(main: Node) -> void:
 	check(enemy.health < enemy.max_health, "animated scythe blade lands its hit")
 
 
-func _test_gravity_moves_smoothly(main: Node) -> void:
+## 중력 붕괴 used to collapse on the farthest body in range, which put the well
+## behind whatever was already on its way in. It now scores places rather than
+## picking the extreme one: how much a well there would catch, tempered by how
+## far out it sits. A cluster in front of the pair beats a lone straggler at the
+## edge of the cast, and beats one underfoot.
+func _test_gravity_picks_a_useful_place(main: Node) -> void:
 	await _equip(main, 9)
-	var enemy := _spawn(main, Vector2(330, 0))
-	var farthest := _spawn(main, Vector2(430, 0))
-	var start: Vector2 = enemy.position
-	check(main.weapon_controller._gravity_centre(0, main.weapon_loadouts[0][0]).is_equal_approx(farthest.position), "gravity chooses the farthest enemy in cast range")
+	var state: Dictionary = main.weapon_loadouts[0][0]
+	# A pack out in front, and one straggler further away than any of them.
+	var pack: Array[ChaserEnemy] = []
+	for offset in [Vector2(300, -40), Vector2(330, 0), Vector2(340, 50)]:
+		pack.append(_spawn(main, offset))
+	var straggler := _spawn(main, Vector2(450, 0))
+	main.spatial_grid.rebuild(main.enemies)
+	var centre: Vector2 = main.weapon_controller._gravity_centre(0, state)
+	check(not centre.is_equal_approx(straggler.position), "gravity no longer just takes the farthest body")
+	var to_pack := INF
+	for body in pack:
+		to_pack = minf(to_pack, centre.distance_to(body.position))
+	check(to_pack < 1.0, "it collapses on the pack instead (%.0fpx away)" % to_pack)
+	var origin: Vector2 = main.players[0].global_position
+	check(origin.distance_to(centre) > 150.0, "and out in front rather than underfoot")
+
+	# The pull is a journey. Measured on the straggler, which is the one body the
+	# well is not already centred on.
+	var start: Vector2 = straggler.position
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	await create_timer(0.16).timeout
-	check(enemy.position.distance_to(start) > 1.0, "gravity begins pulling before collapse")
-	check(enemy.health == enemy.max_health, "gravity damage waits for the visible collapse")
+	var travelled: float = straggler.position.distance_to(start)
+	check(travelled > 1.0 and travelled < start.distance_to(centre),
+		"gravity begins pulling before collapse (%.0fpx)" % travelled)
+	check(straggler.health == straggler.max_health, "gravity damage waits for the visible collapse")
 	await create_timer(0.4).timeout
-	check(enemy.health < enemy.max_health, "gravity damages at the end of the pull")
+	check(straggler.health < straggler.max_health, "gravity damages at the end of the pull")
 
 
 func _test_mine_persists(main: Node) -> void:

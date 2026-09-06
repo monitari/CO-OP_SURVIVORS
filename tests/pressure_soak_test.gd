@@ -126,7 +126,14 @@ func _run() -> void:
 	_check(survived >= 40.0, "the pair survives the learning window (survived %.1fs)" % survived)
 	_check(first_down_time < 0.0 or first_down_time >= 35.0,
 		"the first down comes after the opening lessons (%.1fs)" % first_down_time)
-	_check(main.kills >= 25, "the automated pair is actually clearing enemies (%d kills)" % main.kills)
+	# Lowered from 25 when two things moved underneath it at once: a starting
+	# weapon is now about three quarters of what it was, and the opening spawn
+	# stream was eased to match, so there is both less killing power and less to
+	# kill. What this guard is actually for — a pair that cannot fight at all —
+	# is measured by the two checks above it, and those did not move: survival
+	# held at 56s against the old 57s and the down count is unchanged. Only the
+	# clear rate fell, which is the trade the rebalance was asking for.
+	_check(main.kills >= 15, "the automated pair is actually clearing enemies (%d kills)" % main.kills)
 	_check(peak_active < main.wave_director.enemy_cap, "culling keeps the active count under the cap (peak %d)" % peak_active)
 	_check(downs > 0 or survived < 240.0 or not main.run_won,
 		"an unattended pair does not sail through a full run untouched")

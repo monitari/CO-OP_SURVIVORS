@@ -20,6 +20,7 @@ const MetaProgressionScript := preload("res://scripts/systems/meta_progression.g
 const IconCatalog := preload("res://scripts/ui/icon_catalog.gd")
 const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
+const ItemStateVeilScript := preload("res://scripts/ui/item_state_veil.gd")
 const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
@@ -35,8 +36,21 @@ const WEAPON_LOADOUT_CAP := 4
 ## Treasures are the other half of a build. Attributes used to be unlimited
 ## free-floating cards; a survivor now commits to four and deepens those.
 const TREASURE_LOADOUT_CAP := 4
-const BASE_WEAPON_DAMAGE_SCALE := 0.90
-const WEAPON_POWER_STEP := 1.20
+## What a weapon is worth before anyone has spent anything on it, and what one
+## card is worth once they start. These two numbers are the shape of a run: the
+## first decides how strong the thing you are handed is, the second decides how
+## much of your build is the thing you chose to grow.
+##
+## They were 0.90 and 1.20, which made a starting weapon most of a finished one —
+## eight cards took it to four and a third times its opening damage, and against
+## the enemy curve that meant the opening was the strong part and upgrades were a
+## formality. A weapon now opens at roughly three quarters of what it used to and
+## each card is worth half again as much as it was, so a maxed one lands higher
+## than before while the route there is the interesting part.
+const BASE_WEAPON_DAMAGE_SCALE := 0.68
+const WEAPON_POWER_STEP := 1.28
+## Multiplier one 속도 card applies to a weapon's cooldown, floored at 0.32s.
+const WEAPON_RATE_STEP := 0.90
 
 ## Enemies spawn 610-760px out and never stopped chasing, so anything that
 ## drifted off — a shooter backing away, a charger that overshot — stayed
@@ -123,6 +137,7 @@ var cinematic_continuation := Callable()
 var cinematic_resume_paused := false
 var arena_floor: ArenaFloor
 var modal_dim: ColorRect
+var item_state_veil: ItemStateVeil
 var world_camera: Camera2D
 var spatial_grid: EnemySpatialGrid
 var progression: SharedProgression
@@ -236,6 +251,7 @@ var run_stats := {
 	"resonance_casts": 0,
 	"items": 0,
 	"reflected": 0.0,
+	"planters": 0,
 }
 
 var chain_max_length := 370.0
@@ -264,6 +280,12 @@ var _profile_frame_at := 0
 var level_overlay_tween: Tween
 var chain_ward_remaining := 0.0
 var chain_ward_pulse_timer := 0.0
+## Live hostile shots. Kept as a list rather than found by walking the child
+## nodes each time, because the weapons that shoot them down have to reach them
+## from another node entirely, and because a time stop used to scan every child
+## in the scene — a couple of thousand of them — to find the few dozen that were
+## projectiles.
+var enemy_shots: Array = []
 var guard_remaining := 0.0
 var frenzy_remaining := 0.0
 var time_stop_remaining := 0.0
@@ -289,7 +311,12 @@ const CHEST_LUCK_CHANCE := 0.006
 ## Luck moves the odds; it does not turn every elite into a chest. Without the
 ## ceiling a maxed-luck greedy pair opened four chests a minute.
 const CHEST_MAX_CHANCE := 0.7
-const CHEST_MAX_REWARDS := 4
+## A chest can hand out as many as this. Eight is deliberately close to never:
+## the ladder in _roll_chest_reward_count puts it under a tenth of a percent, so
+## it exists to be talked about rather than planned around.
+const CHEST_MAX_REWARDS := 8
+## Moon-fish paid instead of a reward the pair has no room for.
+const CHEST_POINT_REWARD := 2
 ## 사슬 결계 used to be 사슬 정비: it topped up the integrity bar and did
 ## nothing else, which made the rarest-but-one drop in the game a number going
 ## up. It is now a window instead of a refund — for its duration the chain
@@ -372,6 +399,9 @@ func _ready() -> void:
 	weapon_controller = WeaponControllerScript.new() as WeaponController
 	add_child(weapon_controller)
 	weapon_controller.configure(players, weapon_loadouts, spatial_grid)
+	# Handed over rather than copied: four weapons knock shots down, and they do
+	# it from inside the controller and from inside the fields it spawns.
+	weapon_controller.enemy_shots = enemy_shots
 	weapon_controller.cue_requested.connect(feedback.play_cue)
 	_create_hud()
 	ReviewUI.install(self)
@@ -542,8 +572,8 @@ func _physics_process(delta: float) -> void:
 		var enemy := enemies[enemy_index] as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
-		# The boss is the objective — it is never recycled for wandering off.
-		if not enemy.boss and enemy.global_position.distance_squared_to(cull_origin) > cull_radius_squared:
+		# Bosses and fixed scenery remain in the world when the pair wanders away.
+		if not enemy.boss and not enemy.scenery and enemy.global_position.distance_squared_to(cull_origin) > cull_radius_squared:
 			enemies.remove_at(enemy_index)
 			wave_director.release_enemy(enemy)
 			continue
@@ -602,6 +632,7 @@ func _physics_process(delta: float) -> void:
 
 	_profile("resonance")
 	_update_hud()
+	_refresh_item_state_veil()
 	_profile("hud")
 	if profiling:
 		profile_frame_usec.append(Time.get_ticks_usec() - _profile_frame_at)
@@ -737,6 +768,11 @@ func _create_hud() -> void:
 	modal_dim.size = Vector2(1280.0, 720.0)
 	modal_dim.visible = false
 	layer.add_child(modal_dim)
+	# Between the play field and the HUD text: it has to tint the fight without
+	# tinting the numbers a player reads to understand the fight.
+	item_state_veil = ItemStateVeilScript.new() as ItemStateVeil
+	item_state_veil.name = "ItemStateVeil"
+	layer.add_child(item_state_veil)
 	var screen_host := layer
 	combat_hud = Control.new()
 	combat_hud.name = "CombatHUD"
@@ -1572,6 +1608,11 @@ func _start_selected_run() -> void:
 	guard_remaining = 0.0
 	frenzy_remaining = 0.0
 	time_stop_remaining = 0.0
+	# Cleared in place: the controller and its fields hold this same array.
+	for shot in enemy_shots:
+		if is_instance_valid(shot):
+			(shot as EnemyProjectile).queue_free()
+	enemy_shots.clear()
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
 	for key in run_stats:
@@ -1582,6 +1623,8 @@ func _start_selected_run() -> void:
 	team_luck = meta_progression.team_luck_bonus()
 	team_curse = 0.0
 	wave_director.curse_level = 0.0
+	wave_director.planters_alive = 0
+	wave_director.checked_planter_cells.clear()
 	team_overcharge = 0.0
 	team_greed = 0.0
 	team_level_heal = 0.0
@@ -1705,6 +1748,24 @@ func world_stopped() -> bool:
 
 ## The three timed field windows. Each one announces its own end, because a
 ## window whose expiry is invisible is a window players cannot plan around.
+## Hands the veil every window that is currently open. Assembled here rather
+## than read out of main by the veil itself, so the one place that knows what a
+## timed item is is also the one place that says what it looks like.
+func _refresh_item_state_veil() -> void:
+	if not is_instance_valid(item_state_veil):
+		return
+	var windows: Dictionary = {}
+	if time_stop_remaining > 0.0:
+		windows["time_stop"] = [time_stop_remaining, TIME_STOP_DURATION]
+	if frenzy_remaining > 0.0:
+		windows["frenzy"] = [frenzy_remaining, FRENZY_DURATION]
+	if guard_remaining > 0.0:
+		windows["guard"] = [guard_remaining, GUARD_DURATION]
+	if chain_ward_remaining > 0.0:
+		windows["chain_ward"] = [chain_ward_remaining, CHAIN_WARD_DURATION]
+	item_state_veil.refresh(windows)
+
+
 func _update_timed_items(delta: float) -> void:
 	if guard_remaining > 0.0:
 		guard_remaining = maxf(0.0, guard_remaining - delta)
@@ -1724,10 +1785,15 @@ func _update_timed_items(delta: float) -> void:
 			_show_message("광란 진정", Color("8ecae6"))
 	if time_stop_remaining > 0.0:
 		time_stop_remaining = maxf(0.0, time_stop_remaining - delta)
-		for child in get_children():
-			var shot := child as EnemyProjectile
-			if shot != null:
-				shot.frozen = time_stop_remaining > 0.0
+		# Walked backwards so shots that have already gone can be dropped on the
+		# way through; nothing else prunes this list except the weapons that
+		# empty it deliberately.
+		for index in range(enemy_shots.size() - 1, -1, -1):
+			var shot := enemy_shots[index] as EnemyProjectile
+			if not is_instance_valid(shot):
+				enemy_shots.remove_at(index)
+				continue
+			shot.frozen = time_stop_remaining > 0.0
 		if time_stop_remaining <= 0.0:
 			_show_message("시간이 다시 흐릅니다", Color("c77dff"))
 			feedback.play_cue("warning")
@@ -1934,7 +2000,17 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 	var projectile := EnemyProjectileScript.new() as EnemyProjectile
 	projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
 	projectile.setup(origin, direction, damage, players)
+	projectile.broken.connect(_on_enemy_shot_broken)
+	enemy_shots.append(projectile)
 	add_child(projectile)
+
+
+## A shot knocked out of the air by 월식 낫, 결속 파동, 궤도 파편 or 지뢰 결계.
+## It gets its own spark and its own note: a shot that simply stopped existing
+## would read as the weapon having missed it rather than having answered it.
+func _on_enemy_shot_broken(at: Vector2) -> void:
+	particles.emit_sparks(at, Color("ffd166"), 5, 190.0)
+	feedback.play_cue("hit")
 
 
 ## The boss's Chain Slam always drains chain integrity directly — it is
@@ -2281,7 +2357,7 @@ func _separate_crowd() -> void:
 func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 	if not is_instance_valid(first) or not is_instance_valid(second) or first.dead or second.dead:
 		return
-	if first.boss and second.boss:
+	if first.immovable and second.immovable:
 		return
 	var offset := second.global_position - first.global_position
 	var minimum := (first.radius + second.radius) * CROWD_OVERLAP_SLACK
@@ -2293,8 +2369,8 @@ func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 	var push := (minimum - distance) * CROWD_PUSH
 	# Share of the correction each one takes: the smaller body moves more, and a
 	# boss takes none of it at all.
-	var first_share := 0.0 if first.boss else (1.0 if second.boss else second.radius / (first.radius + second.radius))
-	var second_share := 0.0 if second.boss else (1.0 if first.boss else first.radius / (first.radius + second.radius))
+	var first_share := 0.0 if first.immovable else (1.0 if second.immovable else second.radius / (first.radius + second.radius))
+	var second_share := 0.0 if second.immovable else (1.0 if first.immovable else first.radius / (first.radius + second.radius))
 	first.position -= direction * push * first_share
 	second.position += direction * push * second_share
 
@@ -2334,6 +2410,9 @@ func _cull_enemy(enemy: ChaserEnemy) -> void:
 
 func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	var death_position := enemy.global_position
+	if enemy.scenery:
+		_on_planter_broken(enemy, death_position)
+		return
 	var dropped_xp := enemy.xp_value
 	var dropped_grade := enemy.xp_grade
 	var defeated_boss := enemy.boss
@@ -2393,8 +2472,34 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 ## the grade of the gem, which ChaserEnemy sets from the archetype and how far
 ## into the run it died, so the floor reads as a spread of ranks rather than a
 ## uniform sprinkle.
+## What a drop is worth, by the rung it landed on.
+##
+## The smallest is deliberately untouched: an early mouse should still be worth
+## an early mouse, and the opening minutes are paced against that number. Every
+## rung above it now pays much more than the one below. Late in a run the ladder
+## has lifted and almost everything dying is a shard or a prism, so this is what
+## keeps level-ups arriving at minute twenty instead of the curve flattening out
+## the moment the experience requirement outgrows what a mote is worth.
+const XP_GRADE_REWARD := [1.0, 2.0, 4.0, 8.0]
+
+
+## A planter opened. It is not a kill — it does not count toward the tally, it
+## pays no experience, and it cannot roll a chest — so it takes none of the death
+## path below. What it does is hand over a field drop every time, which is the
+## whole reason to walk over and break one.
+func _on_planter_broken(enemy: ChaserEnemy, at: Vector2) -> void:
+	enemies.erase(enemy)
+	wave_director.release_enemy(enemy)
+	bursts.spawn(at, Color("80ed99"), 1.2)
+	particles.emit_motes(at, Color("b7e4c7"), 10)
+	feedback.play_cue("kill")
+	field_items.spawn_item(at, field_items.roll_item_id())
+	run_stats["planters"] = int(run_stats.get("planters", 0)) + 1
+
+
 func _drop_experience(at: Vector2, amount: int, grade: int, _notable: bool) -> void:
-	experience_system.spawn_gem(at, amount, grade)
+	var rung := clampi(grade, 0, XP_GRADE_REWARD.size() - 1)
+	experience_system.spawn_gem(at, maxi(1, roundi(float(amount) * XP_GRADE_REWARD[rung])), grade)
 
 
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
@@ -2520,27 +2625,53 @@ func _open_chest() -> Array[Dictionary]:
 		if candidates.is_empty():
 			candidates = _chest_unlock_candidates()
 		if candidates.is_empty():
-			results.append({"label": _apply_chest_transcendence(), "icon": IconCatalog.upgrade("might")})
+			# Nothing left that either survivor can still take. The box pays in
+			# moon-fish rather than inventing a reward, so a late chest opened by
+			# a finished build is worth something to the next run.
+			var paid := meta_progression.award(CHEST_POINT_REWARD)
+			results.append({
+				"label": "달빛 생선 +%d" % paid,
+				"icon": IconCatalog.upgrade("luck"),
+				"slot": -1,
+			})
 			continue
 		var chosen := _choose_chest_candidate(candidates)
 		var slot := int(chosen["slot"])
 		var option: Dictionary = chosen["option"]
 		var art := IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
 		_apply_upgrade(slot, option)
-		results.append({"label": "P%d %s" % [slot + 1, String(chosen["label"])], "icon": art})
+		results.append({
+			"label": "P%d %s" % [slot + 1, String(chosen["label"])],
+			"icon": art,
+			"slot": slot,
+			# The portrait is what actually reads at a glance while eight things
+			# are flying out of a box: a player finds their own cat, not a "P2".
+			"owner_icon": IconCatalog.survivor(String(selected_characters[slot]["id"])) if selected_characters[slot] != null else null,
+		})
 	return results
 
 
+## How many things come out. Every rung is rarer than the one below it and the
+## top of the ladder is close to never — a chest is a moment, and a moment that
+## happens reliably is a formality. Luck shifts the whole roll down rather than
+## widening any single band, so a lucky pair sees the middle of the ladder more
+## often without the top of it becoming something to plan around.
+const CHEST_REWARD_LADDER := [
+	[0.0008, CHEST_MAX_REWARDS],
+	[0.004, 7],
+	[0.012, 6],
+	[0.030, 5],
+	[0.065, 4],
+	[0.130, 3],
+	[0.300, 2],
+]
+
+
 func _roll_chest_reward_count() -> int:
-	# Multiple rewards are exciting, not dependable. Luck nudges the roll but
-	# even a very lucky team cannot turn four-item jackpots into the norm.
-	var roll := maxf(0.0, randf() - minf(0.05, float(team_luck) * 0.0025))
-	if roll < 0.015:
-		return CHEST_MAX_REWARDS
-	if roll < 0.07:
-		return 3
-	if roll < 0.25:
-		return 2
+	var roll := maxf(0.0, randf() - minf(0.06, float(team_luck) * 0.003))
+	for rung in CHEST_REWARD_LADDER:
+		if roll < float(rung[0]):
+			return int(rung[1])
 	return 1
 
 
@@ -2603,18 +2734,31 @@ func _chest_unlock_candidates() -> Array[Dictionary]:
 	return candidates
 
 
+## Who gets this one.
+##
+## The box used to hand every reward to whichever build was shallower, which was
+## fair and completely predictable — two survivors opening a chest together knew
+## the answer before it opened, and a chest that spilled four things spread them
+## two and two every time. Each reward now rolls its own owner, so one survivor
+## walking away with the whole box is a thing that happens; the showcase says who
+## got what, which is what makes the roll worth watching rather than worth
+## auditing afterwards.
+##
+## Priority still decides *what* comes out — a fusion beats a tier, a tier beats
+## a new toy — so randomising the owner never downgrades the reward itself.
 func _choose_chest_candidate(candidates: Array[Dictionary]) -> Dictionary:
 	var highest_priority := 0
 	for candidate in candidates:
 		highest_priority = maxi(highest_priority, int(candidate["priority"]))
 	var priority_pool := candidates.filter(func(candidate: Dictionary) -> bool: return int(candidate["priority"]) == highest_priority)
-	# If both players have equivalent options, the shallower build receives the
-	# gift. This stops a shared co-op chest from snowballing one survivor.
-	var shallowest := 999
-	for candidate in priority_pool:
-		shallowest = mini(shallowest, _build_depth(int(candidate["slot"])))
-	var fair_pool := priority_pool.filter(func(candidate: Dictionary) -> bool: return _build_depth(int(candidate["slot"])) == shallowest)
-	return fair_pool.pick_random()
+	# The owner is rolled first and the reward second, rather than picking from
+	# the pooled list: drawing straight from the pool would quietly favour
+	# whichever survivor happened to have more options open.
+	var wanted := 0 if randf() < 0.5 else 1
+	var owned := priority_pool.filter(func(candidate: Dictionary) -> bool: return int(candidate["slot"]) == wanted)
+	if owned.is_empty():
+		owned = priority_pool
+	return owned.pick_random()
 
 
 func _build_depth(slot: int) -> int:
@@ -2624,15 +2768,6 @@ func _build_depth(slot: int) -> int:
 	for treasure in treasure_loadouts[slot]:
 		depth += int((treasure as Dictionary).get("tier", 1))
 	return depth
-
-
-func _apply_chest_transcendence() -> String:
-	var slot := 0 if _build_depth(0) <= _build_depth(1) else 1
-	if weapon_loadouts[slot].is_empty():
-		return "온기 회복"
-	var weapon: Dictionary = weapon_loadouts[slot].pick_random()
-	weapon["damage"] = float(weapon["damage"]) * 1.08
-	return "P%d %s 초월" % [slot + 1, String(weapon["weapon_name"])]
 
 
 ## Adds a showcase to the queue. `front` is for a chest, whose own opening has
@@ -3515,7 +3650,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		"weapon_power":
 			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * WEAPON_POWER_STEP, tier_hint]
 		"weapon_rate":
-			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * 0.93), tier_hint]
+			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP), tier_hint]
 		"special_a", "special_b":
 			var spec := _special_spec(weapon_id, upgrade_id.substr(upgrade_id.length() - 1))
 			if not spec.is_empty():
@@ -3645,7 +3780,7 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		"weapon_power":
 			state["damage"] = float(state["damage"]) * WEAPON_POWER_STEP
 		"weapon_rate":
-			state["cooldown"] = maxf(0.32, float(state["cooldown"]) * 0.93)
+			state["cooldown"] = maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP)
 		"special_a", "special_b":
 			var key := upgrade_id.substr(upgrade_id.length() - 1)
 			var spec := _special_spec(weapon_id, key)

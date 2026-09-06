@@ -10,7 +10,7 @@ static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 	if index >= 0:
 		var w: Dictionary = main.weapon_loadouts[slot][index]
 		if id == "weapon_rate":
-			return maxf(0.25, maxf(0.32, float(w["cooldown"]) * 0.93) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
+			return maxf(0.25, maxf(0.32, float(w["cooldown"]) * main.WEAPON_RATE_STEP) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
 		if id in ["special_a", "special_b"]:
 			# 보름베기 has a second way of being useless that the spec itself
 			# cannot see: a survivor whose area multiplier has already pushed
@@ -109,7 +109,7 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 		var w: Dictionary = loadout[index]
 		match id:
 			"weapon_power": w["damage"] *= main.WEAPON_POWER_STEP
-			"weapon_rate": w["cooldown"] = maxf(0.32, w["cooldown"] * 0.93)
+			"weapon_rate": w["cooldown"] = maxf(0.32, w["cooldown"] * main.WEAPON_RATE_STEP)
 			# Both specials run through the same table the real upgrade does, on
 			# this throwaway copy of the loadout. The old version listed six of
 			# the twenty specials by hand, so the scorer was silently pricing

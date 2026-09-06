@@ -115,7 +115,7 @@ func _draw_props(low: Vector2, high: Vector2) -> void:
 			if absf(at.x) < 560.0 and absf(at.y) < 350.0:
 				continue
 			match rng.randi() % 4:
-				0: _planter(at)
+				0: pass # Reserved for the breakable planter entity.
 				1: _box(at)
 				2: _vent(at)
 				_: _yarn(at)
@@ -127,13 +127,6 @@ func _draw_props(low: Vector2, high: Vector2) -> void:
 func _cell_seed(cell_x: int, cell_y: int) -> int:
 	var mixed := (cell_x * 73856093) ^ (cell_y * 19349663)
 	return absi(mixed) + 20260905
-
-
-func _planter(at: Vector2) -> void:
-	draw_set_transform(at + Vector2(38, 25), 0, Vector2(1.0, 0.4))
-	draw_circle(Vector2.ZERO, 42, Color(0.05, 0.12, 0.14, 0.3))
-	draw_set_transform(Vector2.ZERO)
-	draw_texture_rect(EnemyIcons.get_icon("planter"), Rect2(at + Vector2(-2, -47), Vector2(86, 86)), false, Color("829589"))
 
 
 func _box(at: Vector2) -> void:

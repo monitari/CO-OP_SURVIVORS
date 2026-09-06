@@ -28,14 +28,25 @@ const RUN_LENGTH := BOSS_INTERVAL * float(BOSS_COUNT)
 ## Seconds of elapsed run per point of difficulty. Stretched with the run so a
 ## twenty-five-minute fight does not simply arrive at five times the old scaling.
 const DIFFICULTY_SECONDS := 62.0
-const OPENING_SPAWN_INTERVAL := 1.25
-const SECOND_WAVE_SPAWN_INTERVAL := 1.05
-const THIRD_WAVE_SPAWN_INTERVAL := 0.88
+## The learning window. Eased alongside the weapon rebalance: a starting weapon
+## is now about three quarters of what it used to be, and against the old opening
+## stream a normal-health pair was going down inside ninety seconds.
+const OPENING_SPAWN_INTERVAL := 1.45
+const SECOND_WAVE_SPAWN_INTERVAL := 1.20
+const THIRD_WAVE_SPAWN_INTERVAL := 1.00
 const FIRST_REINFORCEMENT_COUNT := 3
+## Reached around wave forty rather than wave nine. Everything past that point
+## is held at the floor, which is what the last few minutes of a run are for.
+const SPAWN_INTERVAL_FLOOR := 0.10
 const CHARGER_UNLOCK_TIME := 30.0
 const BULWARK_UNLOCK_TIME := 75.0
 const SWARM_UNLOCK_TIME := 45.0
 const SWARM_INTERVAL := 22.0
+## Breakable scenery is generated from world cells as the pair explores the
+## endless roof. A cell's seed makes its planter location stable on revisits,
+## while the checked-cell set prevents duplicate entities or respawns.
+const PLANTER_CELL := 512
+const PLANTER_SCAN_RADIUS := 3
 
 ## Named encounters, on their own clock, so a long run has events in it rather
 ## than a single rising slope. Each one poses a different question: a tide is
@@ -77,6 +88,8 @@ var wave_elapsed := 0.0
 var in_calm := false
 var encounter_timer := ENCOUNTER_FIRST
 var encounters_run := 0
+var planters_alive := 0 ## Kept current by main as they are broken or culled.
+var checked_planter_cells: Dictionary = {}
 
 
 ## The assault stretch tightens as waves go on, but never below a floor — the
@@ -92,11 +105,15 @@ func spawn_interval() -> float:
 		return SECOND_WAVE_SPAWN_INTERVAL / curse_density
 	if wave_index == 2:
 		return THIRD_WAVE_SPAWN_INTERVAL / curse_density
-	# Steeper and with a lower floor than before. The old curve flattened out
-	# around wave eight, so minute ten and minute twenty-five felt the same —
-	# and with bodies no longer able to stack, a given number of enemies now
-	# takes up much more room than it used to.
-	return maxf(0.10, (0.62 - float(wave_index) * 0.055) / curse_density)
+	# Drawn against the length of the run rather than against its first few
+	# minutes. At 0.055 a wave this hit its floor at wave nine — four and a half
+	# minutes in — and then sat there for the remaining twenty, which is why the
+	# five-to-ten minute stretch felt like the end of the run arriving early and
+	# why minute ten and minute twenty-five felt identical. The slope now starts
+	# where the third wave leaves off and reaches the same floor around wave
+	# forty-three, a little under twenty-two minutes, so the pressure a player
+	# feels tracks how far into the run they actually are.
+	return maxf(SPAWN_INTERVAL_FLOOR, (0.86 - float(wave_index) * 0.0175) / curse_density)
 
 
 func is_surge_wave(index: int) -> bool:
@@ -121,6 +138,7 @@ func encounter_name(encounter_id: String) -> String:
 func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> Array[ChaserEnemy]:
 	var spawned: Array[ChaserEnemy] = []
 	var difficulty := elapsed / DIFFICULTY_SECONDS
+	spawned.append_array(_spawn_planters_near(center, difficulty))
 	var reserved := scheduled_slots(delta, elapsed)
 	var shortage := maxi(0, active_count + reserved - enemy_cap)
 	if reserved > 0 and shortage > 0 and reclaim_capacity.is_valid():
@@ -154,7 +172,6 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 
 	spawn_timer -= delta
 	elite_timer -= delta
-
 	# --- bosses -------------------------------------------------------------
 	# One every five minutes, each stronger than the last, and never two at
 	# once: if the pair is still fighting boss three when boss four comes due,
@@ -209,6 +226,39 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 				break
 			spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, false, false))
 	return spawned
+
+
+func _spawn_planters_near(center: Vector2, difficulty: float) -> Array[ChaserEnemy]:
+	var spawned: Array[ChaserEnemy] = []
+	var center_cell := Vector2i(int(floor(center.x / PLANTER_CELL)), int(floor(center.y / PLANTER_CELL)))
+	for cell_x in range(center_cell.x - PLANTER_SCAN_RADIUS, center_cell.x + PLANTER_SCAN_RADIUS + 1):
+		for cell_y in range(center_cell.y - PLANTER_SCAN_RADIUS, center_cell.y + PLANTER_SCAN_RADIUS + 1):
+			var cell := Vector2i(cell_x, cell_y)
+			if checked_planter_cells.has(cell):
+				continue
+			checked_planter_cells[cell] = true
+			var rng := RandomNumberGenerator.new()
+			rng.seed = _cell_seed(cell_x, cell_y)
+			if rng.randf() > 0.62:
+				continue
+			var at := Vector2(
+				cell_x * PLANTER_CELL + rng.randf_range(60.0, PLANTER_CELL - 140.0),
+				cell_y * PLANTER_CELL + rng.randf_range(60.0, PLANTER_CELL - 140.0)
+			)
+			if absf(at.x) < 560.0 and absf(at.y) < 350.0:
+				continue
+			if rng.randi() % 4 != 0:
+				continue
+			var planter := _acquire_enemy("planter", difficulty, center, false, false)
+			planter.position = at
+			planters_alive += 1
+			spawned.append(planter)
+	return spawned
+
+
+func _cell_seed(cell_x: int, cell_y: int) -> int:
+	var mixed := (cell_x * 73856093) ^ (cell_y * 19349663)
+	return absi(mixed) + 20260905
 
 
 func encounter_size(elapsed: float) -> int:
@@ -296,6 +346,11 @@ func _run_encounter(
 func release_enemy(enemy: ChaserEnemy) -> void:
 	if enemy in enemy_pool:
 		return
+	# Counted here rather than where a planter is broken, because the other way
+	# one leaves the field is being culled when the pair walks off and leaves it
+	# behind — and a cap that only counted deaths would fill up and stay full.
+	if enemy.scenery:
+		planters_alive = maxi(0, planters_alive - 1)
 	enemy.deactivate()
 	enemy_pool.append(enemy)
 

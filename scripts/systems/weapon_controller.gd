@@ -24,6 +24,12 @@ var chain_tension := 0.0
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
 var sustained_fields: Dictionary = {}
+## Main's own list of live hostile shots, shared rather than copied. Four
+## weapons are allowed to knock them down — the crescent that sweeps a sector,
+## the tether that is a line between the pair, the ring of shards, and the mine
+## that goes off — and all four are things that already occupy space rather than
+## fire past it, which is what makes shooting down a shot read as earned.
+var enemy_shots: Array = []
 const MINE_CAP_PER_PLAYER := 10
 
 
@@ -479,6 +485,7 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: C
 	var direction := _aim_direction(player_index, attack_range)
 	var field = WeaponFieldScript.new()
 	field.configure_scythe(origin, direction, spatial_grid, damage, attack_range, float(state["arc"]), color)
+	field.enemy_shots = enemy_shots
 	add_child(field)
 
 
@@ -491,7 +498,9 @@ const CHAIN_TENSION_BONUS := 0.6
 
 
 func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
-	_damage_along_chain(float(state["width"]), damage * (1.0 + chain_tension * CHAIN_TENSION_BONUS), 1.0)
+	var width := float(state["width"])
+	_damage_along_chain(width, damage * (1.0 + chain_tension * CHAIN_TENSION_BONUS), 1.0)
+	EnemyProjectile.break_along(enemy_shots, players[0].global_position, players[1].global_position, width)
 	cue_requested.emit("chain_snap")
 
 
@@ -502,6 +511,7 @@ func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
 func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var field = WeaponFieldScript.new()
 	field.configure_orbit(players[player_index], spatial_grid, damage, float(state["radius"]), maxi(1, int(state["count"])), float(state.get("speed", 2.4)), color, float(state.get("duration", 1.0)))
+	field.enemy_shots = enemy_shots
 	add_child(field)
 
 
@@ -573,6 +583,7 @@ func _spawn_mine(player_index: int, at: Vector2, damage: float, radius: float, c
 func _on_mine_detonated(centre: Vector2, damage: float, radius: float, color: Color) -> void:
 	cue_requested.emit("mine_blast")
 	_damage_area(centre, radius, damage)
+	EnemyProjectile.break_within(enemy_shots, centre, radius)
 	_draw_ring(centre, radius, color, 6.0)
 	_spawn_combat_flare(centre, color, color.lightened(0.4), radius * 0.5, 0.22)
 
@@ -593,31 +604,64 @@ func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary
 	cue_requested.emit("gravity_pull")
 
 
+## Preferred stand-off for the collapse, as a fraction of the cast range.
+const GRAVITY_STAND_OFF := 0.55
+## At most this many bodies are tried as the centre of the well. Every candidate
+## is scored against every body in range, so an uncapped search would be
+## quadratic in a crowd; a stride across the list samples the shape of it for a
+## fixed cost instead.
+const GRAVITY_SAMPLES := 20
+
+
 ## Where the collapse actually lands.
 ##
-## It used to be centred on the caster, which made a control weapon into a
-## panic button: it only ever helped once things had already reached you, and
-## the thing it did — drag every nearby enemy into a tight ball right on top of
-## your own body — was the last thing you wanted at that moment. It now picks
-## the farthest enemy inside `cast_range` and collapses there, so it is a tool
-## for breaking up a crowd before it arrives. With nothing in range it falls
-## back to a point out along the aim direction rather than snapping home, so
-## the weapon never behaves like the old version by accident.
+## Centring it on the caster made a control weapon into a panic button: it only
+## helped once things had reached you, and dragging every nearby enemy into a
+## tight ball on top of your own body was the last thing you wanted at that
+## moment. Picking the farthest body in range fixed that and overshot — the well
+## opened behind the crowd that was already on its way in, so the weapon spent
+## its cooldown tidying up the back of the field.
+##
+## It now looks for the best place rather than the extreme one: how much a well
+## there would actually catch, tempered by how well placed it is. A slightly
+## smaller cluster out in front of the pair beats a bigger one underfoot or one
+## sitting at the very edge of the cast. With nothing in range it falls back to a
+## point along the aim direction rather than snapping home, so the weapon never
+## behaves like the old version by accident.
 func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
 	var origin := players[player_index].global_position
 	var cast_range := float(state.get("cast_range", 520.0))
-	var farthest: ChaserEnemy
-	var farthest_distance_squared := -1.0
-	for enemy in spatial_grid.query_radius(origin, cast_range + 45.0):
+	var radius := float(state["radius"])
+	var preferred := cast_range * GRAVITY_STAND_OFF
+	var candidates := spatial_grid.query_radius(origin, cast_range + 45.0)
+	var stride := maxi(1, candidates.size() / GRAVITY_SAMPLES)
+	var radius_squared := radius * radius
+	var best := Vector2.ZERO
+	var best_score := 0.0
+	for index in range(0, candidates.size(), stride):
+		var enemy := candidates[index] as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
-		var distance_squared := origin.distance_squared_to(enemy.global_position)
-		if distance_squared <= cast_range * cast_range and distance_squared > farthest_distance_squared:
-			farthest = enemy
-			farthest_distance_squared = distance_squared
-	if farthest != null:
-		return farthest.global_position
-	return origin + _aim_direction(player_index, cast_range) * cast_range * 0.55
+		var at := enemy.global_position
+		var distance := origin.distance_to(at)
+		if distance > cast_range:
+			continue
+		var caught := 0
+		for other in candidates:
+			var body := other as ChaserEnemy
+			if is_instance_valid(body) and not body.dead and at.distance_squared_to(body.global_position) <= radius_squared:
+				caught += 1
+		# Placement runs 1.0 at the preferred stand-off down toward 0.0 at either
+		# extreme. The 0.4 floor keeps a genuinely enormous cluster worth taking
+		# even when it is badly placed — the weapon should still answer a wall.
+		var placement := 1.0 - clampf(absf(distance - preferred) / maxf(1.0, cast_range), 0.0, 1.0)
+		var score := float(caught) * (0.4 + placement)
+		if score > best_score:
+			best_score = score
+			best = at
+	if best_score > 0.0:
+		return best
+	return origin + _aim_direction(player_index, cast_range) * preferred
 
 
 ## --- fused weapons -------------------------------------------------------
