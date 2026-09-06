@@ -21,11 +21,13 @@ func _run() -> void:
 	_test_bulwark_is_a_wall()
 	_test_swarms_arrive_as_packs()
 	_test_archetype_unlock_order()
+	_test_wave_openers_are_one_colony()
+	_test_boss_cordon_is_a_durable_ring()
 	_test_boss_telegraph_is_dodgeable()
 	_test_road_to_fusion_is_long()
 
 	if failures.is_empty():
-		print("ENCOUNTER_PASS: swarms farm, bulwarks block, the slam can be walked out of")
+		print("ENCOUNTER_PASS: staged roster, colony waves, durable boss cordon, dodgeable slam")
 		quit(0)
 	else:
 		for failure in failures:
@@ -114,18 +116,63 @@ func _test_swarms_arrive_as_packs() -> void:
 func _test_archetype_unlock_order() -> void:
 	var director := WaveDirectorScript.new() as WaveDirector
 	root.add_child(director)
-	# The opening minute should still be plain chasers: the pair is learning the
-	# chain, not the bestiary.
+	# New behaviours enter one at a time rather than all appearing in the first
+	# minute. Sample just before every gate so randomness cannot hide a leak.
 	var opening: Dictionary = {}
 	for roll in 400:
-		opening[director._pick_archetype(10.0)] = true
+		opening[director._pick_archetype(WaveDirector.CHARGER_UNLOCK_TIME - 0.1)] = true
 	_check(opening.size() == 1 and opening.has("chaser"), "the opening is chasers only (%s)" % str(opening.keys()))
 
-	var late: Dictionary = {}
+	var second_stage: Dictionary = {}
 	for roll in 2000:
-		late[director._pick_archetype(200.0)] = true
+		second_stage[director._pick_archetype(WaveDirector.SHOOTER_UNLOCK_TIME + 1.0)] = true
+	_check(not second_stage.has("chain_hunter") and not second_stage.has("bulwark"),
+		"later specialists stay locked during the charger/shooter stage (%s)" % str(second_stage.keys()))
+
+	var late: Dictionary = {}
+	for roll in 3000:
+		late[director._pick_archetype(WaveDirector.BULWARK_UNLOCK_TIME + 1.0)] = true
 	for expected in ["chaser", "charger", "shooter", "chain_hunter", "bulwark"]:
 		_check(late.has(expected), "%s appears in the late mix" % expected)
+	_check(not late.has("rat_runner"), "exotic enemies wait until after the first boss window")
+	director.free()
+
+
+func _test_wave_openers_are_one_colony() -> void:
+	var director := WaveDirectorScript.new() as WaveDirector
+	root.add_child(director)
+	director.wave_index = 5
+	director.wave_elapsed = WaveDirector.WAVE_DURATION
+	director.spawn_timer = 999.0
+	director.elite_timer = 999.0
+	director.swarm_timer = 999.0
+	director.encounter_timer = 999.0
+	var spawned := director.step(1.0 / 60.0, 240.0, Vector2.ZERO, 0)
+	var colony: Dictionary = {}
+	for enemy: ChaserEnemy in spawned:
+		if not enemy.scenery:
+			colony[enemy.archetype] = true
+	_check(colony.size() == 1 and spawned.size() >= 4,
+		"a wave opener arrives as one readable species colony (%s)" % str(colony.keys()))
+	director.free()
+
+
+func _test_boss_cordon_is_a_durable_ring() -> void:
+	var director := WaveDirectorScript.new() as WaveDirector
+	root.add_child(director)
+	director.bosses_spawned = 1
+	var spawned: Array[ChaserEnemy] = []
+	director._run_encounter("boss_cordon", 5.0, Vector2.ZERO, 0, spawned)
+	_check(spawned.size() == WaveDirector.BOSS_CORDON_COUNT,
+		"a boss cordon closes every bearing (%d bodies)" % spawned.size())
+	var baseline := _stats("bulwark", 5.0)
+	for enemy in spawned:
+		_check(enemy.archetype == "bulwark" and enemy.immovable,
+			"every cordon body is a hard-to-displace bulwark")
+		_check(enemy.max_health > float(baseline["health"]) * 1.4,
+			"cordon bulwarks have boss-fight health (%.0f)" % enemy.max_health)
+		_check(absf(enemy.position.length() - WaveDirector.BOSS_CORDON_RADIUS) < 40.0,
+			"cordon body is placed on the surrounding ring")
 	director.free()
 
 

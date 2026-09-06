@@ -176,7 +176,7 @@ var message_label: Label
 var notice_stack: Array[Label] = []
 var level_overlay: ColorRect
 var level_title: Label
-var level_card_labels: Array = [[], []] ## level_card_labels[slot] = Array[Label], one per offered choice (up to 3)
+var level_card_labels: Array = [[], []] ## level_card_labels[slot] = Array[Label], one per offered choice (up to 4)
 var p1_level_footer: Label
 var p2_level_footer: Label
 var level_portrait_icons: Array[TextureRect] = []
@@ -236,7 +236,7 @@ var selected_upgrade_indices: Array[int] = [-1, -1] ## -1 = still choosing; >=0 
 var rerolls_remaining: Array[int] = [REROLL_START, REROLL_START]
 var last_upgrade_choice_keys: Array = [[], []]
 var level_up_input_delay := 0.0
-var level_up_gap_remaining := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same 3 don't repeat back to back
+var level_up_gap_remaining := 0.0 ## Blocks input right after the screen opens ## Previous level-up's offered option keys per player, so the exact same hand doesn't repeat back to back
 var resonance_cursors: Array[int] = [0, 0]
 ## Run-long tally shown on the result screen. "pings" and "chain_bursts"
 ## named features that were never built; these six are events the game
@@ -317,6 +317,12 @@ const CHEST_MAX_CHANCE := 0.7
 const CHEST_MAX_REWARDS := 8
 ## Moon-fish paid instead of a reward the pair has no room for.
 const CHEST_POINT_REWARD := 2
+## Even while carried gear can still grow, a chest may introduce a new weapon
+## or treasure. Luck makes that exciting branch more common without making a
+## full loadout happen automatically after one lucky box.
+const CHEST_NEW_GEAR_BASE_CHANCE := 0.18
+const CHEST_NEW_GEAR_LUCK_CHANCE := 0.025
+const CHEST_NEW_GEAR_MAX_CHANCE := 0.55
 ## 사슬 결계 used to be 사슬 정비: it topped up the integrity bar and did
 ## nothing else, which made the rarest-but-one drop in the game a number going
 ## up. It is now a window instead of a refund — for its duration the chain
@@ -330,29 +336,37 @@ const CHEST_POINT_REWARD := 2
 const GUARD_DURATION := 5.0
 const FRENZY_DURATION := 8.0
 const FRENZY_POWER := 1.8
+const FRENZY_MOVE_SPEED := 1.25
+const FRENZY_ATTACK_SPEED := 1.35
 const TIME_STOP_DURATION := 4.0
-const CHAIN_WARD_DURATION := 8.0
+const CHAIN_WARD_DURATION := 10.0
 const CHAIN_WARD_PULSE := 0.22 ## Seconds between chain burn ticks while warded.
-const CHAIN_WARD_PULSE_DAMAGE := 26.0
-const CHAIN_WARD_WIDTH := 74.0
-const FIELD_ITEM_PURGE_DAMAGE := 120.0
-const FIELD_ITEM_PURGE_RADIUS := 620.0
+const CHAIN_WARD_PULSE_DAMAGE := 42.0
+const CHAIN_WARD_WIDTH := 110.0
+const CHAIN_WARD_POWER := 1.55
 
 const EXPERIENCE_MAGNET_BASE := 155.0
+## 진홍 목방울 converts actual (not overkill) damage into a shared healing
+## pool. A refill budget keeps large area attacks and instant-kill effects from
+## turning one frame into a full heal, while sustained damage still sustains the
+## pair. Values are per treasure tier.
+const LIFESTEAL_PER_TIER := 0.006
+const LIFESTEAL_REFILL_PER_SECOND_PER_TIER := 1.5
+const LIFESTEAL_BURST_CAP_PER_TIER := 4.0
 var team_magnet := 1.0 ## multiplier on the shared XP pickup radius
 var team_growth := 1.0 ## multiplier on all shared XP gained
 var team_luck := 0
-var team_curse := 0.0
+var team_lifesteal := 0.0
+var lifesteal_charge := 0.0
 var team_overcharge := 0.0
 var team_greed := 0.0
 var team_level_heal := 0.0
 var team_hunt_bonus := 0.0
 var team_close_power := 0.0
 var team_dash_burst := 0.0
-## Set the first time either survivor fuses a weapon. Until then the level-up
-## screen says nothing about fusion requirements: the first one is meant to be
-## discovered, and every one after that is meant to be plannable.
-var fusion_discovered := false ## extra weight toward new-tech and special upgrade cards
+## Run-local record used by the fusion sequence and tests. Recipe hints are now
+## unlocked per pair by ownership instead of globally by this first completion.
+var fusion_discovered := false
 
 var character_catalog: Array[Dictionary] = []
 var selected_character_indices: Array[int] = [0, 1]
@@ -539,6 +553,7 @@ func _physics_process(delta: float) -> void:
 	_apply_chain_constraint()
 	_update_revives(delta)
 	_update_timed_items(delta)
+	_refill_lifesteal(delta)
 	_update_chain_ward(delta)
 	_update_chain_integrity(delta)
 	_update_chain_visual()
@@ -1291,13 +1306,17 @@ func _slot_placeholder_style() -> StyleBoxFlat:
 ## Widened twice now. The recommendation lines added to card copy made the
 ## old width break Korean words mid-syllable on nearly every card.
 const LEVEL_OVERLAY_Y := 132.0
-## Three cards fill one survivor's six columns exactly: 3x184 + 2x16 = 584,
-## which is LayoutGrid.w(6). The old 196/10 pair added up to 608 a side, so two
-## halves came to 1204 in a 1184-wide screen and the right card hung over the
-## edge of its own panel.
+## Three cards fill one survivor's six columns exactly. A lucky fourth hand
+## overlaps like a fan instead of shrinking the Korean copy until it is
+## unreadable; the focused card rises above its neighbours.
 const LEVEL_CARD_WIDTH := 184.0
 const LEVEL_CARD_HEIGHT := 262.0
 const LEVEL_CARD_GAP := 16.0
+const LEVEL_CARD_SLOTS := 4
+const LEVEL_HALF_WIDTH := 584.0
+const LEVEL_FAN_ROTATION_DEGREES := 4.0
+const LEVEL_FAN_FOCUS_LIFT := 18.0
+const LEVEL_FAN_FOCUS_SCALE := 1.055
 ## Local x of each survivor's half inside level_overlay: column 0 and column 6.
 const LEVEL_HALF_X := [0.0, 600.0]
 const LEVEL_CARD_Y := 105.0
@@ -1321,19 +1340,24 @@ const REROLL_CAP := 3
 ## At one entry per point luck moved the odds by about two cards in a
 ## hundred, which is not a stat worth a treasure slot.
 const LUCK_WEIGHT_PER_POINT := 2
+## Each point of shared luck also gives a visible chance at a fourth choice.
+## The ceiling preserves the normal three-card hand as a possible outcome.
+const LUCK_FOURTH_CARD_CHANCE_PER_POINT := 0.07
+const LUCK_FOURTH_CARD_MAX_CHANCE := 0.60
 
 
-## Builds the three card slots for one player's level-up choices. Each card is
+## Builds the four possible card slots for one player's level-up choices. Each card is
 ## a single autowrapping Label with a bordered background (swapped per-frame
 ## in _refresh_level_up_ui() to show focus/locked/unlock-type state) rather
 ## than separate title/description nodes, matching how the rest of this HUD
 ## builds text blocks with a StyleBoxFlat behind them.
 func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 	var cards: Array = []
-	for index in 3:
+	for index in LEVEL_CARD_SLOTS:
 		var card := Label.new()
-		card.position = Vector2(half_x + (LEVEL_CARD_WIDTH + LEVEL_CARD_GAP) * index, LEVEL_CARD_Y)
+		card.position = Vector2(half_x, LEVEL_CARD_Y)
 		card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
+		card.pivot_offset = card.size * 0.5
 		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
@@ -1345,10 +1369,11 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		# blank lines, which is a layout expressed as content.
 		var icon := _create_icon_rect(card, Vector2((LEVEL_CARD_WIDTH - 64.0) * 0.5, 16.0), Vector2(64.0, 64.0))
 		icon.name = "Icon"
-		# The fusion mark sits beside the card art, not under it: it is a
-		# property of the thing on the card, and the card body is already full.
-		var fusion_mark := _create_icon_rect(card, Vector2(LEVEL_CARD_WIDTH - 46.0, 14.0), Vector2(34.0, 34.0))
+		# This is the already-owned partner, never the undiscovered result. It is
+		# revealed only once both future ingredients are in the same loadout.
+		var fusion_mark := _create_icon_rect(card, Vector2(LEVEL_CARD_WIDTH - 47.0, 10.0), Vector2(36.0, 36.0))
 		fusion_mark.name = "FusionMark"
+		fusion_mark.mouse_filter = Control.MOUSE_FILTER_PASS
 		fusion_mark.visible = false
 		var recommendation := Label.new()
 		recommendation.name = "Recommendation"
@@ -1608,6 +1633,8 @@ func _start_selected_run() -> void:
 	guard_remaining = 0.0
 	frenzy_remaining = 0.0
 	time_stop_remaining = 0.0
+	for player in players:
+		player.field_move_multiplier = 1.0
 	# Cleared in place: the controller and its fields hold this same array.
 	for shot in enemy_shots:
 		if is_instance_valid(shot):
@@ -1621,8 +1648,8 @@ func _start_selected_run() -> void:
 	team_magnet = 1.0
 	team_growth = 1.0
 	team_luck = meta_progression.team_luck_bonus()
-	team_curse = 0.0
-	wave_director.curse_level = 0.0
+	team_lifesteal = 0.0
+	lifesteal_charge = 0.0
 	wave_director.planters_alive = 0
 	wave_director.checked_planter_cells.clear()
 	team_overcharge = 0.0
@@ -1734,7 +1761,7 @@ func _update_chain_ward(delta: float) -> void:
 		var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 		particles.emit_sparks(midpoint, Color("fff275"), 5, 240.0)
 	if was_active and chain_ward_remaining <= 0.0:
-		_show_message("사슬 결계 해제", Color("8ecae6"))
+		_show_message("황금 목줄 해제", Color("8ecae6"))
 		feedback.play_cue("warning")
 
 
@@ -1778,10 +1805,12 @@ func _update_timed_items(delta: float) -> void:
 			if not player.downed:
 				player.invulnerability = maxf(player.invulnerability, guard_remaining)
 		if guard_remaining <= 0.0:
-			_show_message("수호의 방울 해제", Color("8ecae6"))
+			_show_message("아홉 목숨 방울 해제", Color("8ecae6"))
 	if frenzy_remaining > 0.0:
 		frenzy_remaining = maxf(0.0, frenzy_remaining - delta)
 		if frenzy_remaining <= 0.0:
+			for player in players:
+				player.field_move_multiplier = 1.0
 			_show_message("광란 진정", Color("8ecae6"))
 	if time_stop_remaining > 0.0:
 		time_stop_remaining = maxf(0.0, time_stop_remaining - delta)
@@ -1789,10 +1818,11 @@ func _update_timed_items(delta: float) -> void:
 		# way through; nothing else prunes this list except the weapons that
 		# empty it deliberately.
 		for index in range(enemy_shots.size() - 1, -1, -1):
-			var shot := enemy_shots[index] as EnemyProjectile
-			if not is_instance_valid(shot):
+			var candidate: Variant = enemy_shots[index]
+			if not is_instance_valid(candidate):
 				enemy_shots.remove_at(index)
 				continue
+			var shot := candidate as EnemyProjectile
 			shot.frozen = time_stop_remaining > 0.0
 		if time_stop_remaining <= 0.0:
 			_show_message("시간이 다시 흐릅니다", Color("c77dff"))
@@ -1963,7 +1993,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		]
 		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
 		boss_health_text_label.visible = true
-		_show_message("%s 출현   %d / %d" % [
+		_show_message("%s 출현 · 철벽 포위   %d / %d" % [
 			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
 		], Color("ff5d8f"))
 		weapon_controller.play_boss_flare(enemy.global_position)
@@ -2043,6 +2073,38 @@ func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	# spend the whole particle budget on chip damage.
 	particles.emit_sparks(enemy.global_position, Color("fff4cf"), 2 if amount < 40.0 else 5, 150.0 + amount)
 	feedback.play_cue("hit")
+	if not enemy.scenery:
+		_apply_lifesteal(amount)
+
+
+func _lifesteal_tiers() -> float:
+	return team_lifesteal / LIFESTEAL_PER_TIER
+
+
+func _refill_lifesteal(delta: float) -> void:
+	if team_lifesteal <= 0.0:
+		lifesteal_charge = 0.0
+		return
+	var tiers := _lifesteal_tiers()
+	var cap := tiers * LIFESTEAL_BURST_CAP_PER_TIER
+	lifesteal_charge = minf(cap,
+		lifesteal_charge + tiers * LIFESTEAL_REFILL_PER_SECOND_PER_TIER * delta)
+
+
+func _apply_lifesteal(actual_damage: float) -> void:
+	if team_lifesteal <= 0.0 or lifesteal_charge <= 0.0 or actual_damage <= 0.0:
+		return
+	var wounded: Array[ChainPlayer] = []
+	for player in players:
+		if not player.downed and player.health < player.max_health:
+			wounded.append(player)
+	if wounded.is_empty():
+		return
+	var healing := minf(lifesteal_charge, actual_damage * team_lifesteal)
+	lifesteal_charge -= healing
+	var each := healing / float(wounded.size())
+	for player in wounded:
+		player.heal(each)
 
 
 func _on_player_damaged(player: ChainPlayer, amount: float) -> void:
@@ -2271,7 +2333,7 @@ func _separate_crowd() -> void:
 			# Hoisted out of the pair loops below. The grid was rebuilt from the
 			# live enemy list this same tick and nothing here frees a body, so one
 			# check per body is worth the twenty-three this used to make per body.
-			if first.dead:
+			if first.dead or first.scenery:
 				continue
 			# This body's turn in the rota. A resolve moves both bodies in the
 			# pair, so a body still gets pushed out of whatever is standing on it
@@ -2294,6 +2356,8 @@ func _separate_crowd() -> void:
 				# full crowd the overwhelming majority of sampled pairs are simply
 				# not touching, so the call never has to happen.
 				var second := bucket[other_index] as ChaserEnemy
+				if second.scenery:
+					continue
 				var offset := second.global_position - first_position
 				var minimum := (first_radius + second.radius) * CROWD_OVERLAP_SLACK
 				if offset.length_squared() < minimum * minimum:
@@ -2330,6 +2394,8 @@ func _separate_crowd() -> void:
 				var neighbour_size := neighbour_bucket.size()
 				for sample in mini(CROWD_NEIGHBOUR_SAMPLES, neighbour_size):
 					var second := neighbour_bucket[(sample * 3 + crowd_phase + index) % neighbour_size] as ChaserEnemy
+					if second.scenery:
+						continue
 					var offset := second.global_position - first_position
 					var minimum := (first_radius + second.radius) * CROWD_OVERLAP_SLACK
 					if offset.length_squared() < minimum * minimum:
@@ -2341,7 +2407,7 @@ func _separate_crowd() -> void:
 	for player in players:
 		for candidate in spatial_grid.query_radius(player.global_position, player.radius + 64.0):
 			var enemy := candidate as ChaserEnemy
-			if not is_instance_valid(enemy) or enemy.dead or enemy.boss:
+			if not is_instance_valid(enemy) or enemy.dead or enemy.boss or enemy.scenery:
 				continue
 			var offset := enemy.global_position - player.global_position
 			var overlap := player.radius + enemy.radius - offset.length()
@@ -2356,6 +2422,8 @@ func _separate_crowd() -> void:
 ## the field whose position is a promise to the player.
 func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 	if not is_instance_valid(first) or not is_instance_valid(second) or first.dead or second.dead:
+		return
+	if first.scenery or second.scenery:
 		return
 	if first.immovable and second.immovable:
 		return
@@ -2382,7 +2450,7 @@ func _update_contact_pressure() -> void:
 		var touching := 0
 		if ramp > 0.0:
 			for enemy in spatial_grid.query_radius(player.global_position, 100.0):
-				if enemy.dead: continue
+				if enemy.dead or enemy.scenery: continue
 				var reach: float = player.radius + enemy.radius + 12.0
 				if enemy.global_position.distance_squared_to(player.global_position) <= reach * reach:
 					touching += 1
@@ -2564,7 +2632,8 @@ func _on_field_item_collected(item_id: String) -> void:
 			for player in players:
 				particles.emit_ring(player.global_position, color, 60.0, 0.45)
 			camera_shake = maxf(camera_shake, 10.0)
-			label += " — %d초간 사슬 무적·과충전" % int(CHAIN_WARD_DURATION)
+			label += " — %d초간 사슬 무적·화력 +%d%%·광역 화상" % [
+				int(CHAIN_WARD_DURATION), roundi((CHAIN_WARD_POWER - 1.0) * 100.0)]
 		"guard":
 			guard_remaining = GUARD_DURATION
 			for player in players:
@@ -2576,9 +2645,13 @@ func _on_field_item_collected(item_id: String) -> void:
 		"frenzy":
 			frenzy_remaining = FRENZY_DURATION
 			for player in players:
+				player.field_move_multiplier = FRENZY_MOVE_SPEED
 				particles.emit_sparks(player.global_position, color, 12, 300.0)
 			camera_shake = maxf(camera_shake, 9.0)
-			label += " — %d초간 피해 +%d%%" % [int(FRENZY_DURATION), roundi((FRENZY_POWER - 1.0) * 100.0)]
+			label += " — %d초간 피해 +%d%% · 이속 +%d%% · 공속 +%d%%" % [
+				int(FRENZY_DURATION), roundi((FRENZY_POWER - 1.0) * 100.0),
+				roundi((FRENZY_MOVE_SPEED - 1.0) * 100.0), roundi((FRENZY_ATTACK_SPEED - 1.0) * 100.0),
+			]
 		"time_stop":
 			time_stop_remaining = TIME_STOP_DURATION
 			var stop_centre := (players[0].global_position + players[1].global_position) * 0.5
@@ -2588,22 +2661,25 @@ func _on_field_item_collected(item_id: String) -> void:
 			label += " — %d초간 시간 정지" % int(TIME_STOP_DURATION)
 		"purge":
 			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
-			var burned := 0
+			var visible_world := _visible_world_rect()
+			var purged := 0
 			for candidate in enemies.duplicate():
 				var enemy := candidate as ChaserEnemy
-				if not is_instance_valid(enemy) or enemy.dead:
+				if not is_instance_valid(enemy) or enemy.dead or enemy.scenery:
 					continue
-				if midpoint.distance_to(enemy.global_position) <= FIELD_ITEM_PURGE_RADIUS:
-					enemy.take_damage(FIELD_ITEM_PURGE_DAMAGE)
-					burned += 1
-			# The screen-clear is the biggest thing an item does, so it gets the
+				if visible_world.grow(enemy.radius).has_point(enemy.global_position):
+					# Twice current health still clears the hedgehog's damage reduction.
+					enemy.take_damage(maxf(enemy.health, enemy.max_health) * 2.0 + 1.0)
+					purged += 1
+			# The view-clear is the biggest thing an item does, so it gets the
 			# biggest presentation in the game: an expanding front, a bright core
 			# flash, and a burst at every enemy it caught.
-			weapon_controller.play_shockwave(midpoint, FIELD_ITEM_PURGE_RADIUS, color, 0.42, false)
-			weapon_controller.play_shockwave(midpoint, FIELD_ITEM_PURGE_RADIUS * 0.55, Color.WHITE, 0.3, false)
-			weapon_controller.play_purge_rays(midpoint, FIELD_ITEM_PURGE_RADIUS, color)
+			var view_radius := visible_world.size.length() * 0.5
+			weapon_controller.play_shockwave(midpoint, view_radius, color, 0.42, false)
+			weapon_controller.play_shockwave(midpoint, view_radius * 0.55, Color.WHITE, 0.3, false)
+			weapon_controller.play_purge_rays(midpoint, view_radius, color)
 			camera_shake = maxf(camera_shake, 22.0)
-			label += " — 적 %d체 정화" % burned
+			label += " — 시야 내 적 %d체 즉시 청소" % purged
 	run_stats["items"] = int(run_stats["items"]) + 1
 	var pickup_centre := (players[0].global_position + players[1].global_position) * 0.5
 	particles.emit_motes(pickup_centre, color, 8)
@@ -2611,19 +2687,45 @@ func _on_field_item_collected(item_id: String) -> void:
 	_show_message(label, color)
 
 
+## World-space rectangle currently visible through the gameplay camera. Purge
+## uses the actual view instead of a fixed radius so zooming out never leaves a
+## visible elite or boss inexplicably untouched.
+func _visible_world_rect() -> Rect2:
+	var viewport_size := get_viewport_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		viewport_size = Vector2(1280.0, 720.0)
+	var centre := (players[0].global_position + players[1].global_position) * 0.5
+	var zoom := Vector2.ONE
+	if is_instance_valid(world_camera):
+		centre = world_camera.get_screen_center_position()
+		zoom = world_camera.zoom
+	var world_size := Vector2(
+		viewport_size.x / maxf(0.001, absf(zoom.x)),
+		viewport_size.y / maxf(0.001, absf(zoom.y))
+	)
+	return Rect2(centre - world_size * 0.5, world_size)
+
+
 ## A chest is resolved immediately so it never opens a second modal over a
-## level-up. Existing equipment is always considered before empty slots; the
-## box therefore deepens a build first and only introduces new technology when
-## nothing currently carried can still grow.
+## level-up. A ready fusion still wins, but otherwise every reward may either
+## deepen carried gear or introduce something new. Luck raises the latter odds.
 ## Each reward carries the icon it will be thrown out as, not only its name:
 ## the opening showcase shows what came out, and a list of text would be the
 ## thing the box was supposed to replace.
 func _open_chest() -> Array[Dictionary]:
 	var results: Array[Dictionary] = []
 	for reward_index in _roll_chest_reward_count():
-		var candidates := _chest_upgrade_candidates()
-		if candidates.is_empty():
-			candidates = _chest_unlock_candidates()
+		var upgrade_candidates := _chest_upgrade_candidates()
+		var unlock_candidates := _chest_unlock_candidates()
+		var ready_fusions := upgrade_candidates.filter(func(candidate: Dictionary) -> bool:
+			return int(candidate["priority"]) >= 3)
+		var candidates: Array[Dictionary] = []
+		if not ready_fusions.is_empty():
+			candidates = ready_fusions
+		elif not unlock_candidates.is_empty() and (upgrade_candidates.is_empty() or randf() < _chest_new_gear_chance()):
+			candidates = unlock_candidates
+		else:
+			candidates = upgrade_candidates if not upgrade_candidates.is_empty() else unlock_candidates
 		if candidates.is_empty():
 			# Nothing left that either survivor can still take. The box pays in
 			# moon-fish rather than inventing a reward, so a late chest opened by
@@ -2631,6 +2733,8 @@ func _open_chest() -> Array[Dictionary]:
 			var paid := meta_progression.award(CHEST_POINT_REWARD)
 			results.append({
 				"label": "달빛 생선 +%d" % paid,
+				"detail": "영구 재화로 저장",
+				"advice": "neutral",
 				"icon": IconCatalog.upgrade("luck"),
 				"slot": -1,
 			})
@@ -2639,9 +2743,21 @@ func _open_chest() -> Array[Dictionary]:
 		var slot := int(chosen["slot"])
 		var option: Dictionary = chosen["option"]
 		var art := IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
+		var detail := _upgrade_preview(slot, option).replace("\n", " · ")
+		var rating := _score_upgrade_option(slot, option)
+		var score := float(rating["score"])
+		var advice := "recommended" if score >= RECOMMEND_MIN_SCORE else (
+			"discouraged" if score <= DISCOURAGE_MAX_SCORE else "neutral"
+		)
+		var advice_reason := String(rating["reason"])
+		if advice == "discouraged":
+			advice_reason = _discouragement_reason(slot, option, score)
 		_apply_upgrade(slot, option)
 		results.append({
 			"label": "P%d %s" % [slot + 1, String(chosen["label"])],
+			"detail": detail,
+			"advice": advice,
+			"advice_reason": advice_reason,
 			"icon": art,
 			"slot": slot,
 			# The portrait is what actually reads at a glance while eight things
@@ -2673,6 +2789,11 @@ func _roll_chest_reward_count() -> int:
 		if roll < float(rung[0]):
 			return int(rung[1])
 	return 1
+
+
+func _chest_new_gear_chance() -> float:
+	return minf(CHEST_NEW_GEAR_MAX_CHANCE,
+		CHEST_NEW_GEAR_BASE_CHANCE + CHEST_NEW_GEAR_LUCK_CHANCE * float(team_luck))
 
 
 func _chest_upgrade_candidates() -> Array[Dictionary]:
@@ -2744,8 +2865,9 @@ func _chest_unlock_candidates() -> Array[Dictionary]:
 ## got what, which is what makes the roll worth watching rather than worth
 ## auditing afterwards.
 ##
-## Priority still decides *what* comes out — a fusion beats a tier, a tier beats
-## a new toy — so randomising the owner never downgrades the reward itself.
+## The caller has already rolled whether this reward is carried growth or new
+## gear. Priority only compares candidates inside that category (most notably,
+## a ready fusion is never displaced by an ordinary tier).
 func _choose_chest_candidate(candidates: Array[Dictionary]) -> Dictionary:
 	var highest_priority := 0
 	for candidate in candidates:
@@ -2858,7 +2980,7 @@ func _begin_level_up() -> void:
 
 ## A key that identifies one specific offered option (not just its id, since
 ## e.g. "weapon_power" exists once per owned weapon) so _get_upgrade_choices
-## can avoid repeating the exact same 3-card set the very next level-up.
+## can avoid repeating the exact same hand the very next level-up.
 ## The growth screen used to blink into existence between two frames, which
 ## after a wave of experience reads as the game glitching rather than as a
 ## moment arriving. It now drops in and lifts out over a fifth of a second.
@@ -2989,6 +3111,12 @@ func _pick_unowned_treasures(slot: int, count: int) -> Array[Dictionary]:
 	return candidates.slice(0, count)
 
 
+func _growth_choice_count() -> int:
+	var fourth_chance := minf(LUCK_FOURTH_CARD_MAX_CHANCE,
+		float(team_luck) * LUCK_FOURTH_CARD_CHANCE_PER_POINT)
+	return 4 if randf() < fourth_chance else 3
+
+
 ## Builds the pool of everything this level-up could offer: two generic
 ## options, four per owned weapon (power/rate/special_a/special_b), and — if
 ## the player has room under WEAPON_LOADOUT_CAP — a couple of "learn this
@@ -2999,6 +3127,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var loadout: Array = weapon_loadouts[slot]
 	var treasures: Array = treasure_loadouts[slot]
 	var pool: Array[Dictionary] = []
+	var choice_count := _growth_choice_count()
 
 	# Carried treasures can be deepened; the twelve that are not carried are
 	# only reachable while there is still a free slot. That gating is the whole
@@ -3070,7 +3199,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	for option in pool:
 		if not (_option_key(option) in previous_keys):
 			fresh_pool.append(option)
-	if fresh_pool.size() >= 3:
+	if fresh_pool.size() >= choice_count:
 		pool = fresh_pool
 
 	# Luck's one job: build-defining options — a new weapon, a new treasure, or
@@ -3086,11 +3215,11 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	weighted.shuffle()
 	var choices: Array[Dictionary] = []
 	var chosen_keys: Array = []
-	for option in ready_fusions.slice(0, 3):
+	for option in ready_fusions.slice(0, choice_count):
 		choices.append(option)
 		chosen_keys.append(_option_key(option))
 	for option in weighted:
-		if choices.size() >= 3:
+		if choices.size() >= choice_count:
 			break
 		var key := _option_key(option)
 		if key in chosen_keys:
@@ -3253,13 +3382,13 @@ func _has_weapon_upgrade(options: Array) -> bool:
 	return false
 
 
-## Rates only the three cards that were actually dealt. The score combines
+## Rates only the three or four cards that were actually dealt. The score combines
 ## expected combat value, current survivability, run timing and the build graph:
 ## an option that creates a new tier-3 weapon pairing wins a large explicit
 ## bonus because it immediately unlocks a resonance vote.
 ## How the screen advises. There used to be exactly one star, always, on
 ## whichever card scored highest — which lies twice: it claims there is a right
-## answer when three cards are within a hair of each other, and it claims the
+## answer when cards are within a hair of each other, and it claims the
 ## best of three bad cards is good.
 ##
 ## A card is now starred only if it clears an absolute bar *and* is close to the
@@ -3317,65 +3446,6 @@ func _discouragement_reason(slot: int, option: Dictionary, score: float) -> Stri
 	if upgrade_id == "unlock_weapon":
 		return "칸을 나누게 됩니다"
 	return "다른 카드가 더 급합니다"
-
-
-## Whether this card is on a fusion path, and whether taking it opens one now.
-##
-## The level-up screen used to print both requirements of every survivor's
-## nearest fusion along the bottom of the screen. That is the back half of the
-## run handed over as a table, and it made the first fusion an errand rather
-## than a discovery. The mark says only that this card matters to a fusion; it
-## never names what the fusion is.
-func _fusion_hint(slot: int, option: Dictionary) -> Dictionary:
-	if option.is_empty(): return {}
-	var upgrade_id := String(option["id"])
-	if upgrade_id == "evolve_weapon":
-		return {} ## The card already is the fusion.
-	var loadout: Array = weapon_loadouts[slot]
-
-	if upgrade_id == "unlock_weapon":
-		var character: Dictionary = option["character"]
-		var evolution := Evolutions.for_base(String(character["weapon_id"]))
-		if evolution.is_empty():
-			return {}
-		# Only worth marking if the treasure half is already under way; every
-		# weapon has a fusion somewhere, so marking all of them says nothing.
-		if _treasure_tier(slot, String(evolution["treasure_id"])) <= 0:
-			return {}
-		return {"ready": false, "tip": "합성 재료 — 이 무기의 짝을 이미 들고 있습니다"}
-
-	if upgrade_id in ["unlock_treasure", "treasure_upgrade"]:
-		var treasure_id := _option_icon_id(slot, option)
-		var on_path := false
-		for weapon in loadout:
-			if bool(weapon.get("evolved", false)):
-				continue
-			var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
-			if evolution.is_empty() or String(evolution["treasure_id"]) != treasure_id:
-				continue
-			on_path = true
-			var next_tier := _treasure_tier(slot, treasure_id) + 1
-			if next_tier >= Evolutions.REQUIRED_TREASURE_TIER and int(weapon.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
-				return {"ready": true, "tip": "이걸 고르면 바로 합성할 수 있습니다"}
-		return {"ready": false, "tip": "합성 재료"} if on_path else {}
-
-	var weapon_slot := int(option.get("weapon_slot", -1))
-	if weapon_slot < 0 or weapon_slot >= loadout.size():
-		return {}
-	var weapon: Dictionary = loadout[weapon_slot]
-	if bool(weapon.get("evolved", false)):
-		return {}
-	var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
-	if evolution.is_empty():
-		return {}
-	var next_tier := mini(Evolutions.WEAPON_MAX_TIER, int(weapon.get("tier", 1)) + 1)
-	if next_tier >= Evolutions.WEAPON_MAX_TIER:
-		if _treasure_tier(slot, String(evolution["treasure_id"])) >= Evolutions.REQUIRED_TREASURE_TIER:
-			return {"ready": true, "tip": "이걸 고르면 바로 합성할 수 있습니다"}
-		return {"ready": false, "tip": "무기는 준비됐습니다 — 짝이 되는 보물이 필요합니다"}
-	if next_tier >= Evolutions.WEAPON_MAX_TIER - 2:
-		return {"ready": false, "tip": "합성 재료"}
-	return {}
 
 
 ## Scores one card so the level-up screen can star the strongest. Treasures are
@@ -3450,9 +3520,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"luck":
 			score = 40.0 - progression.level * 1.5
 			reason = "희귀 카드 확률"
-		"curse":
-			score = 30.0 + maxf(0.0, 20.0 - progression.level)
-			reason = "위험 증가 · 성장 가속"
+		"lifesteal":
+			score = 37.0 + (1.0 - health_ratio) * 42.0 + loadout.size() * 2.0
+			reason = "공격으로 팀 회복"
 		"catnip":
 			score = 31.0 + (1.0 - health_ratio) * 38.0
 			reason = "성장 때 팀 회복"
@@ -3501,7 +3571,6 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var path := _fusion_path_value(slot, effect_id)
 		if not path.is_empty():
 			score += float(path["value"])
-			reason = String(path["reason"])
 	if upgrade_id == "unlock_treasure":
 		# Slots are finite now, so committing one is worth more while several
 		# are open and less when it would spend the last of them on a whim.
@@ -3528,7 +3597,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
 		if int(weapon.get("tier", 1)) == Evolutions.WEAPON_MAX_TIER - 1:
 			score += 34.0
-			reason = "레벨 %d   합성 직전" % Evolutions.WEAPON_MAX_TIER
+			reason = "레벨 %d   최대 강화" % Evolutions.WEAPON_MAX_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -3579,10 +3648,8 @@ func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 			treasure_tier + 1 >= Evolutions.REQUIRED_TREASURE_TIER
 			and weapon_tier >= Evolutions.WEAPON_MAX_TIER
 		)
-		var known_name := String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "미지의 합성"
 		best = {
 			"value": 24.0 + progress * 90.0 + (40.0 if last_step else 0.0),
-			"reason": "%s 재료" % known_name if not last_step else "%s까지 한 걸음" % known_name,
 		}
 	return best
 
@@ -3645,7 +3712,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	var tier := int(state.get("tier", 1))
 	var tier_hint := "\n레벨 %d → %d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER and not bool(state.get("evolved", false)):
-		tier_hint = "\n레벨 %d — 합성 직전" % Evolutions.WEAPON_MAX_TIER
+		tier_hint = "\n레벨 %d — 최대 강화" % Evolutions.WEAPON_MAX_TIER
 	match upgrade_id:
 		"weapon_power":
 			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * WEAPON_POWER_STEP, tier_hint]
@@ -3837,9 +3904,13 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 			team_growth += 0.10
 		"luck":
 			team_luck += 1
-		"curse":
-			team_curse += 1.0
-			wave_director.curse_level = team_curse
+		"lifesteal":
+			team_lifesteal += LIFESTEAL_PER_TIER
+			# A newly taken bell works on the very next hit rather than waiting for
+			# its token bucket to fill from zero.
+			lifesteal_charge = minf(
+				_lifesteal_tiers() * LIFESTEAL_BURST_CAP_PER_TIER,
+				lifesteal_charge + LIFESTEAL_BURST_CAP_PER_TIER)
 		"catnip":
 			team_level_heal += 0.04
 		"bounty_bell":
@@ -3874,6 +3945,7 @@ func _refresh_player_cards(player_index: int) -> void:
 	for index in cards.size():
 		var card: Label = cards[index]
 		var option: Dictionary = choices[index] if index < choices.size() else {}
+		var has_option := not option.is_empty()
 		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 		var is_unlock := String(option.get("id", "")) == "unlock_weapon"
 		var is_focused := not locked and index == upgrade_cursors[slot]
@@ -3881,10 +3953,15 @@ func _refresh_player_cards(player_index: int) -> void:
 		var is_recommended := bool(option.get("recommended", false))
 		var is_discouraged := bool(option.get("discouraged", false))
 
-		card.visible = (not locked) or is_chosen
+		card.visible = has_option and ((not locked) or is_chosen)
 		card.text = "%s\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
 		var icon := card.get_node("Icon") as TextureRect
 		icon.texture = IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
+		var fusion_mark := card.get_node("FusionMark") as TextureRect
+		var partner := _fusion_partner_for_option(slot, option)
+		fusion_mark.visible = has_option and not partner.is_empty()
+		fusion_mark.texture = partner.get("texture")
+		fusion_mark.tooltip_text = "%s랑 합치면 합성됩니다." % String(partner.get("name", ""))
 		# The reason lives on the badge instead of as a fourth line of body copy:
 		# it explains the star, so it belongs to the star.
 		var recommendation := card.get_node("Recommendation") as Label
@@ -3893,13 +3970,6 @@ func _refresh_player_cards(player_index: int) -> void:
 			recommendation.text = "▽ %s" % String(option.get("discouragement_reason", ""))
 		else:
 			recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
-
-		var mark := card.get_node("FusionMark") as TextureRect
-		var hint := _fusion_hint(slot, option)
-		mark.visible = not hint.is_empty()
-		if mark.visible:
-			mark.texture = IconCatalog.fusion_seal(bool(hint["ready"]))
-			mark.tooltip_text = String(hint["tip"])
 
 		var border := CatTheme.GOLD if is_unlock or is_recommended else accent
 		if level_up_input_delay > 0.0:
@@ -3920,9 +3990,6 @@ func _refresh_player_cards(player_index: int) -> void:
 			style.bg_color = CatTheme.CARD
 			style.border_color = CatTheme.OUTLINE
 			style.set_border_width_all(2)
-		# Focus stays inside its grid cell: scaling used to overlap the next card.
-		card.scale = Vector2.ONE
-
 	_refresh_level_build_icons(slot)
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
 	var character := selected_characters[slot]
@@ -3946,6 +4013,40 @@ func _refresh_player_cards(player_index: int) -> void:
 		])
 	footer.text = "\n".join(lines)
 	EditorialUI.refresh_growth(self, slot)
+	_layout_level_cards(slot)
+
+
+## Lays the hand out as a shallow fan. A fourth card uses overlap rather than
+## narrower copy, and the focused (mouse-hovered or controller-selected) card
+## rises and straightens so its full text remains readable.
+func _layout_level_cards(slot: int) -> void:
+	var choices: Array = p1_choices if slot == 0 else p2_choices
+	var cards: Array = level_card_labels[slot]
+	var locked := selected_upgrade_indices[slot] >= 0
+	var count := choices.size()
+	if count <= 0:
+		return
+	var spread := 0.0 if count == 1 else (LEVEL_HALF_WIDTH - LEVEL_CARD_WIDTH) / float(count - 1)
+	var middle := float(count - 1) * 0.5
+	for index in cards.size():
+		var card := cards[index] as Label
+		if not card.visible:
+			continue
+		if locked:
+			card.position = Vector2(LEVEL_HALF_X[slot] + (LEVEL_HALF_WIDTH - LEVEL_CARD_WIDTH) * 0.5, LEVEL_CARD_Y)
+			card.rotation = 0.0
+			card.scale = Vector2.ONE * LEVEL_FAN_FOCUS_SCALE
+			card.z_index = 30
+			continue
+		var distance_from_middle := float(index) - middle
+		var focused := index == upgrade_cursors[slot]
+		card.position = Vector2(
+			LEVEL_HALF_X[slot] + spread * float(index),
+			LEVEL_CARD_Y + absf(distance_from_middle) * 5.0 - (LEVEL_FAN_FOCUS_LIFT if focused else 0.0)
+		)
+		card.rotation = 0.0 if focused else deg_to_rad(distance_from_middle * LEVEL_FAN_ROTATION_DEGREES)
+		card.scale = Vector2.ONE * (LEVEL_FAN_FOCUS_SCALE if focused else 1.0)
+		card.z_index = 30 if focused else index
 
 
 ## Which atlas entry a card should show. Treasure ids are deliberately the same
@@ -3969,6 +4070,71 @@ func _option_weapon_id(slot: int, option: Dictionary) -> String:
 	if weapon_slot >= 0 and weapon_slot < weapon_loadouts[slot].size():
 		return String(weapon_loadouts[slot][weapon_slot]["weapon_id"])
 	return ""
+
+
+## The top-right seal never exposes a recipe the player has not assembled.
+## Once both ingredients are carried, it shows the *other* owned ingredient,
+## which reads naturally as “combine this with that” without naming the result.
+func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
+	var option_id := String(option.get("id", ""))
+	if option_id in ["unlock_weapon", "unlock_treasure"]:
+		return {}
+	# A fusion card already names one concrete recipe. Prefer that recipe over
+	# any other valid future path the same weapon may also have.
+	if option_id == "evolve_weapon":
+		var chosen_evolution: Dictionary = option.get("evolution", {})
+		if chosen_evolution.has("treasure_id"):
+			var chosen_treasure_id := String(chosen_evolution["treasure_id"])
+			if _treasure_tier(slot, chosen_treasure_id) <= 0:
+				return {}
+			var chosen_treasure := Treasures.by_id(chosen_treasure_id)
+			return {"name": String(chosen_treasure["name"]), "texture": IconCatalog.upgrade(chosen_treasure_id)}
+		if chosen_evolution.has("weapon_ids"):
+			var source_slot := int(option.get("weapon_slot", -1))
+			var source_id := String(weapon_loadouts[slot][source_slot]["weapon_id"]) if source_slot >= 0 and source_slot < weapon_loadouts[slot].size() else ""
+			for recipe_weapon in (chosen_evolution["weapon_ids"] as Array):
+				var recipe_weapon_id := String(recipe_weapon)
+				if recipe_weapon_id == source_id:
+					continue
+				for owned: Dictionary in weapon_loadouts[slot]:
+					if String(owned["weapon_id"]) == recipe_weapon_id:
+						return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(recipe_weapon_id)}
+	var treasure_id := ""
+	var weapon_id := ""
+	if option_id == "treasure_upgrade":
+		var treasure_slot := int(option.get("treasure_slot", -1))
+		if treasure_slot >= 0 and treasure_slot < treasure_loadouts[slot].size():
+			treasure_id = String(treasure_loadouts[slot][treasure_slot]["id"])
+	else:
+		var weapon_slot := int(option.get("weapon_slot", -1))
+		if weapon_slot >= 0 and weapon_slot < weapon_loadouts[slot].size():
+			weapon_id = String(weapon_loadouts[slot][weapon_slot]["weapon_id"])
+
+	if not weapon_id.is_empty():
+		var basic := Evolutions.for_base(weapon_id)
+		if not basic.is_empty():
+			var wanted_treasure := String(basic["treasure_id"])
+			if _treasure_tier(slot, wanted_treasure) > 0:
+				var treasure := Treasures.by_id(wanted_treasure)
+				return {"name": String(treasure["name"]), "texture": IconCatalog.upgrade(wanted_treasure)}
+		for hybrid in Evolutions.hybrids_for(weapon_id):
+			for wanted_weapon in (hybrid["weapon_ids"] as Array):
+				var other_id := String(wanted_weapon)
+				if other_id == weapon_id:
+					continue
+				for owned: Dictionary in weapon_loadouts[slot]:
+					if String(owned["weapon_id"]) == other_id and not bool(owned.get("evolved", false)):
+						return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(other_id)}
+
+	if not treasure_id.is_empty():
+		for evolution in Evolutions.all_evolutions():
+			if String(evolution["treasure_id"]) != treasure_id:
+				continue
+			var wanted_weapon := String(evolution["base_weapon_id"])
+			for owned: Dictionary in weapon_loadouts[slot]:
+				if String(owned["weapon_id"]) == wanted_weapon and not bool(owned.get("evolved", false)):
+					return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(wanted_weapon)}
+	return {}
 
 
 ## Draws what this survivor is carrying as two rows of icons: weapons on top,
@@ -3995,16 +4161,16 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
 		tier.text = str(int(entry.get("tier", 1)))
 ## The strip under the cards used to spell out both fusion requirements for
 ## both survivors, every level, from level one — the whole tech tree as a
-## table. It is gone; the per-card fusion mark says the same thing at the
-## moment it is actually a decision (see _fusion_hint). What is left here is
-## the run state a player cannot see anywhere else on this screen.
+## table. It and the per-card material seals are gone. The ordinary growth
+## screen now exposes no recipe path; the opt-in detail view below is the only
+## place a player can explicitly ask for current fusion progress.
 func _refresh_team_stats_ui() -> void:
 	team_stats_label.text = ""
 
 
-## The nearest fusion this survivor could reach, written as the two
-## requirements it still needs. Only the weapon closest to fusing is reported,
-## so the strip stays one line per survivor.
+## The nearest fusion this survivor could reach. An ingredient that is not in
+## the loadout stays “???”; owning both ingredients unlocks their relationship,
+## while the result itself still follows the separate discovery record.
 func _fusion_progress_line(slot: int) -> String:
 	var best := ""
 	var best_progress := -1.0
@@ -4025,9 +4191,11 @@ func _fusion_progress_line(slot: int) -> String:
 			continue
 		best_progress = progress
 		var result_name := String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"
-		best = "%s %d/%d + %s %d/%d → %s" % [
+		var partner_name := String(treasure.get("name", treasure_id)) if treasure_tier > 0 else "???"
+		var partner_tier := str(treasure_tier) if treasure_tier > 0 else "?"
+		best = "%s %d/%d + %s %s/%d → %s" % [
 			String(weapon["weapon_name"]), weapon_tier, Evolutions.WEAPON_MAX_TIER,
-			String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
+			partner_name, partner_tier, Evolutions.REQUIRED_TREASURE_TIER,
 			result_name,
 		]
 	if not fused.is_empty():
@@ -4209,7 +4377,8 @@ func _apply_team_magnet() -> void:
 
 func _weapon_interval(player_index: int, weapon_slot: int) -> float:
 	var base := float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
-	return maxf(0.25, base * players[player_index].haste)
+	var frenzy_rate := FRENZY_ATTACK_SPEED if frenzy_remaining > 0.0 else 1.0
+	return maxf(0.25, base * players[player_index].haste / frenzy_rate)
 
 
 func _tension_damage_multiplier() -> float:
@@ -4223,7 +4392,7 @@ func _base_tension_multiplier() -> float:
 	# reason to pick the drop up at a moment when the pair is fighting close
 	# together rather than only when the chain is already in trouble.
 	if chain_warded():
-		return 1.25 + team_overcharge
+		return CHAIN_WARD_POWER + team_overcharge
 	if chain_overloaded:
 		return CHAIN_OVERLOAD_PENALTY
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length

@@ -60,7 +60,7 @@ static func install(main: Node) -> void:
 			main.character_confirmed[slot] = not main.character_confirmed[slot]
 			main._refresh_character_select_ui()
 			if main.character_confirmed[0] and main.character_confirmed[1]: main._start_selected_run())
-		for index in 3:
+		for index in main.LEVEL_CARD_SLOTS:
 			var card: Label = main.level_card_labels[slot][index]
 			card.mouse_filter = Control.MOUSE_FILTER_STOP
 			card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -208,7 +208,7 @@ static func toggle_details(main: Node) -> void:
 		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%% · 치명 %d%% · 발동 %d%%\n추가 +%d · 관통 +%d · 탄속 %d%% · 지속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)]
 		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f · 방어 %.0f · 재생 %.1f/s\n회피 %d%% · 반사 %d%% · 목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
 		main.details_overlay.get_node("Coop%d/Value" % slot).text = "사슬 %.0f · 구조 %.2f초 · 유예 %.0f초\n과충전 +%d%% · 밀착 +%d%% · 대시 %.0f" % [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst]
-		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f · 범위 %d%% · 자력 %d%%\nXP %d%% · 강적 +%d%% · 행운 %d · 저주 %.0f\n레벨 회복 %d%% · 드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_curse, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
+		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f · 범위 %d%% · 자력 %d%%\nXP %d%% · 강적 +%d%% · 행운 %d · 흡혈 %.1f%%\n레벨 회복 %d%% · 드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_lifesteal * 100.0, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
 		var build_lines: Array[String] = []
 		var weapon_names: Array[String] = []
 		for w: Dictionary in main.weapon_loadouts[slot]:

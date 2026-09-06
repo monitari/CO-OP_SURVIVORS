@@ -47,6 +47,8 @@ func _run() -> void:
 	await _test_separation_runs_during_play(main)
 	await _test_a_boss_is_not_shoved(main)
 	await _test_enemies_are_pushed_out_of_survivors(main)
+	await _test_planters_have_no_collision(main)
+	_test_planters_grow_in_stable_patches(main)
 	_test_the_late_game_can_fill_the_screen(main)
 
 	if failures.is_empty():
@@ -91,6 +93,42 @@ func _test_a_stack_spreads_out(main: Node) -> void:
 	_check(furthest < 260.0, "and stays a pack rather than exploding apart (%.0fpx)" % furthest)
 	print("CROWD_METRICS: 20 stacked bodies settle to %.2f overlap within %.0fpx" % [overlap, furthest])
 	await _clear(main)
+
+
+func _test_planters_have_no_collision(main: Node) -> void:
+	await _clear(main)
+	var planter := EnemyScript.new() as ChaserEnemy
+	planter.setup(0.0, "planter")
+	planter.position = Vector2(600.0, 0.0)
+	main.add_child(planter)
+	main.enemies.append(planter)
+	var walker := _spawn(main, planter.position + Vector2(2.0, 0.0))
+	var planter_stood := planter.position
+	var walker_stood := walker.position
+	for tick in 30:
+		main.spatial_grid.rebuild(main.enemies)
+		main._separate_crowd()
+	_check(planter.position == planter_stood and walker.position == walker_stood,
+		"planters do not push enemies or get pushed by them")
+	main.players[0].position = planter.position
+	main.spatial_grid.rebuild(main.enemies)
+	main._separate_crowd()
+	_check(planter.position == planter_stood and main.players[0].position == planter_stood,
+		"cats can walk through a planter without collision")
+	await _clear(main)
+
+
+func _test_planters_grow_in_stable_patches(main: Node) -> void:
+	var director: WaveDirector = main.wave_director
+	director.checked_planter_cells.clear()
+	director.planters_alive = 0
+	var first := director._spawn_planters_near(Vector2.ZERO, 0.0)
+	_check(first.size() >= 2 and first.size() <= WaveDirector.PLANTER_MAX_ALIVE,
+		"the first scan creates bounded rooftop-garden patches (%d)" % first.size())
+	var revisit := director._spawn_planters_near(Vector2.ZERO, 0.0)
+	_check(revisit.is_empty(), "revisiting checked cells does not duplicate planters")
+	for planter in first:
+		director.release_enemy(planter)
 
 
 ## The checks below drive _separate_crowd directly, which says nothing about

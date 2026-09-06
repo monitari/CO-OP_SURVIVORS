@@ -151,6 +151,7 @@ func _test_shared_treasures(main: Node) -> void:
 	# trade only exists if they actually reach the team.
 	var magnet_before: float = main.team_magnet
 	var luck_before: int = main.team_luck
+	var lifesteal_before: float = main.team_lifesteal
 	main.treasure_loadouts[0] = []
 	_unlock(main, 0, "magnet")
 	_check(main.team_magnet > magnet_before, "인력의 나침반 raises the shared magnet")
@@ -158,6 +159,8 @@ func _test_shared_treasures(main: Node) -> void:
 		"the shared magnet reaches the experience system")
 	_unlock(main, 0, "luck")
 	_check(main.team_luck > luck_before, "행운의 주사위 raises shared luck")
+	_unlock(main, 0, "lifesteal")
+	_check(main.team_lifesteal > lifesteal_before, "진홍 목방울 grants shared lifesteal")
 
 
 func _test_gimmick_treasures(main: Node) -> void:

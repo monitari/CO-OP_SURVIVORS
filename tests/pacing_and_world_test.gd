@@ -31,6 +31,7 @@ func _run() -> void:
 	await process_frame
 
 	await _test_level_ups_queue(main)
+	_test_opening_experience_curve()
 	_test_floor_is_endless()
 	_test_floor_is_stable()
 	_test_select_hides_the_tech_tree(main)
@@ -95,6 +96,30 @@ func _test_level_ups_queue(main: Node) -> void:
 	main.level_overlay.visible = false
 	main.level_up_gap_remaining = 0.0
 	paused = false
+
+
+func _test_opening_experience_curve() -> void:
+	var probe := SharedProgression.new()
+	var opening_costs: Array[int] = []
+	for step in 5:
+		opening_costs.append(probe.required_experience)
+		probe.add_experience(probe.required_experience)
+		probe.consume_level_up()
+	_check(opening_costs == [20, 42, 78, 130, 196],
+		"the quadratic opening has no recurrence cliff (%s)" % str(opening_costs))
+	var previous_growth := 0
+	var previous_cost := opening_costs[opening_costs.size() - 1]
+	for current_level in range(6, 31):
+		var cost := SharedProgression.requirement_for_level(current_level)
+		var growth := cost - previous_cost
+		_check(growth >= previous_growth, "experience cost rises smoothly at level %d" % current_level)
+		previous_growth = growth
+		previous_cost = cost
+	_check(SharedProgression.requirement_for_level(10) < 800,
+		"the first ten growth choices stay reachable (%d XP)" % SharedProgression.requirement_for_level(10))
+	_check(SharedProgression.requirement_for_level(50) > 15000,
+		"the same curve still stretches the late run (%d XP)" % SharedProgression.requirement_for_level(50))
+	probe.free()
 
 
 ## The roof used to be a fixed slab about four screens across. A pair that kited

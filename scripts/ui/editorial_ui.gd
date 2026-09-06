@@ -239,7 +239,8 @@ static func _growth(main: Node) -> void:
 			style.content_margin_top = 142
 			var art: TextureRect = card.get_node("Icon")
 			art.position = Vector2(14, 17)
-			var category := label(card, "", Rect2(92, 24, 88, 42), 13, Palette.MUTED)
+			# Keep the upper-right corner free for the owned fusion partner seal.
+			var category := label(card, "", Rect2(92, 52, 88, 30), 13, Palette.MUTED)
 			category.name = "Category"
 			category.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			var title := label(card, "", Rect2(16, 86, 164, 50), 16)
@@ -387,7 +388,7 @@ static func refresh_hud(main: Node) -> void:
 	var director: WaveDirector = main.wave_director
 	var readout: String
 	if main.chain_warded():
-		readout = "사슬 결계  %.1f초" % main.chain_ward_remaining
+		readout = "황금 목줄  %.1f초" % main.chain_ward_remaining
 	elif director.boss_active:
 		readout = "%d/%d 보스 전투" % [director.bosses_spawned, WaveDirector.BOSS_COUNT]
 	elif director.bosses_remaining() <= 0:

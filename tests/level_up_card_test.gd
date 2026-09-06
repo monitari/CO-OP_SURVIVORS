@@ -32,13 +32,14 @@ func _run() -> void:
 
 	await _test_input_delay(main)
 	_test_recommendation_and_build_readout(main)
+	_test_luck_and_fan_hand(main)
 	await _test_cursor_and_deferred_apply(main)
 	await _test_reroll(main)
 	_test_reroll_refill(main)
 	await _test_no_immediate_repeat(main)
 
 	if failures.is_empty():
-		print("LEVEL_UP_CARD_PASS: recommendations, icon build readout, open delay, cursor, deferred apply, reroll, no repeat set")
+		print("LEVEL_UP_CARD_PASS: recommendations, luck fourth choice, fan layout, icon build readout, cursor and reroll flow")
 		quit(0)
 	else:
 		for failure in failures:
@@ -288,6 +289,45 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	main.level_up_active = false
 	paused = false
 	await process_frame
+
+
+func _test_luck_and_fan_hand(main: Node) -> void:
+	seed(88021)
+	main.team_luck = 0
+	var ordinary_fourths := 0
+	for draw in 500:
+		ordinary_fourths += 1 if main._growth_choice_count() == 4 else 0
+	main.team_luck = 4
+	var lucky_fourths := 0
+	for draw in 500:
+		lucky_fourths += 1 if main._growth_choice_count() == 4 else 0
+	_check(ordinary_fourths == 0, "zero luck keeps the normal three-card hand")
+	_check(lucky_fourths > 90 and lucky_fourths < 190,
+		"luck four produces a fourth option sometimes, not always (%d/500)" % lucky_fourths)
+
+	main.team_luck = 20
+	main.selected_upgrade_indices[0] = -1
+	main.upgrade_cursors[0] = 0
+	for attempt in 20:
+		main.p1_choices = main._get_upgrade_choices(1)
+		if main.p1_choices.size() == 4:
+			break
+	main._refresh_level_up_ui()
+	_check(main.level_card_labels[0].size() == 4 and main.p1_choices.size() == 4,
+		"the UI has a real fourth card slot when luck grants it")
+	_check(main.level_card_labels[0][1].position.x - main.level_card_labels[0][0].position.x < main.LEVEL_CARD_WIDTH,
+		"four cards overlap into a fan instead of shrinking their text")
+	_check(not is_zero_approx(main.level_card_labels[0][1].rotation),
+		"unfocused cards angle around the raised focus card")
+	_check(main.level_card_labels[0][0].position.y < main.level_card_labels[0][1].position.y,
+		"the focused card pops upward from the fan")
+	main.level_card_labels[0][3].mouse_entered.emit()
+	_check(main.upgrade_cursors[0] == 3 and main.level_card_labels[0][3].scale.x > 1.0,
+		"mouse hover brings that card to the front of the fan")
+	main.team_luck = 0
+	main.p1_choices = main._get_upgrade_choices(1)
+	main.p2_choices = main._get_upgrade_choices(2)
+	main._refresh_level_up_ui()
 
 
 func _test_reroll(main: Node) -> void:

@@ -38,11 +38,11 @@ func _run() -> void:
 	_test_haste(main)
 	_test_armor_and_recovery(main)
 	_test_shared_attributes(main)
-	_test_curse(main)
+	_test_lifesteal(main)
 	_test_card_rules(main)
 
 	if failures.is_empty():
-		print("ATTRIBUTE_PASS: combat/duration/projectile stats apply, curse trades pressure for XP, weapon card guaranteed")
+		print("ATTRIBUTE_PASS: combat stats apply, lifesteal uses actual damage and a shared cap, weapon card guaranteed")
 		quit(0)
 	else:
 		for failure in failures:
@@ -240,23 +240,36 @@ func _test_shared_attributes(main: Node) -> void:
 	paused = false
 
 
-func _test_curse(main: Node) -> void:
-	var director: WaveDirector = main.wave_director
-	director.wave_index = 3
-	director.curse_level = 0.0
-	var base_interval := director.spawn_interval()
-	var base_enemy := director._acquire_enemy("bulwark", 0.0, Vector2.ZERO, false, false)
-	var base_health := base_enemy.max_health
-	var base_xp := base_enemy.xp_value
-	director.release_enemy(base_enemy)
-	main._apply_attribute(0, "curse")
-	var cursed_enemy := director._acquire_enemy("bulwark", 0.0, Vector2.ZERO, false, false)
-	_check(director.spawn_interval() < base_interval, "curse increases spawn density")
-	_check(cursed_enemy.max_health > base_health, "curse raises enemy health")
-	_check(cursed_enemy.xp_value > base_xp, "curse returns extra experience")
-	director.release_enemy(cursed_enemy)
-	director.curse_level = 0.0
-	main.team_curse = 0.0
+func _test_lifesteal(main: Node) -> void:
+	_check(TreasureCatalog.by_id("curse").is_empty(), "the old curse treasure is gone")
+	_check(not TreasureCatalog.by_id("lifesteal").is_empty(), "a lifesteal treasure replaces it")
+	main.team_lifesteal = 0.0
+	main.lifesteal_charge = 0.0
+	main._apply_attribute(0, "lifesteal")
+	_check(is_equal_approx(main.team_lifesteal, main.LIFESTEAL_PER_TIER),
+		"one tier grants the advertised shared lifesteal rate")
+	for player in main.players:
+		player.health = player.max_health * 0.5
+	var enemy: ChaserEnemy = main.wave_director._acquire_enemy("bulwark", 0.0, Vector2.ZERO, false, false)
+	enemy.health = 1000.0
+	enemy.max_health = 1000.0
+	main._register_enemy(enemy)
+	var before: float = main.players[0].health + main.players[1].health
+	enemy.take_damage(100.0)
+	var healed: float = main.players[0].health + main.players[1].health - before
+	_check(absf(healed - 100.0 * main.LIFESTEAL_PER_TIER) < 0.01,
+		"actual attack damage returns health to the team (%.2f)" % healed)
+	main._cull_enemy(enemy)
+
+	var tiny: ChaserEnemy = main.wave_director._acquire_enemy("swarm", 0.0, Vector2.ZERO, false, false)
+	tiny.health = 10.0
+	tiny.max_health = 10.0
+	main._register_enemy(tiny)
+	before = main.players[0].health + main.players[1].health
+	tiny.take_damage(999999.0)
+	healed = main.players[0].health + main.players[1].health - before
+	_check(healed <= 10.0 * main.LIFESTEAL_PER_TIER + 0.001,
+		"overkill cannot be converted into fake lifesteal (%.3f)" % healed)
 
 
 func _test_card_rules(main: Node) -> void:

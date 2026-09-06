@@ -63,7 +63,11 @@ func _run() -> void:
 	for cards in main.level_card_labels:
 		for index in cards.size():
 			var card: Label = cards[index]
-			_check(card.scale == Vector2.ONE, "focus does not enlarge into adjacent card")
+			if card.visible:
+				var slot: int = 0 if cards == main.level_card_labels[0] else 1
+				var focused: bool = index == main.upgrade_cursors[slot]
+				_check((card.scale.x > 1.0) == focused,
+					"only the focused growth card pops out of the fan")
 			_fit(card, "growth card")
 			_fit(card.get_node("CardTitle"), "growth title")
 	_check_icon_bounds(main.level_overlay)

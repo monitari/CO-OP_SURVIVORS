@@ -157,11 +157,11 @@ static func all_treasures() -> Array[Dictionary]:
 			"per_tier": "공유 행운 +1",
 		},
 		{
-			"id": "curse",
-			"name": "뒤집힌 방울",
+			"id": "lifesteal",
+			"name": "진홍 목방울",
 			"shared": true,
-			"stat": "저주",
-			"per_tier": "적 +8% · 출현/경험치 +6%",
+			"stat": "흡혈",
+			"per_tier": "가한 피해 0.6%를 팀 체력으로 회복 · 초당 최대 1.5",
 		},
 		{
 			"id": "catnip",

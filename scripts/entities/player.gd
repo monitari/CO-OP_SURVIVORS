@@ -42,6 +42,9 @@ const FOOTFALL_INTERVAL := 0.11
 
 var player_index := 0
 var move_speed := 230.0
+## Temporary world-effect multiplier. Kept separate from move_speed so a timed
+## pickup can end without undoing permanent speed upgrades earned meanwhile.
+var field_move_multiplier := 1.0
 var radius := 24.0
 var body_color := Color.WHITE
 var health := 100.0
@@ -100,6 +103,7 @@ func apply_character(character: Dictionary) -> void:
 	max_health = float(character["health"])
 	health = max_health
 	move_speed = float(character["speed"])
+	field_move_multiplier = 1.0
 	downed = false
 	revive_progress = 0.0
 	might = float(character.get("might", 1.0))
@@ -153,12 +157,12 @@ func step_movement(delta: float) -> void:
 		# has to read as pushing that way or the leash would settle the wrong
 		# player back.
 		current_input = dash_direction
-		position += dash_direction * move_speed * DASH_SPEED_MULTIPLIER * delta
+		position += dash_direction * move_speed * field_move_multiplier * DASH_SPEED_MULTIPLIER * delta
 		return
 
 	current_input = input_vector
 	var speed_multiplier := 0.28 if downed else 1.0
-	position += input_vector * move_speed * speed_multiplier * delta
+	position += input_vector * move_speed * field_move_multiplier * speed_multiplier * delta
 	if not downed and input_vector.length_squared() > 0.04:
 		footfall_timer -= delta
 		if footfall_timer <= 0.0:

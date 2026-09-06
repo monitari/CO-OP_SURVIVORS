@@ -3,7 +3,7 @@ extends Control
 
 ## Full-screen tell for the timed field items.
 ##
-## 멈춘 회중시계, 수호의 방울, 광란의 마타타비 and 사슬 결계 each change the rules of
+## 멈춘 털실시계, 아홉 목숨 방울, 광란의 마타타비 and 황금 목줄 each change the rules of
 ## the fight for a few seconds, and each said so with one line of text that had
 ## already scrolled off the screen by the time it mattered. A player standing in
 ## a crowd of six hundred cannot read a message log. They can read the colour of
@@ -22,7 +22,7 @@ const STATES := [
 	{"id": "time_stop", "name": "시간 정지", "wash": Color("2f6bff"), "edge": Color("8fd4ff"), "weight": 3.0},
 	{"id": "frenzy", "name": "광란", "wash": Color("ff5a2b"), "edge": Color("ffb08a"), "weight": 2.0},
 	{"id": "guard", "name": "무적", "wash": Color("6fe3ff"), "edge": Color("d6f7ff"), "weight": 1.5},
-	{"id": "chain_ward", "name": "사슬 결계", "wash": Color("ffe066"), "edge": Color("fff4c2"), "weight": 1.0},
+	{"id": "chain_ward", "name": "황금 목줄", "wash": Color("ffe066"), "edge": Color("fff4c2"), "weight": 1.0},
 ]
 
 const SCREEN := Vector2(1280.0, 720.0)

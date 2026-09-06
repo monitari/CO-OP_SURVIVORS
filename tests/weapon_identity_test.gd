@@ -141,6 +141,33 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	_check(anchor.global_position.x < anchor_before,
 		"and finishes drawn in toward the well rather than left where it stood")
 
+	# Planters share the hostile spatial grid so gravity used to treat them like
+	# mobile enemies even though every other crowd rule considers them rooted.
+	await _clear_enemies(main)
+	var planter := EnemyScript.new() as ChaserEnemy
+	planter.setup(0.0, "planter")
+	planter.health = 4000.0
+	planter.max_health = 4000.0
+	planter.position = Vector2(120.0, 0.0)
+	main.add_child(planter)
+	main.enemies.append(planter)
+	var movable := _spawn(main, Vector2(150.0, 0.0))
+	main.spatial_grid.rebuild(main.enemies)
+	var field := WeaponField.new()
+	main.add_child(field)
+	field.configure_gravity(Vector2.ZERO, main.spatial_grid, 10.0, 240.0, 100.0, Color.WHITE)
+	var planter_before := planter.global_position
+	var movable_before := movable.global_position
+	field._physics_process(0.24)
+	_check(planter.global_position.is_equal_approx(planter_before),
+		"a rooted planter is never pulled by gravity")
+	_check(movable.global_position.distance_to(Vector2.ZERO) < movable_before.distance_to(Vector2.ZERO),
+		"ordinary enemies in the same field are still pulled")
+	field._finish_gravity()
+	_check(planter.health < planter.max_health,
+		"the stationary planter still takes the gravity collapse damage")
+	field.queue_free()
+
 	# With nothing in range it must not silently revert to the old behaviour of
 	# detonating on top of the pair.
 	await _clear_enemies(main)

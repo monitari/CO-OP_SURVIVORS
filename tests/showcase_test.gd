@@ -119,7 +119,7 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	var resonance := Showcase.new()
 	resonance.play_resonance(null, null, "B", Color.WHITE)
 	var chest := Showcase.new()
-	chest.play_chest([{"label": "x", "icon": null}])
+	chest.play_chest([{"label": "x", "detail": "피해 1 → 2", "advice": "recommended", "icon": null}])
 
 	_check(fusion.mode != resonance.mode and resonance.mode != chest.mode, "three distinct modes")
 	# A fusion ends as one thing; a resonance ends as two. That is the whole
@@ -128,6 +128,7 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	_check(resonance.result_icon == null, "a resonance does not — both weapons stay")
 	_check(fusion.sources.size() == 2 and resonance.sources.size() == 2, "both start from two")
 	_check(chest.reward_icons.size() == 1, "a chest shows one icon per reward")
+	_check(chest.reward_icons[0].get_child_count() > 0, "a rated chest reward carries an advice badge")
 
 	# A chest with more in it takes longer, because each reward is revealed
 	# separately; a chest that dumped everything at once would be a list.

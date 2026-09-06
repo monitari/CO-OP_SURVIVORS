@@ -23,11 +23,11 @@
 ## 보물 2종
 
 기존 `upgrades.png`를 화풍 기준 이미지로 사용했습니다. 2×1 셀 순서는
-`duration`, `curse`입니다.
+`duration`, `lifesteal`입니다. 현재 빌드는 두 번째 셀의 파일을 호환 별칭으로 재사용합니다.
 
 > Create exactly two treasure icons: a moonlit cat-ear hourglass with cyan glass
-> and deep-blue sand; an upside-down cracked collar bell with a violet curse wisp
-> and red warning glint. Match the reference's rounded hand-drawn treasure style,
+> and deep-blue sand; a crimson collar bell with a warm red healing pulse and
+> a tiny heart glint. Match the reference's rounded hand-drawn treasure style,
 > thick navy outline and matte pastel fills. Genuine transparent background; no
 > text, labels, frames or characters.
 

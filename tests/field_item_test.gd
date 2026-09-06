@@ -44,7 +44,7 @@ func _run() -> void:
 	_test_table_integrity(main)
 
 	if failures.is_empty():
-		print("FIELD_ITEM_PASS: contact pickup, expiry/pooling, effects, upgrade-first chest, elite guarantee, luck scaling")
+		print("FIELD_ITEM_PASS: pickups, stronger golden collar, mixed chest loot, elite guarantee, luck scaling")
 		quit(0)
 	else:
 		for failure in failures:
@@ -154,6 +154,8 @@ func _test_chain_ward(main: Node) -> void:
 	main.players[1].position = Vector2(main.chain_max_length * 0.5, 0.0)
 	_check(main._tension_damage_multiplier() > 1.2,
 		"a warded chain pays the overcharge bonus regardless of tension")
+	_check(main._tension_damage_multiplier() >= 1.5 and main.CHAIN_WARD_WIDTH >= 100.0,
+		"the golden collar is a major damage and burn-width power window")
 
 	var victim := _spawn_enemy(main, Vector2.ZERO)
 	var before := victim.health
@@ -223,14 +225,19 @@ func _test_timed_windows(main: Node) -> void:
 	# whole loadout hits harder rather than one branch of it.
 	main.players[0].health = main.players[0].max_health
 	var calm: float = main._tension_damage_multiplier()
+	var calm_interval: float = main._weapon_interval(0, 0)
 	main._on_field_item_collected("frenzy")
 	_check(main.frenzy_remaining > 0.0, "광란의 마타타비 opens a frenzy window")
 	_check(main._tension_damage_multiplier() > calm * 1.5,
 		"and the pair hits much harder (%.2f from %.2f)" % [main._tension_damage_multiplier(), calm])
+	_check(main.players[0].field_move_multiplier > 1.0, "and both cats move faster")
+	_check(main._weapon_interval(0, 0) < calm_interval, "and every weapon attacks faster")
 	for tick in int(main.FRENZY_DURATION * 62.0):
 		main._update_timed_items(1.0 / 60.0)
 	_check(main.frenzy_remaining <= 0.0, "the frenzy window closes")
 	_check(is_equal_approx(main._tension_damage_multiplier(), calm), "and damage returns to normal")
+	_check(is_equal_approx(main.players[0].field_move_multiplier, 1.0), "and movement returns to normal")
+	_check(is_equal_approx(main._weapon_interval(0, 0), calm_interval), "and attack speed returns to normal")
 
 	# 멈춘 회중시계 — the world stops. Checked by moving something: a timer that
 	# runs while enemies keep walking is not a time stop.
@@ -274,16 +281,17 @@ func _test_timed_windows(main: Node) -> void:
 func _test_purge(main: Node) -> void:
 	main.players[0].position = Vector2.ZERO
 	main.players[1].position = Vector2(100.0, 0.0)
-	var midpoint: Vector2 = (main.players[0].position + main.players[1].position) * 0.5
-
-	var near := _spawn_enemy(main, midpoint + Vector2(200.0, 0.0))
-	var far := _spawn_enemy(main, midpoint + Vector2(main.FIELD_ITEM_PURGE_RADIUS + 300.0, 0.0))
-	var near_before := near.health
+	main.world_camera.position = (main.players[0].position + main.players[1].position) * 0.5
+	var visible: Rect2 = main._visible_world_rect()
+	var near := _spawn_enemy(main, visible.get_center())
+	var boss := _spawn_enemy(main, visible.get_center() + Vector2(120.0, 0.0), true)
+	var far := _spawn_enemy(main, visible.position + Vector2(visible.size.x + 300.0, visible.size.y * 0.5))
 	var far_before := far.health
 
 	main._on_field_item_collected("purge")
-	_check(near.health < near_before, "the purge drop burns enemies near the pair")
-	_check(is_equal_approx(far.health, far_before), "the purge has a limited radius and spares distant enemies")
+	_check(near.dead, "the purge instantly defeats every ordinary enemy in view")
+	_check(boss.dead, "the purge also instantly defeats a visible boss")
+	_check(is_equal_approx(far.health, far_before), "the purge spares enemies outside the view")
 
 	for enemy in main.enemies.duplicate():
 		if is_instance_valid(enemy):
@@ -291,9 +299,9 @@ func _test_purge(main: Node) -> void:
 	main.enemies.clear()
 
 
-func _spawn_enemy(main: Node, position: Vector2) -> ChaserEnemy:
+func _spawn_enemy(main: Node, position: Vector2, boss := false) -> ChaserEnemy:
 	var enemy := EnemyScript.new() as ChaserEnemy
-	enemy.setup(0.0, "chaser")
+	enemy.setup(0.0, "brute" if boss else "chaser", false, boss, 1 if boss else 0)
 	enemy.health = 100000.0
 	enemy.max_health = 100000.0
 	enemy.position = position
@@ -350,15 +358,40 @@ func _test_drop_rates(main: Node) -> void:
 
 func _test_chest(main: Node) -> void:
 	var weapon_count_before: int = main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size()
+	var treasure_count_before: int = main.treasure_loadouts[0].size() + main.treasure_loadouts[1].size()
 	var depth_before: int = main._build_depth(0) + main._build_depth(1)
+	seed(19273)
 	var rewards: Array[Dictionary] = main._open_chest()
 	var depth_after: int = main._build_depth(0) + main._build_depth(1)
 	_check(rewards.size() >= 1 and rewards.size() <= main.CHEST_MAX_REWARDS,
 		"a chest grants between one and the configured maximum (%d)" % rewards.size())
-	_check(main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size() == weapon_count_before,
-		"a chest upgrades carried gear before unlocking another weapon")
 	_check(depth_after == depth_before + rewards.size(),
-		"every chest reward deepens existing gear while upgrades remain (%d -> %d)" % [depth_before, depth_after])
+		"every ordinary chest reward adds one tier or one new tier-one item (%d -> %d)" % [depth_before, depth_after])
+	for reward in rewards:
+		_check(not String(reward.get("detail", "")).is_empty(), "a chest records the exact upgrade it applied")
+		_check(String(reward.get("advice", "")) in ["recommended", "discouraged", "neutral"],
+			"a chest reward carries a recommendation verdict")
+
+	# New equipment competes with upgrades even before the existing build is
+	# finished, and luck makes that branch measurably more likely.
+	main.team_luck = 0
+	var base_new_chance: float = main._chest_new_gear_chance()
+	main.team_luck = 12
+	var lucky_new_chance: float = main._chest_new_gear_chance()
+	_check(lucky_new_chance > base_new_chance,
+		"luck raises the chance that a chest contains unowned gear (%.1f%% -> %.1f%%)" % [base_new_chance * 100.0, lucky_new_chance * 100.0])
+	var saw_new_gear: bool = (
+		main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size() > weapon_count_before
+		or main.treasure_loadouts[0].size() + main.treasure_loadouts[1].size() > treasure_count_before)
+	for attempt in 12:
+		if saw_new_gear:
+			break
+		main._open_chest()
+		saw_new_gear = (
+			main.weapon_loadouts[0].size() + main.weapon_loadouts[1].size() > weapon_count_before
+			or main.treasure_loadouts[0].size() + main.treasure_loadouts[1].size() > treasure_count_before)
+	_check(saw_new_gear, "a chest can award a weapon or treasure that was not carried")
+	main.team_luck = 0
 
 	# Sampled over a hundred thousand rolls rather than a thousand. The top of
 	# the ladder is under a tenth of a percent on purpose — it is a thing to be
@@ -393,6 +426,8 @@ func _test_table_integrity(main: Node) -> void:
 	for entry in main.field_items.ITEM_TABLE:
 		table_ids.append(String(entry["id"]))
 		_check(not String(entry["name"]).is_empty(), "drop %s has a display name" % String(entry["id"]))
+	_check(main.field_items.ITEM_TABLE.reduce(func(total: int, entry: Dictionary) -> int: return total + int(entry["weight"]), 0) == 100,
+		"field-item weights are explicit percentages")
 	for id in table_ids:
 		_check(id in handled, "drop table id %s has a matching pickup effect" % id)
 	for id in handled:

@@ -126,7 +126,9 @@ func _test_surge_and_calm() -> void:
 	director.wave_index = WaveDirector.SURGE_EVERY - 1
 	director.wave_elapsed = WaveDirector.WAVE_DURATION
 	var surge := director.step(1.0 / 60.0, 10.0, Vector2.ZERO, 0)
-	_check(surge.size() > ordinary.size(), "a surge wave opens with more enemies (%d vs %d)" % [surge.size(), ordinary.size()])
+	var ordinary_threats := ordinary.filter(func(enemy: ChaserEnemy) -> bool: return not enemy.scenery)
+	var surge_threats := surge.filter(func(enemy: ChaserEnemy) -> bool: return not enemy.scenery)
+	_check(surge_threats.size() > ordinary_threats.size(), "a surge wave opens with more enemies (%d vs %d)" % [surge_threats.size(), ordinary_threats.size()])
 
 	# The lull stops the regular trickle but must not stop elites, or a calm
 	# stretch would be a guaranteed safe window rather than a breather.

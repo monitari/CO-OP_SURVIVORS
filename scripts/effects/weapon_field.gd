@@ -104,7 +104,9 @@ func configure_gravity(centre: Vector2, grid: EnemySpatialGrid, hit: float, radi
 		if not is_instance_valid(enemy) or enemy.dead or centre.distance_to(enemy.global_position) > radius + enemy.radius:
 			continue
 		var distance := centre.distance_to(enemy.global_position)
-		var travel := minf(pull, maxf(0.0, distance - 26.0)) * (0.22 if enemy.boss else 1.0)
+		# Planters are rooted scenery: keep them in the impacted set so the
+		# collapse still damages them, but give them zero travel.
+		var travel := 0.0 if enemy.scenery else minf(pull, maxf(0.0, distance - 26.0)) * (0.22 if enemy.boss else 1.0)
 		pulls.append({"enemy": enemy, "start": enemy.global_position, "end": enemy.global_position.move_toward(centre, travel)})
 	z_index = 4
 	queue_redraw()

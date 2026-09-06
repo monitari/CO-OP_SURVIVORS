@@ -352,17 +352,6 @@ func deactivate() -> void:
 		remove_from_group("enemies")
 
 
-func apply_curse(level: float) -> void:
-	if level <= 0.0:
-		return
-	var stat_scale := 1.0 + level * 0.08
-	max_health *= stat_scale
-	health = max_health
-	contact_damage *= stat_scale
-	move_speed *= 1.0 + level * 0.025
-	xp_value = maxi(1, roundi(float(xp_value) * (1.0 + level * 0.06)))
-
-
 func step(players: Array[ChainPlayer], delta: float) -> void:
 	if dead or not active:
 		return
@@ -675,8 +664,12 @@ func take_damage(amount: float) -> bool:
 	if dead or not active:
 		return false
 	if archetype == "hedgehog": amount *= 0.72
+	# Report only health that was genuinely removed. This is both the honest
+	# damage number and the authority for lifesteal, so a 999,999-point purge on
+	# a ten-health enemy cannot become a full-party heal exploit.
+	var actual_damage := minf(maxf(0.0, amount), health)
 	health -= amount
-	damage_taken.emit(self, amount)
+	damage_taken.emit(self, actual_damage)
 	hit_flash = 1.0
 	scale = Vector2(1.22, 1.22)
 	if health <= 0.0:

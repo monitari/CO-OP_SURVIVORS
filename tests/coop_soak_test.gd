@@ -76,9 +76,8 @@ func _run() -> void:
 	# Every level-up pauses the run for both players, so pacing is a gameplay
 	# property worth guarding, not just a curiosity to eyeball in SOAK_METRICS.
 	# The band is deliberately loose (spawn/movement RNG shifts kill timing a
-	# little run to run) but still catches a regression back toward the old
-	# ~12s cadence on one edge and an overcorrection into a leveling drought
-	# on the other.
+	# little run to run) but still catches a menu-every-few-seconds failure on
+	# one edge and a return to the old opening drought on the other.
 	var seconds_per_level: float = main.elapsed / maxf(1.0, float(main.progression.level - 1))
 	# The average alone cannot tell a flat cadence from a fast opening followed
 	# by a twenty-minute drought, which is exactly the failure a longer run
@@ -96,15 +95,13 @@ func _run() -> void:
 		# then twenty minutes with almost no upgrades in them.
 		_check(late_gap <= early_gap * 2.2,
 			"level pacing does not collapse in the back half (%.1fs early, %.1fs late)" % [early_gap, late_gap])
-	# The band was 17-29, drawn around a five-minute run that ended at level 14.
-	# A twenty-five-minute run has to deliver enough level-ups to actually
-	# finish a build — four weapons to tier seven and four treasures to tier
-	# six is over fifty picks — so the cadence is slower per level and the run
-	# is far longer. Measured pacing sits at 34s average; this is a real band
-	# around that rather than a formality.
-	_check(seconds_per_level >= 26.0, "level-ups are not pausing the run more often than ~26s apart")
-	_check(seconds_per_level <= 42.0, "level-ups have not drifted sparse enough to starve a run of upgrades")
-	_check(main.progression.level >= 40,
+	# The previous 26-42s band preserved the exact opening drought this test was
+	# meant to catch: level two jumped straight from 32 to 504 XP. The retuned
+	# curve intentionally targets roughly one choice every 15-22 seconds so the
+	# first half of a build forms while the player is still learning the run.
+	_check(seconds_per_level >= 14.0, "level-ups still leave at least ~14s of play between choices")
+	_check(seconds_per_level <= 26.0, "level-ups have not drifted sparse enough to starve the opening")
+	_check(main.progression.level >= 70,
 		"a full run reaches deep enough into the tree to finish a build (level %d)" % main.progression.level)
 
 	_check(seen_archetypes.size() >= 3, "long run contains multiple enemy archetypes (%s)" % str(seen_archetypes.keys()))

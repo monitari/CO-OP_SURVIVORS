@@ -38,22 +38,35 @@ const FIRST_REINFORCEMENT_COUNT := 3
 ## Reached around wave forty rather than wave nine. Everything past that point
 ## is held at the floor, which is what the last few minutes of a run are for.
 const SPAWN_INTERVAL_FLOOR := 0.10
-const CHARGER_UNLOCK_TIME := 30.0
-const BULWARK_UNLOCK_TIME := 75.0
-const SWARM_UNLOCK_TIME := 45.0
-const SWARM_INTERVAL := 22.0
-## Breakable scenery is generated from world cells as the pair explores the
-## endless roof. A cell's seed makes its planter location stable on revisits,
-## while the checked-cell set prevents duplicate entities or respawns.
-const PLANTER_CELL := 512
-const PLANTER_SCAN_RADIUS := 3
+## New behaviours enter one at a time. Previously five special families were
+## all live by 75 seconds, so the opening taught a bestiary instead of a game.
+const CHARGER_UNLOCK_TIME := 75.0
+const SHOOTER_UNLOCK_TIME := 135.0
+const CHAIN_HUNTER_UNLOCK_TIME := 210.0
+const BULWARK_UNLOCK_TIME := 285.0
+const EXOTIC_UNLOCK_TIME := 360.0
+const EXOTIC_UNLOCK_STEP := 150.0
+const SWARM_UNLOCK_TIME := 110.0
+const SWARM_INTERVAL := 55.0
+## Breakable scenery grows in small rooftop-garden patches. A cell seed keeps
+## each patch stable, while a live cap prevents abandoned pots from consuming
+## the enemy budget forever as the pair explores the endless roof.
+const PLANTER_CELL := 720
+const PLANTER_SCAN_RADIUS := 2
+const PLANTER_PATCH_CHANCE := 0.46
+const PLANTER_PATCH_MIN := 2
+const PLANTER_PATCH_MAX := 3
+const PLANTER_PATCH_SPREAD := 125.0
+const PLANTER_CELL_MARGIN := 110.0
+const PLANTER_PLAYER_CLEARANCE := 430.0
+const PLANTER_MAX_ALIVE := 24
 
 ## Named encounters, on their own clock, so a long run has events in it rather
 ## than a single rising slope. Each one poses a different question: a tide is
 ## free experience if the pair is positioned for it, a siege is the surrounded
 ## problem with no gap to walk through, a stampede comes from one bearing and
 ## has to be side-stepped, and a squad is four elites at once.
-const ENCOUNTER_FIRST := 105.0
+const ENCOUNTER_FIRST := 150.0
 const ENCOUNTER_INTERVAL := 78.0
 const ENCOUNTER_ORDER := ["swarm_tide", "stampede", "ring_siege", "elite_squad", "deluge"]
 const ENCOUNTER_NAMES := {
@@ -62,6 +75,7 @@ const ENCOUNTER_NAMES := {
 	"ring_siege": "포위 진형",
 	"elite_squad": "정예 편대",
 	"deluge": "대범람",
+	"boss_cordon": "철벽 포위",
 }
 ## 대범람 is the one encounter that is supposed to be frightening rather than
 ## interesting: enemies from every bearing at once, enough of them to cover the
@@ -70,6 +84,8 @@ const ENCOUNTER_NAMES := {
 const DELUGE_UNLOCK_TIME := 420.0
 const DELUGE_BASE_COUNT := 46
 const DELUGE_PER_MINUTE := 5.0
+const BOSS_CORDON_COUNT := 12
+const BOSS_CORDON_RADIUS := 610.0
 
 var enemy_pool: Array[ChaserEnemy] = []
 var spawn_timer := 0.0
@@ -79,7 +95,6 @@ var boss_spawned := false ## True once the first boss of the run has arrived.
 var bosses_spawned := 0
 var boss_active := false ## Kept current by main; holds the next boss back while one is still alive.
 var enemy_cap := 620
-var curse_level := 0.0 ## Shared risk treasure: denser spawns and stronger, better-paying enemies.
 ## Host returns the number of ordinary enemies recycled for scheduled arrivals.
 var reclaim_capacity: Callable
 
@@ -98,13 +113,12 @@ func spawn_interval() -> float:
 	# The first two waves are the learning window: the pair is still on one
 	# weapon each and has not yet had time to establish armor, recovery, or a
 	# resonance. Ease the stream here, then join the original curve from wave 2.
-	var curse_density := 1.0 + curse_level * 0.06
 	if wave_index == 0:
-		return OPENING_SPAWN_INTERVAL / curse_density
+		return OPENING_SPAWN_INTERVAL
 	if wave_index == 1:
-		return SECOND_WAVE_SPAWN_INTERVAL / curse_density
+		return SECOND_WAVE_SPAWN_INTERVAL
 	if wave_index == 2:
-		return THIRD_WAVE_SPAWN_INTERVAL / curse_density
+		return THIRD_WAVE_SPAWN_INTERVAL
 	# Drawn against the length of the run rather than against its first few
 	# minutes. At 0.055 a wave this hit its floor at wave nine — four and a half
 	# minutes in — and then sat there for the remaining twenty, which is why the
@@ -113,7 +127,7 @@ func spawn_interval() -> float:
 	# where the third wave leaves off and reaches the same floor around wave
 	# forty-three, a little under twenty-two minutes, so the pressure a player
 	# feels tracks how far into the run they actually are.
-	return maxf(SPAWN_INTERVAL_FLOOR, (0.86 - float(wave_index) * 0.0175) / curse_density)
+	return maxf(SPAWN_INTERVAL_FLOOR, 0.86 - float(wave_index) * 0.0175)
 
 
 func is_surge_wave(index: int) -> bool:
@@ -138,11 +152,15 @@ func encounter_name(encounter_id: String) -> String:
 func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> Array[ChaserEnemy]:
 	var spawned: Array[ChaserEnemy] = []
 	var difficulty := elapsed / DIFFICULTY_SECONDS
-	spawned.append_array(_spawn_planters_near(center, difficulty))
 	var reserved := scheduled_slots(delta, elapsed)
 	var shortage := maxi(0, active_count + reserved - enemy_cap)
 	if reserved > 0 and shortage > 0 and reclaim_capacity.is_valid():
 		active_count -= int(reclaim_capacity.call(shortage, center))
+	# Combat events have first claim on the cap. Gardens use only the capacity
+	# left after bosses/elites/encounters are reserved, so scenery can never
+	# delay or truncate a scheduled fight.
+	var planter_slots := maxi(0, enemy_cap - active_count - reserved)
+	spawned.append_array(_spawn_planters_near(center, difficulty, planter_slots))
 	var ordinary_cap := maxi(0, enemy_cap - reserved)
 
 	# --- wave clock ---------------------------------------------------------
@@ -162,10 +180,13 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		var growth := int(float(wave_index) * 0.8)
 		var surge := (10 + growth * 2) if is_surge_wave(wave_index) else (
 			FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4 + growth)
+		# One wave opener is one colony. Rolling per body produced a sampler pack
+		# of every unlocked behaviour instead of a readable mass.
+		var reinforcement_archetype := _pick_archetype(elapsed)
 		for index in surge:
 			if active_count + spawned.size() >= ordinary_cap:
 				break
-			spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, false, false))
+			spawned.append(_acquire_enemy(reinforcement_archetype, difficulty, center, false, false))
 	elif not in_calm and wave_elapsed >= WAVE_DURATION - WAVE_CALM:
 		in_calm = true
 		wave_calm_started.emit(wave_index)
@@ -185,6 +206,11 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		# and stacking both produced a boss with four times the health anyone
 		# had budgeted for.
 		spawned.append(_acquire_enemy("owl" if bosses_spawned == 2 or bosses_spawned == 4 else "brute", difficulty, center, false, true, bosses_spawned))
+		# Vampire-Survivors-style boss cordon: slow, extremely durable bodies close
+		# from every direction. They are hard to displace but still killable, so
+		# wide attacks can cut an exit instead of the ring being an invisible wall.
+		encounter_started.emit("boss_cordon")
+		_run_encounter("boss_cordon", difficulty, center, active_count, spawned)
 	# Elites and the boss ignore the lull — the calm is a break from the swarm,
 	# not a guarantee that nothing happens.
 	if elite_timer <= 0.0 and active_count + spawned.size() < enemy_cap:
@@ -221,38 +247,57 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		var count := 1 + int(float(wave_index) / 4.0)
 		if wave_index >= 2 and randf() < 0.4:
 			count += 1
+		var batch_archetype := _pick_archetype(elapsed)
 		for index in count:
 			if active_count + spawned.size() >= enemy_cap:
 				break
-			spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, false, false))
+			spawned.append(_acquire_enemy(batch_archetype, difficulty, center, false, false))
 	return spawned
 
 
-func _spawn_planters_near(center: Vector2, difficulty: float) -> Array[ChaserEnemy]:
+func _spawn_planters_near(center: Vector2, difficulty: float, spawn_limit := PLANTER_MAX_ALIVE) -> Array[ChaserEnemy]:
 	var spawned: Array[ChaserEnemy] = []
+	var target_alive := mini(PLANTER_MAX_ALIVE, planters_alive + maxi(0, spawn_limit))
+	if planters_alive >= target_alive:
+		return spawned
 	var center_cell := Vector2i(int(floor(center.x / PLANTER_CELL)), int(floor(center.y / PLANTER_CELL)))
 	for cell_x in range(center_cell.x - PLANTER_SCAN_RADIUS, center_cell.x + PLANTER_SCAN_RADIUS + 1):
 		for cell_y in range(center_cell.y - PLANTER_SCAN_RADIUS, center_cell.y + PLANTER_SCAN_RADIUS + 1):
+			if planters_alive >= target_alive:
+				return spawned
 			var cell := Vector2i(cell_x, cell_y)
 			if checked_planter_cells.has(cell):
 				continue
 			checked_planter_cells[cell] = true
 			var rng := RandomNumberGenerator.new()
 			rng.seed = _cell_seed(cell_x, cell_y)
-			if rng.randf() > 0.62:
+			if rng.randf() > PLANTER_PATCH_CHANCE:
 				continue
-			var at := Vector2(
-				cell_x * PLANTER_CELL + rng.randf_range(60.0, PLANTER_CELL - 140.0),
-				cell_y * PLANTER_CELL + rng.randf_range(60.0, PLANTER_CELL - 140.0)
+			var patch_center := Vector2(
+				cell_x * PLANTER_CELL + rng.randf_range(PLANTER_CELL_MARGIN, PLANTER_CELL - PLANTER_CELL_MARGIN),
+				cell_y * PLANTER_CELL + rng.randf_range(PLANTER_CELL_MARGIN, PLANTER_CELL - PLANTER_CELL_MARGIN)
 			)
-			if absf(at.x) < 560.0 and absf(at.y) < 350.0:
+			# Do not reveal a garden underneath the cats, and leave the starting
+			# rooftop clear enough for the first movement lesson.
+			if patch_center.distance_to(center) < PLANTER_PLAYER_CLEARANCE:
 				continue
-			if rng.randi() % 4 != 0:
+			if absf(patch_center.x) < 560.0 and absf(patch_center.y) < 350.0:
 				continue
-			var planter := _acquire_enemy("planter", difficulty, center, false, false)
-			planter.position = at
-			planters_alive += 1
-			spawned.append(planter)
+			var count := rng.randi_range(PLANTER_PATCH_MIN, PLANTER_PATCH_MAX)
+			var first_angle := rng.randf_range(0.0, TAU)
+			for index in count:
+				if planters_alive >= target_alive:
+					return spawned
+				var angle := first_angle + TAU * float(index) / float(count) + rng.randf_range(-0.32, 0.32)
+				var distance := rng.randf_range(55.0, PLANTER_PATCH_SPREAD)
+				var at := patch_center + Vector2.from_angle(angle) * distance
+				var cell_origin := Vector2(cell_x, cell_y) * float(PLANTER_CELL)
+				at.x = clampf(at.x, cell_origin.x + PLANTER_CELL_MARGIN, cell_origin.x + PLANTER_CELL - PLANTER_CELL_MARGIN)
+				at.y = clampf(at.y, cell_origin.y + PLANTER_CELL_MARGIN, cell_origin.y + PLANTER_CELL - PLANTER_CELL_MARGIN)
+				var planter := _acquire_enemy("planter", difficulty, center, false, false)
+				planter.position = at
+				planters_alive += 1
+				spawned.append(planter)
 	return spawned
 
 
@@ -275,7 +320,7 @@ func encounter_size(elapsed: float) -> int:
 func scheduled_slots(delta: float, elapsed: float) -> int:
 	var count := 0
 	if bosses_spawned < BOSS_COUNT and not boss_active and elapsed >= next_boss_time():
-		count += 1
+		count += 1 + BOSS_CORDON_COUNT
 	if elite_timer <= delta:
 		count += 1
 	if encounter_timer <= delta:
@@ -319,8 +364,20 @@ func _run_encounter(
 			for index in count:
 				if not budget.call():
 					return
-				var enemy := _acquire_enemy(_pick_archetype(difficulty * DIFFICULTY_SECONDS), difficulty, center, false, false)
+				var enemy := _acquire_enemy("bulwark", difficulty, center, false, false)
+				_fortify_wall(enemy, 1.25)
 				enemy.position = center + Vector2.from_angle(TAU * float(index) / float(count)) * 640.0
+				spawned.append(enemy)
+		"boss_cordon":
+			var wall_scale := 1.35 + float(maxi(1, bosses_spawned)) * 0.15
+			for index in BOSS_CORDON_COUNT:
+				if not budget.call():
+					return
+				var enemy := _acquire_enemy("bulwark", difficulty, center, false, false)
+				_fortify_wall(enemy, wall_scale)
+				var angle := TAU * float(index) / float(BOSS_CORDON_COUNT)
+				var stagger := 34.0 if index % 2 == 0 else -34.0
+				enemy.position = center + Vector2.from_angle(angle) * (BOSS_CORDON_RADIUS + stagger)
 				spawned.append(enemy)
 		"elite_squad":
 			for index in 4:
@@ -366,7 +423,6 @@ func _acquire_enemy(
 	else:
 		enemy = enemy_pool.pop_back()
 	enemy.setup(difficulty, archetype, elite, boss, boss_rank)
-	enemy.apply_curse(curse_level)
 	var angle := randf() * TAU
 	var distance := randf_range(610.0, 760.0) if not boss else 820.0
 	enemy.position = center + Vector2.from_angle(angle) * distance
@@ -375,18 +431,26 @@ func _acquire_enemy(
 
 func _pick_archetype(elapsed: float) -> String:
 	var roll := randf()
-	if elapsed >= 120.0 and roll > 0.62:
-		var unlocked := mini(5, 1 + int((elapsed - 120.0) / 60.0))
+	if elapsed >= EXOTIC_UNLOCK_TIME and roll > 0.84:
+		var unlocked := mini(5, 1 + int((elapsed - EXOTIC_UNLOCK_TIME) / EXOTIC_UNLOCK_STEP))
 		return ["rat_runner", "wasp", "hedgehog", "mole", "owl"][randi_range(0, unlocked - 1)]
-	if elapsed >= BULWARK_UNLOCK_TIME and roll < 0.09:
+	if elapsed >= BULWARK_UNLOCK_TIME and roll < 0.08:
 		return "bulwark"
-	if elapsed >= 55.0 and roll < 0.22:
-		return "chain_hunter"
-	if elapsed >= 36.0 and roll < 0.40:
-		return "shooter"
-	if elapsed >= CHARGER_UNLOCK_TIME and roll < 0.60:
+	if elapsed >= CHARGER_UNLOCK_TIME and roll < 0.30:
 		return "charger"
+	if elapsed >= SHOOTER_UNLOCK_TIME and roll < 0.48:
+		return "shooter"
+	if elapsed >= CHAIN_HUNTER_UNLOCK_TIME and roll < 0.60:
+		return "chain_hunter"
 	return "chaser"
+
+
+func _fortify_wall(enemy: ChaserEnemy, health_scale: float) -> void:
+	enemy.max_health *= health_scale
+	enemy.health = enemy.max_health
+	# Immovable here means crowd pressure cannot shove the wall apart. Its own
+	# slow advance remains active, and player attacks can still kill it normally.
+	enemy.immovable = true
 
 
 ## Swarms do not trickle. They arrive as a pack or not at all, which is what

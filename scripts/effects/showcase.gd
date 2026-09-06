@@ -49,6 +49,7 @@ var rewards: Array = [] ## For CHEST: [{icon, label, color}]
 var reward_icons: Array[TextureRect] = []
 var caption: Label
 var sub_caption: Label
+var reward_summary: Label
 
 
 func _init() -> void:
@@ -90,7 +91,9 @@ func play_resonance(first: Texture2D, second: Texture2D, name: String, tint: Col
 func play_chest(entries: Array) -> void:
 	mode = Mode.CHEST
 	rewards = entries
-	duration = maxf(CHEST_DURATION, CHEST_BURST_AT + 0.5 + float(entries.size()) * REWARD_STAGGER + 1.05)
+	# Leave a readable final beat after the last reward lands. The chest used to
+	# finish before a player could tell which stat the icon had actually raised.
+	duration = maxf(CHEST_DURATION, CHEST_BURST_AT + 0.5 + float(entries.size()) * REWARD_STAGGER + 2.2)
 	accent = Color("ffd166")
 	headline = "수염 상자"
 	subtitle = "%d개 획득" % entries.size()
@@ -102,6 +105,7 @@ func play_chest(entries: Array) -> void:
 		# two survivors — without this the showcase is a pile of icons and the
 		# only way to find out who got what is to go and read both build rows.
 		_add_owner_badge(art, entry)
+		_add_advice_badge(art, entry)
 		reward_icons.append(art)
 
 
@@ -112,6 +116,18 @@ func _ready() -> void:
 	sub_caption = _make_label(18, Color("f4efe2"))
 	caption.text = headline
 	sub_caption.text = subtitle
+	if mode == Mode.CHEST:
+		reward_summary = _make_label(15, Color("f4efe2"))
+		reward_summary.size = Vector2(1120.0, 190.0)
+		reward_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		reward_summary.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		var lines: Array[String] = []
+		for entry: Dictionary in rewards:
+			var mark := "★" if String(entry.get("advice", "neutral")) == "recommended" else (
+				"▽" if String(entry.get("advice", "neutral")) == "discouraged" else "•"
+			)
+			lines.append("%s %s — %s" % [mark, String(entry.get("label", "보상")), String(entry.get("detail", "획득"))])
+		reward_summary.text = "\n".join(lines)
 
 
 func _make_label(font_size: int, ink: Color) -> Label:
@@ -155,6 +171,26 @@ func _add_owner_badge(art: TextureRect, entry: Dictionary) -> void:
 	tag.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
 	tag.add_theme_constant_override("outline_size", 5)
 	art.add_child(tag)
+
+
+## Same symbols as the growth cards, placed on the reward itself so the verdict
+## is visible during the throw; the final summary repeats it beside exact stats.
+func _add_advice_badge(art: TextureRect, entry: Dictionary) -> void:
+	var advice := String(entry.get("advice", "neutral"))
+	if advice == "neutral":
+		return
+	var badge := Label.new()
+	badge.text = "★" if advice == "recommended" else "▽"
+	badge.position = Vector2(58.0, -8.0)
+	badge.size = Vector2(34.0, 34.0)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_theme_font_size_override("font_size", 21)
+	badge.add_theme_color_override("font_color", Color("fff275") if advice == "recommended" else Color("ff8fab"))
+	badge.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
+	badge.add_theme_constant_override("outline_size", 6)
+	art.add_child(badge)
 
 
 func _add_source(texture: Texture2D) -> void:
@@ -262,6 +298,13 @@ func _step_chest() -> void:
 	# Clear of where the rewards land, which is the whole point of throwing them
 	# downward: the subtitle used to sit exactly on the first icon.
 	_place_captions(centre - Vector2(0.0, 216.0), smoothstep(0.5, 0.85, age))
+	if reward_summary != null:
+		var final_beat := _reward_beat(maxi(0, reward_icons.size() - 1)) + 0.38
+		var reveal := smoothstep(final_beat, final_beat + 0.32, age)
+		var tail := minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
+		# Below the owner portraits and P-tags attached to the reward icons.
+		reward_summary.position = Vector2(centre.x - reward_summary.size.x * 0.5, centre.y + 180.0)
+		reward_summary.modulate.a = reveal * tail
 
 
 func _place_captions(centre: Vector2, reveal: float) -> void:

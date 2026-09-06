@@ -15,7 +15,7 @@ func _initialize() -> void:
 ## supposed to be a gate rather than a formality. These checks pin the gates:
 ## a fusion needs both a maxed weapon and the right treasure, it is offered the
 ## moment both are true and never before, it replaces the weapon in place, and
-## the screen only starts drawing the tree once the pair has seen a fusion once.
+## the ordinary growth cards do not reveal material paths before completion.
 func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
@@ -35,10 +35,10 @@ func _run() -> void:
 	_test_both_requirements(main)
 	_test_fusion_replaces_in_place(main)
 	_test_tier_is_capped(main)
-	_test_the_tech_tree_is_shown_on_the_cards(main)
+	_test_growth_selection_hides_material_hints(main)
 
 	if failures.is_empty():
-		print("FUSION_PASS: both gates enforced, fusion replaces in place, the tree is on the cards not on a strip")
+		print("FUSION_PASS: both gates enforced, fusion replaces in place, growth cards hide material paths")
 		quit(0)
 	else:
 		for failure in failures:
@@ -146,14 +146,10 @@ func _test_tier_is_capped(main: Node) -> void:
 		"weapon tier stops at the cap (%d)" % int(weapon["tier"]))
 
 
-## The screen used to print both requirements of both survivors' nearest fusion
-## along the bottom, from level one — the back half of the run as a table, and
-## an errand instead of a discovery. The strip is gone; what replaced it is a
-## mark on the individual card that is actually a decision right now.
-##
-## Both halves are checked, because deleting the strip without putting anything
-## in its place would leave a player with no way at all to see a fusion coming.
-func _test_the_tech_tree_is_shown_on_the_cards(main: Node) -> void:
+## A recipe remains hidden until both ingredients are carried. At that point the
+## involved card shows the *other* ingredient in its corner, while the result
+## stays unknown until it has actually been discovered.
+func _test_growth_selection_hides_material_hints(main: Node) -> void:
 	main.fusion_discovered = false
 	main._refresh_level_up_ui()
 	# The whole screen rather than the one label the table used to live in: the
@@ -164,35 +160,41 @@ func _test_the_tech_tree_is_shown_on_the_cards(main: Node) -> void:
 		_check(not shown.contains(String(evolution["weapon_name"])),
 			"the growth screen does not name the fusion %s" % String(evolution["weapon_name"]))
 	_check(not shown.contains("→ "), "and does not lay the requirements out as a table")
+	_check(not shown.contains("미지의 합성") and not shown.contains("합성 재료"),
+		"and does not label an offered card as a hidden fusion material")
 	# It still has to say where the run is, or the screen is a card rack with no
 	# context: the title carries the shared level.
 	_check(shown.contains("LV."), "the screen still says what level this is")
 
-	# P2 carries an unfused weapon at max tier with no treasure, so its weapon
-	# upgrades have to be marked as fusion material rather than as nothing.
+	for side: Array in main.level_card_labels:
+		for card: Label in side:
+			_check(card.has_node("FusionMark"), "every growth card has a conditional fusion seal")
+			_check(not card.get_node("FusionMark").visible,
+				"the fusion seal stays hidden before both ingredients are owned")
+
 	var weapon: Dictionary = main.weapon_loadouts[1][0]
-	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER - 1
-	var hint: Dictionary = main._fusion_hint(1, {"id": "weapon_power", "weapon_slot": 0})
-	_check(not hint.is_empty(), "a weapon one step from its cap is marked")
-	_check(not bool(hint["ready"]), "but not as ready while its treasure is missing")
-
-	# The treasure that finishes it, at the tier that finishes it, is the mark
-	# that says "take this and you can fuse now".
-	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
 	var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
-	var treasure_id := String(evolution["treasure_id"])
-	main._apply_upgrade(1, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id(treasure_id)})
-	var treasure_slot: int = main.treasure_loadouts[1].size() - 1
-	while main._treasure_tier(1, treasure_id) < EvolutionCatalog.REQUIRED_TREASURE_TIER - 1:
-		main._apply_upgrade(1, {"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot})
-	var last_step: Dictionary = main._fusion_hint(1, {"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot})
-	_check(not last_step.is_empty() and bool(last_step["ready"]),
-		"the last step before a fusion is marked as ready")
+	var treasure := TreasureCatalog.by_id(String(evolution["treasure_id"]))
+	var hidden_line: String = main._fusion_progress_line(1)
+	_check(hidden_line.contains("???") and not hidden_line.contains(String(treasure["name"])),
+		"full stats hides the absent fusion ingredient")
 
-	# And a card with nothing to do with any fusion carries no mark at all, or
-	# the mark would be decoration rather than information.
-	_check(main._fusion_hint(1, {"id": "move", "weapon_slot": -1}).is_empty(),
-		"an unrelated card is not marked")
+	main._apply_upgrade(1, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
+	var revealed_choices: Array[Dictionary] = [{
+		"id": "weapon_power", "weapon_slot": 0,
+		"title": "마력 증폭\n%s" % String(weapon["weapon_name"]),
+		"description": main._upgrade_preview(1, {"id": "weapon_power", "weapon_slot": 0}),
+	}]
+	main.p2_choices = revealed_choices
+	main._refresh_level_up_ui()
+	var mark := main.level_card_labels[1][0].get_node("FusionMark") as TextureRect
+	_check(mark.visible and mark.texture != null,
+		"owning both ingredients reveals the partner icon on its growth card")
+	_check(mark.tooltip_text.contains(String(treasure["name"])) and mark.tooltip_text.contains("합치면 합성됩니다"),
+		"the seal explains which owned item combines with this card")
+	var revealed_line: String = main._fusion_progress_line(1)
+	_check(revealed_line.contains(String(treasure["name"])),
+		"full stats reveals the relationship once both ingredients are owned")
 
 
 ## Every piece of text on the growth screen, joined.

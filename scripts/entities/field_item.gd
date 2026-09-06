@@ -73,15 +73,23 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, 12.0, body)
 	match item_id:
 		"heal":
-			draw_rect(Rect2(-6.0, -2.0, 12.0, 4.0), ink)
-			draw_rect(Rect2(-2.0, -6.0, 4.0, 12.0), ink)
+			# A tuna tin with a fish stamped into it.
+			draw_arc(Vector2.ZERO, 8.0, 0.0, TAU, 18, ink, 2.2, true)
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(-5.5, 0.0), Vector2(-1.5, -3.2), Vector2(4.0, 0.0), Vector2(-1.5, 3.2),
+			]), ink)
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(3.0, 0.0), Vector2(7.0, -3.5), Vector2(7.0, 3.5),
+			]), ink)
 		"magnet":
+			# Horseshoe magnet with whiskers, rather than a generic pickup rune.
 			draw_arc(Vector2(0.0, 2.0), 6.0, PI, TAU, 14, ink, 3.0, true)
 			draw_line(Vector2(-6.0, 2.0), Vector2(-6.0, 7.0), ink, 3.0, true)
 			draw_line(Vector2(6.0, 2.0), Vector2(6.0, 7.0), ink, 3.0, true)
+			draw_line(Vector2(-2.0, -1.0), Vector2(-9.0, -4.0), ink, 1.5, true)
+			draw_line(Vector2(2.0, -1.0), Vector2(9.0, -4.0), ink, 1.5, true)
 		"chain_ward":
-			# Two chain links inside a closed ward, so it reads as protection
-			# rather than as the repair kit it used to be.
+			# A closed collar with two linked clasps.
 			draw_arc(Vector2.ZERO, 9.0, 0.0, TAU, 20, ink, 2.0, true)
 			draw_circle(Vector2(-3.5, 0.0), 3.6, ink, false, 2.0)
 			draw_circle(Vector2(3.5, 0.0), 3.6, ink, false, 2.0)
@@ -102,12 +110,14 @@ func _draw() -> void:
 					Vector2.from_angle(-PI * 0.5 + lean * 1.6) * 5.0,
 				]), ink)
 		"time_stop":
-			# A pocket watch with its hands stopped.
+			# A stopped clock wound with a loose strand of yarn.
 			draw_arc(Vector2.ZERO, 8.5, 0.0, TAU, 20, ink, 2.2, true)
-			draw_line(Vector2(0.0, -8.5), Vector2(0.0, -11.0), ink, 2.4, true)
 			draw_line(Vector2.ZERO, Vector2(0.0, -5.5), ink, 2.0, true)
 			draw_line(Vector2.ZERO, Vector2(4.2, 1.6), ink, 2.0, true)
+			draw_arc(Vector2(6.0, 7.0), 5.0, PI * 0.4, PI * 1.6, 10, ink, 1.6, true)
 		"purge":
-			for index in 6:
-				var angle := TAU * float(index) / 6.0
-				draw_line(Vector2.from_angle(angle) * 3.0, Vector2.from_angle(angle) * 8.0, ink, 2.5, true)
+			# One large pad and four toes: the whole view is swept by a paw.
+			draw_circle(Vector2(0.0, 3.5), 5.0, ink)
+			for toe in 4:
+				var angle := lerpf(-2.7, -0.45, float(toe) / 3.0)
+				draw_circle(Vector2.from_angle(angle) * 8.0 + Vector2(0.0, -1.0), 2.4, ink)

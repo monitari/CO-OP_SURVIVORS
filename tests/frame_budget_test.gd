@@ -86,7 +86,7 @@ func _run() -> void:
 
 ## Fills the field to `size` live enemies, runs the real tick, and reports the
 ## per-phase split. Spawning goes through the director's own pool so archetypes,
-## difficulty scaling and curse state match a real run rather than a field of
+## difficulty scaling and combat state match a real run rather than a field of
 ## identical default chasers.
 func _measure(main: Node, size: int) -> void:
 	for enemy in main.enemies:
