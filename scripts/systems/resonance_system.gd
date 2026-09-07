@@ -14,7 +14,7 @@ var active_resonances: Array[Dictionary] = [] ## Each entry is a catalog dict pl
 var catalog: Array[Dictionary] = [
 	{"id": "guided_thunder", "name": "추적 뇌광", "description": "유도 마력이 적을 추적하는 대형 연쇄 번개가 됩니다.", "requires": ["tracking", "lightning"], "cooldown": 6.0},
 	{"id": "storm_volley", "name": "폭풍 유성군", "description": "투사체가 폭풍을 머금어 양쪽에서 탄막과 낙뢰를 함께 방출합니다.", "requires": ["projectile", "storm"], "cooldown": 6.6},
-	{"id": "arcane_circuit", "name": "마력 회로", "description": "사슬을 비전 회로로 바꿔 접촉한 적을 태우고 두 사람을 회복합니다.", "requires": ["arcane", "chain"], "cooldown": 7.2},
+	{"id": "arcane_circuit", "name": "마력 회로", "description": "사슬을 비전 회로로 바꿔 접촉한 적을 태우고 두 사람을 회복합니다.", "requires": ["arcane", "tether"], "cooldown": 7.2},
 	{"id": "thermal_fracture", "name": "열충격 붕괴", "description": "화염과 냉기가 충돌해 넓은 폭발과 강한 둔화를 일으킵니다.", "requires": ["fire", "frost"], "cooldown": 7.5},
 	{"id": "eclipse_tether", "name": "월식의 사슬", "description": "사슬 전체와 양 끝에서 거대한 그림자 낫이 동시에 공격합니다.", "requires": ["shadow", "tether"], "cooldown": 6.8},
 	{"id": "storm_field", "name": "폭풍 결계", "description": "두 사람 주변에 번개장을 만들고 가까운 적을 연속 타격합니다.", "requires": ["storm", "aura"], "cooldown": 6.5},
@@ -77,20 +77,86 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 				var resonance_id := String(resonance["id"])
 				if active_ids.has(resonance_id) or seen_ids.has(resonance_id):
 					continue
-				var requirements: Array = resonance["requires"]
-				var matches: bool = (requirements[0] in tags_a and requirements[1] in tags_b) or (requirements[1] in tags_a and requirements[0] in tags_b)
-				if matches:
-					seen_ids[resonance_id] = true
-					var candidate := resonance.duplicate(true)
-					candidate["weapon_a_name"] = String(weapon_a["weapon_name"])
-					candidate["weapon_b_name"] = String(weapon_b["weapon_name"])
-					# The ids travel too, so the activation showcase can put the
-					# two weapons that earned it on screen rather than only their
-					# names.
-					candidate["weapon_a_id"] = String(weapon_a.get("weapon_id", ""))
-					candidate["weapon_b_id"] = String(weapon_b.get("weapon_id", ""))
-					candidates.append(candidate)
+				if not pair_satisfies(resonance["requires"], tags_a, tags_b):
+					continue
+				seen_ids[resonance_id] = true
+				var candidate := resonance.duplicate(true)
+				candidate["weapon_a_name"] = String(weapon_a["weapon_name"])
+				candidate["weapon_b_name"] = String(weapon_b["weapon_name"])
+				# The ids travel too, so the activation showcase can put the two
+				# weapons that earned it on screen rather than only their names.
+				candidate["weapon_a_id"] = String(weapon_a.get("weapon_id", ""))
+				candidate["weapon_b_id"] = String(weapon_b.get("weapon_id", ""))
+				candidates.append(candidate)
 	return candidates
+
+
+## Whether this pair of weapons satisfies a resonance.
+##
+## Every requirement has to be present across the two tag sets, and each survivor
+## has to supply at least one of them — that second half is what keeps a
+## resonance a pair's move rather than something one player qualifies for alone.
+##
+## Written against the sets rather than against `requires[0]` and `requires[1]`
+## in both orders, which is what the old test did: correct for exactly two tags,
+## silently wrong for any other number, and the reason nothing in the catalogue
+## could ask for three.
+static func pair_satisfies(requirements: Array, tags_a: Array, tags_b: Array) -> bool:
+	if requirements.is_empty():
+		return false
+	var from_a := false
+	var from_b := false
+	for requirement in requirements:
+		var in_a: bool = requirement in tags_a
+		var in_b: bool = requirement in tags_b
+		if not in_a and not in_b:
+			return false
+		from_a = from_a or in_a
+		from_b = from_b or in_b
+	# Both sides must be contributing. Two survivors carrying the same weapon do
+	# satisfy this — the catalogue's same-character duos are deliberate — but one
+	# survivor alone never can, because the other side supplies nothing.
+	return from_a and from_b
+
+
+## How many candidates the vote can show at once.
+const VOTE_CHOICES := 3
+
+
+## The candidates worth putting on the vote screen, best first.
+##
+## The vote used to take whichever three came out of the search first, which is
+## catalogue order — so a pair who fused two specific weapons to reach one
+## specific resonance could be shown three others instead and never get the one
+## they built for. Candidates are now ranked by how *specific* they are to this
+## build: a resonance only one weapon pair in the two loadouts can produce beats
+## one that half the loadout satisfies incidentally. Ties keep catalogue order,
+## so the list is stable between two level-ups that changed nothing.
+func rank_candidates(candidates: Array[Dictionary], limit := VOTE_CHOICES) -> Array[Dictionary]:
+	var produced_by: Dictionary = {}
+	for candidate in candidates:
+		var id := String(candidate["id"])
+		produced_by[id] = int(produced_by.get(id, 0)) + 1
+	var unique: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for candidate in candidates:
+		var id := String(candidate["id"])
+		if seen.has(id):
+			continue
+		seen[id] = true
+		unique.append(candidate)
+	var order: Dictionary = {}
+	for index in unique.size():
+		order[String(unique[index]["id"])] = index
+	unique.sort_custom(func(first: Dictionary, second: Dictionary) -> bool:
+		var first_id := String(first["id"])
+		var second_id := String(second["id"])
+		var first_pairs := int(produced_by[first_id])
+		var second_pairs := int(produced_by[second_id])
+		if first_pairs != second_pairs:
+			return first_pairs < second_pairs
+		return int(order[first_id]) < int(order[second_id]))
+	return unique.slice(0, limit)
 
 
 func activate(resonance: Dictionary) -> void:
@@ -99,13 +165,34 @@ func activate(resonance: Dictionary) -> void:
 	active_resonances.append(entry)
 
 
+## How much slower a resonance charges while the pair is not really a pair.
+const DOWNED_CHARGE := 0.3
+## Charge multiplier at a fully stretched chain, and at a slack one. A resonance
+## is the thing two survivors do together, so the chain between them is what
+## feeds it: holding the leash out — the same risk that burns integrity and pays
+## the overcharge bonus — brings the pair's move round faster, and standing on
+## top of each other slows it down.
+const TAUT_CHARGE := 1.6
+const SLACK_CHARGE := 0.65
+
+
+## What one second of play is worth to the resonance clocks, given how the pair
+## is standing and whether both of them are still up.
+static func charge_rate(tension: float, both_up: bool) -> float:
+	if not both_up:
+		return DOWNED_CHARGE
+	return lerpf(SLACK_CHARGE, TAUT_CHARGE, clampf(tension, 0.0, 1.0))
+
+
 ## Returns the resonances that should fire this frame (each entry is the full
 ## catalog dict, ready to hand to WeaponController.perform_resonance). Every
-## active resonance ticks its own independent cooldown.
-func step(delta: float) -> Array[Dictionary]:
+## active resonance ticks its own independent cooldown, and they all charge at
+## the rate the pair is currently earning.
+func step(delta: float, rate := 1.0) -> Array[Dictionary]:
 	var firing: Array[Dictionary] = []
+	var charged := delta * maxf(0.0, rate)
 	for entry in active_resonances:
-		entry["cooldown_remaining"] = float(entry["cooldown_remaining"]) - delta
+		entry["cooldown_remaining"] = float(entry["cooldown_remaining"]) - charged
 		if float(entry["cooldown_remaining"]) <= 0.0:
 			entry["cooldown_remaining"] = float(entry["cooldown"])
 			firing.append(entry)

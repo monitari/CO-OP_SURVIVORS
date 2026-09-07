@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="140" viewBox="0 0 600 140">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#172c3d" stop-opacity=".97"/>
+      <stop offset="1" stop-color="#0c1d2c" stop-opacity=".97"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2d291"/>
+      <stop offset=".52" stop-color="#c78a45"/>
+      <stop offset="1" stop-color="#7f4d27"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>
+      <feOffset dy="3"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".42"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M58 10H542c8 0 13 5 15 12h13c12 0 22 10 22 22v52c0 12-10 22-22 22h-13c-2 7-7 12-15 12H58c-8 0-13-5-15-12H30C18 118 8 108 8 96V44c0-12 10-22 22-22h13c2-7 7-12 15-12Z" fill="#07131e" stroke="#050b10" stroke-width="5"/>
+    <path d="M60 15H540c7 0 11 5 12 12h17c9 0 17 8 17 17v52c0 9-8 17-17 17h-17c-1 7-5 12-12 12H60c-7 0-11-5-12-12H31c-9 0-17-8-17-17V44c0-9 8-17 17-17h17c1-7 5-12 12-12Z" fill="url(#panel)" stroke="url(#gold)" stroke-width="5"/>
+    <path d="M61 23H539c4 0 6 3 7 9h22c6 0 10 5 10 11v54c0 6-4 11-10 11h-22c-1 6-3 9-7 9H61c-4 0-6-3-7-9H32c-6 0-10-5-10-11V43c0-6 4-11 10-11h22c1-6 3-9 7-9Z" fill="none" stroke="#315a71" stroke-width="2"/>
+    <path d="M62 29H538" stroke="#74a9bc" stroke-width="2" stroke-linecap="round" opacity=".32"/>
+    <path d="M62 111H538" stroke="#050c13" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+    <g fill="url(#gold)" opacity=".9">
+      <circle cx="39" cy="48" r="5"/><circle cx="30" cy="41" r="3"/><circle cx="36" cy="35" r="3"/><circle cx="45" cy="36" r="3"/><circle cx="49" cy="43" r="3"/>
+      <circle cx="561" cy="48" r="5"/><circle cx="570" cy="41" r="3"/><circle cx="564" cy="35" r="3"/><circle cx="555" cy="36" r="3"/><circle cx="551" cy="43" r="3"/>
+    </g>
+    <g fill="none" stroke="url(#gold)" stroke-width="3" opacity=".85">
+      <ellipse cx="34" cy="92" rx="7" ry="5" transform="rotate(-25 34 92)"/><ellipse cx="46" cy="85" rx="7" ry="5" transform="rotate(-25 46 85)"/><path d="M39 89l3-2"/>
+      <ellipse cx="566" cy="92" rx="7" ry="5" transform="rotate(25 566 92)"/><ellipse cx="554" cy="85" rx="7" ry="5" transform="rotate(25 554 85)"/><path d="M561 89l-3-2"/>
+    </g>
+  </g>
+</svg>

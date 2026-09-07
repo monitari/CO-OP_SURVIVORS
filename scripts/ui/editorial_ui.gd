@@ -5,6 +5,7 @@ const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 const TitleLogo := preload("res://assets/ui/moonroof_title.png")
+const HudFrame := preload("res://assets/ui/frames/moonroof_hud_frame.svg")
 const PLAYSTYLE := {
 	"homing": "유도 별탄 · 단일 적 추적", "lightning": "연쇄 번개 · 적 사이로 전이",
 	"flame": "불꽃 투사체 · 전방 화력", "frost": "빙결 오라 · 상시 둔화 피해",
@@ -403,6 +404,7 @@ static func _hud(main: Node) -> void:
 	for child in main.combat_hud.get_children():
 		if child is ColorRect and child != main.boss_hud_panel:
 			child.hide()
+	_install_hud_frames(main)
 	main.p1_status_label.visible = false
 	main.p2_status_label.visible = false
 	for slot in 2:
@@ -433,10 +435,10 @@ static func _hud(main: Node) -> void:
 	# rather than snapped to a column edge — 48..1232 has its middle at 640.
 	place(main.hud_label, Rect2((G.VIEWPORT.x - G.w(1.2)) * 0.5, 14, G.w(1.2), 36), 29, Palette.CREAM)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var wave_readout := label(main.combat_hud, "", Rect2(G.x(6.54), 22, G.w(1.4), 24), 12, Color("b9cbc8"))
+	var wave_readout := label(main.combat_hud, "", Rect2(700, 22, 100, 24), 12, Color("b9cbc8"))
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var objective_readout := label(main.combat_hud, "", Rect2(G.x(3.9), 22, G.w(1.4), 24), 12, Color("e4c899"))
+	var objective_readout := label(main.combat_hud, "", Rect2(480, 22, 100, 24), 12, Color("e4c899"))
 	objective_readout.name = "ObjectiveReadout"
 	# Two rows per survivor: weapons on top, treasures under them, each icon
 	# carrying its own tier. The play screen showed weapons only and showed them
@@ -460,6 +462,30 @@ static func _hud(main: Node) -> void:
 				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				tier.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
 				tier.add_theme_constant_override("outline_size", 5)
+
+
+## One illustrated asset, cut as a 9-slice, gives the three combat readouts the
+## same material language without baking text or values into a bitmap. Only the
+## long centre spans stretch; the paw-and-chain corner caps keep their shape.
+static func _install_hud_frames(main: Node) -> void:
+	var frames := [
+		["P1Frame", Rect2(14, 8, 392, 100)],
+		["SharedFrame", Rect2(418, 6, 444, 106)],
+		["P2Frame", Rect2(874, 8, 392, 100)],
+	]
+	for spec: Array in frames:
+		var frame := NinePatchRect.new()
+		frame.name = spec[0]
+		frame.texture = HudFrame
+		frame.position = spec[1].position
+		frame.size = spec[1].size
+		frame.patch_margin_left = 64
+		frame.patch_margin_top = 38
+		frame.patch_margin_right = 64
+		frame.patch_margin_bottom = 38
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		frame.z_index = -2
+		main.combat_hud.add_child(frame)
 
 
 static func refresh_hud(main: Node) -> void:

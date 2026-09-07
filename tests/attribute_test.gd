@@ -243,8 +243,14 @@ func _test_shared_attributes(main: Node) -> void:
 func _test_lifesteal(main: Node) -> void:
 	_check(TreasureCatalog.by_id("curse").is_empty(), "the old curse treasure is gone")
 	_check(not TreasureCatalog.by_id("lifesteal").is_empty(), "a lifesteal treasure replaces it")
-	main.team_lifesteal = 0.0
 	main.lifesteal_charge = 0.0
+	for slot in 2:
+		main.treasure_loadouts[slot] = []
+	# Put the bell in a loadout before applying it. Shared treasures are worked
+	# out from what the pair is actually carrying now, because what one copy is
+	# worth depends on whether the other survivor holds one too — so applying the
+	# effect without the treasure existing anywhere is asking for nothing.
+	main.treasure_loadouts[0].append(TreasureCatalog.build_state(TreasureCatalog.by_id("lifesteal")))
 	main._apply_attribute(0, "lifesteal")
 	_check(is_equal_approx(main.team_lifesteal, main.LIFESTEAL_PER_TIER),
 		"one tier grants the advertised shared lifesteal rate")

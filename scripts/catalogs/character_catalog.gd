@@ -304,7 +304,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "번개 밟는 턱시도",
 			"weapon_id": "lightning",
 			"weapon_name": "연쇄 낙뢰",
-			"tags": ["lightning", "storm", "chain"],
+			"tags": ["lightning", "storm", "arc"],
 			"description": "정전기를 잔뜩 머금은 털이 가까운 것들을 차례로 타고 흐릅니다.",
 			"color": Color("b892ff"),
 			"health": 112.0,

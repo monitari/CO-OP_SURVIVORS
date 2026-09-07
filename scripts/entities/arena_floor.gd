@@ -19,8 +19,8 @@ extends Node2D
 const VIEW_MARGIN := 1400.0 ## Half-width of the drawn window; comfortably past the screen corners.
 const REDRAW_STEP := 384.0 ## How far the camera travels before the window is rebuilt.
 const PROP_CELL := 512
-const TILE := Vector2(128, 64)
 const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
+const RooftopTexture := preload("res://assets/environment/moonroof_slate_tile.png")
 
 var draw_origin := Vector2.ZERO
 
@@ -43,20 +43,7 @@ func _draw() -> void:
 	var low := draw_origin - Vector2(VIEW_MARGIN, VIEW_MARGIN)
 	var high := draw_origin + Vector2(VIEW_MARGIN, VIEW_MARGIN)
 	draw_rect(Rect2(low, high - low), Color("23383e"))
-
-	# Staggered paving. Row and column are world tile indices rather than a
-	# bounded range, so the pattern continues in every direction.
-	var first_row := int(floor(low.y / TILE.y))
-	var last_row := int(ceil(high.y / TILE.y))
-	var first_column := int(floor(low.x / TILE.x)) - 1
-	var last_column := int(ceil(high.x / TILE.x))
-	for row in range(first_row, last_row):
-		for column in range(first_column, last_column):
-			var at := Vector2(column * TILE.x + (TILE.x * 0.5 if posmod(row, 2) else 0.0), row * TILE.y)
-			var shade := posmod(row * 7 + column * 13, 4)
-			var tint := Color("2c4246").lightened(shade * 0.006)
-			draw_rect(Rect2(at + Vector2(2, 2), TILE - Vector2(4, 4)), tint)
-			draw_line(at + Vector2(4, 3), at + Vector2(TILE.x - 6, 3), Color("33494c"), 1, true)
+	_draw_rooftop_texture(low, high)
 
 	# Gutters every 768px, again indexed off world position.
 	var first_gutter := int(floor(low.x / 768.0)) * 768
@@ -71,6 +58,26 @@ func _draw() -> void:
 		_draw_home_terrace()
 
 
+## The painted slab is deliberately much larger than one gameplay tile. It
+## carries material detail while the hashed props below keep the endless roof
+## from reading as wallpaper. Alternating mirrors make opposite copies meet on
+## the same source edge, hiding seams without baking a giant finite backdrop.
+func _draw_rooftop_texture(low: Vector2, high: Vector2) -> void:
+	var texture_size := RooftopTexture.get_size()
+	var first_tile := Vector2i(int(floor(low.x / texture_size.x)), int(floor(low.y / texture_size.y)))
+	var last_tile := Vector2i(int(ceil(high.x / texture_size.x)), int(ceil(high.y / texture_size.y)))
+	for tile_y in range(first_tile.y, last_tile.y):
+		for tile_x in range(first_tile.x, last_tile.x):
+			var flip_x := posmod(tile_x, 2) != 0
+			var flip_y := posmod(tile_y, 2) != 0
+			var tile_origin := Vector2(tile_x * texture_size.x, tile_y * texture_size.y)
+			var pivot := tile_origin + Vector2(texture_size.x if flip_x else 0.0, texture_size.y if flip_y else 0.0)
+			var scale := Vector2(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0)
+			draw_set_transform(pivot, 0.0, scale)
+			draw_texture(RooftopTexture, Vector2.ZERO, Color("d1dcda"))
+	draw_set_transform(Vector2.ZERO)
+
+
 func _window_contains_origin(low: Vector2, high: Vector2) -> bool:
 	return low.x < 640.0 and high.x > -640.0 and low.y < 420.0 and high.y > -420.0
 
@@ -78,7 +85,10 @@ func _window_contains_origin(low: Vector2, high: Vector2) -> bool:
 ## The one unique place on an otherwise endless roof: where the pair starts.
 func _draw_home_terrace() -> void:
 	var mat := StyleBoxFlat.new()
-	mat.bg_color = Color("384b48")
+	# Let the painted slabs remain visible through the safe starting marker. A
+	# solid plate looked like a debug rectangle once the surrounding roof gained
+	# real material detail.
+	mat.bg_color = Color("384b48", 0.72)
 	mat.border_color = Color("526158")
 	mat.set_border_width_all(3)
 	mat.set_corner_radius_all(16)

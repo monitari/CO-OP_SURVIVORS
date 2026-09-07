@@ -669,7 +669,12 @@ func _physics_process(delta: float) -> void:
 		players[0].position.distance_to(players[1].position) / chain_max_length, 0.0, 1.0
 	)
 	wave_director.boss_active = is_instance_valid(boss_enemy) and not boss_enemy.dead
-	for resonance in resonance_system.step(delta):
+	# The pair's move charges at the pair's own rate: a held-out chain brings it
+	# round faster, a slack one slower, and a survivor on the floor nearly stops
+	# it. Same tension number the HUD and the overcharge bonus already read.
+	for resonance in resonance_system.step(delta, resonance_system.charge_rate(
+		clampf(players[0].position.distance_to(players[1].position) / maxf(1.0, chain_max_length), 0.0, 1.0),
+		not players[0].downed and not players[1].downed)):
 		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
@@ -1807,24 +1812,13 @@ func _start_selected_run() -> void:
 	for key in run_stats:
 		run_stats[key] = 0.0 if key in ["overcharge_time", "reflected"] else 0
 	last_upgrade_choice_keys = [[], []]
-	team_magnet = 1.0
-	team_growth = 1.0
-	team_luck = meta_progression.team_luck_bonus()
-	team_lifesteal = 0.0
 	lifesteal_charge = 0.0
 	wave_director.planters_alive = 0
 	wave_director.checked_planter_cells.clear()
-	team_overcharge = 0.0
-	team_greed = 0.0
-	team_level_heal = 0.0
-	team_hunt_bonus = 0.0
-	team_close_power = 0.0
-	team_dash_burst = 0.0
 	fusion_discovered = false
-	# The shared magnet is the average of what the two cats bring to it, so a
-	# Nova pair really does sweep a screen the other pairs have to walk across.
-	team_magnet = 1.0 + meta_progression.team_magnet_bonus()
-	_apply_team_magnet()
+	# Both treasure loadouts are empty here, so this zeroes every shared effect
+	# and puts back only what permanent progression contributes.
+	_recompute_team_effects()
 	field_items.clear_all()
 	bursts.clear_all()
 	particles.clear_all()
@@ -3262,6 +3256,52 @@ func _available_hybrid_evolutions(slot: int) -> Array[Dictionary]:
 	return ready
 
 
+## What a second copy of a shared treasure is worth.
+##
+## Shared treasures change a team resource, so a pair could take the same one on
+## both survivors and get exactly double the effect. That made doubling up the
+## answer on every shared card — two 성장의 서 flatly beats one plus anything
+## else — while quietly costing each survivor one of their four personal slots.
+## The deeper holding now counts in full and the shallower one at this rate, so
+## a second copy is still worth taking when the pair really wants that resource,
+## and never simply because it is the same card again.
+const SHARED_SECOND_CARRIER := 0.5
+
+
+## Effective tiers of one shared treasure across the pair.
+func _shared_tiers(treasure_id: String) -> float:
+	var deeper := 0.0
+	var shallower := 0.0
+	for slot in 2:
+		var tier := float(_treasure_tier(slot, treasure_id))
+		if tier > deeper:
+			shallower = deeper
+			deeper = tier
+		elif tier > shallower:
+			shallower = tier
+	return deeper + shallower * SHARED_SECOND_CARRIER
+
+
+## Rebuilds every team-wide number from the two treasure loadouts and permanent
+## progression. Called whenever a shared treasure is taken or deepened, and once
+## on a fresh run, so one place decides what the pair's shared effects add up to
+## instead of a dozen increments scattered through the upgrade path.
+func _recompute_team_effects() -> void:
+	team_overcharge = _shared_tiers("overcharge") * 0.06
+	team_greed = _shared_tiers("greed") * 0.30
+	team_growth = 1.0 + _shared_tiers("growth") * 0.10
+	team_luck = meta_progression.team_luck_bonus() + int(round(_shared_tiers("luck")))
+	team_lifesteal = _shared_tiers("lifesteal") * LIFESTEAL_PER_TIER
+	team_level_heal = _shared_tiers("catnip") * 0.04
+	team_hunt_bonus = _shared_tiers("bounty_bell") * 0.18
+	team_close_power = _shared_tiers("twin_charm") * 0.05
+	team_dash_burst = _shared_tiers("dash_claw") * 11.0
+	# The shared magnet is what the two cats bring to it plus anything bought
+	# between runs, so a Nova pair really does sweep a screen others walk across.
+	team_magnet = 1.0 + meta_progression.team_magnet_bonus() + _shared_tiers("magnet") * 0.20
+	_apply_team_magnet()
+
+
 func _treasure_tier(slot: int, treasure_id: String) -> int:
 	for treasure in treasure_loadouts[slot]:
 		if String(treasure["id"]) == treasure_id:
@@ -4063,32 +4103,17 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 			player.thorns += 0.10
 		"resolve":
 			player.resolve += 3.0
-		"overcharge":
-			team_overcharge += 0.06
-		"greed":
-			team_greed += 0.30
-		"magnet":
-			team_magnet += 0.20
-			_apply_team_magnet()
-		"growth":
-			team_growth += 0.10
-		"luck":
-			team_luck += 1
-		"lifesteal":
-			team_lifesteal += LIFESTEAL_PER_TIER
-			# A newly taken bell works on the very next hit rather than waiting for
-			# its token bucket to fill from zero.
-			lifesteal_charge = minf(
-				_lifesteal_tiers() * LIFESTEAL_BURST_CAP_PER_TIER,
-				lifesteal_charge + LIFESTEAL_BURST_CAP_PER_TIER)
-		"catnip":
-			team_level_heal += 0.04
-		"bounty_bell":
-			team_hunt_bonus += 0.18
-		"twin_charm":
-			team_close_power += 0.05
-		"dash_claw":
-			team_dash_burst += 11.0
+		"overcharge", "greed", "magnet", "growth", "luck", "lifesteal", "catnip", "bounty_bell", "twin_charm", "dash_claw":
+			# Shared effects are recomputed from what the pair is carrying rather
+			# than added to as they are picked, because what one copy is worth now
+			# depends on whether the other survivor is holding one too.
+			_recompute_team_effects()
+			if upgrade_id == "lifesteal":
+				# A newly taken bell works on the very next hit rather than waiting
+				# for its token bucket to fill from zero.
+				lifesteal_charge = minf(
+					_lifesteal_tiers() * LIFESTEAL_BURST_CAP_PER_TIER,
+					lifesteal_charge + LIFESTEAL_BURST_CAP_PER_TIER)
 		"lucky_paw":
 			player.dodge_chance = minf(0.45, player.dodge_chance + 0.03)
 		"nine_lives":
@@ -4391,7 +4416,7 @@ func _after_personal_upgrade_choices() -> void:
 	# The vote screen still uses the fixed p1_choice_1/2/3 digit inputs (a
 	# cursor-based rework was scoped out of this pass), so it can only ever
 	# present three options regardless of how many weapon pairs qualify.
-	resonance_candidates = candidates.slice(0, 3)
+	resonance_candidates = resonance_system.rank_candidates(candidates)
 	if resonance_candidates.is_empty():
 		_finish_level_up()
 		return
