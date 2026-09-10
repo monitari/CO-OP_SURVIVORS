@@ -12,6 +12,7 @@ const PLAYSTYLE := {
 	"scythe": "월도 낫 · 부채꼴 연속 베기", "chain": "사슬 파동 · 결속 공격",
 	"orbit": "회전 별 · 3.8초 연타", "lance": "관통 광선 · 직선 공격",
 	"mine": "결계 지뢰 · 밟을 때까지 유지", "gravity": "중력 붕괴 · 부드러운 흡인",
+	"boomerang": "생선 부메랑 · 왕복 추적", "milk": "우유 웅덩이 · 지역 제어",
 }
 
 
@@ -59,6 +60,7 @@ static func icon(parent: Node, texture: Texture2D, rect: Rect2) -> TextureRect:
 
 static func footer(parent: Control, text: String) -> Label:
 	var rule := ColorRect.new()
+	rule.name = "FooterRule"
 	rule.color = Color(Palette.OUTLINE, 0.72)
 	rule.position = Vector2(Palette.PADDING, parent.size.y - 42.0)
 	rule.size = Vector2(parent.size.x - Palette.PADDING * 2.0, 1.0)
@@ -245,7 +247,7 @@ static func _characters(main: Node) -> void:
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		# Each survivor takes half the page: six columns, four rows deep.
-		var card := G.inner(0, 0, 0.25 + slot * 5.75, 2.4, 5.5, 4.25)
+		var card := G.inner(0, 0, 0.25 + slot * 5.75, 2.4, 5.5, 4.35)
 		var x := card.position.x
 		var bed := plate(screen, card)
 		bed.name = "CharacterPanel%d" % slot
@@ -272,21 +274,21 @@ static func _characters(main: Node) -> void:
 			var value := label(screen, "", Rect2(x + 103 + column * 108, card.position.y + 121 + row * 39, 80, 32), 13)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
-		place(body, Rect2(x + G.GUTTER, card.position.y + 210, card.size.x - G.GUTTER * 2.0, card.size.y - 222), Palette.TYPE_BODY)
+		place(body, Rect2(x + G.GUTTER, card.position.y + 196, card.size.x - G.GUTTER * 2.0, 96), Palette.TYPE_BODY)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	# The one number the pair is actually choosing. A survivor's leash shows up on
 	# their own card as a word, which says what that cat contributes but never
 	# what the two of them add up to, and the leash is the constraint the whole
 	# run is played against. It sits on the pair row under both dossiers, next to
 	# the synergy line, because it belongs to neither cat on its own.
-	var leash := plate(screen, Rect2(G.x(0.25) - G.x(0), 540, G.w(2.9), 50))
+	var leash := plate(screen, Rect2(G.x(0.25) - G.x(0), 548, G.w(2.9), 50))
 	leash.name = "ChainPlate"
 	icon(leash, Icons.upgrade("resolve"), Rect2(G.PAD, 13, 30, 30))
 	label(leash, "사슬 길이", Rect2(46, 7, 120, 18), 13, Palette.MUTED)
 	var leash_value := label(leash, "", Rect2(46, 25, 160, 24), 19)
 	leash_value.name = "ChainLength"
 	place(main.character_synergy_label,
-		Rect2(G.x(3.35) - G.x(0), 540, G.w(8.4), 50),
+		Rect2(G.x(3.35) - G.x(0), 548, G.w(8.4), 50),
 		Palette.TYPE_BODY, Palette.MUTED)
 	main.character_synergy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	footer(screen, "P1 A / D 이동 · W 확정     P2 ← / → 이동 · ↑ 확정     ESC 뒤로")
@@ -336,7 +338,10 @@ static func _growth(main: Node) -> void:
 	var screen: Control = main.level_overlay
 	# The growth overlay slides vertically, so its children take x from the
 	# grid and y from the panel itself.
-	place(main.level_title, Rect2(G.PAD, 10, G.w(8), 42), 28)
+	place(main.level_title, Rect2(G.PAD, 10, 300, 42), 28)
+	var resonance_preview := label(screen, "", Rect2(320, 14, 610, 32), 14, Palette.GOLD)
+	resonance_preview.name = "GrowthResonancePreview"
+	resonance_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	for slot in 2:
 		var x: float = main.LEVEL_HALF_X[slot]
 		var panel := plate(screen, Rect2(x, 58, G.w(6), 472), Palette.NIGHT_PANEL)
@@ -401,14 +406,22 @@ static func _growth(main: Node) -> void:
 		stats.hide()
 	place(main.team_stats_label, Rect2(G.PAD, 430, G.w(12) - G.GUTTER, 26), 13, Palette.MUTED)
 	main.team_stats_label.visible = false
-	footer(screen, "카드를 고른 뒤 각자의 선택 확정 버튼을 누르세요 · 확정 후 상대가 고르는 동안 취소 가능")
+	var growth_footer := footer(screen, "카드를 고른 뒤 각자의 선택 확정 버튼을 누르세요 · 확정 후 상대가 고르는 동안 취소 가능")
+	growth_footer.position.y = screen.size.y - 28
+	growth_footer.size.y = 20
+	screen.get_node("FooterRule").position.y = screen.size.y - 32
 
 
 static func refresh_growth(main: Node, slot: int) -> void:
 	var screen: Control = main.level_overlay
+	var complete: bool = main.selected_upgrade_indices[slot] == -2
 	var locked: bool = main.selected_upgrade_indices[slot] >= 0
 	screen.get_node("GrowthName%d" % slot).text = "P%d %s  ·  %s" % [
-		slot + 1, "확정 완료 ✓" if locked else "선택 중", main.selected_characters[slot]["name"]]
+		slot + 1, "빌드 완성 ✓" if complete else ("확정 ✓ · 상대 선택 대기" if locked else "선택 중"), main.selected_characters[slot]["name"]]
+	var predicted: Dictionary = main._growth_resonance_preview()
+	screen.get_node("GrowthResonancePreview").text = (
+		"예상 공명 · %s · %s" % [predicted["name"], predicted["description"]]
+		if not predicted.is_empty() else "테크를 맞추면 완성 공명을 미리 보여줍니다")
 	var panel: Panel = screen.get_node("GrowthPanel%d" % slot)
 	panel.add_theme_stylebox_override("panel", Palette.player_surface(slot, not locked, locked, true))
 	var player: Node = main.players[slot]
@@ -419,19 +432,34 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		var option: Dictionary = choices[index]
 		var card: Label = main.level_card_labels[slot][index]
 		var kind := String(option["id"])
-		card.get_node("Category").text = "새 보물" if kind == "unlock_treasure" else ("보물 강화" if kind == "treasure_upgrade" else ("새 무기" if kind == "unlock_weapon" else ("무기 진화" if kind == "evolve_weapon" else "무기 강화")))
+		var category := card.get_node("Category") as Label
+		if kind == "choose_tech":
+			var profile := String((option["tech"] as Dictionary).get("profile", "balanced"))
+			category.text = {
+				"force": "피해 테크", "tempo": "연사 테크",
+				"control": "제어 테크", "balanced": "균형 테크",
+			}.get(profile, "테크 결정")
+			category.add_theme_color_override("font_color", {
+				"force": Color("ff8e72"), "tempo": Color("67c8ff"),
+				"control": Color("80ed99"), "balanced": Palette.GOLD,
+			}.get(profile, Palette.MUTED))
+		else:
+			category.text = "새 보물" if kind == "unlock_treasure" else ("보물 강화" if kind == "treasure_upgrade" else ("새 무기" if kind == "unlock_weapon" else ("최종 진화" if kind == "evolve_weapon" else "무기 강화")))
+			category.add_theme_color_override("font_color", Palette.MUTED)
 		var shared := false
 		if kind == "unlock_treasure":
 			shared = bool((option["treasure"] as Dictionary).get("shared", false))
 		elif kind == "treasure_upgrade":
 			shared = bool((main.treasure_loadouts[slot][int(option["treasure_slot"])] as Dictionary).get("shared", false))
-		card.get_node("Scope").text = "두 고양이에게 적용" if shared else "P%d에게 적용" % (slot + 1)
+		card.get_node("Scope").text = (
+			"P%d 테크" % (slot + 1) if kind == "choose_tech"
+			else "두 고양이에게 적용" if shared else "P%d에게 적용" % (slot + 1))
 		card.get_node("CardTitle").text = String(option["title"]).replace("새 보물: ", "").replace("신규 기술: ", "").replace("보물 강화: ", "").replace("무기 진화: ", "")
 		card.text = compact_growth_description(option)
 		card.text = card.text.replace(", ", "\n").replace("출혈 시간", "구조 시간").replace("내구도 소모", "내구 소모")
 		if choices.size() >= 4:
 			card.text = compact_grid_description(card.text)
-		if kind == "evolve_weapon" and main.meta_progression.is_discovered(String(option["evolution"]["weapon_id"])):
+		if kind == "evolve_weapon":
 			card.text = short_evolution(String(option["evolution"]["weapon_id"]))
 		card.tooltip_text = String(option["title"]) + "\n" + String(option["description"])
 		# The badge carries whichever advice the card actually has. It used to
@@ -444,6 +472,7 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		badge.add_theme_color_override("font_color", Color("ffb2ac") if against else Palette.P1)
 		badge.add_theme_stylebox_override("normal",
 			Palette.surface(Palette.NIGHT_RAISED))
+		badge.visible = kind != "choose_tech" and (bool(option.get("recommended", false)) or against)
 	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 	place(footer, Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 212.0 - G.PAD, 68, 212, 22), 12, Palette.MUTED)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -452,12 +481,13 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		footer.text = "잠시 후 선택할 수 있습니다"
 	if screen.has_node("Reroll%d" % slot):
 		var confirm: Button = screen.get_node("Confirm%d" % slot)
-		confirm.disabled = main.level_up_input_delay > 0.0 or locked
-		confirm.text = "✓ 확정 완료" if locked else "선택 확정"
+		confirm.disabled = main.level_up_input_delay > 0.0 or locked or complete
+		confirm.text = "✓ 빌드 완성" if complete else ("✓ 확정 완료" if locked else "선택 확정")
 		var reroll: Button = screen.get_node("Reroll%d" % slot)
-		reroll.disabled = main.level_up_input_delay > 0.0 or locked or main.rerolls_remaining[slot] <= 0
-		reroll.text = "다시 뽑기 · %d" % main.rerolls_remaining[slot]
-		screen.get_node("Cancel%d" % slot).disabled = not locked
+		var tech_hand := not choices.is_empty() and choices.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech")
+		reroll.disabled = main.level_up_input_delay > 0.0 or locked or complete or tech_hand or main.rerolls_remaining[slot] <= 0
+		reroll.text = "테크 선택 · 재추첨 없음" if tech_hand else "다시 뽑기 · %d" % main.rerolls_remaining[slot]
+		screen.get_node("Cancel%d" % slot).disabled = not locked or complete
 
 
 static func compact_growth_description(option: Dictionary) -> String:
@@ -486,7 +516,8 @@ static func short_evolution(id: String) -> String:
 		"supernova": "불씨 뒤 2차 폭발\n공명 조합 해금", "absolute_zero": "빙결 후 파쇄\n공명 조합 해금",
 		"black_moon": "주변을 두 번 회전베기\n공명 조합 해금", "stigmata": "사슬 화상 + 공동 회복\n공명 조합 해금",
 		"celestial": "양방향 이중 궤도\n공명 조합 해금", "judgement": "세 갈래 관통 공격\n공명 조합 해금",
-		"ruin_garden": "원형 지뢰밭 설치\n공명 조합 해금", "event_horizon": "흡인 후 중심 폭발\n공명 조합 해금"
+		"ruin_garden": "원형 지뢰밭 설치\n공명 조합 해금", "event_horizon": "흡인 후 중심 폭발\n공명 조합 해금",
+		"skipping_stone": "사방으로 튕기는 왕복 공격\n공명 조합 해금", "cream_tide": "바닥을 덮는 둔화 해일\n공명 조합 해금"
 	}.get(id, "최종 공격 · 상세 확인")
 
 
@@ -622,7 +653,9 @@ static func _hud(main: Node) -> void:
 				var style := Palette.surface(Color("20334e55") if weapon_row else Color("20334e33"))
 				style.border_color = Palette.OUTLINE
 				socket.add_theme_stylebox_override("panel", style)
-				var empty := label(socket, "+", Rect2(0, 0, 78, cell_height), 16, Color("6a8585"))
+				# A faint socket already communicates capacity. Repeating plus signs
+				# across every empty slot made the opening HUD look busier than play.
+				var empty := label(socket, "", Rect2(0, 0, 78, cell_height), 16, Color("6a8585"))
 				empty.name = "Empty"
 				empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				var art := icon(holder, null, Rect2(x + 2, y + 2, icon_size, icon_size))
@@ -730,7 +763,7 @@ static func _results(main: Node) -> void:
 			var dps := label(screen, "", Rect2(weapon_x - 8, 372, 58, 18), 11, Palette.MUTED)
 			dps.name = "ResultWeaponDps%d_%d" % [slot, index]
 			dps.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label(screen, "협동 기록 · 획득물", Rect2(G.GUTTER, 410, wide, 22), 14, Palette.GOLD)
+	label(screen, "함께 지킨 기록 · 획득물", Rect2(G.GUTTER, 410, wide, 22), 14, Palette.GOLD)
 	var coop := label(screen, "", Rect2(G.GUTTER, 433, wide, 48), 14, Palette.MUTED)
 	coop.name = "CoopRecord"
 	coop.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

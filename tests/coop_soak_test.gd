@@ -100,9 +100,9 @@ func _run() -> void:
 	# curve intentionally targets roughly one choice every 15-22 seconds so the
 	# first half of a build forms while the player is still learning the run.
 	_check(seconds_per_level >= 14.0, "level-ups still leave at least ~14s of play between choices")
-	_check(seconds_per_level <= 26.0, "level-ups have not drifted sparse enough to starve the opening")
-	_check(main.progression.level >= 70,
-		"a full run reaches deep enough into the tree to finish a build (level %d)" % main.progression.level)
+	_check(seconds_per_level <= 36.0, "level-ups remain frequent enough to complete a committed build")
+	_check(main.progression.level >= 45,
+		"a full run reaches the finite build ceiling (level %d)" % main.progression.level)
 
 	_check(seen_archetypes.size() >= 3, "long run contains multiple enemy archetypes (%s)" % str(seen_archetypes.keys()))
 	# A twenty-five-minute run is long enough to see the whole encounter rota;

@@ -4,19 +4,29 @@ const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 
-## The pause dialogue's six action slots: one tall column beside a 2x2 block,
-## sized so the right edge lands flush with the panel. Shared rather than
-## written twice — the builder and the per-frame refresh both place these, and
-## when only one of them was updated the menu kept the old panel's width.
-## The left column is the run: resume, start over, leave. The right two columns
-## are the four toggles. Leaving the game had no entry at all before — the only
-## way out of a paused run was the window close button.
+## One full-width primary action, a strict 2x2 settings grid, and a final pair
+## of run actions. Every edge shares the same 16px inset and centre gutter.
 const PAUSE_ITEM_COUNT := 7
 const PAUSE_SLOTS := [
-	Rect2(16, 112, 260, 62), Rect2(292, 138, 230, 72),
-	Rect2(538, 138, 230, 72), Rect2(292, 226, 230, 72),
-	Rect2(538, 226, 230, 72), Rect2(16, 182, 260, 44), Rect2(16, 232, 260, 44),
+	Rect2(16, 108, 752, 54), Rect2(16, 176, 368, 56),
+	Rect2(400, 176, 368, 56), Rect2(16, 244, 368, 56),
+	Rect2(400, 244, 368, 56), Rect2(16, 314, 368, 42), Rect2(400, 314, 368, 42),
 ]
+
+
+## Move through the pause menu in the same direction as its visible 2-column
+## layout. Continue spans both columns, so either upper setting leads back to it.
+static func pause_neighbor(index: int, direction: String) -> int:
+	var vertical := {
+		"down": [1, 3, 4, 5, 6, 0, 0],
+		"up": [5, 0, 0, 1, 2, 3, 4],
+	}
+	if direction in vertical:
+		return int(vertical[direction][clampi(index, 0, PAUSE_ITEM_COUNT - 1)])
+	if direction in ["left", "right"]:
+		return {1: 2, 2: 1, 3: 4, 4: 3, 5: 6, 6: 5}.get(index, index)
+	return index
+
 
 static func button(parent: Control, caption: String, rect: Rect2, action: Callable) -> Button:
 	var b := Button.new()
@@ -83,10 +93,10 @@ static func install(main: Node) -> void:
 		# The same half-page card the select screen draws, so the buttons sit
 		# under their own survivor rather than near them.
 		var x := G.x(0.25 + slot * 5.75) - G.x(0)
-		button(main.character_overlay, "이전", Rect2(x + G.GUTTER, 489, 90, 36), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
-		button(main.character_overlay, "다음", Rect2(x + G.GUTTER + 106.0, 489, 90, 36), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
+		button(main.character_overlay, "이전", Rect2(x + G.GUTTER, 497, 90, 36), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
+		button(main.character_overlay, "다음", Rect2(x + G.GUTTER + 106.0, 497, 90, 36), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
 		var accent := Palette.P1 if slot == 0 else Palette.P2
-		var confirm := button(main.character_overlay, "준비하기", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 489, 174, 36), func() -> void:
+		var confirm := button(main.character_overlay, "준비하기", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 497, 174, 36), func() -> void:
 			if main.lobby_input_cooldown > 0.0: return
 			main.character_confirmed[slot] = not main.character_confirmed[slot]
 			main._refresh_character_select_ui()
@@ -146,7 +156,7 @@ static func install(main: Node) -> void:
 		action.name = "PauseAction%d" % index
 		action.add_theme_font_size_override("font_size", 17 if index == 0 else 15)
 	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(G.w(8) - 236, 24, 220, 36), func() -> void: toggle_details(main)).name = "PauseDetails"
-	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 334, G.w(8) - G.GUTTER * 2.0, 112), Palette.CARD)
+	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 370, G.w(8) - G.GUTTER * 2.0, 104), Palette.CARD)
 	snapshot.name = "RunSnapshot"
 	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
 	for index in 4:
@@ -172,10 +182,8 @@ static func install(main: Node) -> void:
 		_detail_card(main.details_overlay, x + 288, 146, "vitality", "생존", "Survival%d" % slot)
 		_detail_card(main.details_overlay, x, 268, "overcharge", "협동", "Coop%d" % slot)
 		_detail_card(main.details_overlay, x + 288, 268, "magnet", "탐색", "Utility%d" % slot)
-		# Four lines now: the fusion path moved here from the always-on strip
-		# under the level-up cards. Opt-in is the right place for it — a player
-		# who wants the table can ask for it, and one who wants to find the
-		# first fusion for themselves is no longer told.
+		# Four lines now: the selected tech path also lives in the detail view,
+		# with its real treasure and final-form names visible from the start.
 		var build := UI.plate(main.details_overlay, Rect2(x, 384, 560, 116), Palette.CARD)
 		build.name = "Build%d" % slot
 		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 14, Palette.GOLD)
@@ -214,6 +222,7 @@ static func refresh_pause(main: Node) -> void:
 		style.border_color = Palette.P1 if main.pause_cursor == index else Palette.OUTLINE
 		style.set_border_width_all(Palette.BORDER_ACTIVE if main.pause_cursor == index else Palette.BORDER)
 		b.add_theme_stylebox_override("normal", style)
+	main.pause_overlay.get_node("PauseHeading").size.x = G.w(8) - (G.GUTTER * 2.0 if main.restart_pending else 268.0)
 	main.pause_overlay.get_node("PauseDetails").visible = not main.restart_pending
 	main.pause_overlay.get_node("RunSnapshot").visible = not main.restart_pending
 	if not main.restart_pending:
@@ -233,7 +242,7 @@ static func refresh_pause(main: Node) -> void:
 			main.pause_overlay.get_node("PauseAction%d" % index).size = slot.size
 	UI.place(main.pause_label, Rect2(G.GUTTER, main.pause_overlay.size.y - 44, G.w(8) - G.GUTTER * 2.0, 30), Palette.TYPE_CAPTION)
 	main.pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.pause_label.text = "↑ ↓ / 패드 방향키 이동 · ENTER / A 선택 · ESC / B 닫기"
+	main.pause_label.text = "방향키 / 패드 방향키 이동 · ENTER / A 선택 · ESC / B 닫기"
 	if main.restart_pending:
 		main.pause_label.text = "현재 판의 성장과 기록은 사라집니다. 취소가 기본 선택입니다."
 

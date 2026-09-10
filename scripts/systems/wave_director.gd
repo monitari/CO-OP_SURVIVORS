@@ -59,7 +59,7 @@ const PLANTER_PATCH_MAX := 3
 const PLANTER_PATCH_SPREAD := 125.0
 const PLANTER_CELL_MARGIN := 110.0
 const PLANTER_PLAYER_CLEARANCE := 430.0
-const PLANTER_MAX_ALIVE := 24
+const PLANTER_MAX_ALIVE := 12
 
 ## Named encounters, on their own clock, so a long run has events in it rather
 ## than a single rising slope. Each one poses a different question: a tide is

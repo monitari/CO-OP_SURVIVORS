@@ -25,6 +25,14 @@ func _run() -> void:
 	main._set_pause(true)
 	await _press(main, "menu_next")
 	check(main.pause_cursor == 1, "pad/keyboard navigation reaches settings")
+	await _press(main, "menu_right")
+	check(main.pause_cursor == 2, "pause navigation follows the visible column")
+	await _press(main, "menu_next")
+	check(main.pause_cursor == 4, "pause navigation moves down within the right column")
+	await _press(main, "menu_left")
+	check(main.pause_cursor == 3, "pause navigation crosses to the matching row")
+	main.pause_cursor = 1
+	main._update_pause_text()
 	var before: bool = main.screen_shake_enabled
 	await _press(main, "menu_confirm")
 	check(main.screen_shake_enabled != before, "selected setting changes on confirm")
@@ -65,6 +73,7 @@ func _run() -> void:
 	main.weapon_loadouts[0][0]["arc"] = PI * 1.5
 	check(not Value.has_effect(main, 0, {"id": "special_b", "weapon_slot": 0}), "capped arc excluded")
 	main.weapon_loadouts[0][0] = main._build_weapon_state(main.character_catalog[0])
+	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.by_id("homing", "constellation"))
 	main.weapon_loadouts[0][0]["tier"] = 7
 	var required: Dictionary = main.Treasures.build_state(main.Treasures.by_id("pierce"))
 	required["tier"] = 4
@@ -123,16 +132,17 @@ func _run() -> void:
 	check(absf(dummy.rotation) > 0.001, "the enemy node really is rotated to face its target")
 	check(absf(dummy.body_sprite.global_rotation) < 0.001, "sprite stays upright while telegraph rotates")
 	check(dummy.z_index > 3, "enemy warnings stay above friendly rings")
-	# This used to assert the opposite: that the select card printed the fusion
-	# recipe ("합성 X T7 + Y T4"). That was reversed on purpose — the first fusion
-	# is meant to be found during a run, not read off a menu before it starts.
-	# What select owes the player is how the survivor plays right now.
 	var card: String = main._format_character_card(0)
-	check(not card.contains("합성"), "character select does not spoil the fusion recipe")
+	check(card.contains("필요") and card.contains("자동 공명"), "character select exposes route materials and automatic resonance")
 	check(not card.contains("난이도"), "character select removes difficulty labels")
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
 	main.level_up_input_delay = 0
+	main._refresh_level_up_ui()
+	check(main.level_overlay.get_node("Reroll0").text.contains("재추첨 없음"),
+		"fixed tech hands explain why reroll is disabled")
+	check(not main._growth_resonance_preview().is_empty(),
+		"highlighted tech routes preview their eventual automatic resonance")
 	var event := InputEventMouseButton.new()
 	event.pressed = true
 	event.button_index = MOUSE_BUTTON_LEFT

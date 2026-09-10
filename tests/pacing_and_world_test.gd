@@ -34,10 +34,10 @@ func _run() -> void:
 	_test_opening_experience_curve()
 	_test_floor_is_endless()
 	_test_floor_is_stable()
-	_test_select_hides_the_tech_tree(main)
+	_test_select_exposes_the_tech_tree(main)
 
 	if failures.is_empty():
-		print("PACING_PASS: level-ups queue, the roof has no edge, select keeps its secrets")
+		print("PACING_PASS: level-ups queue, the roof has no edge, select exposes tech routes")
 		quit(0)
 	else:
 		for failure in failures:
@@ -119,6 +119,9 @@ func _test_opening_experience_curve() -> void:
 		"the first ten growth choices stay reachable (%d XP)" % SharedProgression.requirement_for_level(10))
 	_check(SharedProgression.requirement_for_level(50) > 15000,
 		"the same curve still stretches the late run (%d XP)" % SharedProgression.requirement_for_level(50))
+	_check(SharedProgression.requirement_for_level(100) > 100000,
+		"the post-40 curve absorbs the late kill surge (%d XP)" %
+			SharedProgression.requirement_for_level(100))
 	probe.free()
 
 
@@ -160,29 +163,26 @@ func _test_floor_is_stable() -> void:
 	floor_node.free()
 
 
-## The first fusion is meant to be discovered and a resonance is meant to be the
-## thing the pair realises they built toward. Printing both on the select screen
-## gave away the entire back half of the run before it started.
-func _test_select_hides_the_tech_tree(main: Node) -> void:
+## The route is now a plan, not a spoiler: character select must name every
+## final form and tell a first-time player that resonance resolves automatically.
+func _test_select_exposes_the_tech_tree(main: Node) -> void:
 	main._refresh_character_select_ui()
 	var shown := String(main.character_p1_label.text) + "\n" + String(main.character_p2_label.text) \
 		+ "\n" + String(main.character_synergy_label.text)
 
-	for evolution in EvolutionCatalog.all_evolutions():
-		_check(not shown.contains(String(evolution["weapon_name"])),
-			"select does not name the fusion %s" % String(evolution["weapon_name"]))
-	for resonance in main.resonance_system.catalog:
-		_check(not shown.contains(String(resonance["name"])),
-			"select does not name the resonance %s" % String(resonance["name"]))
-	_check(not shown.contains("합성"), "select does not mention fusion at all")
-	_check(not shown.contains("공명"), "select does not mention resonance at all")
+	for player_index in 2:
+		var character: Dictionary = main.character_catalog[main.selected_character_indices[player_index]]
+		var evolution := EvolutionCatalog.for_base(String(character["weapon_id"]))
+		_check(shown.contains(String(evolution["weapon_name"])),
+			"select names the planned final form %s" % String(evolution["weapon_name"]))
+	_check(shown.contains("자동 공명"), "select explains automatic resonance")
 
-	# It still has to be worth reading: the starting weapon and its icon are
-	# the things a player actually chooses on. Difficulty labels were removed.
+	# The starting weapon and route are both visible alongside the icon.
 	for player_index in 2:
 		var character: Dictionary = main.character_catalog[main.selected_character_indices[player_index]]
 		var card := String(main.character_p1_label.text if player_index == 0 else main.character_p2_label.text)
 		_check(card.contains(String(character["weapon_name"])), "the card still names the weapon")
+		_check(card.contains("필요"), "and names route materials")
 		_check(not card.contains("난이도"), "and does not classify the pick by difficulty")
 		_check(main.character_overlay.get_node("CatWeapon%d" % player_index).texture != null, "and shows its weapon icon")
 

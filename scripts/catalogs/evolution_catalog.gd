@@ -183,6 +183,11 @@ static func build_state(evolution: Dictionary, base_state: Dictionary) -> Dictio
 	state["source_character"] = base_state.get("source_character", "")
 	state["base_weapon_id"] = String(evolution.get("base_weapon_id", (evolution.get("weapon_ids", [""]) as Array)[0]))
 	state["recipe_weapon_ids"] = (evolution.get("weapon_ids", []) as Array).duplicate()
+	for key in ["tech_id", "tech_name", "tech_treasure_id", "tech_tag"]:
+		if evolution.has(key):
+			state[key] = evolution[key]
+		elif base_state.has(key):
+			state[key] = base_state[key]
 	state["evolved"] = true
 	state["tier"] = WEAPON_MAX_TIER
 	return state

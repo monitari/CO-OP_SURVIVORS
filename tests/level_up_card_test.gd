@@ -289,7 +289,7 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_check(main.selected_upgrade_indices[0] == 2, "confirm locks the card under the cursor")
 	_check(_stat_snapshot(main) == before, "confirming alone changes nothing yet — the upgrade is deferred")
 	_check(main.level_up_active, "the screen stays open while one player is still choosing")
-	_check(String(main.level_overlay.get_node("GrowthName0").text).contains("P1 확정 완료"),
+	_check(String(main.level_overlay.get_node("GrowthName0").text).contains("P1 확정"),
 		"the player header exposes the confirmed state")
 	_check(main.level_overlay.get_node("Confirm0").disabled and not main.level_overlay.get_node("Cancel0").disabled,
 		"confirmation disables the primary action and enables cancellation")

@@ -7,6 +7,7 @@ extends CanvasLayer
 
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
+const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
 
 const UPDATE_INTERVAL := 0.16
 ## The cycle starts at 2x because the game already runs at 1x: a first press
@@ -424,7 +425,12 @@ func _prepare_fusions() -> void:
 			var weapon: Dictionary = game.weapon_loadouts[slot][weapon_slot]
 			if bool(weapon.get("evolved", false)):
 				continue
-			evolution = Evolutions.for_base(String(weapon.get("weapon_id", "")))
+			var base_id := String(weapon.get("base_weapon_id", weapon.get("weapon_id", "")))
+			if String(weapon.get("tech_id", "")).is_empty():
+				var techs := WeaponTechs.for_weapon(base_id)
+				if not techs.is_empty():
+					WeaponTechs.apply_to_state(weapon, techs[0])
+			evolution = WeaponTechs.evolution_for(Evolutions.for_base(base_id), weapon)
 			if not evolution.is_empty():
 				target_slot = weapon_slot
 				break

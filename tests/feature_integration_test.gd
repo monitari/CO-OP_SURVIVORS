@@ -26,10 +26,10 @@ func _run() -> void:
 	_test_downed_revive(main)
 	_test_downed_tow(main)
 	_test_enemy_pool_and_archetypes(main)
-	await _test_resonance_vote(main)
+	await _test_automatic_resonance(main)
 
 	if failures.is_empty():
-		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive/tow, resonance vote")
+		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive/tow, automatic tech resonance")
 		quit(0)
 	else:
 		for failure in failures:
@@ -196,7 +196,7 @@ func _test_enemy_pool_and_archetypes(main: Node) -> void:
 		main.wave_director.release_enemy(sample)
 
 
-func _test_resonance_vote(main: Node) -> void:
+func _test_automatic_resonance(main: Node) -> void:
 	main.selected_characters[0] = main.character_catalog[0].duplicate(true)
 	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
 	main.weapon_loadouts[0] = [main._build_weapon_state(main.selected_characters[0])]
@@ -209,48 +209,22 @@ func _test_resonance_vote(main: Node) -> void:
 			EvolutionCatalog.for_base(String(base["weapon_id"])), base
 		)
 	main.resonance_system.active_resonances.clear()
+	main.showcase_queue.clear()
 	main.level_up_active = true
 	paused = true
 	main._after_personal_upgrade_choices()
-	_check(main.resonance_vote_active, "eligible tag pair opens resonance vote")
 	_check(not main.resonance_candidates.is_empty(), "resonance candidates are generated")
-	# The vote is a card grid driven by the same cursor controls as the level-up
-	# screen now, not three digit keys. What makes it a co-op screen is that each
-	# survivor's cursor is visible to the other before anyone commits.
-	_check(main.resonance_cursors == [0, 0], "both cursors start on the first candidate")
-	if main.resonance_candidates.size() > 1:
-		await _tap(main, "p2_select_next")
-		_check(main.resonance_cursors[1] == 1, "P2 can browse independently of P1")
-		_check(main.resonance_cursors[0] == 0, "browsing does not move the other cursor")
-
-		# A split vote must clear both locks rather than silently picking one.
-		await _tap(main, "p1_select_confirm")
-		await _tap(main, "p2_select_confirm")
-		_check(main.resonance_system.active_resonances.is_empty(), "a split vote activates nothing")
-		_check(main.resonance_votes == [-1, -1], "a split vote releases both locks")
-		_check(main.resonance_cursors == [0, 1], "a split vote leaves both cursors where they were")
-		_check(main.resonance_vote_active, "the pair stays on the screen to try again")
-		await _tap(main, "p2_select_previous")
-
-	await _tap(main, "p1_select_confirm")
-	_check(main.resonance_votes[0] == 0, "confirm locks a vote")
-	_check(main.resonance_vote_active, "one lock is not enough to resolve the vote")
-	await _tap(main, "p1_select_cancel")
-	_check(main.resonance_votes[0] == -1, "a lock can be taken back while the pair disagrees")
-	await _tap(main, "p1_select_confirm")
-	await _tap(main, "p2_select_confirm")
-	_check(not main.resonance_system.active_resonances.is_empty(), "matching votes activate resonance")
+	_check(not main.resonance_vote_active and not main.resonance_overlay.visible,
+		"eligible tech pair skips the old vote screen")
+	_check(not main.resonance_system.active_resonances.is_empty(), "the best eligible resonance activates automatically")
 	_check(String(main.resonance_system.active_resonances[0]["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
-	# Agreeing on a resonance now opens a showcase over the vote screen, and the
-	# run is handed back when that finishes rather than on the same frame.
-	_check(main.cinematic_active, "agreeing opens the resonance showcase")
-	_check(not main.resonance_vote_active, "and closes the vote behind it")
+	_check(main.cinematic_active, "automatic resonance still opens its showcase")
 	for frame in 400:
 		if not main.cinematic_active:
 			break
 		await process_frame
 	_check(not main.cinematic_active, "the showcase ends on its own")
-	_check(not main.resonance_vote_active and not paused, "resonance vote returns to combat")
+	_check(not main.resonance_vote_active and not paused, "automatic resonance returns to combat")
 	for resonance in main.resonance_system.catalog:
 		main.weapon_controller.perform_resonance(resonance, 1.0)
 	main.weapon_controller.clear_transients()

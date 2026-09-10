@@ -2,6 +2,7 @@ extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
 const TestHarness := preload("res://tests/test_harness.gd")
+const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
 
 var failures: Array[String] = []
 
@@ -15,7 +16,7 @@ func _initialize() -> void:
 ## supposed to be a gate rather than a formality. These checks pin the gates:
 ## a fusion needs both a maxed weapon and the right treasure, it is offered the
 ## moment both are true and never before, it replaces the weapon in place, and
-## the ordinary growth cards do not reveal material paths before completion.
+## the selected route exposes its material and final form before completion.
 func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
@@ -28,17 +29,21 @@ func _run() -> void:
 	main.character_confirmed[0] = true
 	main.character_confirmed[1] = true
 	main._start_selected_run()
+	WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], WeaponTechs.by_id("homing", "constellation"))
+	WeaponTechs.apply_to_state(main.weapon_loadouts[1][0], WeaponTechs.by_id("lightning", "conductor"))
 	main.set_physics_process(false)
 	await process_frame
 
 	_test_catalog_is_complete()
+	_test_route_choice_and_material(main)
 	_test_both_requirements(main)
 	_test_fusion_replaces_in_place(main)
 	_test_tier_is_capped(main)
-	_test_growth_selection_hides_material_hints(main)
+	_test_growth_selection_exposes_route(main)
+	_test_completed_build_stops_growth(main)
 
 	if failures.is_empty():
-		print("FUSION_PASS: both gates enforced, fusion replaces in place, growth cards hide material paths")
+		print("FUSION_PASS: 1-3 routes per weapon, both gates enforced, maxed cards removed, route shown")
 		quit(0)
 	else:
 		for failure in failures:
@@ -58,6 +63,15 @@ func _test_catalog_is_complete() -> void:
 		var weapon_id := String(character["weapon_id"])
 		_check(not EvolutionCatalog.for_base(weapon_id).is_empty(),
 			"%s's weapon has a fusion" % String(character["name"]))
+		var techs := WeaponTechs.for_weapon(weapon_id)
+		_check(techs.size() >= 1 and techs.size() <= 3,
+			"%s offers between one and three tech routes" % String(character["name"]))
+		var tech_ids: Dictionary = {}
+		for tech in techs:
+			_check(not tech_ids.has(String(tech["id"])), "%s tech ids are unique" % weapon_id)
+			tech_ids[String(tech["id"])] = true
+			_check(treasure_ids.has(String(tech["treasure_id"])), "%s tech material exists" % String(tech["name"]))
+			_check(not (tech["upgrades"] as Array).is_empty(), "%s tech has an upgrade path" % String(tech["name"]))
 
 	var weapon_ids: Dictionary = {}
 	for evolution in evolutions:
@@ -83,9 +97,30 @@ func _fusion_offers(main: Node, player_index: int) -> Array[String]:
 	return offered
 
 
+func _test_route_choice_and_material(main: Node) -> void:
+	var character: Dictionary = CharacterCatalog.all_characters()[0]
+	main.weapon_loadouts[0] = [main._build_weapon_state(character)]
+	main.treasure_loadouts[0] = []
+	var routes: Array[Dictionary] = main._get_upgrade_choices(1)
+	_check(routes.size() == 3 and routes.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech"),
+		"a three-route weapon asks for its tech before numeric upgrades")
+	main._apply_upgrade(0, routes[0])
+	var chosen: Dictionary = main.weapon_loadouts[0][0]
+	_check(String(chosen.get("tech_id", "")) == String((routes[0]["tech"] as Dictionary)["id"]),
+		"the chosen route is stored on the weapon")
+	var required_id := String(chosen["tech_treasure_id"])
+	var after: Array[Dictionary] = main._get_upgrade_choices(1)
+	_check(after.any(func(option: Dictionary) -> bool: return String(option["id"]) == "unlock_treasure" and String((option["treasure"] as Dictionary)["id"]) == required_id),
+		"the chosen route's missing treasure is guaranteed in the next hand")
+	for option in after:
+		if int(option.get("weapon_slot", -1)) == 0 and String(option["id"]) in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
+			_check(WeaponTechs.allows(chosen, String(option["id"])), "offered upgrades stay inside the chosen route")
+	WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], WeaponTechs.by_id("homing", "constellation"))
+
+
 func _test_both_requirements(main: Node) -> void:
 	var weapon: Dictionary = main.weapon_loadouts[0][0]
-	var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
+	var evolution: Dictionary = main._selected_evolution_for_state(weapon)
 	_check(not evolution.is_empty(), "the starting weapon has a fusion to reach")
 	var treasure_id := String(evolution["treasure_id"])
 
@@ -117,7 +152,7 @@ func _test_both_requirements(main: Node) -> void:
 func _test_fusion_replaces_in_place(main: Node) -> void:
 	var slots_before: int = main.weapon_loadouts[0].size()
 	var base_id := String(main.weapon_loadouts[0][0]["weapon_id"])
-	var evolution := EvolutionCatalog.for_base(base_id)
+	var evolution: Dictionary = main._selected_evolution_for_state(main.weapon_loadouts[0][0])
 	_check(not main.fusion_discovered, "the run has not seen a fusion yet")
 
 	main._apply_upgrade(0, {"id": "evolve_weapon", "weapon_slot": 0, "evolution": evolution})
@@ -144,12 +179,15 @@ func _test_tier_is_capped(main: Node) -> void:
 		main._apply_upgrade(1, {"id": "weapon_power", "weapon_slot": 0})
 	_check(int(weapon["tier"]) == EvolutionCatalog.WEAPON_MAX_TIER,
 		"weapon tier stops at the cap (%d)" % int(weapon["tier"]))
+	for option in main._get_upgrade_choices(2):
+		_check(not (int(option.get("weapon_slot", -1)) == 0 and String(option["id"]) in ["weapon_power", "weapon_rate", "special_a", "special_b"]),
+			"a max-tier weapon never appears as another ordinary upgrade")
 
 
 ## A recipe remains hidden until both ingredients are carried. At that point the
 ## involved card shows the *other* ingredient in its corner, while the result
 ## stays unknown until it has actually been discovered.
-func _test_growth_selection_hides_material_hints(main: Node) -> void:
+func _test_growth_selection_exposes_route(main: Node) -> void:
 	main.fusion_discovered = false
 	main._refresh_level_up_ui()
 	# The whole screen rather than the one label the table used to live in: the
@@ -173,11 +211,11 @@ func _test_growth_selection_hides_material_hints(main: Node) -> void:
 				"the fusion seal stays hidden before both ingredients are owned")
 
 	var weapon: Dictionary = main.weapon_loadouts[1][0]
-	var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
+	var evolution: Dictionary = main._selected_evolution_for_state(weapon)
 	var treasure := TreasureCatalog.by_id(String(evolution["treasure_id"]))
-	var hidden_line: String = main._fusion_progress_line(1)
-	_check(hidden_line.contains("???") and not hidden_line.contains(String(treasure["name"])),
-		"full stats hides the absent fusion ingredient")
+	var visible_line: String = main._fusion_progress_line(1)
+	_check(visible_line.contains(String(treasure["name"])) and visible_line.contains(String(evolution["weapon_name"])),
+		"full stats names the selected tech's material and final form before pickup")
 
 	main._apply_upgrade(1, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
 	var revealed_choices: Array[Dictionary] = [{
@@ -195,6 +233,31 @@ func _test_growth_selection_hides_material_hints(main: Node) -> void:
 	var revealed_line: String = main._fusion_progress_line(1)
 	_check(revealed_line.contains(String(treasure["name"])),
 		"full stats reveals the relationship once both ingredients are owned")
+
+
+func _test_completed_build_stops_growth(main: Node) -> void:
+	for slot in 2:
+		main.weapon_loadouts[slot] = []
+		for character in CharacterCatalog.all_characters().slice(0, main.WEAPON_LOADOUT_CAP):
+			var state: Dictionary = main._build_weapon_state(character)
+			if String(state.get("tech_id", "")).is_empty():
+				WeaponTechs.apply_to_state(state, WeaponTechs.for_weapon(String(state["weapon_id"]))[0])
+			var evolution: Dictionary = main._selected_evolution_for_state(state)
+			main.weapon_loadouts[slot].append(EvolutionCatalog.build_state(evolution, state))
+		main.treasure_loadouts[slot] = []
+		for treasure in TreasureCatalog.all_treasures().slice(0, main.TREASURE_LOADOUT_CAP):
+			var carried: Dictionary = TreasureCatalog.build_state(treasure)
+			carried["tier"] = TreasureCatalog.MAX_TIER
+			main.treasure_loadouts[slot].append(carried)
+	main.level_up_active = false
+	main.growth_finished = false
+	main.progression.experience = main.progression.required_experience
+	main._begin_level_up()
+	_check(main.growth_finished and not main.level_up_active,
+		"a fully maxed pair does not open another growth screen")
+	var xp_before := int(main.progression.experience)
+	main._gain_shared_xp(100, 0)
+	_check(int(main.progression.experience) == xp_before, "XP stops queuing after the finite build is complete")
 
 
 ## Every piece of text on the growth screen, joined.

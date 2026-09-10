@@ -279,6 +279,8 @@ func _test_lifesteal(main: Node) -> void:
 
 
 func _test_card_rules(main: Node) -> void:
+	if String(main.weapon_loadouts[0][0].get("tech_id", "")).is_empty():
+		main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0])
 	# Attribute cards dilute the pool, and weapon tier is the only route to
 	# resonance, so every draw must still contain a weapon upgrade.
 	var draws_without_weapon := 0
@@ -296,7 +298,8 @@ func _test_card_rules(main: Node) -> void:
 	# treasures nearly every option in the pool is already build-defining, so
 	# luck has nothing to shift and the comparison reads as noise.
 	for character in main._pick_unowned_characters(0, 2):
-		main._apply_upgrade(0, {"id": "unlock_weapon", "weapon_slot": -1, "character": character})
+		main._apply_upgrade(0, {"id": "unlock_weapon", "weapon_slot": -1, "character": character,
+			"tech": main.WeaponTechs.for_weapon(String(character["weapon_id"]))[0]})
 	for treasure in main._pick_unowned_treasures(0, 3):
 		main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
 	main.team_luck = 0

@@ -64,17 +64,22 @@ func _run() -> void:
 func _test_every_weapon_has_specials(main: Node) -> void:
 	for character in CharacterCatalog.all_characters():
 		var name := String(character["name"])
-		var state: Dictionary = main._build_weapon_state(character)
-		main.weapon_loadouts[0] = [state]
-		main.attack_timers[0] = [0.0]
 		for key: String in ["a", "b"]:
+			var state: Dictionary = main._build_weapon_state(character)
+			var upgrade_id := "special_" + key
+			for tech in main.WeaponTechs.for_weapon(String(character["weapon_id"])):
+				if upgrade_id in (tech["upgrades"] as Array):
+					main.WeaponTechs.apply_to_state(state, tech)
+					break
+			main.weapon_loadouts[0] = [state]
+			main.attack_timers[0] = [0.0]
 			var spec: Dictionary = main._special_spec(String(character["weapon_id"]), key)
 			_check(not spec.is_empty(), "%s's weapon declares special %s" % [name, key])
 			if spec.is_empty():
 				continue
 			_check(main._special_has_room(0, 0, key), "%s's special %s has somewhere to go" % [name, key])
 
-			var option := {"id": "special_" + key, "weapon_slot": 0}
+			var option := {"id": upgrade_id, "weapon_slot": 0}
 			var preview: String = main._upgrade_preview(0, option)
 			_check(preview != "현재 능력을 강화합니다.",
 				"%s's special %s previews what it changes (%s)" % [name, key, preview])
@@ -95,10 +100,9 @@ func _test_every_weapon_has_specials(main: Node) -> void:
 			var offered := false
 			for draw in 15:
 				for candidate in main._get_upgrade_choices(1):
-					if String(candidate["id"]) == "special_" + key and int(candidate["weapon_slot"]) == 0:
+					if String(candidate["id"]) == upgrade_id and int(candidate["weapon_slot"]) == 0:
 						offered = true
 			_check(offered, "%s's special %s is reachable from the card pool" % [name, key])
-			main.weapon_loadouts[0] = [main._build_weapon_state(character)]
 
 
 ## 중력 붕괴 used to collapse on the caster, so it could only ever hit things

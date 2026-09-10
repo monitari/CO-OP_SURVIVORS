@@ -167,7 +167,9 @@ func _run() -> void:
 
 	# A card carrying the fusion mark: P1 one weapon tier and one treasure tier
 	# away, so the screen has something to hint about.
-	var marked := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
+	var marked_tech: Dictionary = main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0]
+	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], marked_tech)
+	var marked: Dictionary = main._selected_evolution_for_state(main.weapon_loadouts[0][0])
 	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
 	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1,
 		"treasure": TreasureCatalog.by_id(String(marked["treasure_id"]))})
@@ -206,32 +208,8 @@ func _run() -> void:
 	main.level_overlay.visible = false
 	paused = false
 
-	main.selected_characters[0] = main.character_catalog[0].duplicate(true)
-	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
-	main.weapon_loadouts[0] = [main._build_weapon_state(main.selected_characters[0])]
-	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
-	# Resonance requires fused weapons now, not tier-3 starters.
-	for slot in 2:
-		var evolution: Dictionary = main.Evolutions.all_evolutions()[slot]
-		main.weapon_loadouts[slot][0].merge(evolution, true)
-		main.weapon_loadouts[slot][0]["tier"] = main.Evolutions.WEAPON_MAX_TIER
-		main.weapon_loadouts[slot][0]["evolved"] = true
-	main.resonance_system.active_resonances.clear()
-	main.level_up_active = true
-	paused = true
-	main._after_personal_upgrade_choices()
-	if not main.resonance_overlay.visible:
-		push_error("VISUAL_CAPTURE_FAIL: resonance vote did not open")
-		quit(1)
-		return
-	await process_frame
-	await RenderingServer.frame_post_draw
-	_save_viewport("res://.godot_runtime/resonance-vote.png")
-
-	main.resonance_vote_active = false
-	main.resonance_overlay.visible = false
-	main.level_up_active = false
-	paused = false
+	# Automatic resonance has no choice screen; its completion showcase is the
+	# only modal beat before combat resumes.
 	main.weapon_controller.perform_resonance(main.resonance_system.catalog[3], 1.0)
 	await process_frame
 	await RenderingServer.frame_post_draw

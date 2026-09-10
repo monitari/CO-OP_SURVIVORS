@@ -87,6 +87,9 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 				# weapons that earned it on screen rather than only their names.
 				candidate["weapon_a_id"] = String(weapon_a.get("weapon_id", ""))
 				candidate["weapon_b_id"] = String(weapon_b.get("weapon_id", ""))
+				var requirements: Array = candidate["requires"]
+				candidate["tech_match_count"] = (1 if String(weapon_a.get("tech_tag", "")) in requirements else 0) \
+					+ (1 if String(weapon_b.get("tech_tag", "")) in requirements else 0)
 				candidates.append(candidate)
 	return candidates
 
@@ -153,6 +156,10 @@ func rank_candidates(candidates: Array[Dictionary], limit := VOTE_CHOICES) -> Ar
 		var second_id := String(second["id"])
 		var first_pairs := int(produced_by[first_id])
 		var second_pairs := int(produced_by[second_id])
+		var first_tech := int(first.get("tech_match_count", 0))
+		var second_tech := int(second.get("tech_match_count", 0))
+		if first_tech != second_tech:
+			return first_tech > second_tech
 		if first_pairs != second_pairs:
 			return first_pairs < second_pairs
 		return int(order[first_id]) < int(order[second_id]))

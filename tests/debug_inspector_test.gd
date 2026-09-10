@@ -101,7 +101,7 @@ func _run() -> void:
 	inspector._prepare_fusions()
 	for slot in 2:
 		var weapon: Dictionary = main.weapon_loadouts[slot][0]
-		var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+		var evolution: Dictionary = main._selected_evolution_for_state(weapon)
 		_check(int(weapon.get("tier", 1)) == Evolutions.WEAPON_MAX_TIER,
 			"fusion shortcut raises P%d's base weapon through real upgrade steps" % (slot + 1))
 		_check(main._treasure_tier(slot, String(evolution["treasure_id"])) >= Evolutions.REQUIRED_TREASURE_TIER,

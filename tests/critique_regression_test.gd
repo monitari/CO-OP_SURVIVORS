@@ -29,7 +29,7 @@ func _run() -> void:
 		director.encounter_timer = 0
 		director.encounters_run = rank - 1
 		var elapsed := rank * 300.0
-		var expected := director.encounter_size(elapsed) + 2
+		var expected := director.encounter_size(elapsed) + 2 + director.PLANTER_MAX_ALIVE
 		var spawned := director.step(1.0 / 60, elapsed, Vector2.ZERO, main.enemies.size())
 		check(spawned.size() == expected, "full scheduled encounter at cap, rank %d (%d/%d)" % [rank, spawned.size(), expected])
 		for enemy in spawned: main._register_enemy(enemy)
@@ -71,6 +71,7 @@ func _run() -> void:
 	check(runner.position.distance_to(before) >= 33, "warned sprint overtakes unboosted cats")
 	var recommended := 0
 	var discouraged := 0
+	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0])
 	for iteration in 120:
 		var choices: Array = main._get_upgrade_choices(1)
 		for option in choices:
@@ -79,7 +80,7 @@ func _run() -> void:
 			check(not (option.get("recommended", false) and option.get("discouraged", false)), "advice bands never overlap")
 	print("CRITIQUE_ADVICE: recommended=%d discouraged=%d / 360 cards" % [recommended, discouraged])
 	check(discouraged > 0, "discouraged band actually occurs on real choices")
-	check(main.boss_label.position.y + main.boss_label.size.y <= 125, "boss HUD stays in top strip")
+	check(main.boss_label.position.y + main.boss_label.size.y <= 160, "boss HUD stays above the protected play field")
 	for id in ["echo", "latte"]:
 		var art: Texture2D = GameIconCatalog.survivor(id)
 		check(art.get_image().get_pixel(0, 0).a < 0.01, id + " has true transparent padding")

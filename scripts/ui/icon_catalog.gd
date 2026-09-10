@@ -13,7 +13,7 @@ extends RefCounted
 ## Which folder answers each kind of lookup.
 const SPRITE_FOLDERS := {"survivor": "cats", "weapon": "weapons", "upgrade": "upgrades"}
 
-const WEAPON_PASSTHROUGH := ["unlock_weapon", "weapon_power", "weapon_rate", "special_a", "special_b", "evolve_weapon"]
+const WEAPON_PASSTHROUGH := ["unlock_weapon", "choose_tech", "weapon_power", "weapon_rate", "special_a", "special_b", "evolve_weapon"]
 const UPGRADE_ALIASES := {
 	"catnip": "recovery", "bounty_bell": "growth", "twin_charm": "overcharge",
 	"dash_claw": "might", "lucky_paw": "luck", "nine_lives": "vitality",

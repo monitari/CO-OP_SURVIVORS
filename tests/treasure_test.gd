@@ -28,6 +28,9 @@ func _run() -> void:
 	main.character_confirmed[0] = true
 	main.character_confirmed[1] = true
 	main._start_selected_run()
+	for slot in 2:
+		main.WeaponTechs.apply_to_state(main.weapon_loadouts[slot][0],
+			main.WeaponTechs.for_weapon(String(main.weapon_loadouts[slot][0]["weapon_id"]))[0])
 	main.set_physics_process(false)
 	await process_frame
 

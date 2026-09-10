@@ -25,6 +25,7 @@ const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
 const DebugInspectorScript := preload("res://scripts/ui/debug_inspector.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
+const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
 const CHAIN_RESIST_RATIO := 0.70
@@ -222,6 +223,7 @@ var elapsed := 0.0
 var kills := 0
 var game_over := false
 var level_up_active := false
+var growth_finished := false
 var character_select_active := true
 var resonance_vote_active := false
 var pause_active := false
@@ -255,7 +257,7 @@ var lobby_devices: Array[int] = [-1, -1]
 var lobby_device_names: Array[String] = ["키보드", "키보드"]
 var lobby_input_cooldown := 0.0
 var upgrade_cursors: Array[int] = [0, 0]
-var selected_upgrade_indices: Array[int] = [-1, -1] ## -1 = still choosing; >=0 = locked in but not yet applied until both players lock
+var selected_upgrade_indices: Array[int] = [-1, -1] ## -2 = build complete; -1 = choosing; >=0 = locked
 var rerolls_remaining: Array[int] = [REROLL_START, REROLL_START]
 var last_upgrade_choice_keys: Array = [[], []]
 var level_up_input_delay := 0.0
@@ -656,7 +658,7 @@ func _physics_process(delta: float) -> void:
 	# time: the pair gets the gap back as play, not as a paused screen.
 	if level_up_gap_remaining > 0.0:
 		level_up_gap_remaining = maxf(0.0, level_up_gap_remaining - delta)
-		if level_up_gap_remaining <= 0.0 and progression.can_level_up():
+		if level_up_gap_remaining <= 0.0 and progression.can_level_up() and not growth_finished:
 			_begin_level_up()
 			return
 	bursts.step(delta)
@@ -1718,30 +1720,25 @@ func _refresh_character_select_ui() -> void:
 ## which fusion and which treasure your whole run is aimed at. It now shows the
 ## full stat block, where the weapon ends up, and a plain-language difficulty
 ## read so the choice can be made without knowing the catalog by heart.
-## Deliberately says nothing about fusions or resonances.
-##
-## The card used to print "합성 X T7 + Y T4 → Z" and the strip under it listed
-## of the run, handed over before the run starts — the first fusion is meant to
-## be found, and a resonance is meant to be the thing the pair discovers they
-## right now: how they attack, how sturdy they are, and how demanding they are.
+## Routes and materials are explicit here. A first-time player should be able
+## to choose a plan before the run instead of losing a slot to a hidden recipe.
 func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
-	var weapon: Dictionary = character["weapon"]
-	# The stat grid lives above this label; what belongs here
-	# is the part a number cannot say. The leash line is called out separately
-	# because it is the one stat that changes how both players have to move.
-	var lines: Array[String] = [
-		String(character["weapon_name"]),
-		"피해 %.0f      %.2f초마다      %s" % [
-			float(weapon["damage"]), float(weapon["cooldown"]),
-			_chain_note(character),
-		],
-		"투사체 속도 %.0f%%      사슬 %+.0f      회피 %.0f%%" % [
-			float(character.get("projectile_speed", 1.0)) * 100.0, float(character["chain"]),
-			float(character.get("dodge", 0.0)) * 100.0,
-		],
-	]
-	return "\n".join(lines)
+	var tech_names: Array[String] = []
+	var material_names: Array[String] = []
+	var evolution := Evolutions.for_base(String(character["weapon_id"]))
+	for tech in WeaponTechs.for_weapon(String(character["weapon_id"])):
+		var treasure := Treasures.by_id(String(tech["treasure_id"]))
+		tech_names.append(String(tech["name"]))
+		material_names.append(String(treasure.get("name", "보물")))
+	var playstyle := String(EditorialUI.PLAYSTYLE.get(
+		String(character["weapon_id"]), "자동 공격")).split(" · ")[-1]
+	return "\n".join([
+		"무기 · %s · %s" % [String(character["weapon_name"]), playstyle],
+		"테크 · %s" % " / ".join(tech_names),
+		"필요 보물 · %s" % " / ".join(material_names),
+		"최종 · %s · 자동 공명" % String(evolution.get("weapon_name", "최종 진화")),
+	])
 
 ## What this survivor does to the pair's leash, in plain language. The number
 ## itself is in the stat row; this says what it means.
@@ -1827,6 +1824,7 @@ func _start_selected_run() -> void:
 	enemy_shots.clear()
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
+	growth_finished = false
 	_reset_run_stats()
 	last_upgrade_choice_keys = [[], []]
 	lifesteal_charge = 0.0
@@ -2130,11 +2128,11 @@ func _update_camera(delta: float) -> void:
 ## visible before the enemies actually arrive.
 func _on_wave_started(wave_index: int, is_surge: bool) -> void:
 	if is_surge:
-		_show_message("%d파 대공세 · 서로 등을 맡으세요!" % wave_index, Color("ff5d8f"))
+		_show_message("%d파 대공세 · 서로 등을 맡으세요!" % (wave_index + 1), Color("ff5d8f"))
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 7.0)
 	else:
-		_show_message("%d파 시작 · 발을 맞춰 포위를 뚫으세요" % wave_index, Color("fff275"))
+		_show_message("%d파 시작 · 발을 맞춰 포위를 뚫으세요" % (wave_index + 1), Color("fff275"))
 		feedback.play_cue("kill")
 
 
@@ -2360,6 +2358,17 @@ func _set_pause(enabled: bool) -> void:
 	pending_quits = false
 	pause_cursor = 0
 	pause_overlay.visible = enabled
+	if enabled:
+		modal_dim.visible = true
+		if modal_dim.veil_only:
+			modal_dim.veil_only = false
+			modal_dim.queue_redraw()
+	elif not (title_active or lobby_active or character_select_active or level_up_active or game_over or cinematic_active):
+		modal_dim.visible = false
+	if enabled:
+		for notice in notice_stack:
+			if is_instance_valid(notice):
+				notice.visible = false
 	combat_hud.visible = not enabled and not game_over and not resonance_vote_active and not title_active and not lobby_active and not character_select_active
 	if enabled:
 		_update_pause_text()
@@ -2379,8 +2388,13 @@ func _handle_pause_input() -> void:
 		return
 	if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
 		_set_pause(false)
+	elif Input.is_action_just_pressed("menu_left") or Input.is_action_just_pressed("menu_right"):
+		pause_cursor = ReviewUI.pause_neighbor(
+			pause_cursor, "left" if Input.is_action_just_pressed("menu_left") else "right")
+		_update_pause_text()
 	elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
-		pause_cursor = wrapi(pause_cursor + (1 if Input.is_action_just_pressed("menu_next") else -1), 0, ReviewUI.PAUSE_ITEM_COUNT)
+		pause_cursor = ReviewUI.pause_neighbor(
+			pause_cursor, "down" if Input.is_action_just_pressed("menu_next") else "up")
 		_update_pause_text()
 	elif Input.is_action_just_pressed("menu_confirm"):
 		_activate_pause_item(pause_cursor)
@@ -3144,6 +3158,8 @@ func _advance_showcase_queue() -> void:
 
 
 func _gain_shared_xp(amount: int, collector_index := -1) -> void:
+	if growth_finished:
+		return
 	var gained := int(round(float(amount) * team_growth))
 	progression.add_experience(gained)
 	if collector_index >= 0 and collector_index < 2:
@@ -3158,18 +3174,35 @@ func _gain_shared_xp(amount: int, collector_index := -1) -> void:
 
 
 func _begin_level_up() -> void:
+	if growth_finished or not progression.can_level_up():
+		return
+	var next_p1 := _get_upgrade_choices(1)
+	var next_p2 := _get_upgrade_choices(2)
+	if next_p1.is_empty() and next_p2.is_empty():
+		growth_finished = true
+		level_up_gap_remaining = 0.0
+		_show_message("빌드 완성 · 더 이상 성장 선택이 나오지 않습니다", Color("80ed99"))
+		_update_hud()
+		return
 	if not progression.consume_level_up():
 		return
 	if progression.level % REROLL_PER_LEVELS == 0:
 		for slot in 2:
 			rerolls_remaining[slot] = mini(REROLL_CAP, rerolls_remaining[slot] + 1)
 	level_up_active = true
+	modal_dim.visible = true
+	if not modal_dim.veil_only:
+		modal_dim.veil_only = true
+		modal_dim.queue_redraw()
+	for notice in notice_stack:
+		if is_instance_valid(notice):
+			notice.visible = false
 	level_up_input_delay = LEVEL_UP_INPUT_DELAY
 	level_up_gap_remaining = 0.0
-	selected_upgrade_indices = [-1, -1]
+	selected_upgrade_indices = [-2 if next_p1.is_empty() else -1, -2 if next_p2.is_empty() else -1]
 	upgrade_cursors = [0, 0]
-	p1_choices = _get_upgrade_choices(1)
-	p2_choices = _get_upgrade_choices(2)
+	p1_choices = next_p1
+	p2_choices = next_p2
 	level_overlay.visible = true
 	_animate_level_overlay(true)
 	_refresh_level_up_ui()
@@ -3232,10 +3265,12 @@ func _animate_level_overlay(opening: bool) -> void:
 
 func _option_key(option: Dictionary) -> String:
 	var option_id := String(option["id"])
+	if option_id == "choose_tech":
+		return "choose_tech:%d:%s" % [int(option["weapon_slot"]), String((option["tech"] as Dictionary)["id"])]
 	if option_id == "evolve_weapon":
 		return "evolve_weapon:" + String((option["evolution"] as Dictionary)["weapon_id"])
 	if option_id == "unlock_weapon":
-		return "unlock_weapon:" + String((option["character"] as Dictionary)["id"])
+		return "unlock_weapon:%s:%s" % [String((option["character"] as Dictionary)["id"]), String((option.get("tech", {}) as Dictionary).get("id", ""))]
 	if option_id == "unlock_treasure":
 		return "unlock_treasure:" + String((option["treasure"] as Dictionary)["id"])
 	if option_id == "treasure_upgrade":
@@ -3268,12 +3303,37 @@ func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 		return {}
 	if int(weapon.get("tier", 1)) < Evolutions.WEAPON_MAX_TIER:
 		return {}
-	var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+	if String(weapon.get("tech_id", "")).is_empty():
+		return {}
+	var evolution := _selected_evolution_for_state(weapon)
 	if evolution.is_empty():
 		return {}
 	if _treasure_tier(slot, String(evolution["treasure_id"])) < Evolutions.REQUIRED_TREASURE_TIER:
 		return {}
 	return evolution
+
+
+func _selected_evolution_for_state(weapon: Dictionary) -> Dictionary:
+	var base_id := String(weapon.get("base_weapon_id", weapon.get("weapon_id", "")))
+	var evolution := Evolutions.for_base(base_id)
+	return WeaponTechs.evolution_for(evolution, weapon) if not evolution.is_empty() else {}
+
+
+func _missing_required_treasures(slot: int) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for weapon: Dictionary in weapon_loadouts[slot]:
+		if bool(weapon.get("evolved", false)) or String(weapon.get("tech_id", "")).is_empty():
+			continue
+		var evolution := _selected_evolution_for_state(weapon)
+		var treasure_id := String(evolution.get("treasure_id", ""))
+		if treasure_id.is_empty() or seen.has(treasure_id) or _treasure_tier(slot, treasure_id) > 0:
+			continue
+		seen[treasure_id] = true
+		var treasure := Treasures.by_id(treasure_id)
+		if not treasure.is_empty():
+			result.append(treasure)
+	return result
 
 
 ## What a second copy of a shared treasure is worth.
@@ -3357,7 +3417,26 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var loadout: Array = weapon_loadouts[slot]
 	var treasures: Array = treasure_loadouts[slot]
 	var pool: Array[Dictionary] = []
+	var route_materials: Array[Dictionary] = []
 	var choice_count := _growth_choice_count()
+
+	# A newly carried weapon must commit to a route before any of its numeric
+	# upgrades enter the pool. One-route weapons are assigned in _build_weapon_state.
+	for weapon_slot in loadout.size():
+		var carried: Dictionary = loadout[weapon_slot]
+		if bool(carried.get("evolved", false)) or not String(carried.get("tech_id", "")).is_empty():
+			continue
+		var tech_choices: Array[Dictionary] = []
+		for tech in WeaponTechs.for_weapon(String(carried.get("base_weapon_id", carried["weapon_id"]))):
+			var option := {
+				"id": "choose_tech", "weapon_slot": weapon_slot, "tech": tech,
+				"title": String(tech["name"]),
+			}
+			option["description"] = _upgrade_preview(slot, option)
+			tech_choices.append(option)
+		last_upgrade_choice_keys[slot] = []
+		_annotate_recommendations(slot, tech_choices)
+		return tech_choices
 
 	# Carried treasures can be deepened; the twelve that are not carried are
 	# only reachable while there is still a free slot. That gating is the whole
@@ -3371,21 +3450,38 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			"title": String(treasure["name"]),
 		})
 	if treasures.size() < TREASURE_LOADOUT_CAP:
-		# A fixed number of candidates: luck acts on the weighting below and
-		# nowhere else. Scaling the candidate count as well pulled the other
-		# way — more unlock entries in the pool means each one is drawn less
-		# often — and left luck with no measurable direction at all.
-		for treasure in _pick_unowned_treasures(slot, 3):
+		var needed := _missing_required_treasures(slot)
+		var offered_ids: Dictionary = {}
+		for treasure in needed:
+			offered_ids[String(treasure["id"])] = true
+			var material_option := {
+				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
+				"title": "테크 필수: %s" % String(treasure["name"]),
+			}
+			pool.append(material_option)
+			route_materials.append(material_option)
+		# Keep some discovery in the hand after guaranteeing the route materials.
+		for treasure in _pick_unowned_treasures(slot, maxi(3, needed.size()) + 3):
+			if offered_ids.has(String(treasure["id"])) or offered_ids.size() >= maxi(3, needed.size()):
+				continue
+			offered_ids[String(treasure["id"])] = true
 			pool.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
 				"title": "새 보물: %s" % String(treasure["name"]),
 			})
 	for weapon_slot in loadout.size():
-		var weapon_name := String(loadout[weapon_slot]["weapon_name"])
-		var weapon_id := String(loadout[weapon_slot]["weapon_id"])
-		pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
-		pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전\n%s" % weapon_name})
+		var state: Dictionary = loadout[weapon_slot]
+		if bool(state.get("evolved", false)) or int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+			continue
+		var weapon_name := String(state["weapon_name"])
+		var weapon_id := String(state["weapon_id"])
+		if WeaponTechs.allows(state, "weapon_power"):
+			pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
+		if WeaponTechs.allows(state, "weapon_rate"):
+			pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전\n%s" % weapon_name})
 		for key: String in ["a", "b"]:
+			if not WeaponTechs.allows(state, "special_" + key):
+				continue
 			var spec := _special_spec(weapon_id, key)
 			if spec.is_empty():
 				continue
@@ -3402,20 +3498,24 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			continue
 		pool.append({
 			"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
-			"title": "무기 진화: %s" % (String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"),
+			"title": "최종 진화: %s" % String(evolution["weapon_name"]),
 		})
 	if loadout.size() < WEAPON_LOADOUT_CAP:
 		for character in _pick_unowned_characters(slot, 2):
-			pool.append({
-				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
-				"title": "신규 기술: %s" % String(character["weapon_name"])
-			})
+			for tech in WeaponTechs.for_weapon(String(character["weapon_id"])):
+				pool.append({
+					"id": "unlock_weapon", "weapon_slot": -1, "character": character, "tech": tech,
+					"title": "신규 무기: %s\n%s 테크" % [String(character["weapon_name"]), String(tech["name"])],
+				})
 	pool = pool.filter(func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option))
 	var ready_fusions: Array[Dictionary] = []
 	for option in pool:
 		if option["id"] == "evolve_weapon":
 			ready_fusions.append(option)
 		option["description"] = _upgrade_preview(slot, option)
+	# Keep the complete valid set for the guaranteed weapon-progress slot. The
+	# reroll freshness filter below may temporarily remove every weapon card.
+	var all_valid_options: Array[Dictionary] = pool.duplicate()
 
 	var previous_keys: Array = last_upgrade_choice_keys[slot]
 	var fresh_pool: Array[Dictionary] = []
@@ -3432,7 +3532,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	for extra in team_luck * LUCK_WEIGHT_PER_POINT:
 		for option in pool:
 			var option_id := String(option["id"])
-			if option_id in ["unlock_weapon", "unlock_treasure", "special_a", "special_b"]:
+			if option_id in ["unlock_weapon", "unlock_treasure", "choose_tech", "special_a", "special_b"]:
 				weighted.append(option)
 
 	weighted.shuffle()
@@ -3441,6 +3541,13 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	for option in ready_fusions.slice(0, choice_count):
 		choices.append(option)
 		chosen_keys.append(_option_key(option))
+	for option in route_materials:
+		if choices.size() >= choice_count:
+			break
+		var key := _option_key(option)
+		if key not in chosen_keys:
+			choices.append(option)
+			chosen_keys.append(key)
 	for option in weighted:
 		if choices.size() >= choice_count:
 			break
@@ -3456,7 +3563,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	# could go several levels without either weapon reaching tier 3.
 	if not _has_weapon_upgrade(choices) and not loadout.is_empty():
 		var weapon_options: Array[Dictionary] = []
-		for option in pool:
+		for option in all_valid_options:
 			if int(option.get("weapon_slot", -1)) >= 0:
 				weapon_options.append(option)
 		if not weapon_options.is_empty():
@@ -3690,6 +3797,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 	var score := 20.0
 	var reason := "균형 성장"
 	match effect_id:
+		"choose_tech":
+			score = 65.0
+			reason = "성장 경로 결정"
 		"weapon_power":
 			score = 50.0
 			reason = "주력 피해"
@@ -3841,10 +3951,14 @@ func _build_weapon_state(character: Dictionary) -> Dictionary:
 	# overtakes the old curve, while a fusion replaces this scaled base entirely.
 	state["damage"] = float(state["damage"]) * BASE_WEAPON_DAMAGE_SCALE
 	state["weapon_id"] = character["weapon_id"]
+	state["base_weapon_id"] = character["weapon_id"]
 	state["weapon_name"] = character["weapon_name"]
 	state["tags"] = (character["tags"] as Array).duplicate()
 	state["color"] = character["color"]
 	state["source_character"] = character["name"]
+	var techs := WeaponTechs.for_weapon(String(character["weapon_id"]))
+	if techs.size() == 1:
+		WeaponTechs.apply_to_state(state, techs[0])
 	return state
 
 
@@ -3854,7 +3968,7 @@ func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 	for weapon: Dictionary in weapon_loadouts[slot]:
 		if bool(weapon.get("evolved", false)):
 			continue
-		var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+		var evolution := _selected_evolution_for_state(weapon)
 		if evolution.is_empty() or String(evolution.get("treasure_id", "")) != treasure_id:
 			continue
 		var treasure_tier := _treasure_tier(slot, treasure_id)
@@ -3885,7 +3999,10 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 	var preview: Array = [weapon_loadouts[0].duplicate(true), weapon_loadouts[1].duplicate(true)]
 	var option_id := String(option["id"])
 	if option_id == "unlock_weapon":
-		preview[slot].append(_build_weapon_state(option["character"] as Dictionary))
+		var new_state := _build_weapon_state(option["character"] as Dictionary)
+		if option.has("tech"):
+			WeaponTechs.apply_to_state(new_state, option["tech"] as Dictionary)
+		preview[slot].append(new_state)
 	elif option_id == "evolve_weapon":
 		# The only card that can actually open a resonance now that the gate is
 		# fusion: a tier bump on an unfused weapon never reaches it.
@@ -3902,22 +4019,66 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 	return ""
 
 
+## The resonance the two highlighted routes will eventually produce. Preview
+## states are promoted to their final forms here because resonance itself only
+## activates after both weapons are finished.
+func _growth_resonance_preview() -> Dictionary:
+	var preview: Array = [
+		weapon_loadouts[0].duplicate(true),
+		weapon_loadouts[1].duplicate(true),
+	]
+	for slot in 2:
+		var choices: Array = p1_choices if slot == 0 else p2_choices
+		var selected := selected_upgrade_indices[slot]
+		if selected < 0:
+			selected = upgrade_cursors[slot]
+		if selected < 0 or selected >= choices.size():
+			continue
+		var option: Dictionary = choices[selected]
+		var option_id := String(option.get("id", ""))
+		if option_id == "choose_tech":
+			WeaponTechs.apply_to_state(
+				preview[slot][int(option["weapon_slot"])], option["tech"] as Dictionary)
+		elif option_id == "unlock_weapon":
+			var state := _build_weapon_state(option["character"] as Dictionary)
+			if option.has("tech"):
+				WeaponTechs.apply_to_state(state, option["tech"] as Dictionary)
+			preview[slot].append(state)
+	for slot in 2:
+		for weapon_index in preview[slot].size():
+			var state: Dictionary = preview[slot][weapon_index]
+			if bool(state.get("evolved", false)) or String(state.get("tech_id", "")).is_empty():
+				continue
+			var base := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
+			var evolution := WeaponTechs.evolution_for(base, state)
+			if not evolution.is_empty():
+				preview[slot][weapon_index] = Evolutions.build_state(evolution, state)
+	var candidates := resonance_system.rank_candidates(
+		resonance_system.get_candidates_for_loadouts(preview[0], preview[1]), 1)
+	return {} if candidates.is_empty() else candidates[0]
+
+
 func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	var upgrade_id := String(option["id"])
+	if upgrade_id == "choose_tech":
+		var tech: Dictionary = option["tech"]
+		var material := Treasures.by_id(String(tech["treasure_id"]))
+		var state: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])].duplicate(true)
+		WeaponTechs.apply_to_state(state, tech)
+		var base := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
+		var evolution := WeaponTechs.evolution_for(base, state)
+		return "%s\n필수 · %s\n완성 · %s" % [
+			_tech_focus(tech), String(material.get("name", "보물")),
+			String(evolution.get("weapon_name", "최종 진화")),
+		]
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
-		var tag_names: Array[String] = []
-		for tag in (character["tags"] as Array):
-			tag_names.append(_tag_name(String(tag)))
-		return "%s\n피해 %.0f · %.2f초" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), float(character["weapon"]["damage"]), float(character["weapon"]["cooldown"])]
+		var tech: Dictionary = option.get("tech", {})
+		var material := Treasures.by_id(String(tech.get("treasure_id", "")))
+		return "%s\n%s · 필수 %s" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), _tech_focus(tech), String(material.get("name", "보물"))]
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
-		if not meta_progression.is_discovered(String(evolution["weapon_id"])):
-			var base_weapon: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])]
-			var material := Treasures.by_id(String(evolution["treasure_id"]))
-			return "%s + %s\n장비 슬롯 유지 · 결과는 완성 후 공개" % [
-				String(base_weapon["weapon_name"]), String(material.get("name", "보물"))]
-		return "%s\n최종 단계 도달" % String(evolution["description"])
+		return "%s\n최종 단계 · 완성 후 공명 자동 판정" % String(evolution["description"])
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		return "%s
@@ -3949,6 +4110,15 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	return "현재 능력을 강화합니다."
 
 
+func _tech_focus(tech: Dictionary) -> String:
+	return {
+		"force": "피해 · 강한 한 방",
+		"tempo": "연사 · 빈틈 감소",
+		"control": "제어 · 범위 확대",
+		"balanced": "균형 · 자유 강화",
+	}.get(String(tech.get("profile", "balanced")), "균형 성장")
+
+
 func _handle_level_up_input() -> void:
 	if level_up_input_delay > 0.0:
 		level_up_input_delay = maxf(0.0, level_up_input_delay - get_physics_process_delta_time())
@@ -3959,8 +4129,8 @@ func _handle_level_up_input() -> void:
 		var player_index := slot + 1
 		var prefix := "p1_select_" if player_index == 1 else "p2_select_"
 		var choices := p1_choices if player_index == 1 else p2_choices
-		if selected_upgrade_indices[slot] >= 0:
-			if Input.is_action_just_pressed(prefix + "cancel") and selected_upgrade_indices[1 - slot] < 0:
+		if selected_upgrade_indices[slot] != -1:
+			if selected_upgrade_indices[slot] >= 0 and Input.is_action_just_pressed(prefix + "cancel") and selected_upgrade_indices[1 - slot] < 0:
 				selected_upgrade_indices[slot] = -1
 				_refresh_level_up_ui()
 			continue
@@ -3981,6 +4151,9 @@ func _handle_level_up_input() -> void:
 ## cards is worse than no reroll at all.
 func _reroll_choices(player_index: int) -> void:
 	var slot := player_index - 1
+	var current := p1_choices if player_index == 1 else p2_choices
+	if not current.is_empty() and current.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech"):
+		return
 	rerolls_remaining[slot] -= 1
 	feedback.play_cue("reroll")
 	if player_index == 1:
@@ -4001,15 +4174,17 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 	var choices := p1_choices if player_index == 1 else p2_choices
 	if choice_index < 0 or choice_index >= choices.size():
 		return
-	if selected_upgrade_indices[slot] >= 0:
+	if selected_upgrade_indices[slot] != -1:
 		return
 	feedback.play_cue("select")
 	selected_upgrade_indices[slot] = choice_index
 	upgrade_cursors[slot] = choice_index
 	_refresh_level_up_ui()
-	if selected_upgrade_indices[0] >= 0 and selected_upgrade_indices[1] >= 0:
-		_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
-		_apply_upgrade(1, p2_choices[selected_upgrade_indices[1]])
+	if selected_upgrade_indices[0] != -1 and selected_upgrade_indices[1] != -1:
+		if selected_upgrade_indices[0] >= 0:
+			_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
+		if selected_upgrade_indices[1] >= 0:
+			_apply_upgrade(1, p2_choices[selected_upgrade_indices[1]])
 		# Any fusion the two picks produced is shown before the run is handed
 		# back — including before the resonance vote, which is the next thing a
 		# pair who just fused might be looking at.
@@ -4022,9 +4197,15 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 
 func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var upgrade_id := String(option["id"])
+	if upgrade_id == "choose_tech":
+		WeaponTechs.apply_to_state(weapon_loadouts[player_slot][int(option["weapon_slot"])], option["tech"] as Dictionary)
+		return
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
-		weapon_loadouts[player_slot].append(_build_weapon_state(character))
+		var new_state := _build_weapon_state(character)
+		if option.has("tech"):
+			WeaponTechs.apply_to_state(new_state, option["tech"] as Dictionary)
+		weapon_loadouts[player_slot].append(new_state)
 		attack_timers[player_slot].append(0.2)
 		return
 	if upgrade_id == "evolve_weapon":
@@ -4143,6 +4324,7 @@ func _refresh_player_cards(player_index: int) -> void:
 	var slot := player_index - 1
 	var choices := p1_choices if player_index == 1 else p2_choices
 	var cards: Array = level_card_labels[slot]
+	var complete := selected_upgrade_indices[slot] == -2
 	var locked := selected_upgrade_indices[slot] >= 0
 	var accent := CatTheme.P1 if player_index == 1 else CatTheme.P2
 
@@ -4152,7 +4334,7 @@ func _refresh_player_cards(player_index: int) -> void:
 		var has_option := not option.is_empty()
 		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 		var is_unlock := String(option.get("id", "")) == "unlock_weapon"
-		var is_focused := not locked and index == upgrade_cursors[slot]
+		var is_focused := not locked and not complete and index == upgrade_cursors[slot]
 		var is_chosen := locked and index == selected_upgrade_indices[slot]
 		var is_recommended := bool(option.get("recommended", false))
 		var is_discouraged := bool(option.get("discouraged", false))
@@ -4178,6 +4360,12 @@ func _refresh_player_cards(player_index: int) -> void:
 			recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
 
 		var border := accent
+		var tech_tint := Color.TRANSPARENT
+		if String(option.get("id", "")) == "choose_tech":
+			tech_tint = {
+				"force": Color("ff8e72"), "tempo": Color("67c8ff"),
+				"control": Color("80ed99"), "balanced": CatTheme.GOLD,
+			}.get(String((option["tech"] as Dictionary).get("profile", "balanced")), CatTheme.GOLD)
 		if level_up_input_delay > 0.0:
 			# Visibly inert until input opens, so the pause reads as deliberate
 			# rather than as the game ignoring a keypress.
@@ -4185,16 +4373,21 @@ func _refresh_player_cards(player_index: int) -> void:
 			style.border_color = CatTheme.OUTLINE
 			style.set_border_width_all(CatTheme.BORDER)
 		elif is_chosen:
-			style.bg_color = CatTheme.CARD.lerp(border, 0.13)
+			style.bg_color = CatTheme.CARD.lerp(
+				tech_tint if tech_tint.a > 0.0 else border, 0.13)
 			style.border_color = border
 			style.set_border_width_all(CatTheme.BORDER_ACTIVE)
 		elif is_focused:
-			style.bg_color = CatTheme.CARD.lerp(border, 0.08)
+			style.bg_color = CatTheme.CARD.lerp(
+				tech_tint if tech_tint.a > 0.0 else border, 0.12)
 			style.border_color = Color(border, 0.9)
 			style.set_border_width_all(CatTheme.BORDER_ACTIVE)
 		else:
-			style.bg_color = CatTheme.PANEL if locked else CatTheme.CARD
-			style.border_color = Color(CatTheme.OUTLINE, 0.45 if locked else 1.0)
+			style.bg_color = CatTheme.PANEL if locked else (
+				CatTheme.CARD.lerp(tech_tint, 0.07) if tech_tint.a > 0.0 else CatTheme.CARD)
+			style.border_color = Color(
+				tech_tint if tech_tint.a > 0.0 else CatTheme.OUTLINE,
+				0.45 if locked else 0.72 if tech_tint.a > 0.0 else 1.0)
 			style.set_border_width_all(CatTheme.BORDER)
 		card.modulate.a = 0.48 if locked and not is_chosen else 1.0
 	_refresh_level_build_icons(slot)
@@ -4209,6 +4402,8 @@ func _refresh_player_cards(player_index: int) -> void:
 	]
 	if level_up_input_delay > 0.0:
 		lines.append("잠시 후 선택할 수 있습니다")
+	elif complete:
+		lines.append("✓ 빌드 완성 — 상대의 마지막 성장을 기다리는 중")
 	elif locked:
 		lines.append("✓ 확정 — 상대를 기다리는 중 (취소 가능)")
 	else:
@@ -4247,8 +4442,9 @@ func _layout_level_cards(slot: int) -> void:
 				LEVEL_CARD_Y + float(index / 2) * (LEVEL_COMPACT_CARD_HEIGHT + LEVEL_COMPACT_CARD_GAP))
 		else:
 			card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
-			var spread := 0.0 if count == 1 else (LEVEL_HALF_WIDTH - LEVEL_CARD_WIDTH) / float(count - 1)
-			card.position = Vector2(LEVEL_HALF_X[slot] + spread * float(index), LEVEL_CARD_Y)
+			var hand_width: float = LEVEL_CARD_WIDTH * count + LEVEL_CARD_GAP * maxi(0, count - 1)
+			var hand_x: float = LEVEL_HALF_X[slot] + (LEVEL_HALF_WIDTH - hand_width) * 0.5
+			card.position = Vector2(hand_x + (LEVEL_CARD_WIDTH + LEVEL_CARD_GAP) * float(index), LEVEL_CARD_Y)
 
 
 func _layout_level_card_contents(card: Label, compact: bool) -> void:
@@ -4349,7 +4545,8 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 			weapon_id = String(weapon_loadouts[slot][weapon_slot]["weapon_id"])
 
 	if not weapon_id.is_empty():
-		var basic := Evolutions.for_base(weapon_id)
+		var state: Dictionary = weapon_loadouts[slot][int(option.get("weapon_slot", -1))]
+		var basic := _selected_evolution_for_state(state)
 		if not basic.is_empty():
 			var wanted_treasure := String(basic["treasure_id"])
 			if _treasure_tier(slot, wanted_treasure) > 0:
@@ -4357,13 +4554,12 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 				return {"name": String(treasure["name"]), "texture": IconCatalog.upgrade(wanted_treasure)}
 
 	if not treasure_id.is_empty():
-		for evolution in Evolutions.all_evolutions():
-			if String(evolution["treasure_id"]) != treasure_id:
+		for owned: Dictionary in weapon_loadouts[slot]:
+			if bool(owned.get("evolved", false)):
 				continue
-			var wanted_weapon := String(evolution["base_weapon_id"])
-			for owned: Dictionary in weapon_loadouts[slot]:
-				if String(owned["weapon_id"]) == wanted_weapon and not bool(owned.get("evolved", false)):
-					return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(wanted_weapon)}
+			var evolution := _selected_evolution_for_state(owned)
+			if String(evolution.get("treasure_id", "")) == treasure_id:
+				return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(String(owned["weapon_id"]))}
 	return {}
 
 
@@ -4432,18 +4628,15 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool, preview_in
 			tier.text = "%d→%d" % [current_tier, current_tier + 1]
 		else:
 			tier.text = "Lv.%d" % current_tier
-## The strip under the cards used to spell out both fusion requirements for
-## both survivors, every level, from level one — the whole tech tree as a
-## table. It and the per-card material seals are gone. The ordinary growth
-## screen now exposes no recipe path; the opt-in detail view below is the only
-## place a player can explicitly ask for current fusion progress.
+## The old team-wide recipe strip stays empty so it cannot compete with the
+## cards. Each tech card and the optional detail view show its route with the
+## real final-form and treasure names.
 func _refresh_team_stats_ui() -> void:
 	team_stats_label.text = ""
 
 
-## The nearest fusion this survivor could reach. An ingredient that is not in
-## the loadout stays “???”; owning both ingredients unlocks their relationship,
-## while the result itself still follows the separate discovery record.
+## The nearest final form this survivor can reach through the selected tech.
+## Requirements and results are always named so a new player can plan ahead.
 func _fusion_progress_line(slot: int) -> String:
 	var best := ""
 	var best_progress := -1.0
@@ -4452,7 +4645,7 @@ func _fusion_progress_line(slot: int) -> String:
 		if bool(weapon.get("evolved", false)):
 			fused.append(String(weapon["weapon_name"]))
 			continue
-		var evolution := Evolutions.for_base(String(weapon["weapon_id"]))
+		var evolution := _selected_evolution_for_state(weapon)
 		if evolution.is_empty():
 			continue
 		var treasure_id := String(evolution["treasure_id"])
@@ -4463,9 +4656,9 @@ func _fusion_progress_line(slot: int) -> String:
 		if progress <= best_progress:
 			continue
 		best_progress = progress
-		var result_name := String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"
-		var partner_name := String(treasure.get("name", treasure_id)) if treasure_tier > 0 else "???"
-		var partner_tier := str(treasure_tier) if treasure_tier > 0 else "?"
+		var result_name := String(evolution["weapon_name"])
+		var partner_name := String(treasure.get("name", treasure_id))
+		var partner_tier := str(treasure_tier)
 		best = "%s %d/%d + %s %s/%d → %s" % [
 			String(weapon["weapon_name"]), weapon_tier, Evolutions.WEAPON_MAX_TIER,
 			partner_name, partner_tier, Evolutions.REQUIRED_TREASURE_TIER,
@@ -4485,28 +4678,28 @@ func _finish_level_up() -> void:
 		for player in players:
 			player.heal(player.max_health * team_level_heal)
 	_show_message("LV.%d · 둘 다 성장 완료" % progression.level, Color("fff275"))
-	if progression.can_level_up():
+	if progression.can_level_up() and not growth_finished:
 		level_up_gap_remaining = LEVEL_UP_GAP
 
 
 func _after_personal_upgrade_choices() -> void:
 	var candidates := resonance_system.get_candidates_for_loadouts(weapon_loadouts[0], weapon_loadouts[1])
-	# The vote screen still uses the fixed p1_choice_1/2/3 digit inputs (a
-	# cursor-based rework was scoped out of this pass), so it can only ever
-	# present three options regardless of how many weapon pairs qualify.
 	resonance_candidates = resonance_system.rank_candidates(candidates)
 	if resonance_candidates.is_empty():
 		_finish_level_up()
 		return
-	resonance_vote_active = true
-	combat_hud.hide()
-	resonance_votes[0] = -1
-	resonance_votes[1] = -1
-	resonance_cursors = [0, 0]
-	resonance_vote_message = ""
-	level_overlay.visible = false
-	resonance_overlay.visible = true
-	_refresh_resonance_vote_ui()
+	var chosen: Dictionary = resonance_candidates[0]
+	resonance_system.activate(chosen)
+	resonance_vote_active = false
+	resonance_overlay.visible = false
+	_show_message("테크 공명 자동 완성 — %s" % String(chosen["name"]), Color("fff275"))
+	_queue_showcase({
+		"kind": "resonance",
+		"weapon_a_id": String(chosen.get("weapon_a_id", "")),
+		"weapon_b_id": String(chosen.get("weapon_b_id", "")),
+		"name": String(chosen["name"]),
+	})
+	_play_showcase_queue(_finish_level_up)
 
 
 ## Both survivors browse the same three cards with the same controls the
@@ -4699,16 +4892,16 @@ func _update_hud() -> void:
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
-		chain_state = "과부하   공격 -20%"
+		chain_state = "과부하 · 붙어서 회복"
 		chain_color = Color("ff5d8f")
 	elif tension >= 0.95:
-		chain_state = "한계   가까이!"
+		chain_state = "한계 · 가까이 붙기"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
 		chain_state = "과충전   공격 +%d%%" % roundi((0.25 + team_overcharge) * 100.0)
 		chain_color = Color("fff275")
 	elif tension >= CHAIN_RESIST_RATIO:
-		chain_state = "저항"
+		chain_state = "저항 · 붙으면 회복"
 		chain_color = Color("8ecae6")
 	chain_status_label.text = chain_state
 	chain_status_label.visible = not chain_state.is_empty()
@@ -4735,9 +4928,9 @@ func _update_hud() -> void:
 		]
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
-	xp_text_label.text = "LV.%d    XP %d / %d" % [
+	xp_text_label.text = ("LV.%d    성장 완료" % progression.level) if growth_finished else ("LV.%d    XP %d / %d" % [
 		progression.level, int(progression.experience), int(progression.required_experience)
-	]
+	])
 	EditorialUI.refresh_hud(self)
 
 
@@ -4938,12 +5131,18 @@ func _setup_input_map() -> void:
 	_add_key_action("menu_previous", KEY_W)
 	_add_key_action("menu_next", KEY_DOWN)
 	_add_key_action("menu_next", KEY_S)
+	_add_key_action("menu_left", KEY_LEFT)
+	_add_key_action("menu_left", KEY_A)
+	_add_key_action("menu_right", KEY_RIGHT)
+	_add_key_action("menu_right", KEY_D)
 	_add_key_action("menu_confirm", KEY_ENTER)
 	_add_key_action("menu_cancel", KEY_BACKSPACE)
 	for device in 2:
 		_add_joy_button("build_details", device, JOY_BUTTON_X)
 		_add_joy_button("menu_previous", device, JOY_BUTTON_DPAD_UP)
 		_add_joy_button("menu_next", device, JOY_BUTTON_DPAD_DOWN)
+		_add_joy_button("menu_left", device, JOY_BUTTON_DPAD_LEFT)
+		_add_joy_button("menu_right", device, JOY_BUTTON_DPAD_RIGHT)
 		_add_joy_button("menu_confirm", device, JOY_BUTTON_A)
 		_add_joy_button("menu_cancel", device, JOY_BUTTON_B)
 	_add_key_action("p1_left", KEY_A)

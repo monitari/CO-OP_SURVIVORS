@@ -27,7 +27,8 @@ func _run() -> void:
 
 	var base: Dictionary = main.weapon_loadouts[0][0]
 	var base_id := String(base["weapon_id"])
-	var evolution := EvolutionCatalog.for_base(base_id)
+	main.WeaponTechs.apply_to_state(base, main.WeaponTechs.for_weapon(base_id)[0])
+	var evolution: Dictionary = main._selected_evolution_for_state(base)
 	base["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
 	var treasure := TreasureCatalog.build_state(TreasureCatalog.by_id(String(evolution["treasure_id"])))
 	treasure["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER

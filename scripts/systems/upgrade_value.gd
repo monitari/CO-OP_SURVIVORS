@@ -9,6 +9,9 @@ static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 	var index := int(option.get("weapon_slot", -1))
 	if index >= 0:
 		var w: Dictionary = main.weapon_loadouts[slot][index]
+		if id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
+			if bool(w.get("evolved", false)) or int(w.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+				return false
 		if id == "weapon_rate":
 			return maxf(0.25, maxf(0.32, float(w["cooldown"]) * main.WEAPON_RATE_STEP) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
 		if id in ["special_a", "special_b"]:
@@ -92,7 +95,15 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 	for w: Dictionary in loadout: before += output(w, a)
 	var id := String(option["id"])
 	var index := int(option.get("weapon_slot", -1))
-	if id == "unlock_weapon": loadout.append(main._build_weapon_state(option["character"]))
+	if id == "unlock_weapon":
+		var new_state: Dictionary = main._build_weapon_state(option["character"])
+		if option.has("tech"):
+			var tech: Dictionary = option["tech"]
+			new_state["tech_id"] = String(tech["id"])
+			new_state["tech_name"] = String(tech["name"])
+			new_state["tech_treasure_id"] = String(tech["treasure_id"])
+			new_state["tech_tag"] = String(tech["tag"])
+		loadout.append(new_state)
 	elif id == "evolve_weapon":
 		loadout[index] = Evolutions.build_state(option["evolution"], loadout[index])
 	elif id in ["unlock_treasure", "treasure_upgrade"]:

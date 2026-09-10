@@ -33,6 +33,13 @@ func _run() -> void:
 	if not TestHarness.require_loaded(self, main, "LAYOUT_FAIL"):
 		return
 	await process_frame
+	for mode in ["menu", "settings", "credits"]:
+		main.title_mode = mode
+		main.title_cursor = 0
+		main._refresh_title_ui()
+		await process_frame
+		_audit("제목 · %s" % mode, main.title_overlay)
+	main.title_mode = "menu"
 
 	main._refresh_lobby_ui()
 	main._finish_lobby()
@@ -41,6 +48,12 @@ func _run() -> void:
 	await process_frame
 	_audit("로비", main.lobby_overlay)
 	_audit("생존자 선택", main.character_overlay)
+	for character_index in main.character_catalog.size():
+		main.selected_character_indices[0] = character_index
+		main.selected_character_indices[1] = character_index
+		main._refresh_character_select_ui()
+		await process_frame
+		_audit("생존자 %d" % character_index, main.character_overlay)
 	_audit("전체 능력치", main.details_overlay)
 
 	main.selected_character_indices[0] = 2
@@ -88,6 +101,12 @@ func _run() -> void:
 	main._set_pause(true)
 	await process_frame
 	_audit("일시정지", main.pause_overlay)
+	main.restart_pending = true
+	main.pending_quits = false
+	main.pause_cursor = 0
+	main._update_pause_text()
+	await process_frame
+	_audit("일시정지 확인", main.pause_overlay)
 	main._set_pause(false)
 
 	main._end_run(true)
@@ -256,7 +275,29 @@ func _audit(screen_name: String, screen: Control) -> void:
 	var previously := screen.visible
 	screen.visible = true
 	_walk(screen_name, screen)
+	# Title labels deliberately sit beneath transparent mouse hit buttons.
+	if not screen_name.begins_with("제목"):
+		_check_action_overlaps(screen_name, screen)
 	screen.visible = previously
+
+
+func _check_action_overlaps(screen_name: String, screen: Control) -> void:
+	var buttons: Array[Control] = []
+	var content: Array[Control] = []
+	for node in screen.find_children("*", "Control", true, false):
+		if not node.is_visible_in_tree():
+			continue
+		if node is Button:
+			buttons.append(node)
+		elif (node is Label and not node.text.is_empty()) or (node is TextureRect and node.texture != null):
+			content.append(node)
+	for index in buttons.size():
+		var button := buttons[index]
+		for other in content + buttons.slice(index + 1):
+			if button.is_ancestor_of(other) or other.is_ancestor_of(button):
+				continue
+			_check(not button.get_global_rect().grow(-1.0).intersects(other.get_global_rect().grow(-1.0)),
+				"%s action %s overlaps %s" % [screen_name, button.name, other.name])
 
 
 func _walk(screen_name: String, node: Control) -> void:
