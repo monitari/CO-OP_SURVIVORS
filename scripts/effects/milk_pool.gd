@@ -21,6 +21,8 @@ var age := 0.0
 var tick := 0.0
 var duration := 4.6
 var splash_seed := 0.0
+var source_player := -1
+var source_weapon := ""
 
 ## Slow enough that a puddle is a place rather than a damage tick, fast enough
 ## that walking through one still costs something.
@@ -30,7 +32,7 @@ const FADE_TIME := 0.7
 
 
 func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: float,
-		slow_amount: float, colour: Color, life := 4.6) -> void:
+		slow_amount: float, colour: Color, life := 4.6, owner := -1, weapon_id := "") -> void:
 	global_position = at
 	grid = spatial_grid
 	damage = hit
@@ -38,6 +40,8 @@ func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: 
 	slow = slow_amount
 	tint = colour
 	duration = life
+	source_player = owner
+	source_weapon = weapon_id
 	splash_seed = randf() * TAU
 	z_index = -1 # Under the cats and the enemies: it is the floor, not an effect.
 	queue_redraw()
@@ -63,7 +67,7 @@ func _soak() -> void:
 			continue
 		if global_position.distance_to(enemy.global_position) > reach + enemy.radius:
 			continue
-		enemy.take_damage(damage)
+		enemy.take_damage(damage, source_player, source_weapon)
 		if is_instance_valid(enemy) and not enemy.dead:
 			enemy.apply_slow(TICK_INTERVAL + 0.25, slow)
 

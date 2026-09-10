@@ -398,22 +398,22 @@ func _test_chest(main: Node) -> void:
 	# told about, not a thing to plan around — so a thousand rolls would find it
 	# once if it were lucky and the check would fail on the runs where it was not.
 	seed(74291)
-	var singles := 0
+	var doubles := 0
 	var jackpots := 0
 	var counts: Dictionary = {}
 	for roll in 100000:
 		var count: int = main._roll_chest_reward_count()
 		counts[count] = int(counts.get(count, 0)) + 1
-		if count == 1: singles += 1
+		if count == 2: doubles += 1
 		if count == main.CHEST_MAX_REWARDS: jackpots += 1
-	_check(singles > 65000, "single-item chests stay the common result (%d/100000)" % singles)
+	_check(doubles > 65000, "two-item chests stay the common result (%d/100000)" % doubles)
 	_check(jackpots > 0 and jackpots < 400, "maximum chests are possible but vanishingly rare (%d/100000)" % jackpots)
 	# Every rung has to be reachable, or the ladder is shorter than it claims.
-	for rung in range(1, main.CHEST_MAX_REWARDS + 1):
+	for rung in range(2, main.CHEST_MAX_REWARDS + 1):
 		_check(int(counts.get(rung, 0)) > 0, "a chest can hand out exactly %d" % rung)
 	# ...and each one rarer than the one below it, which is what makes a big
 	# chest read as a big chest rather than as noise.
-	for rung in range(2, main.CHEST_MAX_REWARDS + 1):
+	for rung in range(3, main.CHEST_MAX_REWARDS + 1):
 		_check(int(counts.get(rung, 0)) < int(counts.get(rung - 1, 0)),
 			"%d rewards is rarer than %d (%d vs %d)" % [rung, rung - 1, int(counts.get(rung, 0)), int(counts.get(rung - 1, 0))])
 

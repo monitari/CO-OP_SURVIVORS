@@ -24,6 +24,8 @@ var remaining_hits := 1
 var hit_enemy_ids: Dictionary = {}
 var spatial_grid: EnemySpatialGrid
 var active := false
+var source_player := -1
+var source_weapon := ""
 
 
 func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
@@ -44,6 +46,8 @@ func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
 	direction = start_direction.normalized()
 	target = initial_target
 	active = true
+	source_player = -1
+	source_weapon = ""
 	visible = true
 	set_physics_process(true)
 	queue_redraw()
@@ -79,7 +83,7 @@ func _physics_process(delta: float) -> void:
 			continue
 		if global_position.distance_to(enemy.global_position) <= radius + enemy.radius:
 			hit_enemy_ids[enemy.get_instance_id()] = true
-			enemy.take_damage(damage)
+			enemy.take_damage(damage, source_player, source_weapon)
 			remaining_hits -= 1
 			if remaining_hits <= 0:
 				release()

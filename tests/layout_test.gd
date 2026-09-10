@@ -41,6 +41,7 @@ func _run() -> void:
 	await process_frame
 	_audit("로비", main.lobby_overlay)
 	_audit("생존자 선택", main.character_overlay)
+	_audit("전체 능력치", main.details_overlay)
 
 	main.selected_character_indices[0] = 2
 	main.selected_character_indices[1] = 3
@@ -231,8 +232,8 @@ func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 				# list rather than as something that grew, and eight little boxes
 				# over the play field are chrome the field does not need.
 				var tier: Label = art.get_node("Tier")
-				_check(tier.text == str(int((carried[index] as Dictionary).get("tier", 1))),
-					"P%d %s %d states its level as a bare number (%s)" % [slot + 1, row, index, tier.text])
+				_check(tier.text == "Lv.%d" % int((carried[index] as Dictionary).get("tier", 1)),
+					"P%d %s %d states its level with an explicit Lv. prefix (%s)" % [slot + 1, row, index, tier.text])
 				# has_theme_stylebox_override, not get_theme_stylebox: the getter
 				# falls back to the theme default and never returns null, so the
 				# obvious version of this check passes with a plate still on.

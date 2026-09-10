@@ -24,13 +24,15 @@ static func button(parent: Control, caption: String, rect: Rect2, action: Callab
 	b.position = rect.position
 	b.size = rect.size
 	b.focus_mode = Control.FOCUS_NONE # Menus use explicit two-player cursors.
-	b.add_theme_font_size_override("font_size", 15)
+	b.add_theme_font_size_override("font_size", Palette.TYPE_BODY)
 	b.add_theme_color_override("font_color", Palette.INK)
 	b.add_theme_color_override("font_hover_color", Palette.INK)
 	b.add_theme_color_override("font_pressed_color", Palette.INK)
-	b.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD, 8))
-	b.add_theme_stylebox_override("hover", Palette.surface(Color("dce9dd"), 8))
-	b.add_theme_stylebox_override("pressed", Palette.surface(Color("c7dccf"), 8))
+	b.add_theme_color_override("font_disabled_color", Color(Palette.MUTED, 0.6))
+	b.add_theme_stylebox_override("normal", Palette.button_surface())
+	b.add_theme_stylebox_override("hover", Palette.button_surface("hover"))
+	b.add_theme_stylebox_override("pressed", Palette.button_surface("pressed"))
+	b.add_theme_stylebox_override("disabled", Palette.button_surface("disabled"))
 	parent.add_child(b)
 	b.pressed.connect(action)
 	return b
@@ -81,13 +83,18 @@ static func install(main: Node) -> void:
 		# The same half-page card the select screen draws, so the buttons sit
 		# under their own survivor rather than near them.
 		var x := G.x(0.25 + slot * 5.75) - G.x(0)
-		button(main.character_overlay, "이전", Rect2(x + G.GUTTER, 540, 90, 32), func() -> void: choose_cat(main, slot, -1))
-		button(main.character_overlay, "다음", Rect2(x + G.GUTTER + 106.0, 540, 90, 32), func() -> void: choose_cat(main, slot, 1))
-		button(main.character_overlay, "확정 / 변경", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 540, 174, 32), func() -> void:
+		button(main.character_overlay, "이전", Rect2(x + G.GUTTER, 489, 90, 36), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
+		button(main.character_overlay, "다음", Rect2(x + G.GUTTER + 106.0, 489, 90, 36), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
+		var accent := Palette.P1 if slot == 0 else Palette.P2
+		var confirm := button(main.character_overlay, "준비하기", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 489, 174, 36), func() -> void:
 			if main.lobby_input_cooldown > 0.0: return
 			main.character_confirmed[slot] = not main.character_confirmed[slot]
 			main._refresh_character_select_ui()
 			if main.character_confirmed[0] and main.character_confirmed[1]: main._start_selected_run())
+		confirm.name = "CharacterConfirm%d" % slot
+		confirm.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
+		confirm.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
+		confirm.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
 		for index in main.LEVEL_CARD_SLOTS:
 			var card: Label = main.level_card_labels[slot][index]
 			card.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -102,23 +109,33 @@ static func install(main: Node) -> void:
 					main.upgrade_cursors[slot] = index
 					toggle_details(main)
 				elif e.button_index == MOUSE_BUTTON_LEFT and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
-					main._select_upgrade(slot + 1, index))
-		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 248.0 - G.GUTTER, 438, 116, 26), func() -> void:
+					# Clicking points at a card; the separate primary action commits it.
+					main.upgrade_cursors[slot] = index
+					main.feedback.play_cue("select")
+					main._refresh_level_up_ui())
+		var growth_confirm := button(main.level_overlay, "선택 확정", Rect2(main.LEVEL_HALF_X[slot] + 12, 492, 200, 34), func() -> void:
+			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
+				main._select_upgrade(slot + 1, main.upgrade_cursors[slot]))
+		growth_confirm.name = "Confirm%d" % slot
+		growth_confirm.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
+		growth_confirm.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
+		growth_confirm.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
+		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + 224, 492, 136, 34), func() -> void:
 			if main.level_up_active:
 				main.selected_upgrade_indices[slot] = -1
 				main._refresh_level_up_ui()).name = "Cancel%d" % slot
-		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 116.0 - G.GUTTER, 438, 116, 26), func() -> void:
+		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + 372, 492, 200, 34), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0 and main.rerolls_remaining[slot] > 0:
 				main._reroll_choices(slot + 1)).name = "Reroll%d" % slot
 		for index in main.resonance_cards.size():
 			var card: Label = main.resonance_cards[index]
-			button(card, "P%d 선택" % (slot + 1), Rect2(16 + slot * 122, 240, 112, 32), func() -> void:
+			button(card, "P%d 선택" % (slot + 1), Rect2(14 + slot * 110, 244, 98, 32), func() -> void:
 				if not main.resonance_vote_active: return
 				main.resonance_votes[slot] = index
 				main.resonance_cursors[slot] = index
 				main._refresh_resonance_vote_ui())
 	button(main.level_overlay, "상세 · TAB / X", Rect2(G.w(12) - 236.0 - G.PAD, 24, 236, 32), func() -> void: toggle_details(main))
-	button(main.result_overlay, "다시 결속하기", Rect2((G.w(8) - 300.0) * 0.5, 552, 300, 36), func() -> void:
+	button(main.result_overlay, "다시 결속하기", Rect2((G.w(8) - 300.0) * 0.5, 582, 300, 34), func() -> void:
 		main.get_tree().paused = false
 		main.get_tree().reload_current_scene())
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
@@ -128,50 +145,50 @@ static func install(main: Node) -> void:
 		var action := button(main.pause_overlay, "", pause_rects[index], func() -> void: main._activate_pause_item(index))
 		action.name = "PauseAction%d" % index
 		action.add_theme_font_size_override("font_size", 17 if index == 0 else 15)
-	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(16, 282, 260, 44), func() -> void: toggle_details(main)).name = "PauseDetails"
+	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(G.w(8) - 236, 24, 220, 36), func() -> void: toggle_details(main)).name = "PauseDetails"
 	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 334, G.w(8) - G.GUTTER * 2.0, 112), Palette.CARD)
 	snapshot.name = "RunSnapshot"
 	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
 	for index in 4:
 		var x := 18 + index * 182
 		UI.label(snapshot, ["생존 시간", "공유 성장", "처치", "사슬 내구"][index], Rect2(x, 38, 168, 20), 13, Palette.MUTED)
-		UI.label(snapshot, "", Rect2(x, 62, 168, 34), 24, Palette.INK).name = "Metric%d" % index
+		UI.label(snapshot, "", Rect2(x, 62, 168, 34), Palette.TYPE_VALUE, Palette.INK).name = "Metric%d" % index
 	main.details_overlay = UI.plate(main.pause_overlay.get_parent(), Rect2(G.x(0), 132, G.w(12), 545), Palette.PANEL)
 	main.details_overlay.name = "BuildDetails"
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.details_overlay.z_index = 20
 	main.details_overlay.hide()
-	UI.label(main.details_overlay, "성장 기록 · 전체 능력치", Rect2(24, 12, 900, 40), 26)
+	UI.label(main.details_overlay, "성장 기록 · 전체 능력치", Rect2(24, 12, 900, 40), Palette.TYPE_TITLE)
 	button(main.details_overlay, "닫기 · TAB / X", Rect2(G.w(12) - 210.0 - G.GUTTER, 16, 210, 34), func() -> void: toggle_details(main))
 	for slot in 2:
-		var x := 24.0 + slot * 602.0
-		var header := UI.plate(main.details_overlay, Rect2(x, 64, 578, 72), Palette.CARD)
+		var x := 24.0 + slot * 576.0
+		var header := UI.plate(main.details_overlay, Rect2(x, 64, 560, 72), Palette.CARD)
 		header.name = "DetailHeader%d" % slot
 		UI.icon(header, null, Rect2(12, 8, 56, 56)).name = "Portrait"
 		UI.icon(header, null, Rect2(80, 14, 44, 44)).name = "Weapon"
-		UI.label(header, "", Rect2(138, 10, 420, 27), 20, Palette.P1 if slot == 0 else Palette.P2).name = "Name"
-		UI.label(header, "", Rect2(138, 39, 420, 23), 14, Palette.MUTED).name = "WeaponName"
+		UI.label(header, "", Rect2(138, 10, 402, 27), 20, Palette.P1 if slot == 0 else Palette.P2).name = "Name"
+		UI.label(header, "", Rect2(138, 39, 402, 23), 14, Palette.MUTED).name = "WeaponName"
 		_detail_card(main.details_overlay, x, 146, "might", "공격", "Offense%d" % slot)
-		_detail_card(main.details_overlay, x + 293, 146, "vitality", "생존", "Survival%d" % slot)
+		_detail_card(main.details_overlay, x + 288, 146, "vitality", "생존", "Survival%d" % slot)
 		_detail_card(main.details_overlay, x, 268, "overcharge", "협동", "Coop%d" % slot)
-		_detail_card(main.details_overlay, x + 293, 268, "magnet", "탐색", "Utility%d" % slot)
+		_detail_card(main.details_overlay, x + 288, 268, "magnet", "탐색", "Utility%d" % slot)
 		# Four lines now: the fusion path moved here from the always-on strip
 		# under the level-up cards. Opt-in is the right place for it — a player
 		# who wants the table can ask for it, and one who wants to find the
 		# first fusion for themselves is no longer told.
-		var build := UI.plate(main.details_overlay, Rect2(x, 384, 578, 116), Palette.CARD)
+		var build := UI.plate(main.details_overlay, Rect2(x, 384, 560, 116), Palette.CARD)
 		build.name = "Build%d" % slot
 		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 14, Palette.GOLD)
-		UI.label(build, "", Rect2(16, 32, 546, 78), 14, Palette.INK).name = "Value"
+		UI.label(build, "", Rect2(16, 32, 528, 78), 14, Palette.INK).name = "Value"
 	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다 · 선택은 창을 닫은 뒤 확정", Rect2(24, 508, 1138, 24), 14, Palette.MUTED)
 
 
 static func _detail_card(parent: Control, x: float, y: float, icon_id: String, title: String, node_name: String) -> void:
-	var card := UI.plate(parent, Rect2(x, y, 285, 112), Palette.CARD)
+	var card := UI.plate(parent, Rect2(x, y, 272, 112), Palette.CARD)
 	card.name = node_name
 	UI.icon(card, Icons.upgrade(icon_id), Rect2(14, 12, 30, 30))
 	UI.label(card, title, Rect2(52, 13, 214, 26), 15, Palette.GOLD)
-	var value := UI.label(card, "", Rect2(14, 43, 257, 62), 13, Palette.INK)
+	var value := UI.label(card, "", Rect2(14, 43, 244, 62), 13, Palette.INK)
 	value.name = "Value"
 	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
@@ -193,9 +210,9 @@ static func refresh_pause(main: Node) -> void:
 		var caption: String = (["취소 · 계속 쉬기", "게임 종료" if main.pending_quits else "종료하고 처음부터"] [index] if main.restart_pending and index < 2 else names[index])
 		if not main.restart_pending and index in [1, 2, 3, 4]: caption += "\n" + ("● 켜짐" if states[index] else "○ 꺼짐")
 		b.text = ("▶  " if main.pause_cursor == index else "") + caption
-		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if main.pause_cursor == index else Palette.CARD, 10)
+		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if main.pause_cursor == index else Palette.CARD)
 		style.border_color = Palette.P1 if main.pause_cursor == index else Palette.OUTLINE
-		style.set_border_width_all(3 if main.pause_cursor == index else 1)
+		style.set_border_width_all(Palette.BORDER_ACTIVE if main.pause_cursor == index else Palette.BORDER)
 		b.add_theme_stylebox_override("normal", style)
 	main.pause_overlay.get_node("PauseDetails").visible = not main.restart_pending
 	main.pause_overlay.get_node("RunSnapshot").visible = not main.restart_pending
@@ -214,7 +231,8 @@ static func refresh_pause(main: Node) -> void:
 			var slot: Rect2 = PAUSE_SLOTS[index]
 			main.pause_overlay.get_node("PauseAction%d" % index).position = slot.position
 			main.pause_overlay.get_node("PauseAction%d" % index).size = slot.size
-	UI.place(main.pause_label, Rect2(G.GUTTER, 462, G.w(8) - G.GUTTER * 2.0, 34), 14)
+	UI.place(main.pause_label, Rect2(G.GUTTER, main.pause_overlay.size.y - 44, G.w(8) - G.GUTTER * 2.0, 30), Palette.TYPE_CAPTION)
+	main.pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main.pause_label.text = "↑ ↓ / 패드 방향키 이동 · ENTER / A 선택 · ESC / B 닫기"
 	if main.restart_pending:
 		main.pause_label.text = "현재 판의 성장과 기록은 사라집니다. 취소가 기본 선택입니다."
@@ -246,7 +264,7 @@ static func toggle_details(main: Node) -> void:
 			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])
 		build_lines.append("무기  " + (" · ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
 		build_lines.append("보물  " + (" · ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
-		build_lines.append("합성  " + main._fusion_progress_line(slot))
+		build_lines.append("보물 강화  " + main._fusion_progress_line(slot))
 		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 		if main.level_up_active and not choices.is_empty():
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]

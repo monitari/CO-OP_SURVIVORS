@@ -31,12 +31,14 @@ var finished_callback: Callable
 ## Left empty for the fields whose weapons do not shoot things out of the air.
 var enemy_shots: Array = []
 var shatter_frozen := false
+var source_player := -1
+var source_weapon := ""
 const MAX_RENDER_RADIUS := 1800.0
 const ORBIT_FADE_IN := 0.24
 const ORBIT_FADE_OUT := 0.42
 
 
-func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, shards: int, angular_speed: float, tint: Color, duration_scale := 1.0) -> void:
+func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, shards: int, angular_speed: float, tint: Color, duration_scale := 1.0, owner := -1, weapon_id := "") -> void:
 	kind = Kind.ORBIT
 	anchor = p
 	spatial_grid = grid
@@ -52,17 +54,21 @@ func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius:
 	speed = angular_speed
 	color = tint
 	duration = 3.8 * duration_scale
+	source_player = owner
+	source_weapon = weapon_id
 	z_index = 3
 	modulate.a = 0.0
 	global_position = anchor.global_position
 	queue_redraw()
 
 
-func configure_frost(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, slow_amount: float, tint: Color, shatter := false) -> void:
+func configure_frost(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, slow_amount: float, tint: Color, shatter := false, owner := -1, weapon_id := "") -> void:
 	kind = Kind.FROST
 	anchor = p
 	spatial_grid = grid
 	refresh_frost(hit, radius, slow_amount, tint, shatter)
+	source_player = owner
+	source_weapon = weapon_id
 	duration = INF
 	z_index = 2
 	global_position = anchor.global_position
@@ -77,7 +83,7 @@ func refresh_frost(hit: float, radius: float, slow_amount: float, tint: Color, s
 	shatter_frozen = shatter
 
 
-func configure_scythe(origin: Vector2, heading: Vector2, grid: EnemySpatialGrid, hit: float, radius: float, sweep_arc: float, tint: Color) -> void:
+func configure_scythe(origin: Vector2, heading: Vector2, grid: EnemySpatialGrid, hit: float, radius: float, sweep_arc: float, tint: Color, owner := -1, weapon_id := "") -> void:
 	kind = Kind.SCYTHE
 	global_position = origin
 	direction = heading.normalized()
@@ -86,12 +92,14 @@ func configure_scythe(origin: Vector2, heading: Vector2, grid: EnemySpatialGrid,
 	effect_radius = radius
 	arc = sweep_arc
 	color = tint
+	source_player = owner
+	source_weapon = weapon_id
 	duration = 0.34
 	z_index = 4
 	queue_redraw()
 
 
-func configure_gravity(centre: Vector2, grid: EnemySpatialGrid, hit: float, radius: float, pull: float, tint: Color, callback := Callable()) -> void:
+func configure_gravity(centre: Vector2, grid: EnemySpatialGrid, hit: float, radius: float, pull: float, tint: Color, callback := Callable(), owner := -1, weapon_id := "") -> void:
 	kind = Kind.GRAVITY
 	global_position = centre
 	spatial_grid = grid
@@ -100,6 +108,8 @@ func configure_gravity(centre: Vector2, grid: EnemySpatialGrid, hit: float, radi
 	color = tint
 	duration = 0.48
 	finished_callback = callback
+	source_player = owner
+	source_weapon = weapon_id
 	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
 		if not is_instance_valid(enemy) or enemy.dead or centre.distance_to(enemy.global_position) > radius + enemy.radius:
 			continue
@@ -159,7 +169,7 @@ func _hit_orbit() -> void:
 			var key := "%d:%d" % [shard, enemy.get_instance_id()]
 			if age - float(shard_hits.get(key, -ORBIT_REHIT)) < ORBIT_REHIT: continue
 			shard_hits[key] = age
-			enemy.take_damage(damage)
+			enemy.take_damage(damage, source_player, source_weapon)
 
 
 ## Shards bat away what flies into them. Swept every frame at each shard's own
@@ -185,7 +195,7 @@ func _hit_frost() -> void:
 		if not is_instance_valid(enemy) or enemy.dead: continue
 		if global_position.distance_to(enemy.global_position) <= effect_radius + enemy.radius:
 			var already_frozen := enemy.slow_timer > 0.0
-			enemy.take_damage(damage * (2.4 if shatter_frozen and already_frozen else 1.0))
+			enemy.take_damage(damage * (2.4 if shatter_frozen and already_frozen else 1.0), source_player, source_weapon)
 			if is_instance_valid(enemy) and not enemy.dead: enemy.apply_slow(0.5, slow)
 
 
@@ -198,7 +208,7 @@ func _hit_scythe() -> void:
 		var offset: Vector2 = enemy.global_position - global_position
 		if offset.length() <= effect_radius + enemy.radius and absf(blade.angle_to(offset.normalized())) <= 0.18 + enemy.radius / maxf(1.0, offset.length()):
 			struck[enemy.get_instance_id()] = true
-			enemy.take_damage(damage)
+			enemy.take_damage(damage, source_player, source_weapon)
 	# The crescent cuts shots out of the air on the same pass. Sampled along the
 	# blade line rather than over the whole sector, so a swing clears what it
 	# actually swept through and not everything standing in front of the survivor.
@@ -221,7 +231,7 @@ func _finish_gravity() -> void:
 	for pull in pulls:
 		var enemy = pull.get("enemy")
 		if is_instance_valid(enemy) and not enemy.dead:
-			enemy.take_damage(damage)
+			enemy.take_damage(damage, source_player, source_weapon)
 			if is_instance_valid(enemy) and not enemy.dead: enemy.apply_slow(1.2, 0.55)
 	if finished_callback.is_valid(): finished_callback.call()
 

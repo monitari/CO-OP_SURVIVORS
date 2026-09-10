@@ -137,7 +137,11 @@ func _run() -> void:
 	event.pressed = true
 	event.button_index = MOUSE_BUTTON_LEFT
 	main.level_card_labels[0][1].gui_input.emit(event)
-	check(main.selected_upgrade_indices[0] == 1 and main.selected_upgrade_indices[1] == -1, "mouse card locks only its owner")
+	check(main.upgrade_cursors[0] == 1 and main.selected_upgrade_indices[0] == -1,
+		"mouse card chooses without immediately locking")
+	main.level_overlay.get_node("Confirm0").pressed.emit()
+	check(main.selected_upgrade_indices[0] == 1 and main.selected_upgrade_indices[1] == -1,
+		"the explicit confirm button locks only its owner")
 	main._finish_level_up()
 	var boss := ChaserEnemy.new()
 	main.add_child(boss)

@@ -5,7 +5,7 @@ extends Node2D
 ## gems. Deliberately has no magnet: a drop is only worth taking if the pair is
 ## willing to move the chain to it.
 
-signal item_collected(item_id: String)
+signal item_collected(item_id: String, collector_index: int)
 
 const FieldItemScript := preload("res://scripts/entities/field_item.gd")
 
@@ -92,7 +92,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			if player.downed:
 				continue
 			if item.global_position.distance_to(player.global_position) <= pickup_radius + player.radius:
-				item_collected.emit(item.item_id)
+				item_collected.emit(item.item_id, player.player_index - 1)
 				_recycle(item)
 				break
 

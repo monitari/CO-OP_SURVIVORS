@@ -3,6 +3,8 @@ extends Node2D
 const EnemyArt := preload("res://scripts/entities/enemy_art.gd")
 const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
 var body_sprite: Sprite2D
+var last_damage_player := -1
+var last_damage_weapon := ""
 
 func _ready() -> void:
 	if is_instance_valid(body_sprite):
@@ -139,7 +141,10 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	archetype = new_archetype
 	scenery = archetype == "planter"
 	immovable = is_boss or scenery
-	faces_along_heading = archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]
+	# Every painted enemy except the legacy chaser has a readable left/right
+	# silhouette. Keep the body upright and mirror that art from its movement
+	# heading instead of rotating the whole sprite sideways.
+	faces_along_heading = archetype != "chaser" and archetype != "planter"
 	leads_its_target = archetype in ["wasp", "owl", "mole"]
 	hunts_the_chain = archetype == "chain_hunter" or archetype == "brute"
 	elite = is_elite
@@ -254,7 +259,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		xp_grade = 0
 		enemy_color = Color("80ed99")
 	move_speed += minf(difficulty * 2.6, SPEED_RAMP_CAP) + randf_range(-7.0, 9.0)
-	if faces_along_heading:
+	if archetype in ["rat_runner", "wasp", "hedgehog", "mole", "owl"]:
 		var stats: Array = {
 			"rat_runner": [145.0, 13.0, 28.0, 8.0, 7],
 			"wasp": [76.0, 13.0, 30.0, 7.0, 9],
@@ -660,7 +665,7 @@ func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
 	return point.distance_to(from + segment * ratio)
 
 
-func take_damage(amount: float) -> bool:
+func take_damage(amount: float, source_player := -1, source_weapon := "") -> bool:
 	if dead or not active:
 		return false
 	if archetype == "hedgehog": amount *= 0.72
@@ -669,6 +674,8 @@ func take_damage(amount: float) -> bool:
 	# a ten-health enemy cannot become a full-party heal exploit.
 	var actual_damage := minf(maxf(0.0, amount), health)
 	health -= amount
+	last_damage_player = source_player
+	last_damage_weapon = source_weapon
 	damage_taken.emit(self, actual_damage)
 	hit_flash = 1.0
 	scale = Vector2(1.22, 1.22)

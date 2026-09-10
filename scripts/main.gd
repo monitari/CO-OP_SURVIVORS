@@ -22,6 +22,7 @@ const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
 const ItemStateVeilScript := preload("res://scripts/ui/item_state_veil.gd")
 const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
+const DebugInspectorScript := preload("res://scripts/ui/debug_inspector.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
 
@@ -232,12 +233,17 @@ var restart_pending := false
 var pending_quits := false
 var restart_armed_at := 0
 var details_overlay: Panel
+var debug_inspector
 var modal_input_guard := 0
 const ReviewUI := preload("res://scripts/ui/review_ui.gd")
 const UpgradeValue := preload("res://scripts/systems/upgrade_value.gd")
 var lobby_active := true
 var run_won := false
 var run_reward := 0
+## Debug shortcuts deliberately invalidate rewards/discoveries. The inspector
+## may skip twenty minutes of progression, so letting that run write permanent
+## unlocks would make a test tool part of the metagame.
+var debug_run_tainted := false
 var meta_cursor := 0
 var boss_enemy: ChaserEnemy
 var camera_shake := 0.0
@@ -269,6 +275,12 @@ var run_stats := {
 	"items": 0,
 	"reflected": 0.0,
 	"planters": 0,
+	"xp_by_player": [0, 0],
+	"personal_levels": [1, 1],
+	"items_by_player": [0, 0],
+	"items_by_type": {},
+	"weapon_damage": [{}, {}],
+	"resonance_damage": 0.0,
 }
 
 var chain_max_length := 370.0
@@ -436,6 +448,12 @@ func _ready() -> void:
 	weapon_controller.cue_requested.connect(feedback.play_cue)
 	_create_hud()
 	ReviewUI.install(self)
+	# Runtime inspection is intentionally absent from release exports. In debug
+	# builds F10 opens live combat/build telemetry and tightly scoped test actions.
+	if OS.is_debug_build():
+		debug_inspector = DebugInspectorScript.new()
+		add_child(debug_inspector)
+		debug_inspector.configure(self)
 	_begin_title()
 	queue_redraw()
 
@@ -521,7 +539,7 @@ func _physics_process(delta: float) -> void:
 	# The run is over on the result screen, so its bars are stale information
 	# drawn on top of the panel that replaced them — and the P2 panel reaches
 	# far enough right to clip the overlay's own corner.
-	combat_hud.visible = not title_active and not lobby_active and not character_select_active and not game_over
+	combat_hud.visible = not title_active and not lobby_active and not character_select_active and not game_over and not pause_active and not resonance_vote_active
 	if modal:
 		for slot in 2:
 			combat_hud.get_node("Carried%d" % slot).visible = false
@@ -994,7 +1012,7 @@ func _create_hud() -> void:
 	resonance_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(resonance_title)
 	resonance_overlay.add_child(resonance_title)
-	_add_cat_caption(resonance_overlay, "합성 무기가 만났어요. 같은 기술에 투표하면 함께 발동!", Vector2(40, 72), Vector2(840, 25), 16)
+	_add_cat_caption(resonance_overlay, "두 고양이의 강화 무기가 공명합니다. 같은 기술에 투표하면 함께 발동!", Vector2(40, 72), Vector2(840, 25), 16)
 
 	# Voting used to be a wall of text and two number keys, which reads as a
 	# quiz rather than a decision. It is now the same card grid as the level-up
@@ -1015,16 +1033,17 @@ func _create_hud() -> void:
 		card.add_theme_font_size_override("font_size", 16)
 		card.add_theme_color_override("font_color", CatTheme.CREAM)
 		_confine_label(card, true)
-		var style := StyleBoxFlat.new()
-		style.set_border_width_all(2)
-		style.set_corner_radius_all(18)
-		style.set_content_margin_all(14)
+		var style := CatTheme.surface(CatTheme.CARD)
+		style.set_border_width_all(CatTheme.BORDER)
+		style.set_content_margin_all(CatTheme.PADDING)
 		style.content_margin_top = 78.0
 		style.content_margin_bottom = 44.0
 		card.add_theme_stylebox_override("normal", style)
+		var skill_icon := _create_icon_rect(card, Vector2(83, 12), Vector2(70, 70))
+		skill_icon.name = "SkillIcon"
 		for slot in 2:
-			var icon := _create_icon_rect(card, Vector2(75 + slot * 64, 14), Vector2(54, 54))
-			icon.name = "Cat%d" % slot
+			var cat_icon := _create_icon_rect(card, Vector2(18 if slot == 0 else 176, 20), Vector2(42, 42))
+			cat_icon.name = "Cat%d" % slot
 		var pips := Label.new()
 		pips.name = "Pips"
 		pips.position = Vector2(10.0, RESONANCE_CARD_HEIGHT - 38.0)
@@ -1075,7 +1094,7 @@ func _create_hud() -> void:
 		bed.position = Vector2(24 + slot * 564, 94)
 		bed.size = Vector2(528, 477)
 		bed.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bed.add_theme_stylebox_override("panel", CatTheme.surface(CatTheme.INK, 24))
+		bed.add_theme_stylebox_override("panel", CatTheme.surface(CatTheme.NIGHT_PANEL))
 		character_overlay.add_child(bed)
 		_add_cat_caption(character_overlay, "P%d" % (slot + 1), Vector2(46 + slot * 564, 108), Vector2(50, 30), 18)
 
@@ -1232,7 +1251,7 @@ func _add_cat_caption(parent: Node, text: String, at: Vector2, bounds: Vector2, 
 
 
 func _make_label_background(label: Label, color: Color) -> void:
-	var style := CatTheme.surface(CatTheme.INK.lerp(color, 0.2))
+	var style := CatTheme.surface(CatTheme.NIGHT_PANEL.lerp(color, 0.12))
 	label.add_theme_stylebox_override("normal", style)
 
 
@@ -1276,7 +1295,7 @@ func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: 
 	bar.size = bar_size
 	bar.show_percentage = false
 	var background := StyleBoxFlat.new()
-	background.bg_color = CatTheme.INK
+	background.bg_color = CatTheme.NIGHT
 	background.border_color = CatTheme.OUTLINE
 	background.set_border_width_all(1)
 	background.corner_radius_top_left = 5
@@ -1359,37 +1378,36 @@ func _create_badged_icon_row(parent: Node, start_x: float, row_y: float, count: 
 ## commitments they have left without opening anything.
 func _slot_placeholder_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = CatTheme.INK
+	style.bg_color = CatTheme.NIGHT_RAISED
 	style.border_color = CatTheme.OUTLINE
 	style.set_border_width_all(1)
-	style.set_corner_radius_all(6)
+	style.set_corner_radius_all(CatTheme.RADIUS)
 	return style
 
 
 ## Widened twice now. The recommendation lines added to card copy made the
 ## old width break Korean words mid-syllable on nearly every card.
-const LEVEL_OVERLAY_Y := 132.0
+const LEVEL_OVERLAY_Y := 150.0
 ## Three cards fill one survivor's six columns exactly. A lucky fourth hand
-## overlaps like a fan instead of shrinking the Korean copy until it is
-## unreadable; the focused card rises above its neighbours.
+## switches to a two-by-two compact grid, keeping every title and effect visible.
 const LEVEL_CARD_WIDTH := 184.0
-const LEVEL_CARD_HEIGHT := 262.0
+const LEVEL_CARD_HEIGHT := 280.0
 const LEVEL_CARD_GAP := 16.0
 const LEVEL_CARD_SLOTS := 4
 const LEVEL_HALF_WIDTH := 584.0
-const LEVEL_FAN_ROTATION_DEGREES := 4.0
-const LEVEL_FAN_FOCUS_LIFT := 18.0
-const LEVEL_FAN_FOCUS_SCALE := 1.055
+const LEVEL_COMPACT_CARD_WIDTH := 286.0
+const LEVEL_COMPACT_CARD_HEIGHT := 138.0
+const LEVEL_COMPACT_CARD_GAP := 12.0
 ## Local x of each survivor's half inside level_overlay: column 0 and column 6.
 const LEVEL_HALF_X := [0.0, 600.0]
-const LEVEL_CARD_Y := 105.0
+const LEVEL_CARD_Y := 100.0
 
 const RESONANCE_CARD_SLOTS := 3
-const RESONANCE_CARD_WIDTH := 268.0
-const RESONANCE_CARD_HEIGHT := 306.0
-const RESONANCE_CARD_GAP := 14.0
+const RESONANCE_CARD_WIDTH := 236.0
+const RESONANCE_CARD_HEIGHT := 322.0
+const RESONANCE_CARD_GAP := 12.0
 const RESONANCE_CARD_Y := 100.0
-const RESONANCE_CARD_MARGIN := 30.0
+const RESONANCE_CARD_MARGIN := 18.0
 
 ## One reroll for a whole run meant nobody ever spent it: a resource you can
 ## never get back is a resource you hoard. It now refills on a schedule, so
@@ -1449,12 +1467,10 @@ func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
 		_confine_label(recommendation)
 		_make_label_background(recommendation, Color(0.22, 0.16, 0.02, 0.95))
 		card.add_child(recommendation)
-		var style := StyleBoxFlat.new()
-		style.bg_color = Color(accent, 0.1)
+		var style := CatTheme.surface(Color(accent, 0.1))
 		style.border_color = Color(accent, 0.4)
-		style.set_border_width_all(2)
-		style.set_corner_radius_all(18)
-		style.set_content_margin_all(12)
+		style.set_border_width_all(CatTheme.BORDER)
+		style.set_content_margin_all(CatTheme.PADDING)
 		style.content_margin_top = 92.0
 		style.content_margin_bottom = 48.0
 		card.add_theme_stylebox_override("normal", style)
@@ -1637,6 +1653,7 @@ func _finish_lobby() -> void:
 func _refresh_lobby_ui() -> void:
 	lobby_p1_label.text = _format_lobby_slot(0)
 	lobby_p2_label.text = _format_lobby_slot(1)
+	EditorialUI.refresh_lobby(self)
 
 
 func _format_lobby_slot(slot: int) -> String:
@@ -1723,8 +1740,6 @@ func _format_character_card(player_index: int) -> String:
 			float(character.get("projectile_speed", 1.0)) * 100.0, float(character["chain"]),
 			float(character.get("dodge", 0.0)) * 100.0,
 		],
-		"",
-		_character_select_status(player_index),
 	]
 	return "\n".join(lines)
 
@@ -1772,6 +1787,9 @@ func _synergy_preview() -> String:
 
 
 func _start_selected_run() -> void:
+	debug_run_tainted = false
+	if is_instance_valid(debug_inspector):
+		debug_inspector.reset_run()
 	for player_index in 2:
 		selected_characters[player_index] = character_catalog[selected_character_indices[player_index]].duplicate(true)
 		weapon_loadouts[player_index] = [_build_weapon_state(selected_characters[player_index])]
@@ -1809,8 +1827,7 @@ func _start_selected_run() -> void:
 	enemy_shots.clear()
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
-	for key in run_stats:
-		run_stats[key] = 0.0 if key in ["overcharge_time", "reflected"] else 0
+	_reset_run_stats()
 	last_upgrade_choice_keys = [[], []]
 	lifesteal_charge = 0.0
 	wave_director.planters_alive = 0
@@ -2080,7 +2097,7 @@ func _update_threat_indicator() -> void:
 		threat_edge_indicator.visible = false
 		return
 	var direction := (nearest.global_position - centre).normalized()
-	var half := view * 0.5 - Vector2(80.0, 52.0)
+	var half := view * 0.5 - Vector2(80.0, 112.0)
 	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
 	threat_edge_indicator.position = view * 0.5 + direction * reach - threat_edge_indicator.size * 0.5
 	threat_edge_indicator.text = "%s %dm" % ["보스" if nearest.boss else "정예", int(nearest_distance / 10.0)]
@@ -2113,16 +2130,16 @@ func _update_camera(delta: float) -> void:
 ## visible before the enemies actually arrive.
 func _on_wave_started(wave_index: int, is_surge: bool) -> void:
 	if is_surge:
-		_show_message("제 %d파 — 대규모 공세!" % wave_index, Color("ff5d8f"))
+		_show_message("%d파 대공세 · 서로 등을 맡으세요!" % wave_index, Color("ff5d8f"))
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 7.0)
 	else:
-		_show_message("제 %d파" % wave_index, Color("fff275"))
+		_show_message("%d파 시작 · 발을 맞춰 포위를 뚫으세요" % wave_index, Color("fff275"))
 		feedback.play_cue("kill")
 
 
 func _on_wave_calm_started(_wave_index: int) -> void:
-	_show_message("잠시 숫을 돌리세요", Color("80ed99"))
+	_show_message("공세 종료 · 잠시 숨을 고르세요", Color("80ed99"))
 
 
 func _register_enemy(enemy: ChaserEnemy) -> void:
@@ -2229,6 +2246,7 @@ func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	# spend the whole particle budget on chip damage.
 	particles.emit_sparks(enemy.global_position, Color("fff4cf"), 2 if amount < 40.0 else 5, 150.0 + amount)
 	feedback.play_cue("hit")
+	_record_combat_damage(enemy.last_damage_player, enemy.last_damage_weapon, amount)
 	if not enemy.scenery:
 		_apply_lifesteal(amount)
 
@@ -2342,6 +2360,7 @@ func _set_pause(enabled: bool) -> void:
 	pending_quits = false
 	pause_cursor = 0
 	pause_overlay.visible = enabled
+	combat_hud.visible = not enabled and not game_over and not resonance_vote_active and not title_active and not lobby_active and not character_select_active
 	if enabled:
 		_update_pause_text()
 	get_tree().paused = enabled
@@ -2673,15 +2692,18 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		if enemy.boss_rank >= WaveDirectorScript.BOSS_COUNT:
 			_end_run(true)
 			return
+		var restored := 0.0
 		for player in players:
+			var before := player.health
 			player.heal(player.max_health * 0.5)
+			restored += player.health - before
 		chain_integrity = CHAIN_INTEGRITY_MAX
 		chain_overloaded = false
 		field_items.spawn_item(death_position, "chest")
 		feedback.play_music("moonlight" if enemy.boss_rank % 2 == 1 else "field")
 		feedback.play_cue("victory")
-		_show_message("%s 격파   남은 청소 로봇 %d대" % [
-			boss_name(enemy.boss_rank), wave_director.bosses_remaining()
+		_show_message("%s 격파 · 남은 보스 %d · 둘의 체력 +%d" % [
+			boss_name(enemy.boss_rank), wave_director.bosses_remaining(), roundi(restored)
 		], Color("80ed99"))
 		return
 	# Rolled after the boss branch on purpose: the boss carries the elite flag,
@@ -2689,9 +2711,12 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	# the run ends and nobody can walk to it.
 	_try_drop_field_item(death_position, was_elite)
 	if kills % 18 == 0:
+		var restored := 0.0
 		for player in players:
+			var before := player.health
 			player.heal(8.0)
-		_show_message("사슬의 마력이 회복되었습니다  +8 HP", Color("80ed99"))
+			restored += player.health - before
+		_show_message("함께 버틴 보상 · 둘의 체력 +%d" % roundi(restored), Color("80ed99"))
 
 
 ## What a kill leaves on the floor: its own gem, every time.
@@ -2754,8 +2779,8 @@ func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
 ## Field pickups act on the pair, not the survivor who walked over them — the
 ## chain already decides who can reach a drop, so making the reward personal
 ## would punish whoever happened to be on the wrong side of it.
-func _on_field_item_collected(item_id: String) -> void:
-	var label: String = field_items.item_display_name(item_id)
+func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
+	var label: String = "%s 획득!" % field_items.item_display_name(item_id)
 	var color: Color = field_items.item_color(item_id)
 	match item_id:
 		"chest":
@@ -2767,15 +2792,18 @@ func _on_field_item_collected(item_id: String) -> void:
 			var names: Array[String] = []
 			for reward: Dictionary in rewards:
 				names.append(String(reward["label"]))
-			label += "  %d개 획득\n%s" % [rewards.size(), " · ".join(names)]
+			label += " · 보상 %d개\n%s" % [rewards.size(), " · ".join(names)]
 			# Pushed to the front so the box is seen opening before anything it
 			# contained gets its own showcase (a chest can hand out a fusion).
 			_queue_showcase({"kind": "chest", "rewards": rewards}, true)
 			_play_showcase_queue()
 		"heal":
-			for player in players:
-				player.heal(player.max_health * FIELD_ITEM_HEAL_RATIO)
-			label += " — 두 사람 회복"
+			var restored: Array[int] = [0, 0]
+			for slot in 2:
+				var before := players[slot].health
+				players[slot].heal(players[slot].max_health * FIELD_ITEM_HEAL_RATIO)
+				restored[slot] = roundi(players[slot].health - before)
+			label += " · P1 +%d HP · P2 +%d HP" % restored
 		"magnet":
 			var pulled := experience_system.magnetize_all()
 			# Two rings from the pair's midpoint so the pull has a visible source
@@ -2783,7 +2811,7 @@ func _on_field_item_collected(item_id: String) -> void:
 			var centre := (players[0].global_position + players[1].global_position) * 0.5
 			weapon_controller.play_shockwave(centre, 900.0, color, 0.55, true)
 			camera_shake = maxf(camera_shake, 4.0)
-			label += " — 맵 전체 경험치 %d개 견인" % pulled
+			label += " · 경험치 결정 %d개 견인" % pulled
 		"chain_ward":
 			chain_ward_remaining = CHAIN_WARD_DURATION
 			chain_ward_pulse_timer = 0.0
@@ -2796,7 +2824,7 @@ func _on_field_item_collected(item_id: String) -> void:
 			for player in players:
 				particles.emit_ring(player.global_position, color, 60.0, 0.45)
 			camera_shake = maxf(camera_shake, 10.0)
-			label += " — %d초간 사슬 무적·화력 +%d%%·광역 화상" % [
+			label += " · %d초 사슬 무적 · 화력 +%d%%" % [
 				int(CHAIN_WARD_DURATION), roundi((CHAIN_WARD_POWER - 1.0) * 100.0)]
 		"guard":
 			guard_remaining = GUARD_DURATION
@@ -2805,14 +2833,14 @@ func _on_field_item_collected(item_id: String) -> void:
 					player.invulnerability = maxf(player.invulnerability, GUARD_DURATION)
 				particles.emit_ring(player.global_position, color, 74.0, 0.5)
 			camera_shake = maxf(camera_shake, 6.0)
-			label += " — %d초간 무적" % int(GUARD_DURATION)
+			label += " · %d초 무적" % int(GUARD_DURATION)
 		"frenzy":
 			frenzy_remaining = FRENZY_DURATION
 			for player in players:
 				player.field_move_multiplier = FRENZY_MOVE_SPEED
 				particles.emit_sparks(player.global_position, color, 12, 300.0)
 			camera_shake = maxf(camera_shake, 9.0)
-			label += " — %d초간 피해 +%d%% · 이속 +%d%% · 공속 +%d%%" % [
+			label += " · %d초 광란 · 피해 +%d%% · 이속 +%d%% · 공속 +%d%%" % [
 				int(FRENZY_DURATION), roundi((FRENZY_POWER - 1.0) * 100.0),
 				roundi((FRENZY_MOVE_SPEED - 1.0) * 100.0), roundi((FRENZY_ATTACK_SPEED - 1.0) * 100.0),
 			]
@@ -2822,7 +2850,7 @@ func _on_field_item_collected(item_id: String) -> void:
 			weapon_controller.play_shockwave(stop_centre, 1100.0, color, 0.7, false)
 			particles.emit_motes(stop_centre, color, 20)
 			camera_shake = maxf(camera_shake, 14.0)
-			label += " — %d초간 시간 정지" % int(TIME_STOP_DURATION)
+			label += " · %d초 시간 정지" % int(TIME_STOP_DURATION)
 		"purge":
 			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 			var visible_world := _visible_world_rect()
@@ -2843,8 +2871,12 @@ func _on_field_item_collected(item_id: String) -> void:
 			weapon_controller.play_shockwave(midpoint, view_radius * 0.55, Color.WHITE, 0.3, false)
 			weapon_controller.play_purge_rays(midpoint, view_radius, color)
 			camera_shake = maxf(camera_shake, 22.0)
-			label += " — 시야 내 적 %d체 즉시 청소" % purged
+			label += " · 시야 내 적 %d체 청소" % purged
 	run_stats["items"] = int(run_stats["items"]) + 1
+	if collector_index >= 0 and collector_index < 2:
+		run_stats["items_by_player"][collector_index] = int(run_stats["items_by_player"][collector_index]) + 1
+	var item_counts: Dictionary = run_stats["items_by_type"]
+	item_counts[item_id] = int(item_counts.get(item_id, 0)) + 1
 	var pickup_centre := (players[0].global_position + players[1].global_position) * 0.5
 	particles.emit_motes(pickup_centre, color, 8)
 	feedback.play_item_cue(item_id)
@@ -2894,7 +2926,7 @@ func _open_chest() -> Array[Dictionary]:
 			# Nothing left that either survivor can still take. The box pays in
 			# moon-fish rather than inventing a reward, so a late chest opened by
 			# a finished build is worth something to the next run.
-			var paid := meta_progression.award(CHEST_POINT_REWARD)
+			var paid := 0 if debug_run_tainted else meta_progression.award(CHEST_POINT_REWARD)
 			results.append({
 				"label": "달빛 생선 +%d" % paid,
 				"detail": "영구 재화로 저장",
@@ -2952,7 +2984,7 @@ func _roll_chest_reward_count() -> int:
 	for rung in CHEST_REWARD_LADDER:
 		if roll < float(rung[0]):
 			return int(rung[1])
-	return 1
+	return 2
 
 
 func _chest_new_gear_chance() -> float:
@@ -2970,7 +3002,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 				candidates.append({
 					"slot": slot, "priority": 3,
 					"option": {"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution},
-					"label": "합성 %s" % String(evolution["weapon_name"]),
+					"label": "보물 강화 %s" % String(evolution["weapon_name"]),
 				})
 				continue
 			if bool(state.get("evolved", false)) or int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
@@ -3111,8 +3143,12 @@ func _advance_showcase_queue() -> void:
 	camera_shake = maxf(camera_shake, 8.0)
 
 
-func _gain_shared_xp(amount: int) -> void:
-	progression.add_experience(int(round(float(amount) * team_growth)))
+func _gain_shared_xp(amount: int, collector_index := -1) -> void:
+	var gained := int(round(float(amount) * team_growth))
+	progression.add_experience(gained)
+	if collector_index >= 0 and collector_index < 2:
+		run_stats["xp_by_player"][collector_index] = int(run_stats["xp_by_player"][collector_index]) + gained
+		run_stats["personal_levels"][collector_index] = _personal_level_for_xp(int(run_stats["xp_by_player"][collector_index]))
 	feedback.play_cue("xp")
 	# Not opened here any more: the physics loop watches the queue so a level
 	# earned mid-burst waits out the gap instead of interrupting on the frame
@@ -3240,22 +3276,6 @@ func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 	return evolution
 
 
-func _available_hybrid_evolutions(slot: int) -> Array[Dictionary]:
-	var ready: Array[Dictionary] = []
-	for evolution in Evolutions.all_hybrid_evolutions():
-		var recipe: Array = evolution["weapon_ids"]
-		var slots: Array[int] = []
-		for wanted_id in recipe:
-			for weapon_slot in weapon_loadouts[slot].size():
-				var weapon: Dictionary = weapon_loadouts[slot][weapon_slot]
-				if String(weapon["weapon_id"]) == String(wanted_id) and not bool(weapon.get("evolved", false)) and int(weapon.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
-					slots.append(weapon_slot)
-					break
-		if slots.size() == recipe.size():
-			ready.append({"evolution": evolution, "weapon_slot": mini(slots[0], slots[1]), "consume_weapon_slot": maxi(slots[0], slots[1])})
-	return ready
-
-
 ## What a second copy of a shared treasure is worth.
 ##
 ## Shared treasures change a team resource, so a pair could take the same one on
@@ -3373,7 +3393,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				"id": "special_" + key, "weapon_slot": weapon_slot,
 				"title": "%s\n%s" % [String(spec["title"]), weapon_name],
 			})
-	# A fusion is the biggest single step in the tree, so its card is added
+	# A treasure enhancement is the biggest single step in the tree, so its card is added
 	# unconditionally whenever one is available rather than competing for a
 	# slot in the shuffle.
 	for weapon_slot in loadout.size():
@@ -3382,14 +3402,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			continue
 		pool.append({
 			"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
-			"title": "합성: %s" % (String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"),
-		})
-	for hybrid in _available_hybrid_evolutions(slot):
-		var hybrid_evolution: Dictionary = hybrid["evolution"]
-		pool.append({
-			"id": "evolve_weapon", "weapon_slot": int(hybrid["weapon_slot"]),
-			"consume_weapon_slot": int(hybrid["consume_weapon_slot"]), "evolution": hybrid_evolution,
-			"title": "합성: %s" % (String(hybrid_evolution["weapon_name"]) if meta_progression.is_discovered(String(hybrid_evolution["weapon_id"])) else "???"),
+			"title": "무기 진화: %s" % (String(evolution["weapon_name"]) if meta_progression.is_discovered(String(evolution["weapon_id"])) else "???"),
 		})
 	if loadout.size() < WEAPON_LOADOUT_CAP:
 		for character in _pick_unowned_characters(slot, 2):
@@ -3758,7 +3771,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			# Nothing else on the screen is close: a fusion reworks the attack and
 			# is the only route to resonance.
 			score = 200.0
-			reason = "합성 — 최종 단계"
+			reason = "보물 강화 — 최종 단계"
 
 	var marginal := UpgradeValue.gain(self, slot, option)
 	if marginal > 0.0 and upgrade_id != "evolve_weapon":
@@ -3878,8 +3891,6 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 		# fusion: a tier bump on an unfused weapon never reaches it.
 		var fusing_slot := int(option["weapon_slot"])
 		preview[slot][fusing_slot] = Evolutions.build_state(option["evolution"], preview[slot][fusing_slot])
-		if option.has("consume_weapon_slot"):
-			preview[slot].remove_at(int(option["consume_weapon_slot"]))
 	else:
 		var weapon_slot := int(option.get("weapon_slot", -1))
 		if weapon_slot < 0:
@@ -3902,12 +3913,15 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
 		if not meta_progression.is_discovered(String(evolution["weapon_id"])):
-			return "두 재료를 하나로 합칩니다.\n결과는 완성 후 공개"
+			var base_weapon: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])]
+			var material := Treasures.by_id(String(evolution["treasure_id"]))
+			return "%s + %s\n장비 슬롯 유지 · 결과는 완성 후 공개" % [
+				String(base_weapon["weapon_name"]), String(material.get("name", "보물"))]
 		return "%s\n최종 단계 도달" % String(evolution["description"])
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		return "%s
-보물 %d/%d칸" % [
+획득 후 보물 %d/%d칸 사용" % [
 			String(treasure["per_tier"]), treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP
 		]
 	if upgrade_id == "treasure_upgrade":
@@ -3925,9 +3939,9 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		tier_hint = "\n레벨 %d — 최대 강화" % Evolutions.WEAPON_MAX_TIER
 	match upgrade_id:
 		"weapon_power":
-			return "피해 %.1f → %.1f%s" % [float(state["damage"]), float(state["damage"]) * WEAPON_POWER_STEP, tier_hint]
+			return "피해 %.1f → %.1f%s\n한 번에 더 큰 피해" % [float(state["damage"]), float(state["damage"]) * WEAPON_POWER_STEP, tier_hint]
 		"weapon_rate":
-			return "발동 %.2f초 → %.2f초%s" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP), tier_hint]
+			return "발동 %.2f초 → %.2f초%s\n더 자주 공격" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP), tier_hint]
 		"special_a", "special_b":
 			var spec := _special_spec(weapon_id, upgrade_id.substr(upgrade_id.length() - 1))
 			if not spec.is_empty():
@@ -3957,7 +3971,6 @@ func _handle_level_up_input() -> void:
 			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] + 1, 0, choices.size())
 			_refresh_level_up_ui()
 		elif Input.is_action_just_pressed(prefix + "confirm"):
-			feedback.play_cue("select")
 			_select_upgrade(player_index, upgrade_cursors[slot])
 		elif Input.is_action_just_pressed("p%d_reroll" % player_index) and rerolls_remaining[slot] > 0:
 			_reroll_choices(player_index)
@@ -3988,6 +4001,9 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 	var choices := p1_choices if player_index == 1 else p2_choices
 	if choice_index < 0 or choice_index >= choices.size():
 		return
+	if selected_upgrade_indices[slot] >= 0:
+		return
+	feedback.play_cue("select")
 	selected_upgrade_indices[slot] = choice_index
 	upgrade_cursors[slot] = choice_index
 	_refresh_level_up_ui()
@@ -4017,14 +4033,10 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		var evolution: Dictionary = option["evolution"]
 		weapon_controller.clear_sustained_for_player(player_slot)
 		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(evolution, base_state)
-		var material_weapon_id := ""
-		if option.has("consume_weapon_slot"):
-			var consumed_slot := int(option["consume_weapon_slot"])
-			material_weapon_id = String(weapon_loadouts[player_slot][consumed_slot]["weapon_id"])
-			weapon_loadouts[player_slot].remove_at(consumed_slot)
-			attack_timers[player_slot].remove_at(consumed_slot)
+		_merge_weapon_damage_record(player_slot, String(base_state["weapon_id"]), String(evolution["weapon_id"]))
 		fusion_discovered = true
-		meta_progression.mark_discovered(String(evolution["weapon_id"]))
+		if not debug_run_tainted:
+			meta_progression.mark_discovered(String(evolution["weapon_id"]))
 		# The biggest single step in the tree used to be one line in the message
 		# banner, identical in weight to "+25% 피해". It gets the screen now.
 		var showcase := {
@@ -4033,10 +4045,7 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 			"weapon_id": String(evolution["weapon_id"]),
 			"name": String(evolution["weapon_name"]),
 		}
-		if material_weapon_id.is_empty():
-			showcase["treasure_id"] = String(evolution["treasure_id"])
-		else:
-			showcase["material_weapon_id"] = material_weapon_id
+		showcase["treasure_id"] = String(evolution["treasure_id"])
 		_queue_showcase(showcase)
 		return
 	if upgrade_id == "unlock_treasure":
@@ -4148,7 +4157,9 @@ func _refresh_player_cards(player_index: int) -> void:
 		var is_recommended := bool(option.get("recommended", false))
 		var is_discouraged := bool(option.get("discouraged", false))
 
-		card.visible = has_option and ((not locked) or is_chosen)
+		# Preserve the hand after confirmation so the locked choice remains in
+		# context while its partner is still deciding.
+		card.visible = has_option
 		card.text = "%s\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
 		var icon := card.get_node("Icon") as TextureRect
 		icon.texture = IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
@@ -4156,7 +4167,7 @@ func _refresh_player_cards(player_index: int) -> void:
 		var partner := _fusion_partner_for_option(slot, option)
 		fusion_mark.visible = has_option and not partner.is_empty()
 		fusion_mark.texture = partner.get("texture")
-		fusion_mark.tooltip_text = "%s랑 합치면 합성됩니다." % String(partner.get("name", ""))
+		fusion_mark.tooltip_text = "%s의 힘으로 무기가 강화됩니다." % String(partner.get("name", ""))
 		# The reason lives on the badge instead of as a fourth line of body copy:
 		# it explains the star, so it belongs to the star.
 		var recommendation := card.get_node("Recommendation") as Label
@@ -4166,25 +4177,26 @@ func _refresh_player_cards(player_index: int) -> void:
 		else:
 			recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
 
-		var border := CatTheme.GOLD if is_unlock or is_recommended else accent
+		var border := accent
 		if level_up_input_delay > 0.0:
 			# Visibly inert until input opens, so the pause reads as deliberate
 			# rather than as the game ignoring a keypress.
 			style.bg_color = CatTheme.PANEL
 			style.border_color = CatTheme.OUTLINE
-			style.set_border_width_all(2)
+			style.set_border_width_all(CatTheme.BORDER)
 		elif is_chosen:
 			style.bg_color = CatTheme.CARD.lerp(border, 0.13)
 			style.border_color = border
-			style.set_border_width_all(3)
+			style.set_border_width_all(CatTheme.BORDER_ACTIVE)
 		elif is_focused:
 			style.bg_color = CatTheme.CARD.lerp(border, 0.08)
 			style.border_color = Color(border, 0.9)
-			style.set_border_width_all(3)
+			style.set_border_width_all(CatTheme.BORDER_ACTIVE)
 		else:
-			style.bg_color = CatTheme.CARD
-			style.border_color = CatTheme.OUTLINE
-			style.set_border_width_all(2)
+			style.bg_color = CatTheme.PANEL if locked else CatTheme.CARD
+			style.border_color = Color(CatTheme.OUTLINE, 0.45 if locked else 1.0)
+			style.set_border_width_all(CatTheme.BORDER)
+		card.modulate.a = 0.48 if locked and not is_chosen else 1.0
 	_refresh_level_build_icons(slot)
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
 	var character := selected_characters[slot]
@@ -4211,37 +4223,78 @@ func _refresh_player_cards(player_index: int) -> void:
 	_layout_level_cards(slot)
 
 
-## Lays the hand out as a shallow fan. A fourth card uses overlap rather than
-## narrower copy, and the focused (mouse-hovered or controller-selected) card
-## rises and straightens so its full text remains readable.
+## A stable row for the normal hand, or a two-by-two grid for a lucky fourth
+## choice. Focus never moves a card outside its panel or over the loadout.
 func _layout_level_cards(slot: int) -> void:
 	var choices: Array = p1_choices if slot == 0 else p2_choices
 	var cards: Array = level_card_labels[slot]
-	var locked := selected_upgrade_indices[slot] >= 0
 	var count := choices.size()
 	if count <= 0:
 		return
-	var spread := 0.0 if count == 1 else (LEVEL_HALF_WIDTH - LEVEL_CARD_WIDTH) / float(count - 1)
-	var middle := float(count - 1) * 0.5
+	var compact := count >= 4
 	for index in cards.size():
 		var card := cards[index] as Label
 		if not card.visible:
 			continue
-		if locked:
-			card.position = Vector2(LEVEL_HALF_X[slot] + (LEVEL_HALF_WIDTH - LEVEL_CARD_WIDTH) * 0.5, LEVEL_CARD_Y)
-			card.rotation = 0.0
-			card.scale = Vector2.ONE * LEVEL_FAN_FOCUS_SCALE
-			card.z_index = 30
-			continue
-		var distance_from_middle := float(index) - middle
-		var focused := index == upgrade_cursors[slot]
-		card.position = Vector2(
-			LEVEL_HALF_X[slot] + spread * float(index),
-			LEVEL_CARD_Y + absf(distance_from_middle) * 5.0 - (LEVEL_FAN_FOCUS_LIFT if focused else 0.0)
-		)
-		card.rotation = 0.0 if focused else deg_to_rad(distance_from_middle * LEVEL_FAN_ROTATION_DEGREES)
-		card.scale = Vector2.ONE * (LEVEL_FAN_FOCUS_SCALE if focused else 1.0)
-		card.z_index = 30 if focused else index
+		card.rotation = 0.0
+		card.scale = Vector2.ONE
+		card.z_index = 1
+		_layout_level_card_contents(card, compact)
+		if compact:
+			card.size = Vector2(LEVEL_COMPACT_CARD_WIDTH, LEVEL_COMPACT_CARD_HEIGHT)
+			card.position = Vector2(
+				LEVEL_HALF_X[slot] + float(index % 2) * (LEVEL_COMPACT_CARD_WIDTH + LEVEL_COMPACT_CARD_GAP),
+				LEVEL_CARD_Y + float(index / 2) * (LEVEL_COMPACT_CARD_HEIGHT + LEVEL_COMPACT_CARD_GAP))
+		else:
+			card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
+			var spread := 0.0 if count == 1 else (LEVEL_HALF_WIDTH - LEVEL_CARD_WIDTH) / float(count - 1)
+			card.position = Vector2(LEVEL_HALF_X[slot] + spread * float(index), LEVEL_CARD_Y)
+
+
+func _layout_level_card_contents(card: Label, compact: bool) -> void:
+	var style := card.get_theme_stylebox("normal") as StyleBoxFlat
+	var icon := card.get_node("Icon") as TextureRect
+	var fusion_mark := card.get_node("FusionMark") as TextureRect
+	var scope := card.get_node("Scope") as Label
+	var category := card.get_node("Category") as Label
+	var title := card.get_node("CardTitle") as Label
+	var recommendation := card.get_node("Recommendation") as Label
+	if compact:
+		style.content_margin_left = 14.0
+		style.content_margin_right = 14.0
+		style.content_margin_top = 70.0
+		style.content_margin_bottom = 20.0
+		icon.position = Vector2(14.0, 13.0)
+		icon.size = Vector2(48.0, 48.0)
+		fusion_mark.position = Vector2(LEVEL_COMPACT_CARD_WIDTH - 38.0, 8.0)
+		fusion_mark.size = Vector2(30.0, 30.0)
+		scope.position = Vector2(72.0, 4.0)
+		scope.size = Vector2(164.0, 18.0)
+		category.position = Vector2(72.0, 21.0)
+		category.size = Vector2(170.0, 20.0)
+		title.position = Vector2(72.0, 39.0)
+		title.size = Vector2(198.0, 31.0)
+		recommendation.position = Vector2(12.0, LEVEL_COMPACT_CARD_HEIGHT - 21.0)
+		recommendation.size = Vector2(LEVEL_COMPACT_CARD_WIDTH - 24.0, 18.0)
+		card.add_theme_font_size_override("font_size", 12)
+	else:
+		style.content_margin_left = 16.0
+		style.content_margin_right = 16.0
+		style.content_margin_top = 142.0
+		style.content_margin_bottom = 48.0
+		icon.position = Vector2(14.0, 17.0)
+		icon.size = Vector2(64.0, 64.0)
+		fusion_mark.position = Vector2(LEVEL_CARD_WIDTH - 47.0, 10.0)
+		fusion_mark.size = Vector2(36.0, 36.0)
+		scope.position = Vector2(88.0, 16.0)
+		scope.size = Vector2(88.0, 28.0)
+		category.position = Vector2(92.0, 52.0)
+		category.size = Vector2(88.0, 30.0)
+		title.position = Vector2(16.0, 86.0)
+		title.size = Vector2(164.0, 50.0)
+		recommendation.position = Vector2(10.0, LEVEL_CARD_HEIGHT - 40.0)
+		recommendation.size = Vector2(LEVEL_CARD_WIDTH - 20.0, 30.0)
+		card.add_theme_font_size_override("font_size", 16)
 
 
 ## Which atlas entry a card should show. Treasure ids are deliberately the same
@@ -4284,16 +4337,6 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 				return {}
 			var chosen_treasure := Treasures.by_id(chosen_treasure_id)
 			return {"name": String(chosen_treasure["name"]), "texture": IconCatalog.upgrade(chosen_treasure_id)}
-		if chosen_evolution.has("weapon_ids"):
-			var source_slot := int(option.get("weapon_slot", -1))
-			var source_id := String(weapon_loadouts[slot][source_slot]["weapon_id"]) if source_slot >= 0 and source_slot < weapon_loadouts[slot].size() else ""
-			for recipe_weapon in (chosen_evolution["weapon_ids"] as Array):
-				var recipe_weapon_id := String(recipe_weapon)
-				if recipe_weapon_id == source_id:
-					continue
-				for owned: Dictionary in weapon_loadouts[slot]:
-					if String(owned["weapon_id"]) == recipe_weapon_id:
-						return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(recipe_weapon_id)}
 	var treasure_id := ""
 	var weapon_id := ""
 	if option_id == "treasure_upgrade":
@@ -4312,14 +4355,6 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 			if _treasure_tier(slot, wanted_treasure) > 0:
 				var treasure := Treasures.by_id(wanted_treasure)
 				return {"name": String(treasure["name"]), "texture": IconCatalog.upgrade(wanted_treasure)}
-		for hybrid in Evolutions.hybrids_for(weapon_id):
-			for wanted_weapon in (hybrid["weapon_ids"] as Array):
-				var other_id := String(wanted_weapon)
-				if other_id == weapon_id:
-					continue
-				for owned: Dictionary in weapon_loadouts[slot]:
-					if String(owned["weapon_id"]) == other_id and not bool(owned.get("evolved", false)):
-						return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(other_id)}
 
 	if not treasure_id.is_empty():
 		for evolution in Evolutions.all_evolutions():
@@ -4337,23 +4372,66 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 ## attribute numbers that nobody could read mid-decision.
 func _refresh_level_build_icons(slot: int) -> void:
 	level_portrait_icons[slot].texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
-	_refresh_icon_row(level_weapon_icons[slot], weapon_loadouts[slot], true)
-	_refresh_icon_row(level_treasure_icons[slot], treasure_loadouts[slot], false)
+	var choices: Array = p1_choices if slot == 0 else p2_choices
+	var preview_index := selected_upgrade_indices[slot] if selected_upgrade_indices[slot] >= 0 else upgrade_cursors[slot]
+	var option: Dictionary = choices[preview_index] if preview_index >= 0 and preview_index < choices.size() else {}
+	var weapon_target := -1
+	var treasure_target := -1
+	var preview_weapon: Dictionary = {}
+	var preview_treasure: Dictionary = {}
+	var option_id := String(option.get("id", ""))
+	if option_id == "unlock_weapon":
+		weapon_target = weapon_loadouts[slot].size()
+		preview_weapon = _build_weapon_state(option["character"])
+	elif int(option.get("weapon_slot", -1)) >= 0:
+		weapon_target = int(option["weapon_slot"])
+	if option_id == "unlock_treasure":
+		treasure_target = treasure_loadouts[slot].size()
+		preview_treasure = Treasures.build_state(option["treasure"])
+	elif option_id == "treasure_upgrade":
+		treasure_target = int(option["treasure_slot"])
+	elif option_id == "evolve_weapon":
+		var material_id := String((option["evolution"] as Dictionary)["treasure_id"])
+		for index in treasure_loadouts[slot].size():
+			if String(treasure_loadouts[slot][index]["id"]) == material_id:
+				treasure_target = index
+				break
+	_refresh_icon_row(level_weapon_icons[slot], weapon_loadouts[slot], true, weapon_target, preview_weapon, option_id, slot)
+	_refresh_icon_row(level_treasure_icons[slot], treasure_loadouts[slot], false, treasure_target, preview_treasure, option_id, slot)
 
 
-func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool) -> void:
+func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool, preview_index := -1, preview_entry: Dictionary = {}, option_id := "", slot := 0) -> void:
 	for index in icons.size():
 		var icon := icons[index] as TextureRect
 		var tier := icon.get_node("Tier") as Label
+		var socket := icon.get_parent() as Panel
+		var highlighted := index == preview_index
+		var socket_style := _slot_placeholder_style()
+		socket_style.bg_color = CatTheme.CARD if index < carried.size() else Color(CatTheme.NIGHT_RAISED, 0.55)
+		socket_style.border_color = (CatTheme.P1 if slot == 0 else CatTheme.P2) if highlighted else Color(CatTheme.OUTLINE, 0.45 if index >= carried.size() else 0.9)
+		socket_style.set_border_width_all(CatTheme.BORDER_ACTIVE if highlighted else 1)
+		socket.add_theme_stylebox_override("panel", socket_style)
+		icon.modulate = Color(1.0, 1.0, 1.0, 0.82 if highlighted and index >= carried.size() else 1.0)
 		if index >= carried.size():
 			# An empty slot is information: it is how many commitments are left.
-			icon.texture = null
-			tier.visible = false
+			if highlighted and not preview_entry.is_empty():
+				icon.texture = IconCatalog.weapon(String(preview_entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(preview_entry["id"]))
+				tier.visible = true
+				tier.text = "신규"
+			else:
+				icon.texture = null
+				tier.visible = false
 			continue
 		var entry: Dictionary = carried[index]
 		icon.texture = IconCatalog.weapon(String(entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(entry["id"]))
 		tier.visible = true
-		tier.text = str(int(entry.get("tier", 1)))
+		var current_tier := int(entry.get("tier", 1))
+		if highlighted and option_id == "evolve_weapon" and is_weapon:
+			tier.text = "진화"
+		elif highlighted and ((is_weapon and option_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]) or (not is_weapon and option_id == "treasure_upgrade")):
+			tier.text = "%d→%d" % [current_tier, current_tier + 1]
+		else:
+			tier.text = "Lv.%d" % current_tier
 ## The strip under the cards used to spell out both fusion requirements for
 ## both survivors, every level, from level one — the whole tech tree as a
 ## table. It and the per-card material seals are gone. The ordinary growth
@@ -4421,6 +4499,7 @@ func _after_personal_upgrade_choices() -> void:
 		_finish_level_up()
 		return
 	resonance_vote_active = true
+	combat_hud.hide()
 	resonance_votes[0] = -1
 	resonance_votes[1] = -1
 	resonance_cursors = [0, 0]
@@ -4489,6 +4568,8 @@ func _refresh_resonance_vote_ui() -> void:
 			continue
 		card.visible = true
 		var resonance: Dictionary = resonance_candidates[index]
+		var skill_icon := card.get_node("SkillIcon") as TextureRect
+		skill_icon.texture = IconCatalog.generated(String(resonance["id"]), "upgrade")
 		for slot in 2:
 			var icon := card.get_node("Cat%d" % slot) as TextureRect
 			icon.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
@@ -4519,9 +4600,14 @@ func _refresh_resonance_vote_ui() -> void:
 			accent = Color("43d9ff") if locked_by[0] == 0 else Color("b892ff")
 		elif not pointed_by.is_empty():
 			accent = Color("43d9ff") if pointed_by[0] == 0 else Color("b892ff")
-		style.bg_color = CatTheme.CARD.lerp(CatTheme.P1, 0.035 * float(attention))
-		style.border_color = CatTheme.P1 if attention > 0 else CatTheme.OUTLINE
-		style.set_border_width_all(2 + attention)
+		if locked_by.size() == 2:
+			style.bg_color = CatTheme.CARD.lerp(CatTheme.GOLD, 0.12)
+		elif not locked_by.is_empty() or not pointed_by.is_empty():
+			style.bg_color = CatTheme.CARD.lerp(accent, 0.10)
+		else:
+			style.bg_color = CatTheme.CARD
+		style.border_color = accent if attention > 0 else CatTheme.OUTLINE
+		style.set_border_width_all(CatTheme.BORDER_ACTIVE if attention > 0 else CatTheme.BORDER)
 		card.scale = Vector2.ONE
 
 	var waiting: Array[String] = []
@@ -4532,9 +4618,7 @@ func _refresh_resonance_vote_ui() -> void:
 	if waiting.size() == 1:
 		lines.append("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다" % waiting[0])
 	elif waiting.size() == 2:
-		var p1_keys := "LB/RB   A" if last_input_gamepad[0] else "A/D 이동   W 확정"
-		var p2_keys := "LB/RB   A" if last_input_gamepad[1] else "←/→ 이동   ↑ 확정"
-		lines.append("P1 %s     P2 %s" % [p1_keys, p2_keys])
+		lines.append("각자 기술을 고른 뒤 확정하세요")
 	if not resonance_vote_message.is_empty():
 		lines.append(resonance_vote_message)
 	resonance_status.text = "\n".join(lines)
@@ -4673,11 +4757,76 @@ func _player_health_text(player_index: int) -> String:
 ## the survival numbers above it. These are the counters run_stats has been
 ## carrying unused; nothing else reads them.
 func _run_stats_summary() -> String:
-	return "보스 %d대    구조 %d회    대시 %d회    공명 %d회    아이템 %d개    과충전 %.0f초    과부하 %d회" % [
+	return "보스 %d대   구조 %d회   대시 %d회   공명 %d회   아이템 %d개   과충전 %.0f초\n%s" % [
 		int(run_stats["bosses"]), int(run_stats["revives"]), int(run_stats["dashes"]),
 		int(run_stats["resonance_casts"]), int(run_stats["items"]),
-		float(run_stats["overcharge_time"]), int(run_stats["overloads"])
+		float(run_stats["overcharge_time"]), _item_count_summary()
 	]
+
+
+func _reset_run_stats() -> void:
+	run_stats = {
+		"bosses": 0, "revives": 0, "dashes": 0, "overcharge_time": 0.0,
+		"overloads": 0, "resonance_casts": 0, "items": 0, "reflected": 0.0,
+		"planters": 0, "xp_by_player": [0, 0], "personal_levels": [1, 1],
+		"items_by_player": [0, 0], "items_by_type": {}, "weapon_damage": [{}, {}],
+		"resonance_damage": 0.0,
+	}
+
+
+func _personal_level_for_xp(total_xp: int) -> int:
+	var personal_level := 1
+	var remaining := total_xp
+	while remaining >= SharedProgression.requirement_for_level(personal_level):
+		remaining -= SharedProgression.requirement_for_level(personal_level)
+		personal_level += 1
+	return personal_level
+
+
+func _record_combat_damage(player_index: int, weapon_id: String, amount: float) -> void:
+	if amount <= 0.0 or weapon_id.is_empty():
+		return
+	if weapon_id.begins_with("resonance:"):
+		run_stats["resonance_damage"] = float(run_stats["resonance_damage"]) + amount
+		return
+	if player_index < 0 or player_index >= 2:
+		return
+	var damage_by_weapon: Dictionary = run_stats["weapon_damage"][player_index]
+	damage_by_weapon[weapon_id] = float(damage_by_weapon.get(weapon_id, 0.0)) + amount
+
+
+func _merge_weapon_damage_record(player_index: int, old_id: String, new_id: String) -> void:
+	var damage_by_weapon: Dictionary = run_stats["weapon_damage"][player_index]
+	if damage_by_weapon.has(old_id):
+		damage_by_weapon[new_id] = float(damage_by_weapon.get(new_id, 0.0)) + float(damage_by_weapon[old_id])
+		damage_by_weapon.erase(old_id)
+
+
+func _weapon_dps(player_index: int, weapon_id: String) -> float:
+	return float(run_stats["weapon_damage"][player_index].get(weapon_id, 0.0)) / maxf(1.0, elapsed)
+
+
+func _player_damage_total(player_index: int) -> float:
+	var total := 0.0
+	for value in (run_stats["weapon_damage"][player_index] as Dictionary).values():
+		total += float(value)
+	return total
+
+
+func _result_player_summary(player_index: int) -> String:
+	return "개인 LV.%d   주운 XP %d   아이템 %d\n총 피해 %.0f   총 DPS %.1f" % [
+		int(run_stats["personal_levels"][player_index]), int(run_stats["xp_by_player"][player_index]),
+		int(run_stats["items_by_player"][player_index]), _player_damage_total(player_index),
+		_player_damage_total(player_index) / maxf(1.0, elapsed),
+	]
+
+
+func _item_count_summary() -> String:
+	var parts: Array[String] = []
+	var item_counts: Dictionary = run_stats["items_by_type"]
+	for item_id in item_counts:
+		parts.append("%s ×%d" % [field_items.item_display_name(String(item_id)), int(item_counts[item_id])])
+	return "획득 없음" if parts.is_empty() else "   ".join(parts)
 
 
 func _show_message(text: String, color: Color) -> void:
@@ -4690,18 +4839,23 @@ func _show_message(text: String, color: Color) -> void:
 		notice_stack.pop_front().queue_free()
 	var notice := Label.new()
 	notice.text = text.replace("\n", " · ")
-	notice.size = Vector2(440, 40)
+	notice.size = Vector2(372, 48)
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	notice.clip_text = true
-	notice.add_theme_font_size_override("font_size", 14)
+	notice.add_theme_font_size_override("font_size", 16)
+	var notice_style := CatTheme.surface(Color("19393e"), 8)
+	notice_style.border_color = Color("36565b")
+	notice_style.content_margin_left = 10
+	notice_style.content_margin_right = 10
+	notice.add_theme_stylebox_override("normal", notice_style)
 	notice.add_theme_color_override("font_color", color)
 	notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	message_label.get_parent().add_child(notice)
 	notice_stack.append(notice)
 	for index in notice_stack.size():
-		notice_stack[index].position = Vector2(820, 632 - (notice_stack.size() - index - 1) * 42)
+		notice_stack[index].position = Vector2(886, 168 + index * 52)
 	var tween := create_tween()
 	tween.tween_interval(3.0)
 	tween.tween_property(notice, "modulate:a", 0.0, 0.65)
@@ -4756,19 +4910,23 @@ func _end_run(victory: bool = false) -> void:
 	game_over = true
 	run_won = victory
 	run_reward = 0
-	if victory and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT:
+	if victory and not debug_run_tainted and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT:
 		run_reward = meta_progression.award_clear()
 	level_up_active = false
 	level_overlay.visible = false
 	resonance_overlay.visible = false
 	pause_overlay.visible = false
 	result_overlay.visible = true
+	combat_hud.visible = false
+	_hide_boss_readout()
 	for slot in 2:
 		var portrait := result_overlay.get_node("ResultCat%d" % slot) as TextureRect
 		portrait.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
 	get_tree().paused = true
-	result_label.add_theme_color_override("font_color", CatTheme.INK if victory else Color("994938"))
+	result_label.add_theme_color_override("font_color", CatTheme.INK if victory else Color("ffb2ac"))
 	EditorialUI.refresh_result(self, victory)
+	if debug_run_tainted:
+		result_overlay.get_node("ResultReason").text = "디버그 조작을 사용한 런입니다. 보상과 발견 기록은 저장되지 않습니다."
 	_update_hud()
 	feedback.stop_music()
 	feedback.play_cue("victory" if victory else "down")

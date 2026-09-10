@@ -20,13 +20,13 @@ func _run() -> void:
 	var first_cost := meta.cost("might")
 	_check(meta.purchase("might"), "an affordable permanent upgrade can be bought")
 	_check(meta.rank("might") == 1 and meta.points == MetaProgression.CLEAR_REWARD - first_cost, "purchase spends points and raises one rank")
-	meta.mark_discovered("comet_storm")
+	meta.mark_discovered("starpiercer")
 
 	var loaded := MetaScript.new() as MetaProgression
 	loaded.save_path = SAVE
 	loaded.load_progress()
 	_check(loaded.rank("might") == 1, "ranks persist")
-	_check(loaded.is_discovered("comet_storm"), "fusion discoveries persist")
+	_check(loaded.is_discovered("starpiercer"), "enhancement discoveries persist")
 	loaded.points = 10000
 	var cap := int(MetaProgression.by_id("luck")["max_rank"])
 	while loaded.purchase("luck"):

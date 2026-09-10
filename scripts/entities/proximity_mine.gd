@@ -10,7 +10,7 @@ extends Node2D
 ## weapon controller resolves it, so mines go through the same area-damage and
 ## effect code as everything else rather than duplicating it.
 
-signal detonated(centre: Vector2, damage: float, radius: float, color: Color)
+signal detonated(centre: Vector2, damage: float, radius: float, color: Color, owner_index: int, source_weapon: String)
 
 const ARM_TIME := 0.45 ## Cannot be used as an instant nova at point blank.
 const LIFETIME := INF ## Persists until triggered or replaced by the placement cap.
@@ -26,9 +26,10 @@ var age := 0.0
 var spatial_grid: EnemySpatialGrid
 var spent := false
 var owner_index := -1
+var source_weapon := ""
 
 
-func configure(new_damage: float, new_radius: float, color: Color, new_owner := -1) -> void:
+func configure(new_damage: float, new_radius: float, color: Color, new_owner := -1, weapon_id := "") -> void:
 	damage = new_damage
 	blast_radius = new_radius
 	mine_color = color
@@ -36,6 +37,7 @@ func configure(new_damage: float, new_radius: float, color: Color, new_owner := 
 	age = 0.0
 	spent = false
 	owner_index = new_owner
+	source_weapon = weapon_id
 	z_index = -1
 	queue_redraw()
 
@@ -71,7 +73,7 @@ func _detonate() -> void:
 	if spent:
 		return
 	spent = true
-	detonated.emit(global_position, damage, blast_radius, mine_color)
+	detonated.emit(global_position, damage, blast_radius, mine_color, owner_index, source_weapon)
 	queue_free()
 
 

@@ -20,23 +20,23 @@ func _ready() -> void:
 func _draw() -> void:
 	if backdrop:
 		if veil_only:
-			draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, 0.62))
+			draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, 0.35))
 			return
 		_draw_backdrop()
 		return
 	var compact := size.y < 150.0
-	var style := CatStyle.surface(CatStyle.INK if compact else CatStyle.PANEL, 12 if compact else 20)
+	var style := CatStyle.surface(CatStyle.NIGHT_PANEL if compact else CatStyle.PANEL)
 	style.border_color = Color("42565d") if compact else CatStyle.OUTLINE
-	style.shadow_color = Color(0.02, 0.01, 0.04, 0.45)
-	style.shadow_size = 10
-	style.shadow_offset = Vector2(0, 5)
+	style.shadow_color = Color(0.02, 0.01, 0.04, 0.22)
+	style.shadow_size = 2
+	style.shadow_offset = Vector2(0, 3)
 	if translucent:
-		style.bg_color = Color(style.bg_color, 0.88)
+		style.bg_color = Color(style.bg_color, 0.78)
 	draw_style_box(style, Rect2(Vector2.ZERO, size))
 	if compact:
 		return
 	# One quiet brand seal; chrome never competes with the icon artwork.
-	draw_line(Vector2(24, 10), Vector2(76, 10), CatStyle.GOLD, 3, true)
+	draw_line(Vector2(24, 10), Vector2(76, 10), Color(CatStyle.GOLD, 0.5), 1, true)
 	_paw(Vector2(size.x - 23, 24), 0.48, Color(CatStyle.GOLD, 0.3))
 
 
@@ -47,7 +47,7 @@ func _paw(at: Vector2, scale_factor: float, tint: Color) -> void:
 
 
 func _draw_backdrop() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color("172c36"))
+	draw_rect(Rect2(Vector2.ZERO, size), CatStyle.NIGHT)
 	# Deterministic stars, with no flashing behind paused menus.
 	for index in 32:
 		var spot := Vector2(fmod(index * 173.0 + 28, size.x), fmod(index * 79.0 + 22, size.y))

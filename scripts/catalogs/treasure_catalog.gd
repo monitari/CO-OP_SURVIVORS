@@ -95,7 +95,7 @@ static func all_treasures() -> Array[Dictionary]:
 			"name": "처형자의 표식",
 			"shared": false,
 			"stat": "치명",
-			"per_tier": "치명타 확률 +5%",
+			"per_tier": "치명타 확률 +5%p",
 		},
 		{
 			"id": "pierce",

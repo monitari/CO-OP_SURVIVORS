@@ -1,7 +1,7 @@
 extends SceneTree
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const Enemies := preload("res://scripts/ui/enemy_icons.gd")
-const Font := preload("res://assets/fonts/Jua-Regular.ttf")
+const UiFont := preload("res://assets/fonts/Jua-Regular.ttf")
 
 func _initialize() -> void: call_deferred("_run")
 
@@ -30,7 +30,7 @@ func caption(parent: Control, text: String, at: Vector2, font_size: int) -> void
 	var label := Label.new()
 	label.text = text
 	label.position = at
-	label.add_theme_font_override("font", Font)
+	label.add_theme_font_override("font", UiFont)
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", Color("fff9ea"))
 	parent.add_child(label)

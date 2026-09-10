@@ -32,14 +32,14 @@ func _run() -> void:
 
 	await _test_input_delay(main)
 	_test_recommendation_and_build_readout(main)
-	_test_luck_and_fan_hand(main)
+	_test_luck_and_grid_hand(main)
 	await _test_cursor_and_deferred_apply(main)
 	await _test_reroll(main)
 	_test_reroll_refill(main)
 	await _test_no_immediate_repeat(main)
 
 	if failures.is_empty():
-		print("LEVEL_UP_CARD_PASS: recommendations, luck fourth choice, fan layout, icon build readout, cursor and reroll flow")
+		print("LEVEL_UP_CARD_PASS: recommendations, stable fourth-choice grid, equipment preview, explicit confirm, cursor and reroll flow")
 		quit(0)
 	else:
 		for failure in failures:
@@ -177,8 +177,8 @@ func _test_input_delay(main: Node) -> void:
 
 func _test_recommendation_and_build_readout(main: Node) -> void:
 	main.resonance_system.active_resonances.clear()
-	# The partner is already fused, so P1's fusion is the card that completes the
-	# pair's resonance. Nothing short of a fusion can do that any more, which is
+	# The partner is already enhanced, so P1's enhancement is the card that completes the
+	# pair's resonance. Nothing short of an enhancement can do that any more, which is
 	# exactly what the recommendation has to be able to see.
 	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
 	var partner: Dictionary = main.weapon_loadouts[1][0]
@@ -187,12 +187,12 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	)
 	var evolution := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
 	var choices: Array[Dictionary] = [
-		{"id": "evolve_weapon", "weapon_slot": 0, "evolution": evolution, "title": "합성"},
+		{"id": "evolve_weapon", "weapon_slot": 0, "evolution": evolution, "title": "무기 진화"},
 		{"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id("vitality"), "title": "생명의 결정"},
 		{"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id("move"), "title": "경보의 장화"},
 	]
 	main._annotate_recommendations(0, choices)
-	_check(bool(choices[0]["recommended"]), "a fusion that completes a resonance is recommended")
+	_check(bool(choices[0]["recommended"]), "an enhancement that completes a resonance is recommended")
 	_check(String(choices[0]["recommendation_reason"]).contains("공명 해금"), "the recommendation explains its tech-graph reason")
 	var recommendation_count := 0
 	for option in choices:
@@ -248,13 +248,27 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	_check(main.level_treasure_icons[0].size() == main.TREASURE_LOADOUT_CAP,
 		"the treasure row draws one slot per treasure the cap allows")
 	var carried_weapons: int = main.weapon_loadouts[0].size()
+	var preview_is_new_weapon: bool = String(main.p1_choices[main.upgrade_cursors[0]]["id"]) == "unlock_weapon"
 	for index in main.level_weapon_icons[0].size():
 		var icon := main.level_weapon_icons[0][index] as TextureRect
 		var filled := icon.texture != null
-		_check(filled == (index < carried_weapons),
+		var preview_slot: bool = preview_is_new_weapon and index == carried_weapons
+		_check(filled == (index < carried_weapons or preview_slot),
 			"weapon slot %d is %s" % [index, "filled" if index < carried_weapons else "an empty socket"])
 	_check(main.level_weapon_icons[0][0].visible and main.level_weapon_icons[0][0].texture != null,
 		"owned weapons render as tiered icons")
+	var preview_choices: Array[Dictionary] = [{
+		"id": "weapon_power", "weapon_slot": 0, "title": "마력 증폭",
+		"description": main._upgrade_preview(0, {"id": "weapon_power", "weapon_slot": 0}),
+	}]
+	main.p1_choices = preview_choices
+	main.upgrade_cursors[0] = 0
+	main.selected_upgrade_indices[0] = -1
+	main._refresh_player_cards(1)
+	_check(String(main.level_weapon_icons[0][0].get_node("Tier").text).contains("→"),
+		"the focused upgrade previews the affected weapon's next level")
+	_check(String(main.level_overlay.get_node("GrowthName0").text).contains("P1 선택 중"),
+		"the player header always exposes the choosing state")
 
 func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_open_level_up(main)
@@ -275,6 +289,13 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_check(main.selected_upgrade_indices[0] == 2, "confirm locks the card under the cursor")
 	_check(_stat_snapshot(main) == before, "confirming alone changes nothing yet — the upgrade is deferred")
 	_check(main.level_up_active, "the screen stays open while one player is still choosing")
+	_check(String(main.level_overlay.get_node("GrowthName0").text).contains("P1 확정 완료"),
+		"the player header exposes the confirmed state")
+	_check(main.level_overlay.get_node("Confirm0").disabled and not main.level_overlay.get_node("Cancel0").disabled,
+		"confirmation disables the primary action and enables cancellation")
+	for index in main.p1_choices.size():
+		_check(main.level_card_labels[0][index].visible,
+			"the confirmed hand remains as readable context")
 
 	await _tap(main, "p1_select_cancel")
 	_check(main.selected_upgrade_indices[0] == -1, "a locked player can back out while the partner is still choosing")
@@ -291,7 +312,7 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	await process_frame
 
 
-func _test_luck_and_fan_hand(main: Node) -> void:
+func _test_luck_and_grid_hand(main: Node) -> void:
 	seed(88021)
 	main.team_luck = 0
 	var ordinary_fourths := 0
@@ -315,15 +336,24 @@ func _test_luck_and_fan_hand(main: Node) -> void:
 	main._refresh_level_up_ui()
 	_check(main.level_card_labels[0].size() == 4 and main.p1_choices.size() == 4,
 		"the UI has a real fourth card slot when luck grants it")
-	_check(main.level_card_labels[0][1].position.x - main.level_card_labels[0][0].position.x < main.LEVEL_CARD_WIDTH,
-		"four cards overlap into a fan instead of shrinking their text")
-	_check(not is_zero_approx(main.level_card_labels[0][1].rotation),
-		"unfocused cards angle around the raised focus card")
-	_check(main.level_card_labels[0][0].position.y < main.level_card_labels[0][1].position.y,
-		"the focused card pops upward from the fan")
+	var cards: Array = main.level_card_labels[0]
+	for left in cards.size():
+		for right in range(left + 1, cards.size()):
+			_check(not Rect2(cards[left].position, cards[left].size).intersects(Rect2(cards[right].position, cards[right].size)),
+				"four-card grid leaves every title and effect unobscured")
+	for card: Label in cards:
+		_check(is_zero_approx(card.rotation) and card.scale.is_equal_approx(Vector2.ONE),
+			"focus does not tilt, enlarge, or move a growth card")
+	var equipment_y: float = main.level_weapon_icons[0][0].get_parent().position.y
+	print("GRID_METRICS: cards=%s equipment_y=%.0f" % [
+		str(cards.map(func(card: Label) -> String: return "%s/%s" % [card.position, card.size])), equipment_y])
+	_check(cards[2].position.y + cards[2].size.y <= equipment_y,
+		"the card region ends before the equipment preview begins")
 	main.level_card_labels[0][3].mouse_entered.emit()
-	_check(main.upgrade_cursors[0] == 3 and main.level_card_labels[0][3].scale.x > 1.0,
-		"mouse hover brings that card to the front of the fan")
+	_check(main.upgrade_cursors[0] == 3 and main.level_card_labels[0][3].scale.is_equal_approx(Vector2.ONE),
+		"mouse hover moves the cursor without moving the card")
+	_check(main.level_overlay.has_node("Confirm0") and String(main.level_overlay.get_node("Confirm0").text).contains("선택 확정"),
+		"each player has a visible, explicit confirmation action")
 	main.team_luck = 0
 	main.p1_choices = main._get_upgrade_choices(1)
 	main.p2_choices = main._get_upgrade_choices(2)

@@ -17,6 +17,8 @@ var damage := 30.0
 var tint := Color("d59356")
 var age := 0.0
 var struck: Dictionary = {}
+var source_player := -1
+var source_weapon := ""
 const LIFETIME := 1.65
 ## Where the toy is along its path, as a multiple of `reach`. One and a half
 ## turns of a sine: out to +1, home through 0, and on to -1 where it is let go.
@@ -44,7 +46,7 @@ func _physics_process(delta: float) -> void:
 		if struck.has(key):
 			continue
 		struck[key] = true
-		enemy.take_damage(damage)
+		enemy.take_damage(damage, source_player, source_weapon)
 	queue_redraw()
 	if progress >= 1.0:
 		queue_free()

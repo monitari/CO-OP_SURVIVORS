@@ -1,21 +1,65 @@
 extends RefCounted
 ## Shared moonlit-cat UI tokens. Combat ownership and danger colours stay separate.
-const INK := Color("202e38")
-const PANEL := Color("f3efdf")
+const INK := Color("edf3fa")
+const PANEL := Color("101b30ed")
 const CREAM := Color("fff9ea")
-const GOLD := Color("bb633d")
-const MUTED := Color("66706c")
-const OUTLINE := Color("d4d5c7")
-const P1 := Color("176c76")
-const P2 := Color("715590")
-const CARD := Color("fffdf4")
+const NIGHT := Color("080f20")
+const NIGHT_PANEL := Color("111f36")
+const NIGHT_RAISED := Color("20334e")
+const GOLD := Color("edc77e")
+const MUTED := Color("a6b9cf")
+const OUTLINE := Color("7596bd55")
+const P1 := Color("63dce6")
+const P2 := Color("c39afa")
+const CARD := Color("192a42f2")
+const HUD := Color("0c172a99")
+
+const RADIUS := 10
+const BORDER := 1
+const BORDER_ACTIVE := 2
+const PADDING := 16
+
+const TYPE_TITLE := 28
+const TYPE_METRIC := 36
+const TYPE_HEADING := 20
+const TYPE_VALUE := 18
+const TYPE_BODY := 15
+const TYPE_CAPTION := 13
 
 
-static func surface(tint: Color = PANEL, radius: int = 16) -> StyleBoxFlat:
+static func surface(tint: Color = PANEL, radius: int = RADIUS) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = tint
 	style.border_color = OUTLINE
-	style.set_border_width_all(1)
+	style.set_border_width_all(BORDER)
 	style.set_corner_radius_all(radius)
 	style.corner_detail = 12
+	return style
+
+
+static func player_surface(slot: int, active := false, confirmed := false, dark := false) -> StyleBoxFlat:
+	var accent := P1 if slot == 0 else P2
+	var tint := NIGHT_PANEL if dark else CARD
+	if active or confirmed:
+		tint = tint.lerp(accent, 0.16 if confirmed else 0.08)
+	var style := surface(tint)
+	style.border_color = accent if active or confirmed else OUTLINE
+	style.set_border_width_all(BORDER_ACTIVE if active or confirmed else BORDER)
+	return style
+
+
+static func button_surface(state := "normal", accent: Color = P1, primary := false) -> StyleBoxFlat:
+	var tint := CARD
+	if primary:
+		tint = NIGHT_RAISED.lerp(accent, 0.28)
+	if state == "hover":
+		tint = tint.lerp(accent, 0.12)
+	elif state == "pressed":
+		tint = tint.lerp(accent, 0.22)
+	elif state == "disabled":
+		tint = PANEL
+	var style := surface(tint)
+	style.border_color = accent if primary else OUTLINE
+	style.set_border_width_all(BORDER_ACTIVE if primary else BORDER)
+	style.set_content_margin_all(10)
 	return style

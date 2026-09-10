@@ -16,6 +16,11 @@ func _run() -> void:
 	if not TestHarness.require_loaded(self, main, "VISUAL_CAPTURE_FAIL"):
 		return
 	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/title-menu.png")
+
+	main._begin_lobby()
+	await process_frame
+	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/lobby.png")
 
 	main._finish_lobby()
@@ -269,6 +274,18 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/boss-chain-slam.png")
 
+	# Populate the new end-of-run comparison with readable sample values so the
+	# capture audits the densest result state instead of an all-zero placeholder.
+	main.run_stats["xp_by_player"] = [1380, 1115]
+	main.run_stats["personal_levels"] = [9, 8]
+	main.run_stats["items_by_player"] = [7, 5]
+	main.run_stats["items"] = 12
+	main.run_stats["items_by_type"] = {"heal": 4, "magnet": 3, "chain_ward": 2, "chest": 3}
+	main.elapsed = 180.0
+	for slot in 2:
+		var damage_by_weapon: Dictionary = main.run_stats["weapon_damage"][slot]
+		for weapon_index in main.weapon_loadouts[slot].size():
+			damage_by_weapon[String(main.weapon_loadouts[slot][weapon_index]["weapon_id"])] = 8200.0 - slot * 900.0 - weapon_index * 1200.0
 	boss.take_damage(999999.0)
 	await process_frame
 	await RenderingServer.frame_post_draw

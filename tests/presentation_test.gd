@@ -273,11 +273,13 @@ func _test_layout(main: Node) -> void:
 	_check(main.p1_health_text_label.position == main.p1_health_bar.position
 		and main.p1_health_text_label.size == main.p1_health_bar.size,
 		"P1 health text is aligned inside its bar")
-	_check(main.chain_distance_text_label.position == main.chain_bar.position
-		and main.chain_integrity_text_label.position == main.chain_integrity_bar.position,
-		"chain labels are aligned inside their bars")
-	_check(main.xp_text_label.position == main.xp_bar.position and main.xp_text_label.size == main.xp_bar.size,
-		"level and XP text are aligned inside the bottom bar")
+	for pair in [[main.chain_distance_text_label, main.chain_bar], [main.chain_integrity_text_label, main.chain_integrity_bar], [main.xp_text_label, main.xp_bar]]:
+		var caption: Label = pair[0]
+		var meter: ProgressBar = pair[1]
+		_check(is_equal_approx(caption.position.x, meter.position.x) and is_equal_approx(caption.size.x, meter.size.x),
+			"upper HUD labels align with their meter widths")
+		_check(caption.position.y + caption.size.y <= meter.position.y and meter.position.y < 130,
+			"meter labels stay above the thin top bars without overlapping their fill")
 	_check(main.level_overlay.position.y >= main.chain_integrity_bar.position.y + main.chain_integrity_bar.size.y,
 		"the level-up panel starts below the chain bars")
 	# The largest text on screen used to land on top of the two survivors.

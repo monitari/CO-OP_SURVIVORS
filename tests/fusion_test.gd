@@ -159,7 +159,7 @@ func _test_growth_selection_hides_material_hints(main: Node) -> void:
 	for evolution in EvolutionCatalog.all_evolutions():
 		_check(not shown.contains(String(evolution["weapon_name"])),
 			"the growth screen does not name the fusion %s" % String(evolution["weapon_name"]))
-	_check(not shown.contains("→ "), "and does not lay the requirements out as a table")
+	_check(not shown.contains(" T7 + "), "and does not lay enhancement requirements out as a table")
 	_check(not shown.contains("미지의 합성") and not shown.contains("합성 재료"),
 		"and does not label an offered card as a hidden fusion material")
 	# It still has to say where the run is, or the screen is a card rack with no
@@ -190,7 +190,7 @@ func _test_growth_selection_hides_material_hints(main: Node) -> void:
 	var mark := main.level_card_labels[1][0].get_node("FusionMark") as TextureRect
 	_check(mark.visible and mark.texture != null,
 		"owning both ingredients reveals the partner icon on its growth card")
-	_check(mark.tooltip_text.contains(String(treasure["name"])) and mark.tooltip_text.contains("합치면 합성됩니다"),
+	_check(mark.tooltip_text.contains(String(treasure["name"])) and mark.tooltip_text.contains("무기가 강화됩니다"),
 		"the seal explains which owned item combines with this card")
 	var revealed_line: String = main._fusion_progress_line(1)
 	_check(revealed_line.contains(String(treasure["name"])),

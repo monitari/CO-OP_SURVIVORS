@@ -1,7 +1,7 @@
 class_name ExperienceSystem
 extends Node2D
 
-signal experience_collected(amount: int)
+signal experience_collected(amount: int, collector_index: int)
 
 const GemScript := preload("res://scripts/entities/experience_gem.gd")
 
@@ -92,7 +92,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			var speed := lerpf(170.0, 760.0, 1.0 - clampf(distance / magnet_radius, 0.0, 1.0))
 			gem.position += gem.global_position.direction_to(nearest.global_position) * speed * delta
 		if gem.global_position.distance_to(nearest.global_position) <= pickup_radius + nearest.radius:
-			_collect_at(index, gem)
+			_collect_at(index, gem, nearest.player_index - 1)
 
 
 ## Puts every gem on the map into flight toward the nearest survivor. It used to
@@ -115,11 +115,11 @@ func _collect(gem: ExperienceGem) -> void:
 	var index := active_gems.find(gem)
 	if index < 0:
 		return
-	_collect_at(index, gem)
+	_collect_at(index, gem, -1)
 
 
-func _collect_at(index: int, gem: ExperienceGem) -> void:
+func _collect_at(index: int, gem: ExperienceGem, collector_index := -1) -> void:
 	active_gems.remove_at(index)
-	experience_collected.emit(gem.value)
+	experience_collected.emit(gem.value, collector_index)
 	gem.deactivate()
 	gem_pool.append(gem)

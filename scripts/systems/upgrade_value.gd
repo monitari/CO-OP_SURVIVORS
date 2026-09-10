@@ -40,7 +40,7 @@ static func benefits_loadout(loadout: Array, effect: String) -> bool:
 			"projectile_speed":
 				if w.has("speed"): return true
 			"duration":
-				if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide", "comet_storm", "cream_volcano", "glacial_satellite"]: return true
+				if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide"]: return true
 			"area":
 				if id not in ["homing", "flame"]: return true
 			_: return true
@@ -67,7 +67,7 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 		coverage *= (1.0 - pow(0.82, float(w["jumps"]))) / (1.0 - pow(0.82, float(base["jumps"])))
 	if id in ["homing", "flame", "starpiercer", "supernova"]:
 		coverage *= 1.0 + float(a["pierce"]) * 0.35
-	if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide", "comet_storm", "cream_volcano", "glacial_satellite"]:
+	if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide"]:
 		coverage *= float(a["duration"])
 	# Area is not a damage upgrade for homing or fixed-radius orbit shards.
 	if id not in ["homing", "flame", "orbit", "celestial", "lightning"]:
@@ -95,7 +95,6 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 	if id == "unlock_weapon": loadout.append(main._build_weapon_state(option["character"]))
 	elif id == "evolve_weapon":
 		loadout[index] = Evolutions.build_state(option["evolution"], loadout[index])
-		if option.has("consume_weapon_slot"): loadout.remove_at(int(option["consume_weapon_slot"]))
 	elif id in ["unlock_treasure", "treasure_upgrade"]:
 		match main._option_icon_id(slot, option):
 			"might": a["might"] += 0.09
