@@ -26,6 +26,10 @@ var spatial_grid: EnemySpatialGrid
 var active := false
 var source_player := -1
 var source_weapon := ""
+## The emitting part of the shot, on its own additive canvas item. Built once
+## per pooled projectile and reused with it, so a nova of nine embers costs
+## nine extra canvas items at most and never allocates mid-wave.
+var glow: GlowLayer
 
 
 func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
@@ -50,7 +54,19 @@ func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
 	source_weapon = ""
 	visible = true
 	set_physics_process(true)
+	_ensure_glow()
 	queue_redraw()
+
+
+## Callers set `style` and `projectile_color` immediately after setup() and
+## rely on the deferred redraw picking them up; the glow is deferred the same
+## way and for the same reason.
+func _ensure_glow() -> void:
+	if glow == null:
+		glow = GlowLayer.attach(self, _paint_glow, -1)
+	if glow != null:
+		glow.visible = Moonlight.enabled
+		glow.queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
@@ -177,3 +193,17 @@ func _draw_ember() -> void:
 		Vector2(-radius * 1.2, -radius * 0.5), Vector2(-radius * 3.4 - wobble * 6.0, 0.0),
 		Vector2(-radius * 1.2, radius * 0.5),
 	]), Color(projectile_color.lightened(0.2), 0.3))
+
+
+## Only the parts that are actually burning. An ember is mostly an orange body
+## with a dark-edged silhouette, and making the whole shot additive erased both
+## — the first attempt turned Ignis's nova into a single pale ring. So the hot
+## centre and the tip of the trailing flame emit, and the body stays a body.
+func _paint_glow(layer: GlowLayer) -> void:
+	match style:
+		"star":
+			layer.draw_circle(Vector2.ZERO, radius * 1.6, Moonlight.glow(projectile_color, 0.16))
+			layer.draw_circle(Vector2.ZERO, radius * 0.62, Moonlight.glow(projectile_color.lightened(0.7), 0.32))
+		"ember":
+			layer.draw_circle(Vector2(radius * 0.22, 0.0), radius * 0.95, Moonlight.glow(projectile_color.lightened(0.5), 0.28))
+			layer.draw_circle(Vector2(-radius * 2.2, 0.0), radius * 0.55, Moonlight.glow(projectile_color, 0.13))

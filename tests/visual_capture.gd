@@ -17,6 +17,16 @@ func _run() -> void:
 		return
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/title-menu.png")
+	main.meta_progression.points = 8
+	main.title_mode = "meta"
+	main.title_cursor = 0
+	main._refresh_title_ui()
+	await process_frame
+	await RenderingServer.frame_post_draw
+	_save_viewport("res://.godot_runtime/title-meta.png")
+	main.title_mode = "menu"
+	main.title_cursor = 0
+	main._refresh_title_ui()
 
 	main._begin_lobby()
 	await process_frame

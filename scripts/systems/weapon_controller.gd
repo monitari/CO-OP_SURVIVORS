@@ -884,19 +884,36 @@ func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
 	return point.distance_to(from + segment * ratio)
 
 
+## Lightning is a hard white line with light spilling off it, and those are two
+## different things drawn two different ways. The bolt itself stays narrow and
+## opaque so a chain of six jumps is still six readable lines; the spill is a
+## separate additive pass on the same jagged path, sitting behind the core so
+## it spreads out from it rather than washing over it.
 func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> void:
-	var bolt := Line2D.new()
-	bolt.width = width * 1.5
-	bolt.default_color = color.lightened(0.2)
-	bolt.z_index = 3
-	bolt.antialiased = true
+	var path := PackedVector2Array()
 	for index in 8:
 		var ratio := float(index) / 7.0
 		var point := from.lerp(to, ratio)
 		if index > 0 and index < 7:
 			point += Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
-		bolt.add_point(point)
+		path.append(point)
+	var bolt := Line2D.new()
+	bolt.width = width * 1.5
+	bolt.default_color = color.lightened(0.2)
+	bolt.z_index = 3
+	bolt.antialiased = true
+	bolt.points = path
 	add_child(bolt)
+	if Moonlight.enabled:
+		var spill := Line2D.new()
+		spill.width = width * 4.6
+		spill.default_color = Moonlight.glow(color, 0.20)
+		spill.material = Moonlight.additive()
+		spill.antialiased = true
+		spill.z_as_relative = true
+		spill.z_index = -1
+		spill.points = path
+		bolt.add_child(spill)
 	_flash_and_free(bolt, 0.06, 0.22)
 
 

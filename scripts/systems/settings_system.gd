@@ -9,6 +9,8 @@ var sound_enabled := true
 var music_enabled := true
 var damage_numbers_enabled := true
 var screen_shake_enabled := true
+var fullscreen_enabled := false
+var last_save_error: Error = OK
 
 
 func load_settings() -> void:
@@ -19,12 +21,15 @@ func load_settings() -> void:
 	music_enabled = bool(config.get_value(SECTION, "music_enabled", music_enabled))
 	damage_numbers_enabled = bool(config.get_value(SECTION, "damage_numbers_enabled", damage_numbers_enabled))
 	screen_shake_enabled = bool(config.get_value(SECTION, "screen_shake_enabled", screen_shake_enabled))
+	fullscreen_enabled = bool(config.get_value(SECTION, "fullscreen_enabled", fullscreen_enabled))
 
 
-func save_settings() -> void:
+func save_settings() -> Error:
 	var config := ConfigFile.new()
 	config.set_value(SECTION, "sound_enabled", sound_enabled)
 	config.set_value(SECTION, "music_enabled", music_enabled)
 	config.set_value(SECTION, "damage_numbers_enabled", damage_numbers_enabled)
 	config.set_value(SECTION, "screen_shake_enabled", screen_shake_enabled)
-	config.save(settings_path)
+	config.set_value(SECTION, "fullscreen_enabled", fullscreen_enabled)
+	last_save_error = config.save(settings_path)
+	return last_save_error

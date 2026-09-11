@@ -9,6 +9,7 @@ const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
+const ChainFlowScript := preload("res://scripts/effects/chain_flow.gd")
 const ShowcaseScript := preload("res://scripts/effects/showcase.gd")
 const ParticleFieldScript := preload("res://scripts/systems/particle_field.gd")
 const ArenaFloorScript := preload("res://scripts/entities/arena_floor.gd")
@@ -127,6 +128,7 @@ var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
 var chain_glow: Line2D
+var chain_flow: ChainFlow
 var bursts: BurstField
 var particles: ParticleField
 ## A fusion, a resonance and a chest each stop the run and take the screen for
@@ -427,6 +429,8 @@ func _ready() -> void:
 	randomize()
 	settings = SettingsScript.new() as GameSettings
 	settings.load_settings()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen_enabled else DisplayServer.WINDOW_MODE_WINDOWED)
 	meta_progression = MetaProgressionScript.new() as MetaProgression
 	meta_progression.load_progress()
 	_setup_input_map()
@@ -501,9 +505,16 @@ func _input(event: InputEvent) -> void:
 				_join_lobby_slot(0, -1, "키보드 WASD")
 			elif key in [KEY_UP, KEY_LEFT, KEY_DOWN, KEY_RIGHT]:
 				_join_lobby_slot(1, -1, "키보드 방향키")
+	if event.is_action_pressed("toggle_moonlight"):
+		_toggle_moonlight()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("toggle_fullscreen"):
 		var mode := DisplayServer.window_get_mode()
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if mode == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		_persist_settings()
+		if title_active:
+			_refresh_title_ui()
 		get_viewport().set_input_as_handled()
 
 
@@ -696,6 +707,8 @@ func _physics_process(delta: float) -> void:
 		clampf(players[0].position.distance_to(players[1].position) / maxf(1.0, chain_max_length), 0.0, 1.0),
 		not players[0].downed and not players[1].downed)):
 		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
+		# The payoff for having been tied together all run: the chain floods.
+		chain_flow.surge()
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
 		boss_bar.value = boss_enemy.health
@@ -752,6 +765,10 @@ func _create_world() -> void:
 	particles = ParticleFieldScript.new() as ParticleField
 	add_child(particles)
 
+	# Three layers, and the split is the point. The halo adds light, the body
+	# never does — a chain that was additive all the way through lost its dark
+	# edge over a pale floor and vanished into a crowded wave, which is the
+	# opposite of what the one mechanic nobody else has should do.
 	chain_glow = Line2D.new()
 	chain_glow.width = 18.0
 	chain_glow.default_color = Color(0.25, 0.75, 1.0, 0.12)
@@ -759,6 +776,9 @@ func _create_world() -> void:
 	chain_glow.add_point(Vector2.ZERO)
 	chain_glow.add_point(Vector2.ZERO)
 	add_child(chain_glow)
+
+	chain_flow = ChainFlowScript.new() as ChainFlow
+	add_child(chain_flow)
 
 	chain_line = Line2D.new()
 	chain_line.width = 5.0
@@ -776,6 +796,35 @@ func _create_world() -> void:
 	# it stays and this one goes.
 	world_camera.position_smoothing_enabled = false
 	add_child(world_camera)
+
+	_apply_moonlight()
+
+
+## The whole moonlight pass hangs off one switch, because the only way to know
+## whether a lighting change helped is to see the same scene with it and
+## without it — and the scene that decides it is the one at minute twenty with
+## two hundred enemies on screen, which is not a scene anyone can set up twice.
+## F12 during a run. Deliberately not saved: this is an instrument, not a
+## preference, and a preference would have to earn a row in the pause menu.
+func _toggle_moonlight() -> void:
+	Moonlight.enabled = not Moonlight.enabled
+	_apply_moonlight()
+	if not title_active and not lobby_active:
+		_show_message("달빛 연출 %s" % ("켜짐" if Moonlight.enabled else "꺼짐"), Color("8ecae6"))
+
+
+## Everything the pass touches that is drawn once and kept, rather than redrawn
+## every frame: the rooftop window, the actors, and the chain's halo material.
+func _apply_moonlight() -> void:
+	chain_glow.material = Moonlight.additive() if Moonlight.enabled else null
+	chain_flow.visible = Moonlight.enabled
+	arena_floor.queue_redraw()
+	for player in players:
+		if is_instance_valid(player):
+			player.queue_redraw()
+	for enemy in enemies:
+		if is_instance_valid(enemy):
+			enemy.queue_redraw()
 
 
 func _create_players() -> void:
@@ -1513,7 +1562,7 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 
 
 ## Menu rows, per page. The last entry of every page is the way out of it.
-const TITLE_MENU := ["게임 시작", "설정", "제작진", "게임 종료"]
+const TITLE_MENU := ["게임 시작", "영구 성장", "설정", "제작진", "게임 종료"]
 const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음", "음악", "전체 화면", "뒤로"]
 const TITLE_CREDITS := ["뒤로"]
 
@@ -1537,8 +1586,26 @@ func _begin_title() -> void:
 func _title_rows() -> Array:
 	match title_mode:
 		"settings": return TITLE_SETTINGS
+		"meta":
+			var rows: Array = []
+			for entry in MetaProgression.UPGRADES:
+				rows.append(String(entry["name"]))
+			return rows
 		"credits": return TITLE_CREDITS
 	return TITLE_MENU
+
+
+func _leave_title_subpage() -> void:
+	if title_mode == "menu":
+		return
+	var previous_mode := title_mode
+	title_mode = "menu"
+	match previous_mode:
+		"meta": title_cursor = 1
+		"settings": title_cursor = 2
+		"credits": title_cursor = 3
+		_: title_cursor = 0
+	_refresh_title_ui()
 
 
 func _handle_title_input() -> void:
@@ -1553,9 +1620,7 @@ func _handle_title_input() -> void:
 		# Cancel leaves a sub-page. On the menu itself it does nothing: quitting
 		# is an entry a player picks, not something a stray key press does.
 		if title_mode != "menu":
-			title_mode = "menu"
-			title_cursor = 0
-			_refresh_title_ui()
+			_leave_title_subpage()
 
 
 func _activate_title_item(index: int) -> void:
@@ -1566,6 +1631,12 @@ func _activate_title_item(index: int) -> void:
 		return
 	title_cursor = index
 	feedback.play_cue("select")
+	if title_mode == "meta":
+		var entry: Dictionary = MetaProgression.UPGRADES[index]
+		if meta_progression.purchase(String(entry["id"])):
+			feedback.play_cue("fusion")
+		_refresh_title_ui()
+		return
 	if title_mode == "settings":
 		match index:
 			0: screen_shake_enabled = not screen_shake_enabled
@@ -1579,27 +1650,31 @@ func _activate_title_item(index: int) -> void:
 				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if mode == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
 			5:
 				title_mode = "menu"
-				title_cursor = 1
-		if index < 4:
+				title_cursor = 2
+		if index < 5:
 			_persist_settings()
 		_refresh_title_ui()
 		return
 	if title_mode == "credits":
 		title_mode = "menu"
-		title_cursor = 2
+		title_cursor = 3
 		_refresh_title_ui()
 		return
 	match index:
 		0: _begin_lobby()
 		1:
-			title_mode = "settings"
+			title_mode = "meta"
 			title_cursor = 0
 			_refresh_title_ui()
 		2:
+			title_mode = "settings"
+			title_cursor = 0
+			_refresh_title_ui()
+		3:
 			title_mode = "credits"
 			title_cursor = 0
 			_refresh_title_ui()
-		3: get_tree().quit()
+		4: get_tree().quit()
 
 
 func _refresh_title_ui() -> void:
@@ -2065,6 +2140,9 @@ func _update_chain_visual() -> void:
 	chain_line.default_color = chain_color
 	chain_line.width = (10.0 + sin(elapsed * 16.0) * 2.0) if chain_warded() else (2.5 if chain_overloaded else 5.0)
 	chain_glow.default_color = Color(chain_color, 0.30 if chain_warded() else (0.05 if chain_overloaded else 0.12 + ratio * 0.13))
+	# The same stage the colour came from, so what the light is doing and what
+	# colour it is can never say two different things about the tension.
+	chain_flow.set_state(players[0].position, players[1].position, chain_color, stage, chain_warded(), chain_overloaded)
 	if stage == 3 and previous_chain_stage < 3:
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 4.0)
@@ -2422,6 +2500,7 @@ func _persist_settings() -> void:
 	settings.damage_numbers_enabled = feedback.damage_numbers_enabled
 	settings.sound_enabled = feedback.sound_enabled
 	settings.music_enabled = feedback.music_enabled
+	settings.fullscreen_enabled = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 	settings.save_settings()
 
 
@@ -5078,6 +5157,8 @@ func _refresh_meta_result_ui() -> void:
 	var title := result_overlay.get_node("MetaTitle") as Label
 	title.visible = run_won
 	title.text = "클리어 보상 +%d 달빛 생선  ·  보유 %d  ·  다음 원정부터 적용" % [run_reward, meta_progression.points]
+	if meta_progression.last_save_error != OK:
+		title.text = "저장할 수 없습니다 · 진행 상황은 변경되지 않았어요"
 	for index in MetaProgression.UPGRADES.size():
 		var card := result_overlay.get_node("MetaUpgrade%d" % index) as Label
 		card.visible = run_won
@@ -5160,6 +5241,7 @@ func _setup_input_map() -> void:
 	_add_key_action("toggle_sound", KEY_F3)
 	_add_key_action("toggle_music", KEY_F4)
 	_add_key_action("toggle_fullscreen", KEY_F11)
+	_add_key_action("toggle_moonlight", KEY_F12)
 	_add_key_action("p1_choice_1", KEY_A)
 	_add_key_action("p1_choice_2", KEY_S)
 	_add_key_action("p1_choice_3", KEY_D)

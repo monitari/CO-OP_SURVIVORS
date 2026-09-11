@@ -697,6 +697,12 @@ func apply_slow(duration: float, multiplier: float) -> void:
 
 func _draw() -> void:
 	redraw_count += 1
+	# Every enemy gets the same footing shadow whether its body is a painted
+	# sprite or drawn by EnemyArt, which is the whole point of the rule living
+	# in Moonlight: the crowd used to be half-shadowed, and a sprite-backed
+	# chaser next to a drawn one read as the two standing on different floors.
+	# Negating the rotation keeps it lying flat while the enemy turns.
+	Moonlight.ground_shadow(self, Vector2.ZERO, radius, 0.95, -rotation)
 	# Wings, claws and spines are now part of the painted sprite itself.
 	if charge_windup > 0.0:
 		var charge_alpha := 0.25 + sin(charge_windup * 34.0) * 0.12

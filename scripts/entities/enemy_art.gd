@@ -11,8 +11,9 @@ const NAMES := {
 
 
 static func draw_body(canvas: Node2D, kind: String, radius: float, flash: float, enraged: bool) -> void:
+	# The footing shadow is drawn by the enemy itself, under the same rule the
+	# survivors and the rooftop props use — see Moonlight.ground_shadow.
 	canvas.draw_set_transform(Vector2.ZERO, 0, Vector2.ONE * radius)
-	canvas.draw_circle(Vector2(0, 0.15), 1.04, Color(0.02, 0.06, 0.07, 0.35))
 	match kind:
 		"charger":
 			_dog(canvas, flash)

@@ -31,6 +31,7 @@ var save_path := SAVE_PATH
 var points := 0
 var ranks: Dictionary = {}
 var discoveries: Dictionary = {}
+var last_save_error: Error = OK
 
 
 func _init() -> void:
@@ -62,7 +63,8 @@ func save_progress() -> Error:
 		config.set_value(SECTION, id, rank(id))
 	for fusion_id in discoveries:
 		config.set_value(DISCOVERY_SECTION, String(fusion_id), true)
-	return config.save(save_path)
+	last_save_error = config.save(save_path)
+	return last_save_error
 
 
 func award_clear() -> int:
@@ -78,7 +80,9 @@ func award(amount: int) -> int:
 	if granted <= 0:
 		return 0
 	points += granted
-	save_progress()
+	if save_progress() != OK:
+		points -= granted
+		return 0
 	return granted
 
 
@@ -96,10 +100,14 @@ func cost(id: String) -> int:
 func purchase(id: String) -> bool:
 	var price := cost(id)
 	if price <= 0 or points < price:
+		last_save_error = OK
 		return false
 	points -= price
 	ranks[id] = rank(id) + 1
-	save_progress()
+	if save_progress() != OK:
+		points += price
+		ranks[id] = rank(id) - 1
+		return false
 	return true
 
 
@@ -107,7 +115,8 @@ func mark_discovered(fusion_id: String) -> void:
 	if fusion_id.is_empty() or discoveries.has(fusion_id):
 		return
 	discoveries[fusion_id] = true
-	save_progress()
+	if save_progress() != OK:
+		discoveries.erase(fusion_id)
 
 
 func is_discovered(fusion_id: String) -> bool:

@@ -21,8 +21,20 @@ const REDRAW_STEP := 384.0 ## How far the camera travels before the window is re
 const PROP_CELL := 512
 const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
 const RooftopTexture := preload("res://assets/environment/moonroof_slate_tile.png")
+## The boxy props throw a hard-edged shadow the length of their own height.
+## These used to be per-prop offsets that disagreed about direction as well as
+## length; now only the length differs, which is the part that should.
+const CRATE_HEIGHT := 7.0
+const VENT_HEIGHT := 7.5
 
 var draw_origin := Vector2.ZERO
+
+
+## Shorthand for the grade every ground surface goes through, so the palette
+## below reads as the colours the roof was painted in rather than as the
+## colours it happens to be lit by tonight.
+func _lit(color: Color, facing := 0.0) -> Color:
+	return Moonlight.ground(color, facing)
 
 
 func _ready() -> void:
@@ -42,16 +54,20 @@ func follow(focus: Vector2) -> void:
 func _draw() -> void:
 	var low := draw_origin - Vector2(VIEW_MARGIN, VIEW_MARGIN)
 	var high := draw_origin + Vector2(VIEW_MARGIN, VIEW_MARGIN)
-	draw_rect(Rect2(low, high - low), Color("23383e"))
+	draw_rect(Rect2(low, high - low), _lit(Color("23383e")))
 	_draw_rooftop_texture(low, high)
 
 	# Gutters every 768px, again indexed off world position.
 	var first_gutter := int(floor(low.x / 768.0)) * 768
 	for x in range(first_gutter, int(high.x) + 768, 768):
-		draw_rect(Rect2(x - 8, low.y, 16, high.y - low.y), Color("1e333a"))
-		draw_line(Vector2(x - 8, low.y), Vector2(x - 8, high.y), Color("53625d"), 2)
+		draw_rect(Rect2(x - 8, low.y, 16, high.y - low.y), _lit(Color("1e333a")))
+		# A gutter is a channel, so its far wall is the one the moon reaches
+		# and its near wall is the one in shade. Same rule, cheapest possible
+		# case: two lines that used to be one colour are now two.
+		draw_line(Vector2(x - 8, low.y), Vector2(x - 8, high.y), _lit(Color("53625d"), 0.5), 2)
+		draw_line(Vector2(x + 8, low.y), Vector2(x + 8, high.y), _lit(Color("53625d")).darkened(0.35), 2)
 		for y in range(int(low.y) - posmod(int(low.y), 128), int(high.y), 128):
-			draw_line(Vector2(x - 5, y), Vector2(x + 5, y), Color("405355"), 2)
+			draw_line(Vector2(x - 5, y), Vector2(x + 5, y), _lit(Color("405355")), 2)
 
 	_draw_props(low, high)
 	if _window_contains_origin(low, high):
@@ -74,7 +90,7 @@ func _draw_rooftop_texture(low: Vector2, high: Vector2) -> void:
 			var pivot := tile_origin + Vector2(texture_size.x if flip_x else 0.0, texture_size.y if flip_y else 0.0)
 			var scale := Vector2(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0)
 			draw_set_transform(pivot, 0.0, scale)
-			draw_texture(RooftopTexture, Vector2.ZERO, Color("d1dcda"))
+			draw_texture(RooftopTexture, Vector2.ZERO, _lit(Color("d1dcda")))
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -88,20 +104,21 @@ func _draw_home_terrace() -> void:
 	# Let the painted slabs remain visible through the safe starting marker. A
 	# solid plate looked like a debug rectangle once the surrounding roof gained
 	# real material detail.
-	mat.bg_color = Color("384b48", 0.72)
-	mat.border_color = Color("526158")
+	mat.bg_color = _lit(Color("384b48", 0.72))
+	mat.border_color = _lit(Color("526158"), 0.3)
 	mat.set_border_width_all(3)
 	mat.set_corner_radius_all(16)
 	draw_style_box(mat, Rect2(-230, -160, 460, 320))
 	for side: float in [-1.0, 1.0]:
-		draw_dashed_line(Vector2(-207, side * 139), Vector2(207, side * 139), Color("697060"), 1.5, 9)
-	_fish(Vector2.ZERO, Color("586659"))
+		draw_dashed_line(Vector2(-207, side * 139), Vector2(207, side * 139), _lit(Color("697060")), 1.5, 9)
+	_fish(Vector2.ZERO, _lit(Color("586659")))
 	_bowls(Vector2(0, -230))
+	var paw := _lit(Color("526058"))
 	for index in 10:
 		var at := Vector2(-340 + index * 53, 238 + sin(index * 0.5) * 24)
-		draw_circle(at, 4, Color("526058"))
+		draw_circle(at, 4, paw)
 		for toe in [Vector2(-5, -5), Vector2(1, -8), Vector2(6, -4)]:
-			draw_circle(at + toe, 2, Color("526058"))
+			draw_circle(at + toe, 2, paw)
 
 
 ## Props come from the cell they sit in, not from a run-wide seed, so the roof
@@ -140,41 +157,72 @@ func _cell_seed(cell_x: int, cell_y: int) -> int:
 
 
 func _box(at: Vector2) -> void:
-	draw_rect(Rect2(at + Vector2(3, 6), Vector2(68, 52)), Color("20343b"))
-	draw_rect(Rect2(at, Vector2(68, 48)), Color("73614d"))
-	draw_rect(Rect2(at + Vector2(6, 7), Vector2(56, 35)), Color("4f5043"))
-	draw_colored_polygon(PackedVector2Array([at, at + Vector2(24, -10), at + Vector2(27, 12), at + Vector2(0, 16)]), Color("8a7257"))
-	draw_colored_polygon(PackedVector2Array([at + Vector2(68, 0), at + Vector2(76, -8), at + Vector2(82, 34), at + Vector2(68, 38)]), Color("806c51"))
-	_fish(at + Vector2(35, 27), Color("727057"), 0.28)
+	var drop := Moonlight.cast_offset(CRATE_HEIGHT)
+	draw_rect(Rect2(at + drop, Vector2(68, 52)), _lit(Color("20343b")).darkened(0.25))
+	draw_rect(Rect2(at, Vector2(68, 48)), _lit(Color("73614d")))
+	draw_rect(Rect2(at + Vector2(6, 7), Vector2(56, 35)), _lit(Color("4f5043")))
+	# The two lids catch the moon at different angles; the near one is turned
+	# into it, the far one away.
+	draw_colored_polygon(PackedVector2Array([at, at + Vector2(24, -10), at + Vector2(27, 12), at + Vector2(0, 16)]), _lit(Color("8a7257"), 0.45))
+	draw_colored_polygon(PackedVector2Array([at + Vector2(68, 0), at + Vector2(76, -8), at + Vector2(82, 34), at + Vector2(68, 38)]), _lit(Color("806c51"), 0.1))
+	if Moonlight.enabled:
+		var edge := Moonlight.rim(Color("73614d"), 0.42)
+		draw_line(at, at + Vector2(68, 0), edge, 1.6)
+		draw_line(at, at + Vector2(0, 48), edge, 1.6)
+	_fish(at + Vector2(35, 27), _lit(Color("727057")), 0.28)
 
 
 func _vent(at: Vector2) -> void:
-	draw_rect(Rect2(at + Vector2(4, 6), Vector2(70, 54)), Color("20343b"))
-	draw_rect(Rect2(at, Vector2(70, 50)), Color("52625f"))
-	draw_rect(Rect2(at + Vector2(4, 4), Vector2(62, 42)), Color("3c5355"))
+	var drop := Moonlight.cast_offset(VENT_HEIGHT)
+	draw_rect(Rect2(at + drop, Vector2(70, 54)), _lit(Color("20343b")).darkened(0.25))
+	draw_rect(Rect2(at, Vector2(70, 50)), _lit(Color("52625f"), 0.18))
+	draw_rect(Rect2(at + Vector2(4, 4), Vector2(62, 42)), _lit(Color("3c5355")))
 	for slat in 5:
-		draw_line(at + Vector2(10, 10 + slat * 7), at + Vector2(60, 10 + slat * 7), Color("71817a"), 2)
+		draw_line(at + Vector2(10, 10 + slat * 7), at + Vector2(60, 10 + slat * 7), _lit(Color("71817a")), 2)
+	if Moonlight.enabled:
+		# Painted metal is the one thing up here with a hard edge, so it gets
+		# the only true specular on the roof: a thin, bright top lip.
+		var edge := Moonlight.rim(Color("71817a"), 0.7)
+		draw_line(at, at + Vector2(70, 0), edge, 2.0)
+		draw_line(at, at + Vector2(0, 50), Moonlight.rim(Color("52625f"), 0.4), 1.4)
+		for slat in 5:
+			draw_line(at + Vector2(10, 9 + slat * 7), at + Vector2(60, 9 + slat * 7), Color(edge, 0.28), 1.0)
 
 
 func _yarn(at: Vector2) -> void:
-	draw_circle(at + Vector2(3, 5), 18, Color("20343b"))
-	draw_circle(at, 16, Color("665d63"))
+	# A ball resting on the roof has one shadow, not a hard disc and a soft
+	# one on top of each other, so the common footing rule replaces the flat
+	# offset disc rather than joining it.
+	if Moonlight.enabled:
+		Moonlight.ground_shadow(self, at, 19.0, 1.5)
+	else:
+		draw_circle(at + Vector2(3, 5), 18, Color("20343b"))
+	draw_circle(at, 16, _lit(Color("665d63")))
 	for strand in 4:
-		draw_arc(at + Vector2(strand * 3 - 4, 0), 12, -1.8, 1.8, 16, Color("897578"), 1.3, true)
-	draw_polyline(PackedVector2Array([at + Vector2(16, 0), at + Vector2(31, 14), at + Vector2(49, 10)]), Color("897578"), 1.5, true)
+		draw_arc(at + Vector2(strand * 3 - 4, 0), 12, -1.8, 1.8, 16, _lit(Color("897578")), 1.3, true)
+	if Moonlight.enabled:
+		# A ball is the clearest place on the roof to state where the moon is.
+		draw_arc(at, 14.5, PI * 1.05, PI * 1.72, 14, Moonlight.rim(Color("897578"), 0.5), 2.0, true)
+	draw_polyline(PackedVector2Array([at + Vector2(16, 0), at + Vector2(31, 14), at + Vector2(49, 10)]), _lit(Color("897578")), 1.5, true)
 
 
 func _bowls(at: Vector2) -> void:
 	for side in [-1.0, 1.0]:
 		var spot := at + Vector2(side * 34, 0)
-		draw_circle(spot + Vector2(0, 4), 22, Color("20343b"))
-		draw_circle(spot, 21, Color("697a73"))
-		draw_circle(spot, 16, Color("31494e"))
+		if Moonlight.enabled:
+			Moonlight.ground_shadow(self, spot, 23.0, 1.3)
+		else:
+			draw_circle(spot + Vector2(0, 4), 22, Color("20343b"))
+		draw_circle(spot, 21, _lit(Color("697a73"), 0.12))
+		# The inside of a bowl is shaded from the same moon that lights its rim.
+		draw_circle(spot, 16, _lit(Color("31494e")).darkened(0.18))
+		if Moonlight.enabled:
+			draw_arc(spot, 19.5, PI * 1.02, PI * 1.78, 14, Moonlight.rim(Color("697a73"), 0.52), 2.2, true)
 		if side < 0:
 			for pellet in 5:
-				draw_circle(spot + Vector2.from_angle(pellet * 1.25) * 7, 4, Color("968164"))
+				draw_circle(spot + Vector2.from_angle(pellet * 1.25) * 7, 4, _lit(Color("968164"), 0.2))
 		else:
-			draw_arc(spot, 11, -2.6, -0.7, 12, Color("698e92"), 2, true)
+			draw_arc(spot, 11, -2.6, -0.7, 12, _lit(Color("698e92"), 0.35), 2, true)
 
 
 func _fish(at: Vector2, tint: Color, factor := 1.0) -> void:

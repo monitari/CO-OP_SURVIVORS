@@ -33,7 +33,7 @@ func _run() -> void:
 	if not TestHarness.require_loaded(self, main, "LAYOUT_FAIL"):
 		return
 	await process_frame
-	for mode in ["menu", "settings", "credits"]:
+	for mode in ["menu", "meta", "settings", "credits"]:
 		main.title_mode = mode
 		main.title_cursor = 0
 		main._refresh_title_ui()

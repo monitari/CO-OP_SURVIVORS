@@ -279,6 +279,9 @@ func revive() -> void:
 func _draw() -> void:
 	var flash := invulnerability > 0.0 and int(invulnerability * 18.0) % 2 == 0
 	var color := Color.WHITE if flash else body_color
+	# Drawn before anything else, so the cat stands on the roof rather than
+	# floating over it. Same rule the enemies and the props use.
+	Moonlight.ground_shadow(self, Vector2.ZERO, radius, 1.0)
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
 	_draw_tail(color)
 	# The body tilts into a turn and stretches slightly along the direction of

@@ -4,6 +4,7 @@ const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
+const MetaProgressionData := preload("res://scripts/systems/meta_progression.gd")
 const TitleLogo := preload("res://assets/ui/moonroof_title.png")
 const HudPaw := preload("res://assets/ui/frames/hud_paw.svg")
 const PLAYSTYLE := {
@@ -130,7 +131,7 @@ static func _title(main: Node) -> void:
 	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	label(screen, "달빛 아래의 따뜻한 고양이 모험",
+	label(screen, "한 화면에서 함께 지키는 로컬 2인 협동",
 		Rect2(Palette.PADDING, 12, 250, 24), Palette.TYPE_CAPTION, Palette.GOLD).name = "TitleEyebrow"
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
@@ -144,8 +145,9 @@ static func _title(main: Node) -> void:
 		state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# Tall enough for the credits, which is the longest of the three pages.
-	place(main.title_note, G.inner(0, 0, 5.0, 3.9, 5.8, 3.4), 15, Palette.MUTED)
-	var version := label(screen, "v0.1.0", Rect2(Palette.PADDING, screen.size.y - 38, 100, 30), Palette.TYPE_CAPTION, Palette.MUTED)
+	place(main.title_note, G.inner(0, 0, 5.0, 3.9, 5.8, 2.3), 15, Palette.MUTED)
+	var version_text := String(ProjectSettings.get_setting("application/config/version", "개발판"))
+	var version := label(screen, "v" + version_text, Rect2(Palette.PADDING, screen.size.y - 38, 100, 30), Palette.TYPE_CAPTION, Palette.MUTED)
 	version.name = "TitleVersion"
 	var keys := footer(screen, "↑ ↓ 이동 · ENTER / A 선택 · ESC / B 뒤로")
 	keys.name = "TitleKeys"
@@ -169,6 +171,13 @@ static func refresh_title(main: Node) -> void:
 				DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN]
 			state.text = "● 켜짐" if states[index] else "○ 꺼짐"
 			state.add_theme_color_override("font_color", Palette.P1 if states[index] else Palette.MUTED)
+		elif main.title_mode == "meta":
+			var entry: Dictionary = MetaProgressionData.UPGRADES[index]
+			var id := String(entry["id"])
+			var rank: int = main.meta_progression.rank(id)
+			var price: int = main.meta_progression.cost(id)
+			state.text = "Lv.%d/%d · %s" % [rank, int(entry["max_rank"]), "MAX" if price <= 0 else "%d개" % price]
+			state.add_theme_color_override("font_color", Palette.GOLD if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
 		row.text = ("▶  " if main.title_cursor == index else "     ") + caption
 		var focused: bool = main.title_cursor == index
 		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if focused else Palette.CARD)
@@ -179,10 +188,18 @@ static func refresh_title(main: Node) -> void:
 	match main.title_mode:
 		"settings":
 			main.title_note.text = "설정은 바로 저장되고 다음에 켤 때도 그대로예요."
+			if main.settings.last_save_error != OK:
+				main.title_note.text += "\n\n저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
+		"meta":
+			var entry: Dictionary = MetaProgressionData.UPGRADES[main.title_cursor]
+			main.title_note.text = "영구 성장 · 보유 %d 달빛 생선\n\n%s\n%s\n\n선택하면 즉시 구매하며 다음 원정부터 적용됩니다." % [
+				main.meta_progression.points, String(entry["name"]), String(entry["summary"])]
+			if main.meta_progression.last_save_error != OK:
+				main.title_note.text = "저장할 수 없습니다. 진행 상황은 변경되지 않았어요.\n\n저장 공간과 폴더 권한을 확인한 뒤 다시 시도해 주세요."
 		"credits":
 			main.title_note.text = "달빛 옥상 간식 수호대\n사슬로 묶인 두 고양이가 달빛 든 옥상을 지키는 2인 협동 서바이버.\n\n기획 · 프로그래밍 · 아트   monitari\n엔진   Godot 4\n\n함께 놀아준 모두에게 고맙습니다."
 		_:
-			main.title_note.text = "사슬로 묶인 두 고양이가 달빛 든 옥상을 지키는 이야기.\n\n둘이 함께여야 시작할 수 있어요."
+			main.title_note.text = "같은 PC에서 두 사람이 함께 플레이합니다.\n\n키보드 하나를 나눠 쓰거나 게임패드를 연결하세요. 두 사람이 참가하면 캐릭터를 고르고 출발합니다."
 
 
 static func _lobby(main: Node) -> void:
@@ -813,7 +830,7 @@ static func refresh_result(main: Node, victory: bool) -> void:
 				]
 	screen.get_node("CoopRecord").text = main._run_stats_summary()
 	main._refresh_meta_result_ui()
-	main.result_label.text = "SPACE / Y  강화 구매    ENTER / A  다시 결속하기" if victory else "ENTER / A  다시 결속하기"
+	main.result_label.text = "SPACE / Y  강화 구매    ENTER / A  메인 메뉴로" if victory else "ENTER / A  메인 메뉴로"
 
 
 static func _pause(main: Node) -> void:

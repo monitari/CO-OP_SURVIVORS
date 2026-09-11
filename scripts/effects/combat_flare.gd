@@ -7,6 +7,7 @@ var radius := 150.0
 var lifetime := 0.48
 var elapsed := 0.0
 var spokes := 8
+var glow: GlowLayer
 
 
 func setup(effect_position: Vector2, first: Color, second: Color, effect_radius := 150.0, effect_lifetime := 0.48) -> void:
@@ -16,6 +17,7 @@ func setup(effect_position: Vector2, first: Color, second: Color, effect_radius 
 	radius = effect_radius
 	lifetime = effect_lifetime
 	z_index = 4 # Below enemies and their danger telegraphs, above friendly rings.
+	glow = GlowLayer.attach(self, _paint_glow)
 	queue_redraw()
 
 
@@ -26,6 +28,8 @@ func _process(delta: float) -> void:
 	rotation = progress * 0.55
 	modulate.a = 1.0 - ease(progress, 2.2)
 	queue_redraw()
+	if glow != null:
+		glow.queue_redraw()
 	if elapsed >= lifetime:
 		queue_free()
 
@@ -50,3 +54,17 @@ func _draw() -> void:
 			outer - direction * 7.0,
 			outer - tangent * 5.0,
 		]), Color(secondary, 0.82))
+
+
+## An explosion is the one thing on the roof that briefly out-lights the moon,
+## so the hot centre and the spark tips emit and the rings do not. Pushing the
+## rings into the glow as well was the version that turned a mine field into a
+## white sheet: eight flares at once added to far past white and took the
+## enemies standing in them with it.
+func _paint_glow(layer: GlowLayer) -> void:
+	layer.draw_circle(Vector2.ZERO, radius * 0.60, Moonlight.glow(primary, 0.11))
+	layer.draw_circle(Vector2.ZERO, radius * 0.26, Moonlight.glow(secondary, 0.32))
+	for index in spokes:
+		var direction := Vector2.from_angle(TAU * float(index) / float(spokes))
+		var outer := direction * radius * (0.55 if index % 2 == 0 else 0.4)
+		layer.draw_circle(outer + direction * 6.0, radius * 0.085, Moonlight.glow(secondary, 0.26))

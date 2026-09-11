@@ -60,6 +60,8 @@ static func refresh_title(main: Node) -> void:
 		hit.visible = index < rows.size()
 		hit.position = row.position
 		hit.size = row.size
+	if main.title_overlay.has_node("TitleMetaBack"):
+		main.title_overlay.get_node("TitleMetaBack").visible = main.title_mode == "meta"
 
 
 static func install(main: Node) -> void:
@@ -72,6 +74,9 @@ static func install(main: Node) -> void:
 		hit.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
 		hit.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
 		hit.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var meta_back := button(main.title_overlay, "메인 메뉴로", Rect2(870, 510, 180, 36), func() -> void: main._leave_title_subpage())
+	meta_back.name = "TitleMetaBack"
+	meta_back.visible = false
 	for index in main.character_catalog.size():
 		var tile: Panel = main.character_overlay.get_node("Roster%d" % index)
 		tile.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -145,9 +150,10 @@ static func install(main: Node) -> void:
 				main.resonance_cursors[slot] = index
 				main._refresh_resonance_vote_ui())
 	button(main.level_overlay, "상세 · TAB / X", Rect2(G.w(12) - 236.0 - G.PAD, 24, 236, 32), func() -> void: toggle_details(main))
-	button(main.result_overlay, "다시 결속하기", Rect2((G.w(8) - 300.0) * 0.5, 582, 300, 34), func() -> void:
+	var result_menu := button(main.result_overlay, "메인 메뉴로", Rect2((G.w(8) - 300.0) * 0.5, 582, 300, 34), func() -> void:
 		main.get_tree().paused = false
 		main.get_tree().reload_current_scene())
+	result_menu.name = "ResultMenu"
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
 	settings.hide()
 	var pause_rects := PAUSE_SLOTS
@@ -209,13 +215,13 @@ static func choose_cat(main: Node, slot: int, direction: int) -> void:
 static func refresh_pause(main: Node) -> void:
 	if not main.pause_overlay.has_node("PauseAction0"): return
 	main.pause_overlay.get_node("SettingsRows").hide()
-	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "처음부터 다시", "게임 종료"]
+	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "메인 메뉴로", "게임 종료"]
 	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled, main.feedback.sound_enabled, main.feedback.music_enabled]
 	main.pause_overlay.get_node("PauseHeading").text = ("게임을 종료할까요?" if main.pending_quits else "현재 판을 종료할까요?") if main.restart_pending else "잠시 쉬어가기"
 	for index in PAUSE_ITEM_COUNT:
 		var b: Button = main.pause_overlay.get_node("PauseAction%d" % index)
 		b.visible = not main.restart_pending or index < 2
-		var caption: String = (["취소 · 계속 쉬기", "게임 종료" if main.pending_quits else "종료하고 처음부터"] [index] if main.restart_pending and index < 2 else names[index])
+		var caption: String = (["취소 · 계속 쉬기", "게임 종료" if main.pending_quits else "종료하고 메인으로"] [index] if main.restart_pending and index < 2 else names[index])
 		if not main.restart_pending and index in [1, 2, 3, 4]: caption += "\n" + ("● 켜짐" if states[index] else "○ 꺼짐")
 		b.text = ("▶  " if main.pause_cursor == index else "") + caption
 		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if main.pause_cursor == index else Palette.CARD)

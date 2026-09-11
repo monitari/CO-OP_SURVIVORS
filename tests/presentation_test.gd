@@ -347,10 +347,10 @@ func _test_nothing_is_clipped(main: Node) -> void:
 	_check_fits("예상 공명", main.character_synergy_label)
 	main.character_overlay.visible = false
 	# Naming the tail explicitly: this is the line that went missing, and it is
-	# the only thing on screen telling the pair how to play again.
+	# the only thing on screen telling the pair how to leave the finished run.
 	var text: String = main.result_label.text
-	_check(text.ends_with("ENTER / A  다시 결속하기"),
-		"the result screen still ends with the restart prompt")
+	_check(text.ends_with("ENTER / A  메인 메뉴로"),
+		"the result screen ends with the action it actually performs")
 
 
 func _check_fits(name: String, label: Label) -> void:
