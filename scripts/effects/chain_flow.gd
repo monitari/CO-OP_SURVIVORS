@@ -25,6 +25,12 @@ extends Node2D
 ## ramp you have to have been watching to notice.
 const FLOW_SPEED: Array[float] = [0.16, 0.46, 0.78, 1.18]
 const DRIVE: Array[float] = [0.30, 0.68, 1.05, 1.55]
+const STREAM_OFFSETS := [
+	[0.08, 0.61],
+	[0.05, 0.34, 0.79],
+	[0.03, 0.23, 0.58, 0.87],
+	[0.04, 0.19, 0.53, 0.81],
+]
 const SURGE_LIFE := 0.72
 ## Of that, the share spent gathering before the span floods.
 const SURGE_GATHER := 0.45
@@ -92,7 +98,7 @@ func _draw() -> void:
 	# waving and starts vibrating, at a frequency nothing else on screen uses.
 	var shiver := 0.0 if stage < 2 else float(stage - 1) * 1.7
 
-	_draw_streams(span, normal, drive, shiver)
+	_draw_streams(span, along, normal, drive, shiver)
 	if stage >= 3 and not overloaded:
 		_draw_anchor_sparks()
 	if surge_age < SURGE_LIFE:
@@ -102,13 +108,16 @@ func _draw() -> void:
 ## Two counter-running streams of light. The reverse one only exists once the
 ## pair is actually pulling, so "light going both ways" is itself the signal
 ## that the chain has started to load.
-func _draw_streams(span: Vector2, normal: Vector2, drive: float, shiver: float) -> void:
+func _draw_streams(span: Vector2, along: Vector2, normal: Vector2, drive: float, shiver: float) -> void:
 	var core := tint.lightened(0.45)
 	var directions := [1.0] if stage < 1 and not warded else [1.0, -1.0]
-	var count := 2 + stage * 2
+	var offsets: Array = STREAM_OFFSETS[stage]
 	for direction: float in directions:
-		for index in count:
-			var ratio := fposmod(phase * direction + float(index) / float(count), 1.0)
+		for index in offsets.size():
+			# Uneven packets read as charge travelling through a tether. Evenly
+			# spaced circles read as bulbs mounted on one.
+			var offset := float(offsets[index])
+			var ratio := fposmod(phase * direction + offset + (0.11 if direction < 0.0 else 0.0), 1.0)
 			var wave := sin(ratio * TAU * 2.0 + phase * 6.0) * 3.0
 			var vibration := sin(phase * 44.0 + float(index)) * shiver
 			var at := head_a + span * ratio + normal * (wave + vibration)
@@ -116,8 +125,11 @@ func _draw_streams(span: Vector2, normal: Vector2, drive: float, shiver: float) 
 			# cats' feet, which is what made an earlier version look like a
 			# string of lights switching on.
 			var taper := sin(ratio * PI)
-			draw_circle(at, 5.5 + drive * 5.0, Moonlight.glow(tint, 0.08 * drive * taper))
-			draw_circle(at, 2.0 + drive * 1.5, Moonlight.glow(core, 0.30 * drive * taper))
+			var pulse := 0.82 + 0.18 * sin(phase * 13.0 + float(index) * 2.3)
+			var trail := along * direction * (7.0 + drive * 8.0)
+			draw_line(at - trail, at, Moonlight.glow(tint, 0.075 * drive * taper), 5.0 + drive * 3.0, true)
+			draw_circle(at, (4.5 + drive * 4.0) * pulse, Moonlight.glow(tint, 0.08 * drive * taper))
+			draw_circle(at, (1.8 + drive * 1.25) * pulse, Moonlight.glow(core, 0.28 * drive * taper))
 
 
 ## At the limit the connection points are where the strain is, so that is where

@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Shoots the same four scenes twice, with the moonlight pass on and off, so
+## Shoots the same five scenes twice, with the moonlight pass on and off, so
 ## the lighting work can be judged on a comparison rather than on a memory of
 ## what the roof used to look like.
 ##
@@ -51,7 +51,7 @@ func _run() -> void:
 	await _pair(main, "effects", _build_effects)
 	await _pair(main, "crowd", _build_crowd)
 
-	print("MOONLIGHT_CAPTURE_DONE: 4 scenes x on/off in %s" % OUT)
+	print("MOONLIGHT_CAPTURE_DONE: 5 scenes x on/off in %s" % OUT)
 	quit()
 
 

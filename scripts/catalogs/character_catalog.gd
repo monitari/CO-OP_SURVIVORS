@@ -152,7 +152,7 @@ static func difficulty_profile(character: Dictionary) -> Dictionary:
 	var coverage := _normalise(float((character["weapon"] as Dictionary)["reach"]), _span(roster, "reach"))
 	var durability := _normalise(effective_health(character), _span(roster, "effective_health"))
 	var mobility := _normalise(effective_mobility(character), _span(roster, "effective_mobility"))
-	var ease := (
+	var ease_score := (
 		coverage * float(DIFFICULTY_WEIGHTS["coverage"])
 		+ durability * float(DIFFICULTY_WEIGHTS["durability"])
 		+ mobility * float(DIFFICULTY_WEIGHTS["mobility"])
@@ -162,21 +162,21 @@ static func difficulty_profile(character: Dictionary) -> Dictionary:
 		"flame": 0.55, "lance": 0.65, "scythe": 0.35, "orbit": 0.3,
 		"chain": 0.35, "mine": 0.25, "gravity": 0.4, "boomerang": 0.3}.get(character["weapon_id"], 0.5)
 	var sustain := clampf(float(character.get("recovery", 0.0)) / 1.3, 0.0, 1.0)
-	ease = clampf(ease * 0.72 + handling * 0.22 + sustain * 0.06, 0.0, 1.0)
+	ease_score = clampf(ease_score * 0.72 + handling * 0.22 + sustain * 0.06, 0.0, 1.0)
 	return {
 		"coverage": coverage,
 		"durability": durability,
 		"mobility": mobility,
-		"ease": ease,
-		"rating": difficulty_from_ease(ease),
+		"ease": ease_score,
+		"rating": difficulty_from_ease(ease_score),
 		"headline": _difficulty_headline(character, coverage, durability, mobility),
 	}
 
 
 ## 1 (easiest) to 5. Five bands rather than three because ten survivors spread
 ## across three grades left seven of them labelled the same thing.
-static func difficulty_from_ease(ease: float) -> int:
-	return clampi(5 - int(floor(ease * 5.0)), 1, 5)
+static func difficulty_from_ease(ease_score: float) -> int:
+	return clampi(5 - int(floor(ease_score * 5.0)), 1, 5)
 
 
 static func difficulty(character: Dictionary) -> int:

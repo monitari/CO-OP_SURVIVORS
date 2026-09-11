@@ -1,8 +1,8 @@
 class_name WeaponTechCatalog
 extends RefCounted
 
-## A weapon chooses its route once, when it first joins a build. Routes keep
-## later card hands coherent, change the treasure needed for the final form,
+## A weapon chooses its delivery when it first joins a build. Routes leave
+## all later upgrade axes open, change the treasure needed for the final form,
 ## and add a tag that determines which co-op resonance is created automatically.
 const TECHS := {
 	"homing": [
@@ -61,10 +61,81 @@ const TECHS := {
 }
 
 
+## Applied to a temporary cast state: previews and repeated selections never stack.
+const BEHAVIORS := {
+	"homing": {
+		"comet": {"text": "적 둘을 관통하는 유도탄", "pierce": 2},
+		"pursuit": {"text": "유도탄 한 발 추가 · 피해 20% 감소", "count": 1, "damage_scale": 0.8},
+		"constellation": {"text": "동료 위치에서도 유도탄 발사 · 피해 35% 감소", "echo": true, "damage_scale": 0.65}},
+	"lightning": {
+		"overload": {"text": "첫 적에게 집중 낙뢰 · 연쇄 1회", "jumps_set": 1, "damage_scale": 1.65},
+		"conductor": {"text": "연쇄 두 번 추가 · 피해 20% 감소", "jumps": 2, "damage_scale": 0.8}},
+	"flame": {
+		"sun": {"text": "적 둘을 관통하는 방사형 불꽃", "pierce": 2},
+		"wildfire": {"text": "불꽃 세 발 추가 · 피해 25% 감소", "count": 3, "damage_scale": 0.75},
+		"nebula": {"text": "퍼진 불꽃이 적을 향해 휘어짐", "homing": true}},
+	"frost": {
+		"shatter": {"text": "둔화된 적에게 냉기 파쇄 추가 피해", "shatter": true, "damage_scale": 0.8},
+		"permafrost": {"text": "동료에게도 작은 냉기 영역 생성", "ally_aura": true, "damage_scale": 0.75}},
+	"scythe": {
+		"execution": {"text": "좁은 부채꼴에 강한 집중 베기", "arc_scale": 0.6, "damage_scale": 1.6},
+		"dance": {"text": "앞뒤 동시 베기 · 피해 35% 감소", "rear_sweep": true, "damage_scale": 0.65},
+		"eclipse": {"text": "한 바퀴 원형 베기 · 피해 25% 감소", "full_circle": true, "damage_scale": 0.75}},
+	"chain": {"vow": {"text": "사슬 발동마다 두 고양이 체력 회복", "team_heal": true}},
+	"orbit": {
+		"shards": {"text": "궤도 파편 두 개 추가 · 피해 25% 감소", "count": 2, "damage_scale": 0.75},
+		"ritual": {"text": "반대 방향 이중 궤도 · 피해 35% 감소", "double_orbit": true, "damage_scale": 0.65}},
+	"lance": {
+		"judgement": {"text": "한 줄에 집중하는 장거리 관통창", "beams_set": 1, "range_scale": 1.35, "damage_scale": 1.25},
+		"prism": {"text": "다른 적을 겨냥하는 광선 두 줄 추가", "beams": 2, "damage_scale": 0.65},
+		"horizon": {"text": "동료 위치에서도 관통창 발사", "echo": true, "damage_scale": 0.65}},
+	"mine": {
+		"demolition": {"text": "전방에 지뢰 두 개 추가 매설", "count": 2, "damage_scale": 0.75},
+		"garden": {"text": "주변을 감싸는 원형 지뢰밭", "mine_ring": true, "damage_scale": 0.75}},
+	"gravity": {
+		"collapse": {"text": "흡인 뒤 중심부 추가 폭발", "collapse": true, "damage_scale": 0.75},
+		"maelstrom": {"text": "동료 위치에도 중력장 생성", "echo": true, "damage_scale": 0.65},
+		"horizon": {"text": "발밑을 지키는 중력장", "self_gravity": true}},
+	"boomerang": {
+		"ricochet": {"text": "사방으로 펼쳐 던지는 왕복 공격", "radial_toys": true, "count": 2, "damage_scale": 0.7},
+		"tailwind": {"text": "왕복 거리가 60% 길어짐", "range_scale": 1.6},
+		"hunt": {"text": "동료 위치에서도 장난감 투척", "echo": true, "damage_scale": 0.65}},
+	"milk": {
+		"downpour": {"text": "작은 웅덩이 두 개 추가로 흩뿌리기", "count": 2, "radius_scale": 0.8},
+		"tide": {"text": "동료 발밑에도 둔화 웅덩이 생성", "echo": true, "damage_scale": 0.65}}
+}
+
+
+static func behavior(state: Dictionary) -> Dictionary:
+	var base_id := String(state.get("base_weapon_id", state.get("weapon_id", "")))
+	return BEHAVIORS.get(base_id, {}).get(String(state.get("tech_id", "")), {})
+
+
+static func cast_state(state: Dictionary) -> Dictionary:
+	var result := state.duplicate()
+	var effect := behavior(state)
+	for field in ["count", "jumps", "beams"]:
+		if effect.has(field):
+			result[field] = int(result.get(field, 1)) + int(effect[field])
+		if effect.has(field + "_set"):
+			result[field] = int(effect[field + "_set"])
+	for field in ["range", "radius", "arc", "damage"]:
+		if result.has(field):
+			result[field] = float(result[field]) * float(effect.get(field + "_scale", 1.0))
+	if effect.get("full_circle", false):
+		result["arc"] = TAU
+	result["tech_pierce"] = int(effect.get("pierce", 0))
+	result["tech_homing"] = bool(effect.get("homing", false))
+	return result
+
+
 static func for_weapon(weapon_id: String) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for tech: Dictionary in TECHS.get(weapon_id, []):
-		result.append(tech.duplicate(true))
+		var entry := tech.duplicate(true)
+		entry["behavior_description"] = String(BEHAVIORS.get(weapon_id, {}).get(String(tech["id"]), {}).get("text", tech["description"]))
+		entry["description"] = entry["behavior_description"]
+		result.append(entry)
 	return result
 
 
@@ -75,9 +146,9 @@ static func by_id(weapon_id: String, tech_id: String) -> Dictionary:
 	return {}
 
 
-static func allows(state: Dictionary, upgrade_id: String) -> bool:
-	var tech := by_id(String(state.get("base_weapon_id", state.get("weapon_id", ""))), String(state.get("tech_id", "")))
-	return tech.is_empty() or upgrade_id in (tech["upgrades"] as Array)
+static func allows(_state: Dictionary, _upgrade_id: String) -> bool:
+	# Routes choose delivery, never remove an axis from later growth.
+	return true
 
 
 static func apply_to_state(state: Dictionary, tech: Dictionary) -> void:

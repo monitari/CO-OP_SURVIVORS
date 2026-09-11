@@ -32,7 +32,7 @@ const FADE_TIME := 0.7
 
 
 func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: float,
-		slow_amount: float, colour: Color, life := 4.6, owner := -1, weapon_id := "") -> void:
+		slow_amount: float, colour: Color, life := 4.6, owner_index := -1, weapon_id := "") -> void:
 	global_position = at
 	grid = spatial_grid
 	damage = hit
@@ -40,7 +40,7 @@ func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: 
 	slow = slow_amount
 	tint = colour
 	duration = life
-	source_player = owner
+	source_player = owner_index
 	source_weapon = weapon_id
 	splash_seed = randf() * TAU
 	z_index = -1 # Under the cats and the enemies: it is the floor, not an effect.

@@ -369,12 +369,12 @@ func _fusion_path_report(slot: int, weapon: Dictionary) -> String:
 	var carried_slot := _treasure_slot(slot, treasure_id)
 	if carried_slot >= 0:
 		treasure_tier = int(game.treasure_loadouts[slot][carried_slot].get("tier", 1))
-	var ready := weapon_tier >= Evolutions.WEAPON_MAX_TIER and treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER
+	var evolution_ready := weapon_tier >= Evolutions.WEAPON_MAX_TIER and treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER
 	return "      [color=%s]↳ %s  ·  무기 %d/%d + %s %d/%d%s[/color]" % [
-		"#80ed99" if ready else "#8298ad", String(evolution["weapon_name"]),
+		"#80ed99" if evolution_ready else "#8298ad", String(evolution["weapon_name"]),
 		weapon_tier, Evolutions.WEAPON_MAX_TIER,
 		String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
-		"  [준비 완료]" if ready else "",
+		"  [준비 완료]" if evolution_ready else "",
 	]
 
 

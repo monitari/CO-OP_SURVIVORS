@@ -12,6 +12,10 @@ extends RefCounted
 ## Icons are stored tight to their content rather than padded square: Enemy
 ## scales its sprite by the texture's longer edge, so empty margin would shrink
 ## the enemy on the field.
+##
+## Directional silhouettes must face +X (right) in the source PNG. Enemy keeps
+## the painted body upright and mirrors it for a leftward heading; normalizing
+## the files here avoids archetype-specific facing exceptions in the hot path.
 const FALLBACK := "chaser"
 
 static var textures: Dictionary = {}

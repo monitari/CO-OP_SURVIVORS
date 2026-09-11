@@ -61,11 +61,11 @@ func _init() -> void:
 
 ## Two ingredients become one weapon. `first` and `second` are the weapon and
 ## treasure that paid for it; `result` is what they became.
-func play_fusion(first: Texture2D, second: Texture2D, result: Texture2D, name: String, tint: Color) -> void:
+func play_fusion(first: Texture2D, second: Texture2D, result: Texture2D, display_name: String, tint: Color) -> void:
 	mode = Mode.FUSION
 	duration = FUSION_DURATION
 	accent = tint
-	headline = name
+	headline = display_name
 	subtitle = "보물 강화 완성"
 	_add_source(first)
 	_add_source(second)
@@ -75,11 +75,11 @@ func play_fusion(first: Texture2D, second: Texture2D, result: Texture2D, name: S
 
 ## The pair's move. Both weapons stay on screen because a resonance is not one
 ## of them becoming the other.
-func play_resonance(first: Texture2D, second: Texture2D, name: String, tint: Color) -> void:
+func play_resonance(first: Texture2D, second: Texture2D, display_name: String, tint: Color) -> void:
 	mode = Mode.RESONANCE
 	duration = RESONANCE_DURATION
 	accent = tint
-	headline = name
+	headline = display_name
 	subtitle = "공명"
 	_add_source(first)
 	_add_source(second)

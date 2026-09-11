@@ -26,6 +26,9 @@ const RooftopTexture := preload("res://assets/environment/moonroof_slate_tile.pn
 ## length; now only the length differs, which is the part that should.
 const CRATE_HEIGHT := 7.0
 const VENT_HEIGHT := 7.5
+const GUTTER_SPACING := 768.0
+const GUTTER_OFFSET := GUTTER_SPACING * 0.5
+const TILE_OVERDRAW := 2.0
 
 var draw_origin := Vector2.ZERO
 
@@ -57,9 +60,11 @@ func _draw() -> void:
 	draw_rect(Rect2(low, high - low), _lit(Color("23383e")))
 	_draw_rooftop_texture(low, high)
 
-	# Gutters every 768px, again indexed off world position.
-	var first_gutter := int(floor(low.x / 768.0)) * 768
-	for x in range(first_gutter, int(high.x) + 768, 768):
+	# Keep the home terrace between gutters instead of bisecting it with a dark
+	# line. The old gutter at x = 0 combined with the terrace edge and looked
+	# like a full-screen debug cross during the opening fight.
+	var first_gutter := int(floor((low.x - GUTTER_OFFSET) / GUTTER_SPACING)) * int(GUTTER_SPACING) + int(GUTTER_OFFSET)
+	for x in range(first_gutter, int(high.x) + int(GUTTER_SPACING), int(GUTTER_SPACING)):
 		draw_rect(Rect2(x - 8, low.y, 16, high.y - low.y), _lit(Color("1e333a")))
 		# A gutter is a channel, so its far wall is the one the moon reaches
 		# and its near wall is the one in shade. Same rule, cheapest possible
@@ -88,9 +93,14 @@ func _draw_rooftop_texture(low: Vector2, high: Vector2) -> void:
 			var flip_y := posmod(tile_y, 2) != 0
 			var tile_origin := Vector2(tile_x * texture_size.x, tile_y * texture_size.y)
 			var pivot := tile_origin + Vector2(texture_size.x if flip_x else 0.0, texture_size.y if flip_y else 0.0)
-			var scale := Vector2(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0)
-			draw_set_transform(pivot, 0.0, scale)
-			draw_texture(RooftopTexture, Vector2.ZERO, _lit(Color("d1dcda")))
+			var tile_scale := Vector2(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0)
+			draw_set_transform(pivot, 0.0, tile_scale)
+			# A tiny overdraw hides the doubled dark edge produced where mirrored
+			# copies meet. It is below every prop, so the overlap cannot cover any
+			# gameplay information.
+			draw_texture_rect(RooftopTexture,
+				Rect2(Vector2.ONE * -TILE_OVERDRAW, texture_size + Vector2.ONE * TILE_OVERDRAW * 2.0),
+				false, _lit(Color("d1dcda")))
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -101,16 +111,16 @@ func _window_contains_origin(low: Vector2, high: Vector2) -> bool:
 ## The one unique place on an otherwise endless roof: where the pair starts.
 func _draw_home_terrace() -> void:
 	var mat := StyleBoxFlat.new()
-	# Let the painted slabs remain visible through the safe starting marker. A
-	# solid plate looked like a debug rectangle once the surrounding roof gained
-	# real material detail.
-	mat.bg_color = _lit(Color("384b48", 0.72))
-	mat.border_color = _lit(Color("526158"), 0.3)
-	mat.set_border_width_all(3)
+	# The terrace is a remembered place, not a gameplay volume. Keep only a
+	# faint wash under the bowls and paw prints so it cannot be mistaken for a
+	# collision box or targeting guide once combat fills the screen.
+	mat.bg_color = _lit(Color("384b48", 0.14))
+	mat.border_color = _lit(Color("657066", 0.11), 0.24)
+	mat.set_border_width_all(2)
 	mat.set_corner_radius_all(16)
 	draw_style_box(mat, Rect2(-230, -160, 460, 320))
 	for side: float in [-1.0, 1.0]:
-		draw_dashed_line(Vector2(-207, side * 139), Vector2(207, side * 139), _lit(Color("697060")), 1.5, 9)
+		draw_dashed_line(Vector2(-207, side * 139), Vector2(207, side * 139), _lit(Color("7d8171", 0.34), 0.28), 1.3, 12)
 	_fish(Vector2.ZERO, _lit(Color("586659")))
 	_bowls(Vector2(0, -230))
 	var paw := _lit(Color("526058"))
@@ -159,14 +169,14 @@ func _cell_seed(cell_x: int, cell_y: int) -> int:
 func _box(at: Vector2) -> void:
 	var drop := Moonlight.cast_offset(CRATE_HEIGHT)
 	draw_rect(Rect2(at + drop, Vector2(68, 52)), _lit(Color("20343b")).darkened(0.25))
-	draw_rect(Rect2(at, Vector2(68, 48)), _lit(Color("73614d")))
-	draw_rect(Rect2(at + Vector2(6, 7), Vector2(56, 35)), _lit(Color("4f5043")))
+	draw_rect(Rect2(at, Vector2(68, 48)), _lit(Color("806044"), 0.08))
+	draw_rect(Rect2(at + Vector2(6, 7), Vector2(56, 35)), _lit(Color("5d503d"), 0.04))
 	# The two lids catch the moon at different angles; the near one is turned
 	# into it, the far one away.
-	draw_colored_polygon(PackedVector2Array([at, at + Vector2(24, -10), at + Vector2(27, 12), at + Vector2(0, 16)]), _lit(Color("8a7257"), 0.45))
-	draw_colored_polygon(PackedVector2Array([at + Vector2(68, 0), at + Vector2(76, -8), at + Vector2(82, 34), at + Vector2(68, 38)]), _lit(Color("806c51"), 0.1))
+	draw_colored_polygon(PackedVector2Array([at, at + Vector2(24, -10), at + Vector2(27, 12), at + Vector2(0, 16)]), _lit(Color("a07852"), 0.52))
+	draw_colored_polygon(PackedVector2Array([at + Vector2(68, 0), at + Vector2(76, -8), at + Vector2(82, 34), at + Vector2(68, 38)]), _lit(Color("8c6848"), 0.16))
 	if Moonlight.enabled:
-		var edge := Moonlight.rim(Color("73614d"), 0.42)
+		var edge := Moonlight.rim(Color("9a744e"), 0.48)
 		draw_line(at, at + Vector2(68, 0), edge, 1.6)
 		draw_line(at, at + Vector2(0, 48), edge, 1.6)
 	_fish(at + Vector2(35, 27), _lit(Color("727057")), 0.28)

@@ -1,5 +1,9 @@
 extends Node2D
 
+const CompanionController := preload("res://scripts/systems/companion_controller.gd")
+const CoopSelectionUI := preload("res://scripts/ui/coop_selection_ui.gd")
+const OnlineCoopScript := preload("res://scripts/systems/online_coop.gd")
+
 const PlayerScene := preload("res://scripts/entities/player.gd")
 const CharacterData := preload("res://scripts/catalogs/character_catalog.gd")
 const EnemyProjectileScript := preload("res://scripts/entities/enemy_projectile.gd")
@@ -124,6 +128,8 @@ const CHAIN_OVERLOAD_CLEAR := 45.0
 ## already strained, survivable if it was not.
 const BOSS_SLAM_INTEGRITY_DRAIN := 28.0
 
+var ai_companion := false
+var online: OnlineCoop
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
 var chain_line: Line2D
@@ -434,6 +440,10 @@ func _ready() -> void:
 	meta_progression = MetaProgressionScript.new() as MetaProgression
 	meta_progression.load_progress()
 	_setup_input_map()
+	online = OnlineCoopScript.new() as OnlineCoop
+	online.name = "OnlineCoop"
+	add_child(online)
+	online.configure(self)
 	if not Input.joy_connection_changed.is_connected(_on_joy_connection_changed):
 		Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	character_catalog = CharacterData.all_characters()
@@ -454,6 +464,7 @@ func _ready() -> void:
 	weapon_controller.cue_requested.connect(feedback.play_cue)
 	_create_hud()
 	ReviewUI.install(self)
+	CoopSelectionUI.install(self)
 	# Runtime inspection is intentionally absent from release exports. In debug
 	# builds F10 opens live combat/build telemetry and tightly scoped test actions.
 	if OS.is_debug_build():
@@ -465,6 +476,8 @@ func _ready() -> void:
 
 
 func _on_joy_connection_changed(device: int, connected: bool) -> void:
+	if ai_companion and device == 1:
+		return
 	if device < 0 or device > 1:
 		return
 	last_input_gamepad[device] = connected
@@ -501,7 +514,13 @@ func _input(event: InputEvent) -> void:
 			_join_lobby_with_gamepad(event.device)
 		elif event is InputEventKey:
 			var key: int = (event as InputEventKey).physical_keycode
-			if key in [KEY_W, KEY_A, KEY_S, KEY_D]:
+			if key == KEY_H:
+				online.host_game()
+			elif key == KEY_J:
+				online.join_game(CoopSelectionUI.lan_address(self))
+			elif key == KEY_B:
+				_join_ai_companion()
+			elif key in [KEY_W, KEY_A, KEY_S, KEY_D]:
 				_join_lobby_slot(0, -1, "키보드 WASD")
 			elif key in [KEY_UP, KEY_LEFT, KEY_DOWN, KEY_RIGHT]:
 				_join_lobby_slot(1, -1, "키보드 방향키")
@@ -549,6 +568,9 @@ func _physics_process(delta: float) -> void:
 		modal_dim.queue_redraw()
 	for notice in notice_stack:
 		if is_instance_valid(notice): notice.visible = not modal
+	if online.is_client():
+		online.client_tick(delta)
+		return
 	# The run is over on the result screen, so its bars are stale information
 	# drawn on top of the panel that replaced them — and the P2 panel reaches
 	# far enough right to clip the overlay's own corner.
@@ -610,6 +632,9 @@ func _physics_process(delta: float) -> void:
 		_profile_frame_at = _profile_at
 	weapon_controller.elapsed = elapsed
 	for player in players:
+		if player.input_source == ChainPlayer.InputSource.AI:
+			var command := CompanionController.command(player, players[0], spatial_grid, enemy_shots, chain_max_length)
+			player.set_command(command["movement"], command["dash"])
 		player.step_movement(delta)
 		player.step_recovery(delta)
 	_apply_chain_constraint()
@@ -703,7 +728,7 @@ func _physics_process(delta: float) -> void:
 	# The pair's move charges at the pair's own rate: a held-out chain brings it
 	# round faster, a slack one slower, and a survivor on the floor nearly stops
 	# it. Same tension number the HUD and the overcharge bonus already read.
-	for resonance in resonance_system.step(delta, resonance_system.charge_rate(
+	for resonance in resonance_system.step(delta, ResonanceSystem.charge_rate(
 		clampf(players[0].position.distance_to(players[1].position) / maxf(1.0, chain_max_length), 0.0, 1.0),
 		not players[0].downed and not players[1].downed)):
 		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
@@ -722,6 +747,7 @@ func _physics_process(delta: float) -> void:
 		profile_frame_usec.append(Time.get_ticks_usec() - _profile_frame_at)
 	if (players[0].downed and players[1].downed) or players[0].bleedout_remaining <= 0.0 or players[1].bleedout_remaining <= 0.0:
 		_end_run()
+	online.host_tick(delta)
 
 
 ## The boss bar, its name and its health text are parented to the HUD layer
@@ -1683,6 +1709,9 @@ func _refresh_title_ui() -> void:
 
 
 func _begin_lobby() -> void:
+	if online != null and online.is_online():
+		online.stop()
+	ai_companion = false
 	title_active = false
 	title_overlay.visible = false
 	lobby_active = true
@@ -1696,6 +1725,15 @@ func _begin_lobby() -> void:
 	help_label.text = "참가 대기 중 — 두 사람이 각자 사용할 조작을 눌러 참가하세요."
 	_refresh_lobby_ui()
 	get_tree().paused = true
+
+
+func _join_ai_companion() -> void:
+	if not lobby_active or lobby_input_cooldown > 0.0 or lobby_joined[1]:
+		return
+	ai_companion = true
+	if not lobby_joined[0]:
+		_join_lobby_slot(0, -1, "키보드 WASD")
+	_join_lobby_slot(1, -2, "AI 동료 · 자동 이동 / 구조 / 성장")
 
 
 func _join_lobby_with_gamepad(device: int) -> void:
@@ -1743,14 +1781,18 @@ func _format_lobby_slot(slot: int) -> String:
 
 func _begin_character_select() -> void:
 	character_select_active = true
-	character_confirmed = [false, false]
+	character_confirmed = [false, ai_companion]
 	character_overlay.visible = true
 	_refresh_character_select_ui()
 	get_tree().paused = true
 
 
 func _handle_character_select_input() -> void:
+	if online.is_client():
+		return
 	for player_index in 2:
+		if (online.is_host() and player_index == 1) or (ai_companion and player_index == 1):
+			continue
 		if character_confirmed[player_index]:
 			var cancel_action := "p1_select_cancel" if player_index == 0 else "p2_select_cancel"
 			if Input.is_action_just_pressed(cancel_action):
@@ -1777,6 +1819,8 @@ func _handle_character_select_input() -> void:
 
 
 func _refresh_character_select_ui() -> void:
+	if ai_companion:
+		character_confirmed[1] = true
 	character_p1_label.text = _format_character_card(0)
 	character_p2_label.text = _format_character_card(1)
 	for player_index in 2:
@@ -1788,6 +1832,10 @@ func _refresh_character_select_ui() -> void:
 	character_roster_label.text = "   ".join(roster)
 	character_synergy_label.text = _synergy_preview()
 	EditorialUI.refresh_characters(self)
+	if online != null:
+		online.send_character_state()
+	if ai_companion:
+		character_overlay.get_node("CharacterConfirm1").text = "AI 동료 · 자동 준비"
 
 
 ## The select screen used to show a name, two bars and a sentence, which is not
@@ -1859,6 +1907,8 @@ func _synergy_preview() -> String:
 
 
 func _start_selected_run() -> void:
+	if online != null:
+		online.send_run_start()
 	debug_run_tainted = false
 	if is_instance_valid(debug_inspector):
 		debug_inspector.reset_run()
@@ -1866,6 +1916,13 @@ func _start_selected_run() -> void:
 		selected_characters[player_index] = character_catalog[selected_character_indices[player_index]].duplicate(true)
 		weapon_loadouts[player_index] = [_build_weapon_state(selected_characters[player_index])]
 		players[player_index].apply_character(selected_characters[player_index])
+		if online.is_host() and player_index == 1:
+			players[player_index].input_source = ChainPlayer.InputSource.REMOTE
+		elif online.is_client():
+			players[player_index].input_source = ChainPlayer.InputSource.REMOTE
+		else:
+			players[player_index].input_source = ChainPlayer.InputSource.AI if ai_companion and player_index == 1 else ChainPlayer.InputSource.LOCAL
+		players[player_index].set_command(Vector2.ZERO)
 		meta_progression.apply_to_player(players[player_index])
 		attack_timers[player_index] = [0.15 + player_index * 0.12]
 		treasure_loadouts[player_index] = []
@@ -3288,6 +3345,7 @@ func _begin_level_up() -> void:
 	_update_hud()
 	get_tree().paused = true
 	feedback.play_cue("level")
+	online.send_growth_state("growth_open")
 
 
 ## A key that identifies one specific offered option (not just its id, since
@@ -4190,12 +4248,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 
 
 func _tech_focus(tech: Dictionary) -> String:
-	return {
-		"force": "피해 · 강한 한 방",
-		"tempo": "연사 · 빈틈 감소",
-		"control": "제어 · 범위 확대",
-		"balanced": "균형 · 자유 강화",
-	}.get(String(tech.get("profile", "balanced")), "균형 성장")
+	return String(tech.get("behavior_description", tech.get("description", "자유 성장")))
 
 
 func _handle_level_up_input() -> void:
@@ -4204,7 +4257,13 @@ func _handle_level_up_input() -> void:
 		if level_up_input_delay <= 0.0:
 			_refresh_level_up_ui()
 		return
+	if ai_companion and selected_upgrade_indices[1] == -1:
+		_select_upgrade(2, CompanionController.choose(self, 1, p2_choices))
+		if not level_up_active:
+			return
 	for slot in 2:
+		if (online.is_host() and slot == 1) or (ai_companion and slot == 1):
+			continue
 		var player_index := slot + 1
 		var prefix := "p1_select_" if player_index == 1 else "p2_select_"
 		var choices := p1_choices if player_index == 1 else p2_choices
@@ -4212,6 +4271,8 @@ func _handle_level_up_input() -> void:
 			if selected_upgrade_indices[slot] >= 0 and Input.is_action_just_pressed(prefix + "cancel") and selected_upgrade_indices[1 - slot] < 0:
 				selected_upgrade_indices[slot] = -1
 				_refresh_level_up_ui()
+			continue
+		if slot != focused_growth_slot():
 			continue
 		if Input.is_action_just_pressed(prefix + "previous"):
 			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] - 1, 0, choices.size())
@@ -4259,6 +4320,7 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 	selected_upgrade_indices[slot] = choice_index
 	upgrade_cursors[slot] = choice_index
 	_refresh_level_up_ui()
+	online.send_growth_state()
 	if selected_upgrade_indices[0] != -1 and selected_upgrade_indices[1] != -1:
 		if selected_upgrade_indices[0] >= 0:
 			_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
@@ -4277,6 +4339,7 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var upgrade_id := String(option["id"])
 	if upgrade_id == "choose_tech":
+		weapon_controller.clear_sustained_for_player(player_slot)
 		WeaponTechs.apply_to_state(weapon_loadouts[player_slot][int(option["weapon_slot"])], option["tech"] as Dictionary)
 		return
 	if upgrade_id == "unlock_weapon":
@@ -4392,11 +4455,21 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 	return true
 
 
+func focused_growth_slot() -> int:
+	if online != null and online.is_client():
+		return 1
+	if (online != null and online.is_host()) or ai_companion:
+		return 0
+	return 0 if selected_upgrade_indices[0] == -1 else 1
+
+
 func _refresh_level_up_ui() -> void:
+	CoopSelectionUI.restore(self)
 	level_title.text = "성장 선택   /   LV.%02d" % progression.level
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
 	_refresh_team_stats_ui()
+	CoopSelectionUI.refresh(self)
 
 
 func _refresh_player_cards(player_index: int) -> void:
@@ -4556,7 +4629,7 @@ func _layout_level_card_contents(card: Label, compact: bool) -> void:
 		style.content_margin_left = 16.0
 		style.content_margin_right = 16.0
 		style.content_margin_top = 142.0
-		style.content_margin_bottom = 48.0
+		style.content_margin_bottom = 12.0 if bool(card.get_meta("tech_card", false)) else 48.0
 		icon.position = Vector2(14.0, 17.0)
 		icon.size = Vector2(64.0, 64.0)
 		fusion_mark.position = Vector2(LEVEL_CARD_WIDTH - 47.0, 10.0)
@@ -4750,6 +4823,7 @@ func _fusion_progress_line(slot: int) -> String:
 
 
 func _finish_level_up() -> void:
+	online.send_growth_close()
 	level_up_active = false
 	_animate_level_overlay(false)
 	get_tree().paused = false

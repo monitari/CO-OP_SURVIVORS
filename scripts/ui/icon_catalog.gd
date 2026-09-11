@@ -93,7 +93,7 @@ static func _id_hash(id: String) -> int:
 static func _draw_glyph(id: String, kind: String) -> Texture2D:
 	var seed_value := _id_hash(id)
 	var hue := float(seed_value % 360) / 360.0
-	var shape := (seed_value / 360) % GLYPH_SHAPES
+	var shape := int(float(seed_value) / 360.0) % GLYPH_SHAPES
 	# Each kind keeps its own saturation/value band so a treasure placeholder
 	# never reads as a weapon placeholder at a glance.
 	var saturation := 0.55

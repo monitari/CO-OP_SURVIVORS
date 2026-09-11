@@ -117,7 +117,7 @@ var scenery := false
 ## flag rather than two tests, because the separation pass reads it for every
 ## sampled pair.
 var immovable := false
-var faces_along_heading := false ## Painted facing +X, so it mirrors rather than spins.
+var faces_along_heading := false ## Mobile art faces +X, so it mirrors rather than spins.
 var leads_its_target := false ## Aims where the survivor is going, not where they are.
 var hunts_the_chain := false ## Walks the midpoint between the pair, not the nearer cat.
 var _tinted := false ## Whether body_sprite.modulate currently holds anything but white.
@@ -141,10 +141,10 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	archetype = new_archetype
 	scenery = archetype == "planter"
 	immovable = is_boss or scenery
-	# Every painted enemy except the legacy chaser has a readable left/right
-	# silhouette. Keep the body upright and mirror that art from its movement
-	# heading instead of rotating the whole sprite sideways.
-	faces_along_heading = archetype != "chaser" and archetype != "planter"
+	# Every mobile enemy now has a readable +X source silhouette. Keep the body
+	# upright and mirror that art from its movement heading instead of rotating
+	# the whole sprite sideways. The planter is the only stationary exception.
+	faces_along_heading = archetype != "planter"
 	leads_its_target = archetype in ["wasp", "owl", "mole"]
 	hunts_the_chain = archetype == "chain_hunter" or archetype == "brute"
 	elite = is_elite

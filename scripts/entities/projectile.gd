@@ -92,7 +92,11 @@ func _physics_process(delta: float) -> void:
 	elif style == "star":
 		scale = Vector2.ONE * (1.12 - remaining * 0.12)
 
-	var candidates: Array = spatial_grid.query_radius(global_position, radius + 32.0) if spatial_grid != null else get_tree().get_nodes_in_group("enemies")
+	var candidates: Array
+	if spatial_grid != null:
+		candidates = spatial_grid.query_radius(global_position, radius + 32.0)
+	else:
+		candidates = get_tree().get_nodes_in_group("enemies")
 	for candidate in candidates:
 		var enemy := candidate as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead or hit_enemy_ids.has(enemy.get_instance_id()):

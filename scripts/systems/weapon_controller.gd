@@ -1,6 +1,7 @@
 class_name WeaponController
 extends Node2D
 
+const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
 const ProjectileScript := preload("res://scripts/entities/projectile.gd")
 const MilkPoolScript := preload("res://scripts/effects/milk_pool.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
@@ -9,6 +10,8 @@ const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
 const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
 const LanceStrikeScript := preload("res://scripts/effects/lance_strike.gd")
 const ReturningToyScript := preload("res://scripts/effects/returning_toy.gd")
+const ReactiveLightScript := preload("res://scripts/effects/reactive_light.gd")
+const REACTIVE_LIGHT_CAP := 4
 
 signal cue_requested(cue_id: String)
 
@@ -24,6 +27,10 @@ var chain_tension := 0.0
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
 var sustained_fields: Dictionary = {}
+# Point lights free themselves after a fraction of a second. Keep weak handles
+# so the cap can sweep an expired entry without ever assigning a freed Object
+# back into a typed Node variable.
+var reactive_lights: Array[WeakRef] = []
 ## Main's own list of live hostile shots, shared rather than copied. Four
 ## weapons are allowed to knock them down — the crescent that sweeps a sector,
 ## the tether that is a line between the pair, the ring of shards, and the mine
@@ -53,7 +60,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	var owner_player := players[player_index]
 	if owner_player.downed:
 		return
-	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
+	var state: Dictionary = WeaponTechs.cast_state(weapon_loadouts[player_index][weapon_slot])
 	var weapon_id := String(state["weapon_id"])
 	current_source_player = player_index
 	current_source_weapon = weapon_id
@@ -76,12 +83,64 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
 	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
 	scaled["duration"] = owner_player.duration
+	var behavior := WeaponTechs.behavior(state)
+	play_cast_cue = _deliver_attack(player_index, weapon_slot, scaled, damage, color, behavior)
+	if bool(behavior.get("echo", false)) and not players[1 - player_index].downed:
+		_deliver_attack(1 - player_index, weapon_slot, scaled, damage, color, {})
+	if bool(behavior.get("team_heal", false)):
+		for player in players:
+			player.heal(0.45)
+	if play_cast_cue:
+		cue_requested.emit("weapon_" + weapon_id)
+
+
+func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
+		damage: float, color: Color, behavior: Dictionary) -> bool:
+	var owner_player := players[player_index]
+	var weapon_id := String(scaled["weapon_id"])
+	var play_cast_cue := true
+	if weapon_id == "frost":
+		if bool(behavior.get("shatter", false)):
+			return _ensure_absolute_aura(player_index, weapon_slot, scaled, damage, color)
+		if bool(behavior.get("ally_aura", false)):
+			var key := "tech_frost:%d:%d" % [current_source_player, weapon_slot]
+			var existing = sustained_fields.get(key)
+			if is_instance_valid(existing):
+				existing.refresh_frost(damage, float(scaled["radius"]) * 0.7, float(scaled["slow"]), color)
+			else:
+				var field = WeaponFieldScript.new()
+				field.configure_frost(players[1 - player_index], spatial_grid, damage,
+					float(scaled["radius"]) * 0.7, float(scaled["slow"]), color, false, current_source_player, current_source_weapon)
+				add_child(field)
+				sustained_fields[key] = field
+	if weapon_id == "scythe" and bool(behavior.get("rear_sweep", false)):
+		var rear := scaled.duplicate()
+		rear["rear"] = true
+		_swing_scythe(player_index, rear, damage, color)
+	if weapon_id == "orbit" and bool(behavior.get("double_orbit", false)):
+		_sweep_celestial(player_index, scaled, damage, color)
+		return true
+	if weapon_id == "mine" and bool(behavior.get("mine_ring", false)):
+		var ring := scaled.duplicate()
+		ring["count"] = maxi(4, int(scaled["count"]))
+		_plant_ruin_garden(player_index, ring, damage, color)
+		return true
+	if weapon_id == "gravity":
+		if bool(behavior.get("collapse", false)):
+			_collapse_event_horizon(player_index, scaled, damage, color)
+			return true
+		if bool(behavior.get("self_gravity", false)):
+			_collapse_gravity_at(owner_player.global_position, current_source_player, scaled, damage, color)
+			return true
+	if weapon_id == "boomerang" and bool(behavior.get("radial_toys", false)):
+		_throw_toy(player_index, scaled, damage, color, TAU / maxf(1.0, float(scaled["count"])))
+		return true
 	match weapon_id:
 		"boomerang": _throw_toy(player_index, scaled, damage, color, 0.35)
 		"skipping_stone": _throw_toy(player_index, scaled, damage, color, TAU / maxf(1.0, float(scaled["count"])))
 		"milk", "cream_tide": _spill_milk(player_index, scaled, damage, color)
 		"homing": play_cast_cue = _fire_homing(player_index, scaled, damage, color)
-		"lightning": play_cast_cue = _fire_lightning(owner_player.global_position, int(state["jumps"]), damage, float(scaled["range"]), color) > 0
+		"lightning": play_cast_cue = _fire_lightning(owner_player.global_position, int(scaled["jumps"]), damage, float(scaled["range"]), color) > 0
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
 		"frost": play_cast_cue = _ensure_frost_aura(player_index, weapon_slot, scaled, damage, color)
 		"scythe": _swing_scythe(player_index, scaled, damage, color)
@@ -101,8 +160,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		"judgement": _fire_judgement(player_index, scaled, damage, color)
 		"ruin_garden": _plant_ruin_garden(player_index, scaled, damage, color)
 		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
-	if play_cast_cue:
-		cue_requested.emit("weapon_" + weapon_id)
+	return play_cast_cue
 
 
 ## 생선 부메랑, and the fused form that throws several at once. `fan` is the
@@ -119,7 +177,7 @@ func _throw_toy(player_index: int, state: Dictionary, damage: float, color: Colo
 		toy.damage = damage
 		toy.reach = float(state["range"])
 		toy.tint = color
-		toy.source_player = player_index
+		toy.source_player = current_source_player
 		toy.source_weapon = current_source_weapon
 		toy.heading = aim.rotated((float(index) - float(count - 1) * 0.5) * fan)
 		add_child(toy)
@@ -146,7 +204,7 @@ func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Col
 		var pool := MilkPoolScript.new() as MilkPool
 		pool.configure(at, spatial_grid, damage, float(state["radius"]),
 			float(state.get("slow", 0.55)), color, 4.6 * float(state.get("duration", 1.0)),
-			player_index, current_source_weapon)
+			current_source_player, current_source_weapon)
 		add_child(pool)
 	cue_requested.emit("weapon_milk")
 
@@ -313,6 +371,25 @@ func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radi
 	var flare := CombatFlareScript.new()
 	flare.setup(center, primary, secondary, radius, lifetime)
 	add_child(flare)
+	_spawn_reactive_light(center, primary.lerp(secondary, 0.25), minf(radius * 0.9, 190.0), minf(lifetime * 0.7, 0.24), 0.34)
+
+
+func _spawn_reactive_light(at: Vector2, color: Color, radius: float, lifetime: float, light_energy: float) -> void:
+	if not Moonlight.enabled:
+		return
+	for light_reference: WeakRef in reactive_lights.duplicate():
+		var light: Node = light_reference.get_ref()
+		if not is_instance_valid(light) or light.is_queued_for_deletion():
+			reactive_lights.erase(light_reference)
+	while reactive_lights.size() >= REACTIVE_LIGHT_CAP:
+		var oldest_reference: WeakRef = reactive_lights.pop_front()
+		var oldest: Node = oldest_reference.get_ref()
+		if is_instance_valid(oldest):
+			oldest.queue_free()
+	var light = ReactiveLightScript.new()
+	light.setup(at, color, radius, lifetime, light_energy)
+	add_child(light)
+	reactive_lights.append(weakref(light))
 
 
 ## The chain itself as a weapon, for 사슬 결계. Public because it is a field
@@ -326,6 +403,11 @@ func burn_chain(width: float, damage: float) -> void:
 func clear_transients() -> void:
 	for projectile in active_projectiles.duplicate():
 		projectile.release()
+	for light_reference: WeakRef in reactive_lights:
+		var light: Node = light_reference.get_ref()
+		if is_instance_valid(light):
+			light.queue_free()
+	reactive_lights.clear()
 	# Planted mines outlive the cast that placed them, so a restart or a test
 	# teardown has to sweep them or they detonate into the next run.
 	for child in get_children():
@@ -405,7 +487,7 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.global_position = players[player_index].global_position
 		var spread := (float(shot) - float(count - 1) * 0.5) * 0.16
 		projectile.setup(_aim_direction(player_index, 700.0).rotated(spread), target)
-		projectile.source_player = player_index
+		projectile.source_player = current_source_player
 		projectile.source_weapon = current_source_weapon
 		projectile.style = "star"
 		projectile.spatial_grid = spatial_grid
@@ -414,7 +496,7 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.lifetime *= float(state.get("duration", 1.0))
 		projectile.spawn_lifetime = projectile.lifetime
 		projectile.projectile_color = color
-		projectile.remaining_hits = 1 + players[player_index].pierce
+		projectile.remaining_hits = 1 + players[current_source_player].pierce + int(state.get("tech_pierce", 0))
 	return true
 
 
@@ -442,11 +524,11 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		var projectile := _acquire_projectile()
 		projectile.global_position = players[player_index].global_position + direction * 22.0
 		projectile.setup(direction, null)
-		projectile.source_player = player_index
+		projectile.source_player = current_source_player
 		projectile.source_weapon = current_source_weapon
 		projectile.spatial_grid = spatial_grid
-		projectile.homing_enabled = false
-		projectile.remaining_hits = 1 + players[player_index].pierce
+		projectile.homing_enabled = bool(state.get("tech_homing", false))
+		projectile.remaining_hits = 1 + players[current_source_player].pierce + int(state.get("tech_pierce", 0))
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
 		projectile.lifetime *= float(state.get("duration", 1.0))
@@ -491,10 +573,12 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: C
 	var origin := players[player_index].global_position
 	var attack_range := float(state["range"])
 	var direction := _aim_direction(player_index, attack_range)
+	if bool(state.get("rear", false)):
+		direction = -direction
 	var field = WeaponFieldScript.new()
-	var owner := current_source_player if source_player == -2 else source_player
+	var attack_owner := current_source_player if source_player == -2 else source_player
 	var weapon_id := current_source_weapon if source_weapon.is_empty() else source_weapon
-	field.configure_scythe(origin, direction, spatial_grid, damage, attack_range, float(state["arc"]), color, owner, weapon_id)
+	field.configure_scythe(origin, direction, spatial_grid, damage, attack_range, float(state["arc"]), color, attack_owner, weapon_id)
 	field.enemy_shots = enemy_shots
 	add_child(field)
 
@@ -609,7 +693,7 @@ func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary
 	var radius := float(state["radius"])
 	var pull := float(state.get("pull", 160.0))
 	var field = WeaponFieldScript.new()
-	field.configure_gravity(centre, spatial_grid, damage, radius, pull, color, func() -> void: cue_requested.emit("gravity_collapse"), _player_index, current_source_weapon)
+	field.configure_gravity(centre, spatial_grid, damage, radius, pull, color, func() -> void: cue_requested.emit("gravity_collapse"), current_source_player, current_source_weapon)
 	add_child(field)
 	cue_requested.emit("gravity_pull")
 
@@ -644,7 +728,7 @@ func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
 	var radius := float(state["radius"])
 	var preferred := cast_range * GRAVITY_STAND_OFF
 	var candidates := spatial_grid.query_radius(origin, cast_range + 45.0)
-	var stride := maxi(1, candidates.size() / GRAVITY_SAMPLES)
+	var stride := maxi(1, ceili(float(candidates.size()) / float(GRAVITY_SAMPLES)))
 	var radius_squared := radius * radius
 	var best := Vector2.ZERO
 	var best_score := 0.0
@@ -730,7 +814,7 @@ func _swing_black_moon(player_index: int, state: Dictionary, damage: float, colo
 	var second := func() -> void:
 		if is_inside_tree():
 			_swing_scythe(player_index, full, damage, color.darkened(0.2), source_player, source_weapon)
-	get_tree().create_timer(0.18).timeout.connect(second)
+	get_tree().create_timer(0.18, false).timeout.connect(second)
 
 
 ## The chain itself burns, and what it burns feeds both survivors.
@@ -784,7 +868,7 @@ func _collapse_event_horizon(player_index: int, state: Dictionary, damage: float
 		_damage_area(centre, radius * 0.7, damage * 2.0, 1.0, source_player, source_weapon)
 		_draw_ring(centre, radius * 0.7, color.lightened(0.35), 11.0)
 		_spawn_combat_flare(centre, color, Color.WHITE, radius * 0.4, 0.26)
-	get_tree().create_timer(0.55).timeout.connect(implode)
+	get_tree().create_timer(0.55, false).timeout.connect(implode)
 
 
 ## The lance shape decoupled from a survivor, so resonances can fire one from
@@ -849,15 +933,16 @@ func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
 	var beam = LanceStrikeScript.new()
 	beam.setup(from, to, width, color)
 	add_child(beam)
+	_spawn_reactive_light(to, color, 72.0 + width * 0.8, 0.16, 0.30)
 
 
 func _damage_area(center: Vector2, radius: float, damage: float, slow_multiplier: float = 1.0, source_player := -2, source_weapon := "") -> void:
-	var owner := current_source_player if source_player == -2 else source_player
+	var attack_owner := current_source_player if source_player == -2 else source_player
 	var weapon_id := current_source_weapon if source_weapon.is_empty() else source_weapon
 	for enemy in spatial_grid.query_radius(center, radius + 45.0):
 		if center.distance_to(enemy.global_position) > radius + enemy.radius:
 			continue
-		enemy.take_damage(damage, owner, weapon_id)
+		enemy.take_damage(damage, attack_owner, weapon_id)
 		if slow_multiplier < 1.0 and is_instance_valid(enemy) and not enemy.dead:
 			enemy.apply_slow(1.8, slow_multiplier)
 
@@ -914,6 +999,7 @@ func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> 
 		spill.z_index = -1
 		spill.points = path
 		bolt.add_child(spill)
+		_spawn_reactive_light(to, color, 58.0 + width * 3.0, 0.14, 0.26)
 	_flash_and_free(bolt, 0.06, 0.22)
 
 
@@ -966,4 +1052,3 @@ func _flash_and_free(node: CanvasItem, hold: float, fade: float) -> void:
 	tween.tween_interval(hold)
 	tween.tween_property(node, "modulate:a", 0.0, fade).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	tween.tween_callback(node.queue_free)
-

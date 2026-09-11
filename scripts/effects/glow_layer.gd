@@ -22,11 +22,11 @@ var painter := Callable()
 
 ## Attaches a glow to `host`, or returns null when the moonlight pass is off so
 ## callers can skip redrawing something that is not there.
-static func attach(host: Node2D, painter: Callable, z_offset := 1) -> GlowLayer:
+static func attach(host: Node2D, draw_callable: Callable, z_offset := 1) -> GlowLayer:
 	if not Moonlight.enabled:
 		return null
 	var layer := GlowLayer.new()
-	layer.painter = painter
+	layer.painter = draw_callable
 	layer.material = Moonlight.additive()
 	# Relative, so the glow follows wherever the effect's own z_index puts it
 	# rather than pinning every halo in the game to one absolute depth.

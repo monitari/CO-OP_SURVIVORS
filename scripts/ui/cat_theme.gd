@@ -12,7 +12,10 @@ const OUTLINE := Color("7596bd55")
 const P1 := Color("63dce6")
 const P2 := Color("c39afa")
 const CARD := Color("192a42f2")
-const HUD := Color("0c172a99")
+# Combat can put hundreds of bright silhouettes behind these panels. At 60%
+# opacity the crowd became part of the typography; 90% keeps the rooftop tone
+# while giving health, builds and the shared timer a stable reading surface.
+const HUD := Color("0c172ae6")
 
 const RADIUS := 10
 const BORDER := 1

@@ -40,6 +40,17 @@ const TURN_SPEED := 13.0
 const LEAN_MAX := 0.34 ## radians of body tilt at a full-speed turn
 const FOOTFALL_INTERVAL := 0.11
 
+enum InputSource { LOCAL, AI, REMOTE }
+var input_source := InputSource.LOCAL
+var commanded_movement := Vector2.ZERO
+var commanded_dash := false
+
+
+func set_command(movement: Vector2, dash := false) -> void:
+	commanded_movement = movement.limit_length(1.0)
+	commanded_dash = dash
+
+
 var player_index := 0
 var move_speed := 230.0
 ## Temporary world-effect multiplier. Kept separate from move_speed so a timed
@@ -142,12 +153,15 @@ func step_movement(delta: float) -> void:
 	if was_invulnerable or was_dashing or dash_cooldown > 0.0:
 		queue_redraw()
 	var prefix := "p1_" if player_index == 1 else "p2_"
-	var input_vector := Input.get_vector(
-		prefix + "left", prefix + "right", prefix + "up", prefix + "down"
-	)
+	var input_vector := commanded_movement
+	var dash_requested := commanded_dash
+	commanded_dash = false
+	if input_source == InputSource.LOCAL:
+		input_vector = Input.get_vector(prefix + "left", prefix + "right", prefix + "up", prefix + "down")
+		dash_requested = Input.is_action_just_pressed(prefix + "dash")
 	if input_vector.length_squared() > 0.01:
 		last_input = input_vector.normalized()
-	if Input.is_action_just_pressed(prefix + "dash"):
+	if dash_requested:
 		try_dash()
 	_step_facing(delta, input_vector)
 
@@ -217,7 +231,7 @@ func dash_ready() -> bool:
 ## `source_position` lets a contact hit be reflected back at whatever landed
 ## it. Attacks with no attacker on the field (the chain overload, a boss slam)
 ## simply leave it empty and reflect nothing.
-func hurt(amount: float, source_position := Vector2.INF, can_dodge := true) -> bool:
+func hurt(incoming_damage: float, source_position := Vector2.INF, can_dodge := true) -> bool:
 	if invulnerability > 0.0 or downed:
 		return false
 	if can_dodge and dodge_chance > 0.0 and randf() < dodge_chance:
@@ -226,10 +240,10 @@ func hurt(amount: float, source_position := Vector2.INF, can_dodge := true) -> b
 		queue_redraw()
 		return false
 	if thorns > 0.0 and source_position != Vector2.INF:
-		reflected.emit(source_position, amount * thorns)
-	health = maxf(0.0, health - maxf(1.0, amount - armor))
+		reflected.emit(source_position, incoming_damage * thorns)
+	health = maxf(0.0, health - maxf(1.0, incoming_damage - armor))
 	invulnerability = 0.55
-	damaged.emit(self, amount)
+	damaged.emit(self, incoming_damage)
 	if health <= 0.0 and second_chances > 0:
 		second_chances -= 1
 		health = max_health * 0.28
@@ -244,10 +258,10 @@ func hurt(amount: float, source_position := Vector2.INF, can_dodge := true) -> b
 	return true
 
 
-func heal(amount: float) -> void:
+func heal(healing: float) -> void:
 	if downed:
 		return
-	health = minf(max_health, health + amount)
+	health = minf(max_health, health + healing)
 	queue_redraw()
 
 

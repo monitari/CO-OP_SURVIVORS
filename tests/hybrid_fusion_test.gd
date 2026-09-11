@@ -57,14 +57,14 @@ func _run() -> void:
 	directional._update_body_facing()
 	_check(directional.faces_along_heading and directional.body_sprite.flip_h,
 		"non-chaser enemy art mirrors when it changes direction")
-	var legacy := EnemyScript.new() as ChaserEnemy
-	legacy.setup(0.0, "chaser")
-	legacy.rotation = PI
-	legacy._update_body_facing()
-	_check(not legacy.faces_along_heading and not legacy.body_sprite.flip_h,
-		"the chaser keeps its original facing behavior")
+	var remade := EnemyScript.new() as ChaserEnemy
+	remade.setup(0.0, "chaser")
+	remade.rotation = PI
+	remade._update_body_facing()
+	_check(remade.faces_along_heading and remade.body_sprite.flip_h,
+		"the remade chaser follows the same left-facing mirror rule")
 	directional.queue_free()
-	legacy.queue_free()
+	remade.queue_free()
 
 	for sample in 200:
 		_check(main._roll_chest_reward_count() >= 2, "every chest contains at least two rewards")

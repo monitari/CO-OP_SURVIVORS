@@ -10,11 +10,11 @@ func _run() -> void:
 	# Request a new enemy first: it must not prevent the old atlas initializing.
 	Enemies.textures.clear()
 	_check_texture(Enemies.get_icon("wasp"), "wasp")
-	for id in ["chaser", "swarm", "charger", "shooter", "chain_hunter", "bulwark", "brute"]:
+	for id in ["swarm", "charger", "shooter", "chain_hunter", "bulwark", "brute"]:
 		if Enemies.get_icon(id) == null: failures.append("Missing original " + id)
 	for id in ["echo", "latte"]: _check_texture(Icons.survivor(id), id)
 	for id in ["boomerang", "milk", "skipping_stone", "cream_tide"]: _check_texture(Icons.weapon(id), id)
-	for id in ["rat_runner", "hedgehog", "mole", "owl"]: _check_texture(Enemies.get_icon(id), id)
+	for id in ["chaser", "rat_runner", "hedgehog", "mole", "owl"]: _check_texture(Enemies.get_icon(id), id)
 	var enemy := ChaserEnemy.new()
 	root.add_child(enemy)
 	enemy.setup(2, "mole")
@@ -27,9 +27,13 @@ func _run() -> void:
 	enemy.setup(2, "chaser")
 	enemy._update_body_facing()
 	if enemy.body_sprite.flip_h: failures.append("Pooled original retains mirrored state")
+	enemy.rotation = PI
+	enemy._update_body_facing()
+	if not enemy.faces_along_heading or not enemy.body_sprite.flip_h:
+		failures.append("Remade chaser does not face left")
 	enemy.queue_free()
 	for failure in failures: push_error("UNIFIED_ART_FAIL: " + failure)
-	print("UNIFIED_ART_PASS: 11 normalized transparent assets, old atlas preserved, pooled facing" if failures.is_empty() else "UNIFIED_ART_FAIL")
+	print("UNIFIED_ART_PASS: 12 enemy assets load, normalized additions fit, pooled facing" if failures.is_empty() else "UNIFIED_ART_FAIL")
 	quit(0 if failures.is_empty() else 1)
 
 func _check_texture(texture: Texture2D, id: String) -> void:

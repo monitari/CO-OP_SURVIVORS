@@ -42,6 +42,7 @@ func _run() -> void:
 	_test_threat_indicator(main)
 	_test_palette(main)
 	_test_attack_ring_hierarchy(main)
+	await _test_reactive_light_reuse(main)
 	_test_layout(main)
 	await _test_nothing_is_clipped(main)
 
@@ -75,6 +76,24 @@ func _test_bursts() -> void:
 	field.clear_all()
 	_check(field.bursts.is_empty(), "a new run starts with an empty field")
 	field.free()
+
+
+## Reactive lights expire independently. A strong Node reference left in the
+## cap used to become an invalid freed instance when the next lightning cast
+## tried to evict it.
+func _test_reactive_light_reuse(main: Node) -> void:
+	var controller: WeaponController = main.weapon_controller
+	controller.clear_transients()
+	for index in WeaponController.REACTIVE_LIGHT_CAP:
+		controller._spawn_reactive_light(Vector2(index * 20.0, 0.0), Color.WHITE, 48.0, 0.06, 0.2)
+	await create_timer(0.12).timeout
+	await process_frame
+	controller._spawn_reactive_light(Vector2.ZERO, Color.WHITE, 48.0, 0.06, 0.2)
+	_check(controller.reactive_lights.size() == 1,
+		"expired reactive lights are swept before the next cast (%d handles)" % controller.reactive_lights.size())
+	if not controller.reactive_lights.is_empty():
+		_check(controller.reactive_lights[0].get_ref() != null, "the retained reactive-light handle is live")
+	controller.clear_transients()
 
 
 func _test_death_spawns_a_burst(main: Node) -> void:

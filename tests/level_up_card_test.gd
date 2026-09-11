@@ -294,8 +294,11 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_check(main.level_overlay.get_node("Confirm0").disabled and not main.level_overlay.get_node("Cancel0").disabled,
 		"confirmation disables the primary action and enables cancellation")
 	for index in main.p1_choices.size():
-		_check(main.level_card_labels[0][index].visible,
-			"the confirmed hand remains as readable context")
+		_check(not main.level_card_labels[0][index].visible,
+			"the confirmed hand yields space to the next player")
+	_check(String(main.level_overlay.get_node("CompanionSummary/Detail").text).contains(
+		String(main.p1_choices[main.selected_upgrade_indices[0]]["title"]).replace("\n", " ")),
+		"the compact teammate panel preserves the confirmed choice")
 
 	await _tap(main, "p1_select_cancel")
 	_check(main.selected_upgrade_indices[0] == -1, "a locked player can back out while the partner is still choosing")

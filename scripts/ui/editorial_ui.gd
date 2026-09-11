@@ -199,7 +199,7 @@ static func refresh_title(main: Node) -> void:
 		"credits":
 			main.title_note.text = "달빛 옥상 간식 수호대\n사슬로 묶인 두 고양이가 달빛 든 옥상을 지키는 2인 협동 서바이버.\n\n기획 · 프로그래밍 · 아트   monitari\n엔진   Godot 4\n\n함께 놀아준 모두에게 고맙습니다."
 		_:
-			main.title_note.text = "같은 PC에서 두 사람이 함께 플레이합니다.\n\n키보드 하나를 나눠 쓰거나 게임패드를 연결하세요. 두 사람이 참가하면 캐릭터를 고르고 출발합니다."
+			main.title_note.text = "두 사람이 함께, 또는 AI 동료와 출발하세요.\n\n로비에서 B를 누르면 P2를 AI가 맡습니다. 로컬 2인은 키보드를 나눠 쓰거나 게임패드를 연결하세요."
 
 
 static func _lobby(main: Node) -> void:
@@ -397,8 +397,8 @@ static func _growth(main: Node) -> void:
 			badge.add_theme_color_override("font_color", Palette.P1)
 			badge.add_theme_stylebox_override("normal", Palette.surface(Palette.NIGHT_RAISED))
 			badge.add_theme_font_size_override("font_size", Palette.TYPE_CAPTION)
-		var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
-		footer.add_theme_color_override("font_color", Palette.MUTED)
+		var footer_label: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
+		footer_label.add_theme_color_override("font_color", Palette.MUTED)
 		main.level_portrait_icons[slot].hide()
 		for row_index in 2:
 			var row: Array = main.level_weapon_icons[slot] if row_index == 0 else main.level_treasure_icons[slot]
@@ -449,12 +449,13 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		var option: Dictionary = choices[index]
 		var card: Label = main.level_card_labels[slot][index]
 		var kind := String(option["id"])
+		card.set_meta("tech_card", kind == "choose_tech")
 		var category := card.get_node("Category") as Label
 		if kind == "choose_tech":
 			var profile := String((option["tech"] as Dictionary).get("profile", "balanced"))
 			category.text = {
-				"force": "피해 테크", "tempo": "연사 테크",
-				"control": "제어 테크", "balanced": "균형 테크",
+				"force": "공격 변형", "tempo": "공격 변형",
+				"control": "영역 변형", "balanced": "협동 변형",
 			}.get(profile, "테크 결정")
 			category.add_theme_color_override("font_color", {
 				"force": Color("ff8e72"), "tempo": Color("67c8ff"),
@@ -490,12 +491,12 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		badge.add_theme_stylebox_override("normal",
 			Palette.surface(Palette.NIGHT_RAISED))
 		badge.visible = kind != "choose_tech" and (bool(option.get("recommended", false)) or against)
-	var footer: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
-	place(footer, Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 212.0 - G.PAD, 68, 212, 22), 12, Palette.MUTED)
-	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	footer.text = "무기 %d/4 · 보물 %d/4" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+	var footer_label: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
+	place(footer_label, Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 212.0 - G.PAD, 68, 212, 22), 12, Palette.MUTED)
+	footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	footer_label.text = "무기 %d/4 · 보물 %d/4" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
 	if main.level_up_input_delay > 0.0:
-		footer.text = "잠시 후 선택할 수 있습니다"
+		footer_label.text = "잠시 후 선택할 수 있습니다"
 	if screen.has_node("Reroll%d" % slot):
 		var confirm: Button = screen.get_node("Confirm%d" % slot)
 		confirm.disabled = main.level_up_input_delay > 0.0 or locked or complete
@@ -728,7 +729,7 @@ static func refresh_hud(main: Node) -> void:
 	main.combat_hud.get_node("ObjectiveReadout").text = readout
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
-		main.combat_hud.get_node("PlayerIdentity%d" % slot).text = "%s   ·   개인 Lv.%d" % [main.players[slot].character_name, int(main.run_stats["personal_levels"][slot])]
+		main.combat_hud.get_node("PlayerIdentity%d" % slot).text = "%s   ·   개인 Lv.%d" % [("AI · " if main.ai_companion and slot == 1 else "") + main.players[slot].character_name, int(main.run_stats["personal_levels"][slot])]
 		holder.visible = not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)
 		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
 		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
