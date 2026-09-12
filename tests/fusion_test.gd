@@ -127,8 +127,8 @@ func _test_both_requirements(main: Node) -> void:
 	# Neither requirement met.
 	_check(_fusion_offers(main, 1).is_empty(), "no fusion is offered at tier 1 with no treasure")
 
-	# Weapon maxed, treasure missing.
-	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	# Weapon at the enhancement gate, treasure missing.
+	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
 	_check(_fusion_offers(main, 1).is_empty(), "a maxed weapon alone does not unlock a fusion")
 
 	# Treasure carried but not deep enough.
@@ -144,9 +144,9 @@ func _test_both_requirements(main: Node) -> void:
 
 	# And an under-tier weapon with a deep treasure must still be refused, or
 	# only one of the two gates is really doing anything.
-	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER - 1
+	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER - 1
 	_check(_fusion_offers(main, 1).is_empty(), "the weapon requirement is enforced independently")
-	weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
 
 
 func _test_fusion_replaces_in_place(main: Node) -> void:
@@ -243,7 +243,12 @@ func _test_completed_build_stops_growth(main: Node) -> void:
 			if String(state.get("tech_id", "")).is_empty():
 				WeaponTechs.apply_to_state(state, WeaponTechs.for_weapon(String(state["weapon_id"]))[0])
 			var evolution: Dictionary = main._selected_evolution_for_state(state)
-			main.weapon_loadouts[slot].append(EvolutionCatalog.build_state(evolution, state))
+			var enhanced := EvolutionCatalog.build_state(evolution, state)
+			# An enhancement is no longer the end of a weapon's life: it keeps
+			# climbing to WEAPON_MAX_TIER, so a *finished* build is one that has
+			# bought those rungs too.
+			enhanced["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+			main.weapon_loadouts[slot].append(enhanced)
 		main.treasure_loadouts[slot] = []
 		for treasure in TreasureCatalog.all_treasures().slice(0, main.TREASURE_LOADOUT_CAP):
 			var carried: Dictionary = TreasureCatalog.build_state(treasure)
@@ -251,13 +256,23 @@ func _test_completed_build_stops_growth(main: Node) -> void:
 			main.treasure_loadouts[slot].append(carried)
 	main.level_up_active = false
 	main.growth_finished = false
+	main.overflow_levels = 0
 	main.progression.experience = main.progression.required_experience
 	main._begin_level_up()
 	_check(main.growth_finished and not main.level_up_active,
 		"a fully maxed pair does not open another growth screen")
-	var xp_before := int(main.progression.experience)
+	# Experience has no ceiling: the level still lands, it just pays a flat
+	# 초월 step to both survivors instead of opening a screen with nothing on it.
+	_check(main.overflow_levels >= 1, "the level past a finished build is still taken")
+	var might_before := main.players[0].might
+	var level_before := int(main.progression.level)
+	main.progression.experience = main.progression.required_experience
+	main._begin_level_up()
+	_check(int(main.progression.level) > level_before, "the shared level keeps climbing")
+	_check(main.players[0].might > might_before, "and every level past the build still pays out")
+	var banked := int(main.progression.experience)
 	main._gain_shared_xp(100, 0)
-	_check(int(main.progression.experience) == xp_before, "XP stops queuing after the finite build is complete")
+	_check(int(main.progression.experience) > banked, "XP keeps accruing after the build is complete")
 
 
 ## Every piece of text on the growth screen, joined.

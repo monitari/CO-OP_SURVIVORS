@@ -202,14 +202,14 @@ func _test_boss_telegraph_is_dodgeable() -> void:
 
 ## Fusion and resonance are supposed to be the end of a run, not the middle.
 func _test_road_to_fusion_is_long() -> void:
-	var weapon_steps := EvolutionCatalog.WEAPON_MAX_TIER - 1
+	var weapon_steps := EvolutionCatalog.EVOLUTION_TIER - 1
 	var treasure_steps := EvolutionCatalog.REQUIRED_TREASURE_TIER
 	var picks := weapon_steps + treasure_steps
 	_check(picks >= 10, "a fusion costs at least ten level-up picks (%d)" % picks)
 	_check(EvolutionCatalog.REQUIRED_TREASURE_TIER <= TreasureCatalog.MAX_TIER,
 		"the treasure a fusion needs can actually be taken that deep")
 	print("ENCOUNTER_METRICS: fusion costs %d picks (weapon T%d + treasure T%d)" % [
-		picks, EvolutionCatalog.WEAPON_MAX_TIER, EvolutionCatalog.REQUIRED_TREASURE_TIER
+		picks, EvolutionCatalog.EVOLUTION_TIER, EvolutionCatalog.REQUIRED_TREASURE_TIER
 	])
 
 

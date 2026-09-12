@@ -18,13 +18,21 @@ const SECTION := "progression"
 const DISCOVERY_SECTION := "fusion_discoveries"
 const CLEAR_REWARD := 8
 
+## Moon-fish turned out to be far easier to come by than this price list was
+## written for: a clear pays eight, every chest the pair cannot use pays more,
+## and a couple of runs therefore bought the entire board — after which the shop
+## was a screen with nothing on it. Every rank now costs `base_cost + rank *
+## cost_step` rather than `base_cost + rank`, and both numbers are several times
+## what they were, so the whole board is a long-term project instead of a
+## weekend's shopping. The first rank of the cheap lines is still inside one
+## clear, which is what keeps a first visit worth making.
 const UPGRADES := [
-	{"id": "vitality", "name": "튼튼한 심장", "max_rank": 8, "base_cost": 1, "summary": "최대 체력 +3%"},
-	{"id": "might", "name": "날카로운 발톱", "max_rank": 8, "base_cost": 1, "summary": "피해량 +2%"},
-	{"id": "haste", "name": "빠른 수염", "max_rank": 8, "base_cost": 1, "summary": "발동 간격 -1.5%"},
-	{"id": "move", "name": "가벼운 발걸음", "max_rank": 8, "base_cost": 1, "summary": "이동 속도 +1.5%"},
-	{"id": "magnet", "name": "별빛 주머니", "max_rank": 6, "base_cost": 2, "summary": "자력 +4%"},
-	{"id": "luck", "name": "행운의 꼬리", "max_rank": 4, "base_cost": 3, "summary": "행운 +1"},
+	{"id": "vitality", "name": "튼튼한 심장", "max_rank": 8, "base_cost": 3, "cost_step": 3, "summary": "최대 체력 +3%"},
+	{"id": "might", "name": "날카로운 발톱", "max_rank": 8, "base_cost": 4, "cost_step": 4, "summary": "피해량 +2%"},
+	{"id": "haste", "name": "빠른 수염", "max_rank": 8, "base_cost": 4, "cost_step": 4, "summary": "발동 간격 -1.5%"},
+	{"id": "move", "name": "가벼운 발걸음", "max_rank": 8, "base_cost": 3, "cost_step": 3, "summary": "이동 속도 +1.5%"},
+	{"id": "magnet", "name": "별빛 주머니", "max_rank": 6, "base_cost": 6, "cost_step": 4, "summary": "자력 +4%"},
+	{"id": "luck", "name": "행운의 꼬리", "max_rank": 4, "base_cost": 10, "cost_step": 8, "summary": "행운 +1"},
 ]
 
 var save_path := SAVE_PATH
@@ -94,7 +102,7 @@ func cost(id: String) -> int:
 	var entry := by_id(id)
 	if entry.is_empty() or rank(id) >= int(entry["max_rank"]):
 		return 0
-	return int(entry["base_cost"]) + rank(id)
+	return int(entry["base_cost"]) + rank(id) * int(entry.get("cost_step", 1))
 
 
 func purchase(id: String) -> bool:

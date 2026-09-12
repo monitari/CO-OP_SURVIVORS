@@ -13,7 +13,11 @@ extends RefCounted
 ## the filenames under assets/sprites/upgrades/, so every treasure has an icon
 ## and an effect without either being defined twice.
 
-const MAX_TIER := 6
+## Six tiers was the whole of a treasure's life, and with four slots a survivor
+## had bought everything a treasure could ever give them well before the run was
+## over. Ten keeps the same per-tier values — the cards stay small — while giving
+## the second half of a run something to spend levels on.
+const MAX_TIER := 10
 
 
 static func all_treasures() -> Array[Dictionary]:

@@ -125,17 +125,19 @@ static func install(main: Node) -> void:
 					main.upgrade_cursors[slot] = index
 					main.feedback.play_cue("select")
 					main._refresh_level_up_ui())
-		var growth_confirm := button(main.level_overlay, "선택 확정", Rect2(main.LEVEL_HALF_X[slot] + 12, 492, 200, 34), func() -> void:
+		# The three growth actions sit between the status strip and the fan, so a
+		# survivor's buttons are under their own hand rather than under the screen.
+		var growth_confirm := button(main.level_overlay, "선택 확정", Rect2(main.LEVEL_HALF_X[slot] + 24, 114, 150, 26), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
 				main._confirm_growth_choice(slot, main.upgrade_cursors[slot]))
 		growth_confirm.name = "Confirm%d" % slot
 		growth_confirm.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
 		growth_confirm.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
 		growth_confirm.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
-		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + 224, 492, 136, 34), func() -> void:
+		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + 182, 114, 106, 26), func() -> void:
 			if main.level_up_active:
 				main._cancel_growth_choice(slot)).name = "Cancel%d" % slot
-		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + 372, 492, 200, 34), func() -> void:
+		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + 296, 114, 172, 26), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0 and main.rerolls_remaining[slot] > 0:
 				main._reroll_growth_choice(slot)).name = "Reroll%d" % slot
 		for index in main.resonance_cards.size():
@@ -145,7 +147,7 @@ static func install(main: Node) -> void:
 				main.resonance_votes[slot] = index
 				main.resonance_cursors[slot] = index
 				main._refresh_resonance_vote_ui())
-	button(main.level_overlay, "상세 · TAB / X", Rect2(G.w(12) - 236.0 - G.PAD, 24, 236, 32), func() -> void: toggle_details(main))
+	button(main.level_overlay, "상세 · TAB / X", Rect2(1036, 2, 228, 26), func() -> void: toggle_details(main))
 	var result_menu := button(main.result_overlay, "메인 메뉴로", Rect2((G.w(8) - 300.0) * 0.5, 582, 300, 34), func() -> void:
 		main.get_tree().paused = false
 		main.get_tree().reload_current_scene())
@@ -267,8 +269,13 @@ static func toggle_details(main: Node) -> void:
 		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f · 범위 %d%% · 자력 %d%%\nXP %d%% · 강적 +%d%% · 행운 %d · 흡혈 %.1f%%\n레벨 회복 %d%% · 드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_lifesteal * 100.0, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
 		var build_lines: Array[String] = []
 		var weapon_names: Array[String] = []
-		for w: Dictionary in main.weapon_loadouts[slot]:
-			weapon_names.append("%s Lv.%d" % [w["weapon_name"], w.get("tier", 1)])
+		for index in main.weapon_loadouts[slot].size():
+			var w: Dictionary = main.weapon_loadouts[slot][index]
+			# A weapon a resonance is firing for still has a level, and that level
+			# still feeds the resonance — this is the one readout with room to say
+			# both, so the HUD and the growth row can get away with just "공명".
+			var silenced: String = " · 공명 전담" if main.resonance_system.is_bound(slot, index) else ""
+			weapon_names.append("%s Lv.%d%s" % [w["weapon_name"], w.get("tier", 1), silenced])
 		var treasure_names: Array[String] = []
 		for treasure: Dictionary in main.treasure_loadouts[slot]:
 			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])

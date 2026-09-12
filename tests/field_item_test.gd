@@ -44,7 +44,7 @@ func _run() -> void:
 	_test_table_integrity(main)
 
 	if failures.is_empty():
-		print("FIELD_ITEM_PASS: pickups, stronger golden collar, mixed chest loot, elite guarantee, luck scaling")
+		print("FIELD_ITEM_PASS: pickups, stronger golden collar, mixed chest loot, elite-only drops")
 		quit(0)
 	else:
 		for failure in failures:
@@ -317,17 +317,19 @@ func _test_drop_rates(main: Node) -> void:
 		main._try_drop_field_item(Vector2(index * 40.0, 3000.0), true)
 	_check(main.field_items.active_items.size() == 20, "every elite kill leaves a drop (got %d of 20)" % main.field_items.active_items.size())
 
-	main.field_items.clear_all()
-	main.team_luck = 0
-	for index in 400:
-		main._try_drop_field_item(Vector2(index, 3000.0), false)
-	var unlucky: int = main.field_items.active_items.size()
-
+	# Ordinary enemies pay experience and nothing else. The old 1.5% roll on
+	# every kill read as generosity and worked as noise: a steady drizzle of
+	# pickups from nowhere in particular, which is how the pair stopped reading
+	# the floor at all.
 	main.field_items.clear_all()
 	main.team_luck = 12
-	for index in 400:
+	main.team_greed = 2.0
+	for index in 2000:
 		main._try_drop_field_item(Vector2(index, 3000.0), false)
-	var lucky: int = main.field_items.active_items.size()
+	_check(main.field_items.active_items.is_empty(),
+		"an ordinary kill leaves nothing on the floor, even at high luck and greed (%d)"
+			% main.field_items.active_items.size())
+	main.team_greed = 0.0
 
 	# An early boss is a checkpoint and leaves a guaranteed drop; the final one
 	# ends the run, so anything it left would be a pickup nobody can reach.
@@ -349,9 +351,6 @@ func _test_drop_rates(main: Node) -> void:
 	paused = false
 	main.field_items.clear_all()
 
-	_check(unlucky < 400, "ordinary kills do not always drop")
-	_check(lucky > unlucky, "luck raises the field drop rate (%d -> %d over 400 kills)" % [unlucky, lucky])
-	print("FIELD_ITEM_METRICS: drops per 400 kills luck0=%d luck12=%d" % [unlucky, lucky])
 	main.team_luck = 0
 	main.field_items.clear_all()
 

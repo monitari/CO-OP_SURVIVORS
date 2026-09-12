@@ -9,6 +9,23 @@ extends Node
 ## problem by the late game), so three is the deliberate middle ground.
 const MAX_ACTIVE_RESONANCES := 3
 
+## Reaching a resonance used to cost nothing: the two enhanced weapons that
+## produced it kept firing exactly as before and the pair got a third attack for
+## free, which made the top of the tree an addition rather than a decision.
+##
+## Activating one now takes the two weapons that earned it out of service. They
+## keep their slots — they are still carried gear, still on the HUD, still worth
+## levelling for what they lend the resonance — but they stop attacking on their
+## own, and the resonance attacks in their place. That is the whole trade, and
+## these two numbers are what pays for it: a resonance hits for more than the two
+## weapons ever did on their own and comes round faster than the catalogue says.
+const TRADE_POWER := 1.65
+## How much one weapon tier above the enhancement gate adds to the pair's move,
+## per side. Levelling a silenced weapon is therefore still worth doing — it is
+## the resonance that gets stronger.
+const TRADE_TIER_BONUS := 0.11
+const COOLDOWN_SCALE := 0.78
+
 var active_resonances: Array[Dictionary] = [] ## Each entry is a catalog dict plus its own "cooldown_remaining".
 
 var catalog: Array[Dictionary] = [
@@ -65,12 +82,17 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 	# Resonance is the top of the tree, not a mid-run bonus: only fused weapons
 	# reach it. A tier-3 base weapon used to qualify, which meant the pair hit
 	# their supposed final mechanic before they had finished either build.
-	for weapon_a in loadout_a:
-		if not bool(weapon_a.get("evolved", false)):
+	# A weapon already silenced by an active resonance cannot earn a second one:
+	# it is spent, which is what keeps three resonances costing six weapon slots
+	# rather than two.
+	for slot_a in loadout_a.size():
+		var weapon_a: Dictionary = loadout_a[slot_a]
+		if not bool(weapon_a.get("evolved", false)) or is_bound(0, slot_a):
 			continue
 		var tags_a: Array = weapon_a["tags"]
-		for weapon_b in loadout_b:
-			if not bool(weapon_b.get("evolved", false)):
+		for slot_b in loadout_b.size():
+			var weapon_b: Dictionary = loadout_b[slot_b]
+			if not bool(weapon_b.get("evolved", false)) or is_bound(1, slot_b):
 				continue
 			var tags_b: Array = weapon_b["tags"]
 			for resonance in catalog:
@@ -87,6 +109,10 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 				# weapons that earned it on screen rather than only their names.
 				candidate["weapon_a_id"] = String(weapon_a.get("weapon_id", ""))
 				candidate["weapon_b_id"] = String(weapon_b.get("weapon_id", ""))
+				# The slots travel with the candidate so activation knows which
+				# two weapons it is taking out of service.
+				candidate["weapon_a_slot"] = slot_a
+				candidate["weapon_b_slot"] = slot_b
 				var requirements: Array = candidate["requires"]
 				candidate["tech_match_count"] = (1 if String(weapon_a.get("tech_tag", "")) in requirements else 0) \
 					+ (1 if String(weapon_b.get("tech_tag", "")) in requirements else 0)
@@ -168,8 +194,31 @@ func rank_candidates(candidates: Array[Dictionary], limit := VOTE_CHOICES) -> Ar
 
 func activate(resonance: Dictionary) -> void:
 	var entry := resonance.duplicate(true)
+	entry["cooldown"] = float(resonance["cooldown"]) * COOLDOWN_SCALE
 	entry["cooldown_remaining"] = 1.2
 	active_resonances.append(entry)
+
+
+## Whether this weapon slot is one of the two an active resonance is firing for.
+## A bound weapon keeps its slot and its tier and stops casting (see main's
+## weapon loop), so this is the one question both the attack loop and the HUD
+## ask about a carried weapon.
+func is_bound(player_index: int, weapon_slot: int) -> bool:
+	var key := "weapon_a_slot" if player_index == 0 else "weapon_b_slot"
+	for entry in active_resonances:
+		if int(entry.get(key, -1)) == weapon_slot:
+			return true
+	return false
+
+
+## The resonance, if any, this weapon slot is firing for — so the HUD can name
+## what a silenced weapon is doing instead of attacking.
+func bound_resonance(player_index: int, weapon_slot: int) -> Dictionary:
+	var key := "weapon_a_slot" if player_index == 0 else "weapon_b_slot"
+	for entry in active_resonances:
+		if int(entry.get(key, -1)) == weapon_slot:
+			return entry
+	return {}
 
 
 ## How much slower a resonance charges while the pair is not really a pair.

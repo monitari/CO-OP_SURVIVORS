@@ -64,7 +64,7 @@ func _run() -> void:
 	main.set_physics_process(false)
 	await process_frame
 
-	# A build with everything in it: four weapons and four treasures each, which
+	# A build with everything in it: six weapons and six treasures each, which
 	# is the widest the readouts ever get.
 	for slot in 2:
 		for character in CharacterCatalog.all_characters():
@@ -239,8 +239,9 @@ func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 		_check(holder.visible, "P%d's build readout is on screen during play" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
+			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)
 			_check(not carried.is_empty(), "the fixture actually gave P%d %s" % [slot + 1, row])
-			for index in 4:
+			for index in cap:
 				var art: TextureRect = holder.get_node("%s%d" % [row, index])
 				_check(art.visible == (index < carried.size()),
 					"P%d %s slot %d is shown exactly when it is carried" % [slot + 1, row, index])
@@ -259,8 +260,9 @@ func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 				_check(not tier.has_theme_stylebox_override("normal"),
 					"P%d %s %d wears no plate" % [slot + 1, row, index])
 		# Both rows have to stay on screen: P2's sits against the right edge and
-		# a wider icon or a fifth slot would push it off.
-		var far_right: float = holder.position.x + 3.0 * 38.0 + 30.0
+		# a wider icon or a seventh slot would push it off.
+		var last: Control = holder.get_node("WeaponSlot%d" % (int(main.WEAPON_LOADOUT_CAP) - 1))
+		var far_right: float = holder.position.x + last.position.x + last.size.x
 		_check(far_right <= 1280.0, "P%d's readout stays inside the viewport (%.0f)" % [slot + 1, far_right])
 
 

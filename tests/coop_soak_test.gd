@@ -102,7 +102,7 @@ func _run() -> void:
 	_check(seconds_per_level >= 14.0, "level-ups still leave at least ~14s of play between choices")
 	_check(seconds_per_level <= 36.0, "level-ups remain frequent enough to complete a committed build")
 	_check(main.progression.level >= 45,
-		"a full run reaches the finite build ceiling (level %d)" % main.progression.level)
+		"a full run banks the levels a committed build costs (level %d)" % main.progression.level)
 
 	_check(seen_archetypes.size() >= 3, "long run contains multiple enemy archetypes (%s)" % str(seen_archetypes.keys()))
 	# A twenty-five-minute run is long enough to see the whole encounter rota;

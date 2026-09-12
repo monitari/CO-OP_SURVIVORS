@@ -180,7 +180,7 @@ func _run() -> void:
 	var marked_tech: Dictionary = main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0]
 	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], marked_tech)
 	var marked: Dictionary = main._selected_evolution_for_state(main.weapon_loadouts[0][0])
-	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER
 	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1,
 		"treasure": TreasureCatalog.by_id(String(marked["treasure_id"]))})
 	while main._treasure_tier(0, String(marked["treasure_id"])) < EvolutionCatalog.REQUIRED_TREASURE_TIER - 1:

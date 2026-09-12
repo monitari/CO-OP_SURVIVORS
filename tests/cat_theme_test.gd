@@ -64,9 +64,11 @@ func _run() -> void:
 		for index in cards.size():
 			var card: Label = cards[index]
 			if card.visible:
-				var slot: int = 0 if cards == main.level_card_labels[0] else 1
-				_check(card.scale.is_equal_approx(Vector2.ONE) and is_zero_approx(card.rotation),
-					"growth cards stay stable while focus is shown by the border")
+				# The hand is a fan, so a card may be tilted — but never scaled:
+				# a card that grows under the cursor shoves its neighbours and
+				# the whole row starts moving as the cursor walks it.
+				_check(card.scale.is_equal_approx(Vector2.ONE),
+					"growth cards keep their size while focus is shown by the border and the tilt")
 			_fit(card, "growth card")
 			_fit(card.get_node("CardTitle"), "growth title")
 	_check_icon_bounds(main.level_overlay)

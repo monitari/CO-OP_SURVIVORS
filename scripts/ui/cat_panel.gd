@@ -9,6 +9,10 @@ var backdrop := false
 var veil_only := false
 ## Panels the run shows through rather than sits behind.
 var translucent := false
+## A screen that is a place to put controls rather than a box to look at. The
+## growth band uses it: the fight it interrupts stays fully visible, and its own
+## children carry whatever plate they need.
+var chromeless := false
 
 
 func _ready() -> void:
@@ -20,9 +24,14 @@ func _ready() -> void:
 func _draw() -> void:
 	if backdrop:
 		if veil_only:
-			draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, 0.35))
+			# Lighter than it was: the growth screen no longer covers the roof, and
+			# the camera pulling in on the pair is what frames the moment now, so
+			# the veil only has to separate the cards from the fight behind them.
+			draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, 0.22))
 			return
 		_draw_backdrop()
+		return
+	if chromeless:
 		return
 	var compact := size.y < 150.0
 	var style := CatStyle.surface(CatStyle.NIGHT_PANEL if compact else CatStyle.PANEL)

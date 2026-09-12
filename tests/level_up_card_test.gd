@@ -180,7 +180,7 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	# The partner is already enhanced, so P1's enhancement is the card that completes the
 	# pair's resonance. Nothing short of an enhancement can do that any more, which is
 	# exactly what the recommendation has to be able to see.
-	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER
 	var partner: Dictionary = main.weapon_loadouts[1][0]
 	main.weapon_loadouts[1][0] = EvolutionCatalog.build_state(
 		EvolutionCatalog.for_base(String(partner["weapon_id"])), partner
@@ -293,12 +293,17 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 		"the player header exposes the confirmed state")
 	_check(main.level_overlay.get_node("Confirm0").disabled and not main.level_overlay.get_node("Cancel0").disabled,
 		"confirmation disables the primary action and enables cancellation")
+	# A confirmed hand stays on screen, dimmed apart from the card that was
+	# taken: the pair reads each other's fans now instead of taking turns with
+	# the screen, so removing the locked hand would hide half the negotiation.
 	for index in main.p1_choices.size():
-		_check(not main.level_card_labels[0][index].visible,
-			"the confirmed hand yields space to the next player")
+		var locked_card: Label = main.level_card_labels[0][index]
+		_check(locked_card.visible, "the confirmed hand stays on screen")
+		if index != main.selected_upgrade_indices[0]:
+			_check(locked_card.modulate.a < 1.0, "everything but the taken card fades back")
 	_check(String(main.level_overlay.get_node("CompanionSummary/Detail").text).contains(
 		String(main.p1_choices[main.selected_upgrade_indices[0]]["title"]).replace("\n", " ")),
-		"the compact teammate panel preserves the confirmed choice")
+		"the teammate readout preserves the confirmed choice")
 
 	await _tap(main, "p1_select_cancel")
 	_check(main.selected_upgrade_indices[0] == -1, "a locked player can back out while the partner is still choosing")
@@ -340,21 +345,38 @@ func _test_luck_and_grid_hand(main: Node) -> void:
 	_check(main.level_card_labels[0].size() == 4 and main.p1_choices.size() == 4,
 		"the UI has a real fourth card slot when luck grants it")
 	var cards: Array = main.level_card_labels[0]
-	for left in cards.size():
-		for right in range(left + 1, cards.size()):
-			_check(not Rect2(cards[left].position, cards[left].size).intersects(Rect2(cards[right].position, cards[right].size)),
-				"four-card grid leaves every title and effect unobscured")
+	# A fan overlaps on purpose. What has to hold is that each card steps clear
+	# of the one before it, so all four titles stay readable, and that a lucky
+	# fourth card keeps the shape a three-card hand has instead of re-flowing
+	# the screen into a grid.
+	for index in range(1, cards.size()):
+		var step: float = cards[index].position.x - cards[index - 1].position.x
+		_check(step >= 90.0, "card %d steps clear of the one before it (%.0fpx)" % [index, step])
+	var focused: int = main.upgrade_cursors[0]
+	var middle: float = float(cards.size() - 1) * 0.5
+	for index in cards.size():
+		var card: Label = cards[index]
+		_check(card.scale.is_equal_approx(Vector2.ONE), "focus does not enlarge a growth card")
+		if index == focused:
+			_check(is_zero_approx(card.rotation), "the card under the cursor comes upright")
+		elif absf(float(index) - middle) > 0.01:
+			_check(not is_zero_approx(card.rotation), "the rest of the hand stays fanned out")
+	_check(int(cards[focused].z_index) > int(cards[(focused + 1) % cards.size()].z_index),
+		"the focused card lifts clear of its neighbours")
+	# Outer cards sit lower than the middle of the fan, which is what makes it
+	# read as a hand — and is also the thing most likely to fall off the band.
 	for card: Label in cards:
-		_check(is_zero_approx(card.rotation) and card.scale.is_equal_approx(Vector2.ONE),
-			"focus does not tilt, enlarge, or move a growth card")
+		_check(card.position.y + card.size.y <= main.level_overlay.size.y,
+			"the fan stays inside the growth band (%.0f of %.0f)" % [
+				card.position.y + card.size.y, main.level_overlay.size.y])
 	var equipment_y: float = main.level_weapon_icons[0][0].get_parent().position.y
 	print("GRID_METRICS: cards=%s equipment_y=%.0f" % [
 		str(cards.map(func(card: Label) -> String: return "%s/%s" % [card.position, card.size])), equipment_y])
-	_check(cards[2].position.y + cards[2].size.y <= equipment_y,
-		"the card region ends before the equipment preview begins")
+	_check(equipment_y + 28.0 <= float(cards[0].position.y),
+		"the equipment strip sits above the cards rather than under them")
 	main.level_card_labels[0][3].mouse_entered.emit()
 	_check(main.upgrade_cursors[0] == 3 and main.level_card_labels[0][3].scale.is_equal_approx(Vector2.ONE),
-		"mouse hover moves the cursor without moving the card")
+		"mouse hover moves the cursor without resizing the card")
 	_check(main.level_overlay.has_node("Confirm0") and String(main.level_overlay.get_node("Confirm0").text).contains("선택 확정"),
 		"each player has a visible, explicit confirmation action")
 	main.team_luck = 0

@@ -113,7 +113,12 @@ func _run() -> void:
 	main.level_up_input_delay = 0
 	main._handle_level_up_input()
 	check(main.selected_upgrade_indices[1] >= 0, "AI automatically locks a growth choice")
-	check(not main.level_card_labels[1][0].visible and main.level_card_labels[0][0].visible, "only human choice cards are visible")
+	# Both hands stay on screen — the waiting side is dimmed, not removed, so a
+	# survivor can see what their partner is about to take while they decide.
+	check(main.level_card_labels[1][0].visible and main.level_card_labels[0][0].visible,
+		"both fans of cards stay on screen")
+	check(main.level_card_labels[1][0].modulate.a < main.level_card_labels[0][0].modulate.a,
+		"the side whose turn it is not is dimmed")
 	main._select_upgrade(1, 0)
 	check(not main.level_up_active or main.cinematic_active, "AI growth cannot block the run")
 	# Local two-player focus handoff and reset back to a human P2.
@@ -121,9 +126,13 @@ func _run() -> void:
 	main.progression.experience = main.progression.required_experience
 	main._begin_level_up()
 	main._select_upgrade(1, 0)
-	check(main.focused_growth_slot() == 1 and main.level_card_labels[1][0].visible and not main.level_card_labels[0][0].visible, "local focus passes to P2")
+	check(main.focused_growth_slot() == 1
+		and main.level_card_labels[1][0].modulate.a > main.level_card_labels[0][0].modulate.a,
+		"local focus passes to P2")
 	main.level_overlay.get_node("ReturnToFirst").pressed.emit()
-	check(main.focused_growth_slot() == 0 and main.level_card_labels[0][0].visible, "local P1 can revise before P2 confirms")
+	check(main.focused_growth_slot() == 0
+		and main.level_card_labels[0][0].modulate.a > main.level_card_labels[1][0].modulate.a,
+		"local P1 can revise before P2 confirms")
 	main._begin_lobby()
 	check(not main.ai_companion, "lobby reset releases AI mode")
 	main._start_selected_run()

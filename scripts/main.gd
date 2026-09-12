@@ -43,10 +43,15 @@ const CHAIN_RESIST_RATIO := 0.70
 ## recomputing the interval.
 const RUN_LENGTH := WaveDirectorScript.RUN_LENGTH
 const DOWNED_TOW_SHARE := 0.88
-const WEAPON_LOADOUT_CAP := 4
+## Four weapons and four treasures was a build a survivor finished with a third
+## of the run still to play. Six of each is the same shape of decision — every
+## slot is still a commitment, and the pool of twelve weapons and twenty-odd
+## treasures still never fits — but it is also what makes a resonance affordable
+## now that one costs a weapon slot each side (see ResonanceSystem).
+const WEAPON_LOADOUT_CAP := 6
 ## Treasures are the other half of a build. Attributes used to be unlimited
-## free-floating cards; a survivor now commits to four and deepens those.
-const TREASURE_LOADOUT_CAP := 4
+## free-floating cards; a survivor now commits to six and deepens those.
+const TREASURE_LOADOUT_CAP := 6
 ## What a weapon is worth before anyone has spent anything on it, and what one
 ## card is worth once they start. These two numbers are the shape of a run: the
 ## first decides how strong the thing you are handed is, the second decides how
@@ -62,6 +67,14 @@ const BASE_WEAPON_DAMAGE_SCALE := 0.68
 const WEAPON_POWER_STEP := 1.28
 ## Multiplier one 속도 card applies to a weapon's cooldown, floored at 0.32s.
 const WEAPON_RATE_STEP := 0.90
+## The ladder runs five rungs further than it used to (see
+## EvolutionCatalog.WEAPON_MAX_TIER). Continuing a geometric 1.28 through all of
+## them would have multiplied a finished weapon by fifteen rather than by four,
+## which is a different game rather than a longer one — so every rung from here
+## up is worth this share of a normal one. The climb keeps going; it stops being
+## the only thing that decides a fight.
+const WEAPON_LATE_TIER := 6
+const WEAPON_LATE_STEP_SHARE := 0.45
 
 ## Enemies spawn 610-760px out and never stopped chasing, so anything that
 ## drifted off — a shooter backing away, a charger that overshot — stayed
@@ -151,6 +164,10 @@ var cinematic_continuation := Callable()
 var cinematic_resume_paused := false
 var arena_floor: ArenaFloor
 var modal_dim: ColorRect
+## One gold wash over the whole frame at the instant a level lands. The growth
+## screen no longer arrives as a box appearing, so something has to say "this
+## just happened" — the flash and the camera pull are that something.
+var growth_flash: ColorRect
 var item_state_veil: ItemStateVeil
 var world_camera: Camera2D
 var spatial_grid: EnemySpatialGrid
@@ -235,7 +252,11 @@ var elapsed := 0.0
 var kills := 0
 var game_over := false
 var level_up_active := false
+## True once neither survivor has a card left to be offered. It is a label on
+## the HUD, not a stop: experience has no ceiling any more (see
+## _consume_overflow_levels), so the bar keeps filling and levels keep landing.
 var growth_finished := false
+var overflow_levels := 0
 var character_select_active := true
 var resonance_vote_active := false
 var pause_active := false
@@ -340,10 +361,8 @@ var item_aura: Node2D
 ## either of them picking a gem credits the same bar. Everything that acts on
 ## a survivor's own body or weapons stays personal (see ChainPlayer).
 ## Field drops are rare enough that finding one is an event, not a resource
-## tick. Luck raises the odds the same way it weights level-up cards, and
-## elites always leave something so a telegraphed hard fight has a payoff.
-const FIELD_ITEM_BASE_CHANCE := 0.015
-const FIELD_ITEM_LUCK_CHANCE := 0.005
+## tick. Every elite and boss leaves something, so a telegraphed hard fight has
+## a payoff; ordinary enemies leave experience only (see _try_drop_field_item).
 const FIELD_ITEM_HEAL_RATIO := 0.3
 ## Elites only (and every boss, which spawns one outright). Ordinary kills used
 ## to roll for one too, at 0.4% across roughly six thousand kills a run — which
@@ -700,7 +719,7 @@ func _physics_process(delta: float) -> void:
 	# time: the pair gets the gap back as play, not as a paused screen.
 	if level_up_gap_remaining > 0.0:
 		level_up_gap_remaining = maxf(0.0, level_up_gap_remaining - delta)
-		if level_up_gap_remaining <= 0.0 and progression.can_level_up() and not growth_finished:
+		if level_up_gap_remaining <= 0.0 and progression.can_level_up():
 			_begin_level_up()
 			return
 	bursts.step(delta)
@@ -713,6 +732,11 @@ func _physics_process(delta: float) -> void:
 
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
+			# A weapon a resonance is firing for keeps its slot and stops casting,
+			# so its timer is held rather than allowed to run far into the
+			# negative while it is silent.
+			if resonance_system.is_bound(player_index, weapon_slot):
+				continue
 			attack_timers[player_index][weapon_slot] -= delta
 
 	var midpoint := (players[0].position + players[1].position) * 0.5
@@ -722,6 +746,8 @@ func _physics_process(delta: float) -> void:
 	_profile("spawning")
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
+			if resonance_system.is_bound(player_index, weapon_slot):
+				continue
 			if attack_timers[player_index][weapon_slot] <= 0.0:
 				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
@@ -737,7 +763,8 @@ func _physics_process(delta: float) -> void:
 	for resonance in resonance_system.step(delta, ResonanceSystem.charge_rate(
 		clampf(players[0].position.distance_to(players[1].position) / maxf(1.0, chain_max_length), 0.0, 1.0),
 		not players[0].downed and not players[1].downed)):
-		weapon_controller.perform_resonance(resonance, _tension_damage_multiplier())
+		weapon_controller.perform_resonance(resonance,
+			_tension_damage_multiplier() * _resonance_trade_power(resonance))
 		# The payoff for having been tied together all run: the chain floods.
 		chain_flow.surge()
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
@@ -925,6 +952,17 @@ func _create_hud() -> void:
 	item_state_veil = ItemStateVeilScript.new() as ItemStateVeil
 	item_state_veil.name = "ItemStateVeil"
 	layer.add_child(item_state_veil)
+	growth_flash = ColorRect.new()
+	growth_flash.name = "GrowthFlash"
+	growth_flash.position = Vector2.ZERO
+	growth_flash.size = Vector2(1280.0, 720.0)
+	growth_flash.color = Color(CatTheme.GOLD, 1.0)
+	growth_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Its own clock, like the growth panel's: the tree is paused when it plays.
+	growth_flash.process_mode = Node.PROCESS_MODE_ALWAYS
+	growth_flash.modulate.a = 0.0
+	growth_flash.visible = false
+	layer.add_child(growth_flash)
 	var screen_host := layer
 	combat_hud = Control.new()
 	combat_hud.name = "CombatHUD"
@@ -1053,16 +1091,18 @@ func _create_hud() -> void:
 	# Its own clock: the tree is paused while it is open, so the entrance and
 	# exit have to run on a node that ignores that.
 	level_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
-	level_overlay.position = Vector2(20.0, LEVEL_OVERLAY_Y)
-	level_overlay.size = Vector2(1240.0, 490.0)
+	level_overlay.position = Vector2(0.0, LEVEL_OVERLAY_Y)
+	level_overlay.size = Vector2(1280.0, LEVEL_OVERLAY_HEIGHT)
+	# No plate of its own: the band is a place to put cards, not a box to look at.
+	level_overlay.chromeless = true
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
 
 	level_title = Label.new()
-	level_title.position = Vector2(0.0, 24.0)
-	level_title.size = Vector2(1240.0, 55.0)
-	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	level_title.add_theme_font_size_override("font_size", 31)
+	level_title.position = Vector2(24.0, 2.0)
+	level_title.size = Vector2(380.0, 28.0)
+	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	level_title.add_theme_font_size_override("font_size", 19)
 	level_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(level_title)
 	level_overlay.add_child(level_title)
@@ -1073,10 +1113,10 @@ func _create_hud() -> void:
 		_create_icon_rect(level_overlay, Vector2(20.0, 376.0), Vector2(60.0, 60.0)),
 		_create_icon_rect(level_overlay, Vector2(636.0, 376.0), Vector2(60.0, 60.0)),
 	]
-	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 90.0, 372.0, WEAPON_LOADOUT_CAP)
-	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 706.0, 372.0, WEAPON_LOADOUT_CAP)
-	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 90.0, 414.0, TREASURE_LOADOUT_CAP)
-	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 706.0, 414.0, TREASURE_LOADOUT_CAP)
+	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 54.0, 56.0, WEAPON_LOADOUT_CAP)
+	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 694.0, 56.0, WEAPON_LOADOUT_CAP)
+	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 54.0, 84.0, TREASURE_LOADOUT_CAP)
+	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 694.0, 84.0, TREASURE_LOADOUT_CAP)
 	p1_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
 	p2_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[1], Color("b892ff"))
 
@@ -1468,22 +1508,40 @@ func _slot_placeholder_style() -> StyleBoxFlat:
 	return style
 
 
-## Widened twice now. The recommendation lines added to card copy made the
-## old width break Korean words mid-syllable on nearly every card.
-const LEVEL_OVERLAY_Y := 150.0
-## Three cards fill one survivor's six columns exactly. A lucky fourth hand
-## switches to a two-by-two compact grid, keeping every title and effect visible.
+## The growth screen used to be a 1240x568 panel parked over the middle of the
+## roof: it covered the fight it was interrupting, and the pair chose their next
+## card while looking at a box instead of at the run.
+##
+## It is a band along the bottom now. The world stays on screen, the camera pulls
+## in on the pair while the tree is paused (see _pull_camera_for_growth), and the
+## choices sit under the action as two fans of cards — P1's on the left, P2's on
+## the right — the way a hand of cards actually sits in front of a player.
+const LEVEL_OVERLAY_Y := 286.0
+const LEVEL_OVERLAY_HEIGHT := 434.0
 const LEVEL_CARD_WIDTH := 184.0
-const LEVEL_CARD_HEIGHT := 280.0
+const LEVEL_CARD_HEIGHT := 276.0
 const LEVEL_CARD_GAP := 16.0
 const LEVEL_CARD_SLOTS := 4
-const LEVEL_HALF_WIDTH := 584.0
-const LEVEL_COMPACT_CARD_WIDTH := 286.0
-const LEVEL_COMPACT_CARD_HEIGHT := 138.0
-const LEVEL_COMPACT_CARD_GAP := 12.0
-## Local x of each survivor's half inside level_overlay: column 0 and column 6.
-const LEVEL_HALF_X := [0.0, 600.0]
-const LEVEL_CARD_Y := 100.0
+## Half the viewport each: both hands are on screen at once, so a survivor can
+## see what their partner is about to take while they are still deciding.
+const LEVEL_HALF_WIDTH := 640.0
+const LEVEL_HALF_X := [0.0, 640.0]
+const LEVEL_CARD_Y := 142.0
+## The fan. `SPREAD` is the horizontal step between neighbours, `ANGLE` the tilt
+## each step adds, and `DROP` how far an outer card sinks — together they are
+## what makes three cards read as one hand rather than as three boxes. A lucky
+## fourth card narrows the cards instead of re-flowing them into a grid, so the
+## shape of the hand never changes between one level-up and the next.
+const LEVEL_FAN_CENTER_X := 320.0
+const LEVEL_FAN_SPREAD := 152.0
+const LEVEL_FAN_ANGLE := 0.085
+const LEVEL_FAN_DROP := 10.0
+const LEVEL_FAN_WIDE_CARD_WIDTH := 158.0
+const LEVEL_FAN_WIDE_SPREAD := 112.0
+## How far below a card its rotation centre sits. A card tilted about its own
+## middle shears out of the row; one tilted about a point under the hand swings,
+## which is the difference between a fan and four rotated rectangles.
+const LEVEL_FAN_PIVOT_DROP := 240.0
 
 const RESONANCE_CARD_SLOTS := 3
 const RESONANCE_CARD_WIDTH := 236.0
@@ -2018,6 +2076,7 @@ func _start_selected_run() -> void:
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
 	growth_finished = false
+	overflow_levels = 0
 	_reset_run_stats()
 	last_upgrade_choice_keys = [[], []]
 	lifesteal_charge = 0.0
@@ -3001,19 +3060,25 @@ func _drop_experience(at: Vector2, amount: int, grade: int, _notable: bool) -> v
 	experience_system.spawn_gem(at, maxi(1, roundi(float(amount) * XP_GRADE_REWARD[rung])), grade)
 
 
+## Elites and bosses leave things on the floor. Ordinary enemies leave
+## experience and nothing else.
+##
+## The 1.5% roll on every ordinary kill read as generosity and worked as noise:
+## across six thousand kills a run it meant a steady drizzle of pickups from
+## nowhere in particular, so walking to one was never a decision and the pair
+## stopped reading the floor at all. A drop is now a thing a named fight left
+## behind, which is the only way "there is an item over there" can be worth
+## crossing a crowd for.
 func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
-	# Chests come from elites and bosses and nothing else. A chest that could
-	# fall off any of the six thousand ordinary kills in a run is a slot machine
-	# running in the background; one that only falls off a fight the pair had to
-	# actually win is a reward for winning it.
-	if was_elite:
-		var chest_chance := minf(CHEST_MAX_CHANCE,
-			CHEST_ELITE_CHANCE + CHEST_LUCK_CHANCE * float(team_luck) * (1.0 + team_greed * 0.5))
-		if randf() < chest_chance:
-			field_items.spawn_item(drop_position, "chest")
-			return
-	var chance := (FIELD_ITEM_BASE_CHANCE + FIELD_ITEM_LUCK_CHANCE * float(team_luck)) * (1.0 + team_greed)
-	if not was_elite and randf() >= chance:
+	if not was_elite:
+		return
+	# A chest that could fall off any kill is a slot machine running in the
+	# background; one that only falls off a fight the pair had to actually win is
+	# a reward for winning it.
+	var chest_chance := minf(CHEST_MAX_CHANCE,
+		CHEST_ELITE_CHANCE + CHEST_LUCK_CHANCE * float(team_luck) * (1.0 + team_greed * 0.5))
+	if randf() < chest_chance:
+		field_items.spawn_item(drop_position, "chest")
 		return
 	field_items.spawn_item(drop_position, field_items.roll_item_id())
 
@@ -3247,7 +3312,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 					"label": "보물 강화 %s" % String(evolution["weapon_name"]),
 				})
 				continue
-			if bool(state.get("evolved", false)) or int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+			if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
 				continue
 			for upgrade_id in ["weapon_power", "weapon_rate"]:
 				candidates.append({
@@ -3386,8 +3451,6 @@ func _advance_showcase_queue() -> void:
 
 
 func _gain_shared_xp(amount: int, collector_index := -1) -> void:
-	if growth_finished:
-		return
 	var gained := int(round(float(amount) * team_growth))
 	progression.add_experience(gained)
 	if collector_index >= 0 and collector_index < 2:
@@ -3401,17 +3464,27 @@ func _gain_shared_xp(amount: int, collector_index := -1) -> void:
 		_begin_level_up()
 
 
+## What a level is worth once the catalogue has nothing left to sell.
+##
+## A run used to simply stop counting: the bar froze, the gems still on the
+## floor were worth nothing, and the last stretch of a twenty-five minute run
+## paid the pair in nothing at all. Every level past a finished build now buys a
+## small permanent step for both survivors instead, so experience never has a
+## ceiling — it just stops being a decision and becomes a number that keeps
+## going up.
+const OVERFLOW_MIGHT := 0.02
+const OVERFLOW_HEALTH := 6.0
+
+
 func _begin_level_up() -> void:
-	if growth_finished or not progression.can_level_up():
+	if not progression.can_level_up():
 		return
 	var next_p1 := _get_upgrade_choices(1)
 	var next_p2 := _get_upgrade_choices(2)
 	if next_p1.is_empty() and next_p2.is_empty():
-		growth_finished = true
-		level_up_gap_remaining = 0.0
-		_show_message("빌드 완성 · 더 이상 성장 선택이 나오지 않습니다", Color("80ed99"))
-		_update_hud()
+		_consume_overflow_levels()
 		return
+	growth_finished = false
 	if not progression.consume_level_up():
 		return
 	if progression.level % REROLL_PER_LEVELS == 0:
@@ -3433,6 +3506,7 @@ func _begin_level_up() -> void:
 	p2_choices = next_p2
 	level_overlay.visible = true
 	_animate_level_overlay(true)
+	_pull_camera_for_growth()
 	_refresh_level_up_ui()
 	_update_hud()
 	get_tree().paused = true
@@ -3452,6 +3526,58 @@ func _begin_level_up() -> void:
 ## frozen at this point, including the tween server's usual clock.
 const LEVEL_OVERLAY_ENTER := 0.22
 const LEVEL_OVERLAY_EXIT := 0.16
+
+
+## How far the view closes in while a growth choice is open, and how long the
+## move takes. Small on purpose: this is a beat of emphasis on two cats standing
+## in a fight, not a cutscene. Nothing puts the zoom back — _update_camera lerps
+## it to the framing the pair's own positions ask for as soon as the run resumes,
+## so handing control back is also what pulls the view out again.
+const GROWTH_ZOOM := 1.22
+const GROWTH_ZOOM_TIME := 0.34
+const GROWTH_FLASH_ALPHA := 0.26
+const GROWTH_FLASH_TIME := 0.30
+## Screen pixels the view rises by while the band is up. _update_camera frames
+## the pair at roughly y=445, which the band now covers — so pulling in without
+## this would zoom the camera onto two cats hidden behind the cards. The strip
+## left between the HUD and the band is about 130..286, and this puts them in
+## the middle of it. Nothing puts it back either: _update_camera lerps the view
+## home over a third of a second once the run resumes, which is what makes
+## handing control back read as the camera letting go.
+const GROWTH_LIFT := 200.0
+
+
+func _pull_camera_for_growth() -> void:
+	if not is_instance_valid(world_camera) or not is_instance_valid(level_overlay):
+		return
+	# Bound to the growth panel rather than to the camera: the tree is paused
+	# while this plays, and the panel is the node that ignores that.
+	var tween := level_overlay.create_tween()
+	tween.set_parallel(true)
+	# Clamped rather than multiplied blind: back-to-back level-ups would
+	# otherwise each pull in another 22% on a view the run never got to reset.
+	var target := Vector2.ONE * minf(GROWTH_ZOOM, world_camera.zoom.x * GROWTH_ZOOM)
+	var pull := tween.tween_property(world_camera, "zoom", target, GROWTH_ZOOM_TIME)
+	pull.set_trans(Tween.TRANS_CUBIC)
+	pull.set_ease(Tween.EASE_OUT)
+	# Screen pixels converted to world units at the zoom being tweened *to*, so
+	# the pair ends up where the strip actually is rather than where it would be
+	# at the zoom the view happened to start from.
+	var lift := tween.tween_property(world_camera, "position:y",
+		world_camera.position.y - GROWTH_LIFT / target.y, GROWTH_ZOOM_TIME)
+	lift.set_trans(Tween.TRANS_CUBIC)
+	lift.set_ease(Tween.EASE_OUT)
+	if is_instance_valid(growth_flash):
+		growth_flash.visible = true
+		growth_flash.modulate.a = GROWTH_FLASH_ALPHA
+		var fade := tween.tween_property(growth_flash, "modulate:a", 0.0, GROWTH_FLASH_TIME)
+		fade.set_trans(Tween.TRANS_QUAD)
+		fade.set_ease(Tween.EASE_OUT)
+		# Guarded because a queued level-up can restart the flash before this
+		# fires, and an unguarded callback would then hide the new one.
+		tween.chain().tween_callback(func() -> void:
+			if growth_flash.modulate.a <= 0.01:
+				growth_flash.visible = false)
 
 
 func _animate_level_overlay(opening: bool) -> void:
@@ -3492,6 +3618,27 @@ func _animate_level_overlay(opening: bool) -> void:
 			level_overlay.position.y = LEVEL_OVERLAY_Y)
 
 
+## Drains every banked level at once rather than one per call: the growth
+## screen is what used to pace them, and without it a backlog of six levels
+## would otherwise take six frames of message banners to clear.
+func _consume_overflow_levels() -> void:
+	var gained := 0
+	while progression.consume_level_up():
+		gained += 1
+		overflow_levels += 1
+		for player in players:
+			player.might += OVERFLOW_MIGHT
+			player.max_health += OVERFLOW_HEALTH
+			player.heal(OVERFLOW_HEALTH)
+	growth_finished = true
+	level_up_gap_remaining = 0.0
+	if gained <= 0:
+		return
+	_show_message("초월 성장 %d · 빌드 완성 이후에도 계속 강해집니다" % overflow_levels,
+		Color("80ed99"))
+	_update_hud()
+
+
 func _option_key(option: Dictionary) -> String:
 	var option_id := String(option["id"])
 	if option_id == "choose_tech":
@@ -3530,7 +3677,7 @@ func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 	var weapon: Dictionary = weapon_loadouts[slot][weapon_slot]
 	if bool(weapon.get("evolved", false)):
 		return {}
-	if int(weapon.get("tier", 1)) < Evolutions.WEAPON_MAX_TIER:
+	if int(weapon.get("tier", 1)) < Evolutions.EVOLUTION_TIER:
 		return {}
 	if String(weapon.get("tech_id", "")).is_empty():
 		return {}
@@ -3700,7 +3847,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			})
 	for weapon_slot in loadout.size():
 		var state: Dictionary = loadout[weapon_slot]
-		if bool(state.get("evolved", false)) or int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+		if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
 			continue
 		var weapon_name := String(state["weapon_name"])
 		var weapon_id := String(state["weapon_id"])
@@ -4157,9 +4304,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		reason = "공명 해금   %s" % new_resonance
 	elif int(option.get("weapon_slot", -1)) >= 0:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
-		if int(weapon.get("tier", 1)) == Evolutions.WEAPON_MAX_TIER - 1:
+		if int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER - 1 and not bool(weapon.get("evolved", false)):
 			score += 34.0
-			reason = "레벨 %d   최대 강화" % Evolutions.WEAPON_MAX_TIER
+			reason = "레벨 %d   보물 강화 준비" % Evolutions.EVOLUTION_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -4203,7 +4350,7 @@ func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 		var treasure_tier := _treasure_tier(slot, treasure_id)
 		if treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER:
 			continue # this half is already done; the weapon is what is missing
-		var weapon_progress := float(int(weapon.get("tier", 1))) / float(Evolutions.WEAPON_MAX_TIER)
+		var weapon_progress := minf(1.0, float(int(weapon.get("tier", 1))) / float(Evolutions.EVOLUTION_TIER))
 		var treasure_progress := float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
 		var progress := (weapon_progress + treasure_progress) * 0.5
 		if progress <= best_progress:
@@ -4212,7 +4359,7 @@ func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 		var weapon_tier := int(weapon.get("tier", 1))
 		var last_step: bool = (
 			treasure_tier + 1 >= Evolutions.REQUIRED_TREASURE_TIER
-			and weapon_tier >= Evolutions.WEAPON_MAX_TIER
+			and weapon_tier >= Evolutions.EVOLUTION_TIER
 		)
 		best = {
 			"value": 24.0 + progress * 90.0 + (40.0 if last_step else 0.0),
@@ -4325,11 +4472,13 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	var weapon_id := String(state["weapon_id"])
 	var tier := int(state.get("tier", 1))
 	var tier_hint := "\n레벨 %d → %d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
-	if tier + 1 >= Evolutions.WEAPON_MAX_TIER and not bool(state.get("evolved", false)):
+	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
 		tier_hint = "\n레벨 %d — 최대 강화" % Evolutions.WEAPON_MAX_TIER
+	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
+		tier_hint = "\n레벨 %d — 보물 강화 가능" % Evolutions.EVOLUTION_TIER
 	match upgrade_id:
 		"weapon_power":
-			return "피해 %.1f → %.1f%s\n한 번에 더 큰 피해" % [float(state["damage"]), float(state["damage"]) * WEAPON_POWER_STEP, tier_hint]
+			return "피해 %.1f → %.1f%s\n한 번에 더 큰 피해" % [float(state["damage"]), float(state["damage"]) * _weapon_power_step(tier), tier_hint]
 		"weapon_rate":
 			return "발동 %.2f초 → %.2f초%s\n더 자주 공격" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP), tier_hint]
 		"special_a", "special_b":
@@ -4479,7 +4628,7 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var weapon_id := String(state["weapon_id"])
 	match upgrade_id:
 		"weapon_power":
-			state["damage"] = float(state["damage"]) * WEAPON_POWER_STEP
+			state["damage"] = float(state["damage"]) * _weapon_power_step(int(state.get("tier", 1)))
 		"weapon_rate":
 			state["cooldown"] = maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP)
 		"special_a", "special_b":
@@ -4662,36 +4811,47 @@ func _refresh_player_cards(player_index: int) -> void:
 	_layout_level_cards(slot)
 
 
-## A stable row for the normal hand, or a two-by-two grid for a lucky fourth
-## choice. Focus never moves a card outside its panel or over the loadout.
+## One survivor's hand, laid out as a fan.
+##
+## Cards used to sit in a flat row, and a lucky fourth one re-flowed the whole
+## hand into a two-by-two grid — so the shape of the screen changed depending on
+## a luck roll, and a player's eye had to find the cards again. A fan holds its
+## shape: the middle card is upright and centred, its neighbours step out,
+## tilt away and sink, and a fourth card narrows all four rather than
+## rearranging them. The card under the cursor lifts clear of its neighbours and
+## comes upright, which is what makes an overlapping hand readable.
 func _layout_level_cards(slot: int) -> void:
 	var choices: Array = p1_choices if slot == 0 else p2_choices
 	var cards: Array = level_card_labels[slot]
 	var count := choices.size()
 	if count <= 0:
 		return
-	var compact := count >= 4
+	var wide := count >= 4
+	var card_width: float = LEVEL_FAN_WIDE_CARD_WIDTH if wide else LEVEL_CARD_WIDTH
+	var spread: float = LEVEL_FAN_WIDE_SPREAD if wide else LEVEL_FAN_SPREAD
+	var centre: float = LEVEL_HALF_X[slot] + LEVEL_FAN_CENTER_X
+	var middle := float(count - 1) * 0.5
+	var focused := selected_upgrade_indices[slot] if selected_upgrade_indices[slot] >= 0 else upgrade_cursors[slot]
 	for index in cards.size():
 		var card := cards[index] as Label
 		if not card.visible:
 			continue
-		card.rotation = 0.0
+		_layout_level_card_contents(card, wide)
+		card.size = Vector2(card_width, LEVEL_CARD_HEIGHT)
+		# The pivot sits below the card, so the tilt reads as a card held in a
+		# hand rather than as a sheared rectangle.
+		card.pivot_offset = Vector2(card_width * 0.5, LEVEL_FAN_PIVOT_DROP)
+		var offset := float(index) - middle
+		var raised := index == focused
+		card.rotation = 0.0 if raised else offset * LEVEL_FAN_ANGLE
 		card.scale = Vector2.ONE
-		card.z_index = 1
-		_layout_level_card_contents(card, compact)
-		if compact:
-			card.size = Vector2(LEVEL_COMPACT_CARD_WIDTH, LEVEL_COMPACT_CARD_HEIGHT)
-			card.position = Vector2(
-				LEVEL_HALF_X[slot] + float(index % 2) * (LEVEL_COMPACT_CARD_WIDTH + LEVEL_COMPACT_CARD_GAP),
-				LEVEL_CARD_Y + float(index / 2) * (LEVEL_COMPACT_CARD_HEIGHT + LEVEL_COMPACT_CARD_GAP))
-		else:
-			card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
-			var hand_width: float = LEVEL_CARD_WIDTH * count + LEVEL_CARD_GAP * maxi(0, count - 1)
-			var hand_x: float = LEVEL_HALF_X[slot] + (LEVEL_HALF_WIDTH - hand_width) * 0.5
-			card.position = Vector2(hand_x + (LEVEL_CARD_WIDTH + LEVEL_CARD_GAP) * float(index), LEVEL_CARD_Y)
+		card.z_index = 4 if raised else 1
+		card.position = Vector2(
+			centre + offset * spread - card_width * 0.5,
+			LEVEL_CARD_Y + (0.0 if raised else absf(offset) * LEVEL_FAN_DROP))
 
 
-func _layout_level_card_contents(card: Label, compact: bool) -> void:
+func _layout_level_card_contents(card: Label, wide: bool) -> void:
 	var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 	var icon := card.get_node("Icon") as TextureRect
 	var fusion_mark := card.get_node("FusionMark") as TextureRect
@@ -4699,42 +4859,27 @@ func _layout_level_card_contents(card: Label, compact: bool) -> void:
 	var category := card.get_node("Category") as Label
 	var title := card.get_node("CardTitle") as Label
 	var recommendation := card.get_node("Recommendation") as Label
-	if compact:
-		style.content_margin_left = 14.0
-		style.content_margin_right = 14.0
-		style.content_margin_top = 70.0
-		style.content_margin_bottom = 20.0
-		icon.position = Vector2(14.0, 13.0)
-		icon.size = Vector2(48.0, 48.0)
-		fusion_mark.position = Vector2(LEVEL_COMPACT_CARD_WIDTH - 38.0, 8.0)
-		fusion_mark.size = Vector2(30.0, 30.0)
-		scope.position = Vector2(72.0, 4.0)
-		scope.size = Vector2(164.0, 18.0)
-		category.position = Vector2(72.0, 21.0)
-		category.size = Vector2(170.0, 20.0)
-		title.position = Vector2(72.0, 39.0)
-		title.size = Vector2(198.0, 31.0)
-		recommendation.position = Vector2(12.0, LEVEL_COMPACT_CARD_HEIGHT - 21.0)
-		recommendation.size = Vector2(LEVEL_COMPACT_CARD_WIDTH - 24.0, 18.0)
-		card.add_theme_font_size_override("font_size", 12)
-	else:
-		style.content_margin_left = 16.0
-		style.content_margin_right = 16.0
-		style.content_margin_top = 142.0
-		style.content_margin_bottom = 12.0 if bool(card.get_meta("tech_card", false)) else 48.0
-		icon.position = Vector2(14.0, 17.0)
-		icon.size = Vector2(64.0, 64.0)
-		fusion_mark.position = Vector2(LEVEL_CARD_WIDTH - 47.0, 10.0)
-		fusion_mark.size = Vector2(36.0, 36.0)
-		scope.position = Vector2(88.0, 16.0)
-		scope.size = Vector2(88.0, 28.0)
-		category.position = Vector2(92.0, 52.0)
-		category.size = Vector2(88.0, 30.0)
-		title.position = Vector2(16.0, 86.0)
-		title.size = Vector2(164.0, 50.0)
-		recommendation.position = Vector2(10.0, LEVEL_CARD_HEIGHT - 40.0)
-		recommendation.size = Vector2(LEVEL_CARD_WIDTH - 20.0, 30.0)
-		card.add_theme_font_size_override("font_size", 16)
+	# One shape at two widths. A four-card hand narrows the card and everything
+	# on it rather than switching to a second layout.
+	var width: float = LEVEL_FAN_WIDE_CARD_WIDTH if wide else LEVEL_CARD_WIDTH
+	var art: float = 54.0 if wide else 64.0
+	style.content_margin_left = 13.0 if wide else 16.0
+	style.content_margin_right = 13.0 if wide else 16.0
+	style.content_margin_top = 128.0 if wide else 138.0
+	style.content_margin_bottom = 12.0 if bool(card.get_meta("tech_card", false)) else 44.0
+	icon.position = Vector2(12.0, 14.0)
+	icon.size = Vector2(art, art)
+	fusion_mark.position = Vector2(width - 42.0, 9.0)
+	fusion_mark.size = Vector2(32.0, 32.0)
+	scope.position = Vector2(art + 20.0, 14.0)
+	scope.size = Vector2(width - art - 32.0, 26.0)
+	category.position = Vector2(art + 22.0, 46.0)
+	category.size = Vector2(width - art - 34.0, 28.0)
+	title.position = Vector2(14.0, 78.0)
+	title.size = Vector2(width - 28.0, 46.0)
+	recommendation.position = Vector2(9.0, LEVEL_CARD_HEIGHT - 37.0)
+	recommendation.size = Vector2(width - 18.0, 28.0)
+	card.add_theme_font_size_override("font_size", 13 if wide else 16)
 
 
 ## Which atlas entry a card should show. Treasure ids are deliberately the same
@@ -4866,10 +5011,19 @@ func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool, preview_in
 		icon.texture = IconCatalog.weapon(String(entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(entry["id"]))
 		tier.visible = true
 		var current_tier := int(entry.get("tier", 1))
+		var resonating := is_weapon and resonance_system.is_bound(slot, index)
+		if resonating:
+			icon.modulate = Color(0.62, 0.78, 1.0, 0.78)
 		if highlighted and option_id == "evolve_weapon" and is_weapon:
 			tier.text = "진화"
 		elif highlighted and ((is_weapon and option_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]) or (not is_weapon and option_id == "treasure_upgrade")):
 			tier.text = "%d→%d" % [current_tier, current_tier + 1]
+		elif resonating:
+			# The weapon is not idle, it is busy being half of a resonance. The
+			# tier gives way to the word here rather than sitting beside it: this
+			# caption shares a 26px socket, and the build details panel is where
+			# a silenced weapon's level is spelled out.
+			tier.text = "공명"
 		else:
 			tier.text = "Lv.%d" % current_tier
 ## The old team-wide recipe strip stays empty so it cannot compete with the
@@ -4896,7 +5050,7 @@ func _fusion_progress_line(slot: int) -> String:
 		var treasure := Treasures.by_id(treasure_id)
 		var weapon_tier := int(weapon.get("tier", 1))
 		var treasure_tier := _treasure_tier(slot, treasure_id)
-		var progress := float(weapon_tier) / float(Evolutions.WEAPON_MAX_TIER) + float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
+		var progress := minf(1.0, float(weapon_tier) / float(Evolutions.EVOLUTION_TIER)) + float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
 		if progress <= best_progress:
 			continue
 		best_progress = progress
@@ -4904,7 +5058,7 @@ func _fusion_progress_line(slot: int) -> String:
 		var partner_name := String(treasure.get("name", treasure_id))
 		var partner_tier := str(treasure_tier)
 		best = "%s %d/%d + %s %s/%d → %s" % [
-			String(weapon["weapon_name"]), weapon_tier, Evolutions.WEAPON_MAX_TIER,
+			String(weapon["weapon_name"]), weapon_tier, Evolutions.EVOLUTION_TIER,
 			partner_name, partner_tier, Evolutions.REQUIRED_TREASURE_TIER,
 			result_name,
 		]
@@ -4923,7 +5077,7 @@ func _finish_level_up() -> void:
 		for player in players:
 			player.heal(player.max_health * team_level_heal)
 	_show_message("LV.%d · 둘 다 성장 완료" % progression.level, Color("fff275"))
-	if progression.can_level_up() and not growth_finished:
+	if progression.can_level_up():
 		level_up_gap_remaining = LEVEL_UP_GAP
 
 
@@ -4934,7 +5088,7 @@ func _after_personal_upgrade_choices() -> void:
 		_finish_level_up()
 		return
 	var chosen: Dictionary = resonance_candidates[0]
-	resonance_system.activate(chosen)
+	_activate_resonance(chosen)
 	resonance_vote_active = false
 	resonance_overlay.visible = false
 	_show_message("테크 공명 자동 완성 — %s" % String(chosen["name"]), Color("fff275"))
@@ -4974,7 +5128,7 @@ func _handle_resonance_vote_input() -> void:
 		return
 	if resonance_votes[0] == resonance_votes[1]:
 		var chosen := resonance_candidates[resonance_votes[0]]
-		resonance_system.activate(chosen)
+		_activate_resonance(chosen)
 		resonance_vote_active = false
 		resonance_overlay.visible = false
 		_show_message("공명 완성 — %s" % String(chosen["name"]), Color("fff275"))
@@ -5092,6 +5246,49 @@ func _apply_team_magnet() -> void:
 	experience_system.magnet_radius = EXPERIENCE_MAGNET_BASE * team_magnet
 
 
+## Takes a resonance live and silences the two weapons that earned it.
+##
+## Their sustained fields have to go with them: 절대영도 and the frost auras hold
+## a field alive between casts, and a weapon that has stopped casting would
+## otherwise leave its aura standing on the roof for the rest of the run.
+func _activate_resonance(resonance: Dictionary) -> void:
+	resonance_system.activate(resonance)
+	for side in ["a", "b"]:
+		var player_index := 0 if side == "a" else 1
+		var weapon_slot := int(resonance.get("weapon_%s_slot" % side, -1))
+		if weapon_slot < 0 or weapon_slot >= weapon_loadouts[player_index].size():
+			continue
+		weapon_controller.clear_sustained_for_slot(player_index, weapon_slot)
+
+
+## What the two silenced weapons lend the pair's move. Both owners' 공격 and both
+## weapons' tiers feed it, so a resonance is the thing their whole build is
+## pointed at rather than a flat effect bolted on top of it — and levelling a
+## weapon that has stopped attacking is still levelling the thing that attacks
+## in its place.
+func _resonance_trade_power(resonance: Dictionary) -> float:
+	var total := 0.0
+	for side in ["a", "b"]:
+		var player_index := 0 if side == "a" else 1
+		var weapon_slot := int(resonance.get("weapon_%s_slot" % side, -1))
+		var tier := Evolutions.EVOLUTION_TIER
+		if weapon_slot >= 0 and weapon_slot < weapon_loadouts[player_index].size():
+			tier = int(weapon_loadouts[player_index][weapon_slot].get("tier", tier))
+		var above := float(maxi(0, tier - Evolutions.EVOLUTION_TIER))
+		total += players[player_index].might * (1.0 + ResonanceSystem.TRADE_TIER_BONUS * above)
+	return total * 0.5 * ResonanceSystem.TRADE_POWER
+
+
+## What one 화력 card multiplies a weapon's damage by, given the tier it is
+## leaving. Flat up to WEAPON_LATE_TIER and a fraction of a step above it: the
+## ladder is five rungs longer than it was, and paying a full 28% for every one
+## of them would end a run at fifteen times the opening damage instead of four.
+func _weapon_power_step(tier: int) -> float:
+	if tier < WEAPON_LATE_TIER:
+		return WEAPON_POWER_STEP
+	return 1.0 + (WEAPON_POWER_STEP - 1.0) * WEAPON_LATE_STEP_SHARE
+
+
 func _weapon_interval(player_index: int, weapon_slot: int) -> float:
 	var base := float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
 	var frenzy_rate := FRENZY_ATTACK_SPEED if frenzy_remaining > 0.0 else 1.0
@@ -5173,7 +5370,10 @@ func _update_hud() -> void:
 		]
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
-	xp_text_label.text = ("LV.%d    성장 완료" % progression.level) if growth_finished else ("LV.%d    XP %d / %d" % [
+	xp_text_label.text = ("LV.%d    초월 %d    XP %d / %d" % [
+		progression.level, overflow_levels,
+		int(progression.experience), int(progression.required_experience),
+	]) if growth_finished else ("LV.%d    XP %d / %d" % [
 		progression.level, int(progression.experience), int(progression.required_experience)
 	])
 	EditorialUI.refresh_hud(self)

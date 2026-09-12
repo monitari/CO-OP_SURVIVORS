@@ -117,8 +117,11 @@ func _process(delta: float) -> void:
 ## the character grid, the resonance vote. F6 and F7 open the growth screen on
 ## purpose, so a panel that simply sat on top of it would bury the very cards the
 ## command exists to show, and MOUSE_FILTER_STOP would swallow the clicks too.
-## While such a screen is up the inspector folds down to a click-through ribbon
-## along the bottom edge, below every overlay, and unfolds when the screen closes.
+## While such a screen is up the inspector folds into a click-through ribbon,
+## below every overlay, and unfolds when the screen closes. The ribbon used to
+## run along the bottom edge; the growth screen is a band across that whole edge
+## now, so it sits in the strip just under the combat HUD instead — where the
+## boss readout would be, and that readout is hidden while a modal is up.
 func _modal_screen_active() -> bool:
 	return (game.title_active or game.lobby_active or game.character_select_active
 		or game.game_over or game.cinematic_active or game.level_up_active
@@ -178,13 +181,13 @@ func _build_panel() -> void:
 	ribbon = PanelContainer.new()
 	ribbon.name = "DebugInspectorRibbon"
 	ribbon.anchor_left = 0.0
-	ribbon.anchor_top = 1.0
+	ribbon.anchor_top = 0.0
 	ribbon.anchor_right = 1.0
-	ribbon.anchor_bottom = 1.0
+	ribbon.anchor_bottom = 0.0
 	ribbon.offset_left = 12.0
-	ribbon.offset_top = -34.0
+	ribbon.offset_top = 134.0
 	ribbon.offset_right = -12.0
-	ribbon.offset_bottom = -6.0
+	ribbon.offset_bottom = 162.0
 	# Handing the pointer back to the screen underneath is the whole point of
 	# folding, so neither the ribbon nor its label may accept a click.
 	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -369,10 +372,10 @@ func _fusion_path_report(slot: int, weapon: Dictionary) -> String:
 	var carried_slot := _treasure_slot(slot, treasure_id)
 	if carried_slot >= 0:
 		treasure_tier = int(game.treasure_loadouts[slot][carried_slot].get("tier", 1))
-	var evolution_ready := weapon_tier >= Evolutions.WEAPON_MAX_TIER and treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER
+	var evolution_ready := weapon_tier >= Evolutions.EVOLUTION_TIER and treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER
 	return "      [color=%s]↳ %s  ·  무기 %d/%d + %s %d/%d%s[/color]" % [
 		"#80ed99" if evolution_ready else "#8298ad", String(evolution["weapon_name"]),
-		weapon_tier, Evolutions.WEAPON_MAX_TIER,
+		weapon_tier, Evolutions.EVOLUTION_TIER,
 		String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
 		"  [준비 완료]" if evolution_ready else "",
 	]
@@ -442,7 +445,7 @@ func _prepare_fusions() -> void:
 		if treasure_slot < 0 and game.treasure_loadouts[slot].size() >= int(game.TREASURE_LOADOUT_CAP):
 			blocked.append("P%d 보물 슬롯 가득 참" % (slot + 1))
 			continue
-		while int(game.weapon_loadouts[slot][target_slot].get("tier", 1)) < Evolutions.WEAPON_MAX_TIER:
+		while int(game.weapon_loadouts[slot][target_slot].get("tier", 1)) < Evolutions.EVOLUTION_TIER:
 			game._apply_upgrade(slot, {"id": "weapon_power", "weapon_slot": target_slot})
 		if treasure_slot < 0:
 			var treasure := Treasures.by_id(treasure_id)

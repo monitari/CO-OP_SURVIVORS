@@ -18,8 +18,18 @@ extends RefCounted
 ## weapon and its enhancement. At T5/T3 the enhancement arrived while the pair was still
 ## learning the run and resonance followed almost immediately after, which
 ## left the whole top of the tree with nothing to be the climax of.
-const WEAPON_MAX_TIER := 7
+const EVOLUTION_TIER := 7
 const REQUIRED_TREASURE_TIER := 4
+
+## Where the numeric ladder actually stops, which is no longer where the
+## enhancement happens. A weapon used to be finished the moment it enhanced: the
+## enhancement stamped it at the ceiling and every card for that slot left the
+## pool forever. Both survivors therefore ran dry around minute fifteen of a
+## twenty-five minute run, sat on a maxed shared level, and spent the last third
+## of the run with nothing to choose. An enhanced weapon now keeps climbing to
+## EVOLUTION_TIER..WEAPON_MAX_TIER, so the enhancement is the middle of a
+## weapon's life rather than the end of it.
+const WEAPON_MAX_TIER := 12
 
 
 static func all_evolutions() -> Array[Dictionary]:
@@ -189,5 +199,8 @@ static func build_state(evolution: Dictionary, base_state: Dictionary) -> Dictio
 		elif base_state.has(key):
 			state[key] = base_state[key]
 	state["evolved"] = true
-	state["tier"] = WEAPON_MAX_TIER
+	# The enhancement does not stamp the weapon at the ceiling any more; it keeps
+	# the tier it climbed to, and the five rungs above EVOLUTION_TIER are what an
+	# enhanced weapon spends the last third of a run buying.
+	state["tier"] = maxi(EVOLUTION_TIER, int(base_state.get("tier", EVOLUTION_TIER)))
 	return state

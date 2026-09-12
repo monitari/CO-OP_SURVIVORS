@@ -150,7 +150,7 @@ func _test_chest_opens_before_what_it_contained(main: Node) -> void:
 		var weapon: Dictionary = main.weapon_loadouts[slot][0]
 		if bool(weapon.get("evolved", false)):
 			continue
-		weapon["tier"] = EvolutionCatalog.WEAPON_MAX_TIER
+		weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
 		var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
 		var treasure_id := String(evolution["treasure_id"])
 		main._apply_upgrade(slot, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id(treasure_id)})

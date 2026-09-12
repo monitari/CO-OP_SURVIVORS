@@ -92,10 +92,12 @@ static func apply(main: Node) -> void:
 	# the two shorter dialogue screens keep their original seven-row plate.
 	main.result_overlay.position = G.rect(2, 0).position
 	main.result_overlay.size = Vector2(G.w(8), G.h(8))
-	# The growth screen keeps the vertical slide main animates it with, so only
-	# its horizontal placement and width come from the grid.
-	main.level_overlay.position.x = G.x(0)
-	main.level_overlay.size = Vector2(G.w(12), 568)
+	# The growth screen is off the grid on purpose: it is a band across the whole
+	# bottom of the viewport, not a panel inside the page margins, and the run it
+	# interrupts stays visible above it. It keeps the vertical slide main
+	# animates it with, so only its width is set here.
+	main.level_overlay.position.x = 0.0
+	main.level_overlay.size = Vector2(G.VIEWPORT.x, main.LEVEL_OVERLAY_HEIGHT)
 	_title(main)
 	_lobby(main)
 	_characters(main)
@@ -367,22 +369,26 @@ static func refresh_characters(main: Node) -> void:
 
 static func _growth(main: Node) -> void:
 	var screen: Control = main.level_overlay
-	# The growth overlay slides vertically, so its children take x from the
-	# grid and y from the panel itself.
-	place(main.level_title, Rect2(G.PAD, 10, 300, 42), 28)
-	var resonance_preview := label(screen, "", Rect2(320, 14, 610, 32), 14, Palette.GOLD)
+	# A band along the bottom of the screen: one header line, one status strip
+	# per survivor, and under them the two fans of cards main lays out. Nothing
+	# here paints over the middle of the roof, because the whole point of the
+	# rework is that the pair chooses while still looking at the fight.
+	place(main.level_title, Rect2(24, 2, 380, 28), 19)
+	main.level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var resonance_preview := label(screen, "", Rect2(412, 3, 600, 24), 13, Palette.GOLD)
 	resonance_preview.name = "GrowthResonancePreview"
 	resonance_preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	for slot in 2:
 		var x: float = main.LEVEL_HALF_X[slot]
-		var panel := plate(screen, Rect2(x, 58, G.w(6), 472), Palette.NIGHT_PANEL)
+		var half: float = main.LEVEL_HALF_WIDTH
+		var panel := plate(screen, Rect2(x + 10, 32, half - 20, 80), Palette.NIGHT_PANEL)
 		panel.name = "GrowthPanel%d" % slot
 		var panel_style := Palette.player_surface(slot, true, false, true)
 		panel_style.border_color = Color(Palette.P1 if slot == 0 else Palette.P2, 0.72)
 		panel.add_theme_stylebox_override("panel", panel_style)
 		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		screen.move_child(panel, 0)
-		var heading := label(screen, "", Rect2(x + G.PAD, 68, 350, 26), 16, Palette.P1 if slot == 0 else Palette.P2)
+		var heading := label(screen, "", Rect2(x + 24, 34, 300, 20), 14, Palette.P1 if slot == 0 else Palette.P2)
 		heading.name = "GrowthName%d" % slot
 		heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		for card: Label in main.level_card_labels[slot]:
@@ -391,56 +397,59 @@ static func _growth(main: Node) -> void:
 			card.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 			var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 			style.set_corner_radius_all(Palette.RADIUS)
-			style.content_margin_left = 16
-			style.content_margin_right = 16
-			style.content_margin_top = 142
-			var art: TextureRect = card.get_node("Icon")
-			art.position = Vector2(14, 17)
-			# Keep the upper-right corner free for the owned fusion partner seal.
-			var scope := label(card, "", Rect2(88, 16, 88, 28), 11, Palette.MUTED)
+			# A fan overlaps, so a card needs an edge of its own rather than only
+			# a tint: without the drop shadow the three of them read as one shape.
+			style.shadow_color = Color(0.01, 0.02, 0.05, 0.45)
+			style.shadow_size = 4
+			style.shadow_offset = Vector2(0, 3)
+			var scope := label(card, "", Rect2(88, 14, 88, 26), 11, Palette.MUTED)
 			scope.name = "Scope"
 			scope.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-			var category := label(card, "", Rect2(92, 52, 88, 30), 13, Palette.MUTED)
+			var category := label(card, "", Rect2(90, 46, 88, 28), 13, Palette.MUTED)
 			category.name = "Category"
 			category.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			var title := label(card, "", Rect2(16, 86, 164, 50), Palette.TYPE_VALUE)
+			var title := label(card, "", Rect2(14, 78, 156, 46), Palette.TYPE_VALUE)
 			title.name = "CardTitle"
 			title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			card.add_theme_font_size_override("font_size", Palette.TYPE_BODY)
 			var badge: Label = card.get_node("Recommendation")
 			badge.add_theme_color_override("font_color", Palette.P1)
 			badge.add_theme_stylebox_override("normal", Palette.surface(Palette.NIGHT_RAISED))
 			badge.add_theme_font_size_override("font_size", Palette.TYPE_CAPTION)
 		var footer_label: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
 		footer_label.add_theme_color_override("font_color", Palette.MUTED)
-		main.level_portrait_icons[slot].hide()
+		# Placed here as well as in refresh_growth: the band is 434px tall and
+		# these two were authored against a 568px panel, so their opening
+		# rectangles hang off the bottom of it until the first refresh.
+		place(footer_label, Rect2(x + half - 236.0, 34, 212, 20), 12, Palette.MUTED)
+		footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		var portrait: TextureRect = main.level_portrait_icons[slot]
+		portrait.position = Vector2(x + 24, 56)
+		portrait.size = Vector2(24, 24)
+		portrait.hide()
+		# Six weapons and six treasures, two rows of small sockets. The level
+		# caption hangs off each icon's corner, which is why the tier labels are
+		# wider than the art they sit on.
 		for row_index in 2:
 			var row: Array = main.level_weapon_icons[slot] if row_index == 0 else main.level_treasure_icons[slot]
-			var row_y := 400.0 + row_index * 44.0
-			label(screen, "무기" if row_index == 0 else "보물", Rect2(x + 12, row_y, 34, 42), 13, Palette.MUTED)
+			var row_y := 56.0 + row_index * 28.0
+			label(screen, "무기" if row_index == 0 else "보물", Rect2(x + 22, row_y + 2, 30, 22), 12, Palette.MUTED)
 			for index in row.size():
 				var art: TextureRect = row[index]
 				var socket: Control = art.get_parent()
-				socket.position = Vector2(x + 48 + index * 88, row_y)
-				socket.size = Vector2(42, 42)
-				art.size = Vector2(42, 42)
+				socket.position = Vector2(x + 54 + index * 32, row_y)
+				socket.size = Vector2(26, 26)
+				art.size = Vector2(26, 26)
 				var tier: Label = art.get_node("Tier")
-				tier.position = Vector2(45, 11)
-				tier.size = Vector2(38, 20)
+				tier.position = Vector2(14, 11)
+				tier.size = Vector2(32, 16)
 				tier.add_theme_font_size_override("font_size", 10)
-		# Status right, controls left: both stop a gutter short of the panel edge
-		# instead of ending flush against it.
-		var stats := label(screen, "", Rect2(x + G.w(6) - 220.0 - G.PAD, 68, 220, 24), 12, Palette.MUTED)
+		var stats := label(screen, "", Rect2(x + half - 240.0, 34, 216, 20), 12, Palette.MUTED)
 		stats.name = "BuildStats%d" % slot
 		stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		stats.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		stats.hide()
-	place(main.team_stats_label, Rect2(G.PAD, 430, G.w(12) - G.GUTTER, 26), 13, Palette.MUTED)
+	place(main.team_stats_label, Rect2(G.PAD, 114, G.w(12) - G.GUTTER, 22), 13, Palette.MUTED)
 	main.team_stats_label.visible = false
-	var growth_footer := footer(screen, "카드를 고른 뒤 각자의 선택 확정 버튼을 누르세요 · 확정 후 상대가 고르는 동안 취소 가능")
-	growth_footer.position.y = screen.size.y - 28
-	growth_footer.size.y = 20
-	screen.get_node("FooterRule").position.y = screen.size.y - 32
 
 
 static func refresh_growth(main: Node, slot: int) -> void:
@@ -506,9 +515,12 @@ static func refresh_growth(main: Node, slot: int) -> void:
 			Palette.surface(Palette.NIGHT_RAISED))
 		badge.visible = kind != "choose_tech" and (bool(option.get("recommended", false)) or against)
 	var footer_label: Label = main.p1_level_footer if slot == 0 else main.p2_level_footer
-	place(footer_label, Rect2(main.LEVEL_HALF_X[slot] + G.w(6) - 212.0 - G.PAD, 68, 212, 22), 12, Palette.MUTED)
+	place(footer_label, Rect2(main.LEVEL_HALF_X[slot] + main.LEVEL_HALF_WIDTH - 236.0, 34, 212, 20), 12, Palette.MUTED)
 	footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	footer_label.text = "무기 %d/4 · 보물 %d/4" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+	footer_label.text = "무기 %d/%d · 보물 %d/%d" % [
+		main.weapon_loadouts[slot].size(), int(main.WEAPON_LOADOUT_CAP),
+		main.treasure_loadouts[slot].size(), int(main.TREASURE_LOADOUT_CAP),
+	]
 	if main.level_up_input_delay > 0.0:
 		footer_label.text = "잠시 후 선택할 수 있습니다"
 	if screen.has_node("Reroll%d" % slot):
@@ -664,35 +676,44 @@ static func _hud(main: Node) -> void:
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var objective_readout := label(main.combat_hud, "", Rect2(480, 22, 100, 24), 12, Color("e4c899"))
 	objective_readout.name = "ObjectiveReadout"
-	# Four reserved weapon slots explain the space before a build is full.
+	# Six reserved slots per row explain the space before a build is full. The
+	# cells got narrower rather than the ribbon wider: the HUD band between the
+	# two survivor panels is the clock and the chain, and neither moves.
 	for slot in 2:
 		var holder := Control.new()
 		holder.position = Vector2(26 if slot == 0 else 886, 56)
-		holder.size = Vector2(368, 64)
+		# Widened from 368 to 376, which puts P2's row flush with the right edge
+		# of its own plate: six cells plus the level caption each one carries
+		# needs the room, and the ribbon already overhangs its plate downward.
+		holder.size = Vector2(376, 64)
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.name = "Carried%d" % slot
 		main.combat_hud.add_child(holder)
+		var cap: int = int(main.WEAPON_LOADOUT_CAP)
+		var pitch: float = (holder.size.x - 36.0) / float(cap)
 		for row in ["Weapon", "Treasure"]:
 			var weapon_row: bool = row == "Weapon"
 			var y := 0 if weapon_row else 35
 			var cell_height := 32 if weapon_row else 26
-			var icon_size := 28 if weapon_row else 22
+			var icon_size := 24 if weapon_row else 20
 			label(holder, "무기" if weapon_row else "보물", Rect2(0, y, 34, cell_height), 13, Color("a8bfbc"))
-			for index in 4:
-				var x := 36 + index * 82
-				var socket := plate(holder, Rect2(x, y, 78, cell_height), Color("24464b"))
+			for index in cap:
+				var x := 36.0 + index * pitch
+				var socket := plate(holder, Rect2(x, y, pitch - 3.0, cell_height), Color("24464b"))
 				socket.name = "%sSlot%d" % [row, index]
 				var style := Palette.surface(Color("20334e55") if weapon_row else Color("20334e33"))
 				style.border_color = Palette.OUTLINE
 				socket.add_theme_stylebox_override("panel", style)
 				# A faint socket already communicates capacity. Repeating plus signs
 				# across every empty slot made the opening HUD look busier than play.
-				var empty := label(socket, "", Rect2(0, 0, 78, cell_height), 16, Color("6a8585"))
+				var empty := label(socket, "", Rect2(0, 0, pitch - 3.0, cell_height), 16, Color("6a8585"))
 				empty.name = "Empty"
 				empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				var art := icon(holder, null, Rect2(x + 2, y + 2, icon_size, icon_size))
 				art.name = "%s%d" % [row, index]
-				var tier := label(art, "", Rect2(icon_size, 0, 46, icon_size), 13, Palette.CREAM)
+				# Font 9 rather than 13: the caption now shares a 56px cell with
+				# the art instead of an 82px one, and "Lv.12" has to fit beside it.
+				var tier := label(art, "", Rect2(icon_size, 0, pitch - 5.0 - icon_size, icon_size), 9, Palette.CREAM)
 				tier.name = "Tier"
 				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -745,22 +766,34 @@ static func refresh_hud(main: Node) -> void:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
 		main.combat_hud.get_node("PlayerIdentity%d" % slot).text = "%s   ·   개인 Lv.%d" % [("AI · " if main.ai_companion and slot == 1 else "") + main.players[slot].character_name, int(main.run_stats["personal_levels"][slot])]
 		holder.visible = not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)
-		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
-		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
+		# A weapon a resonance is firing for is still carried and still levelling;
+		# it just is not attacking, and the ribbon is where that has to be legible.
+		var silenced: Array[bool] = []
+		for index in int(main.WEAPON_LOADOUT_CAP):
+			silenced.append(bool(main.resonance_system.is_bound(slot, index)))
+		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true, silenced)
+		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false, [])
 
 
 ## Explicit level captions distinguish equipment levels from item quantities.
-static func _refresh_carried_row(holder: Control, prefix: String, carried: Array, is_weapon: bool) -> void:
-	for index in 4:
+static func _refresh_carried_row(holder: Control, prefix: String, carried: Array,
+		is_weapon: bool, silenced: Array) -> void:
+	var index := 0
+	while holder.has_node("%s%d" % [prefix, index]):
 		var art: TextureRect = holder.get_node("%s%d" % [prefix, index])
 		art.visible = index < carried.size()
 		holder.get_node("%sSlot%d/Empty" % [prefix, index]).visible = not art.visible
 		if not art.visible:
+			index += 1
 			continue
 		var entry: Dictionary = carried[index]
 		art.texture = Icons.weapon(String(entry["weapon_id"])) if is_weapon else Icons.upgrade(String(entry["id"]))
+		var resonating: bool = index < silenced.size() and bool(silenced[index])
+		art.modulate = Color(0.62, 0.78, 1.0, 0.72) if resonating else Color.WHITE
 		var tier: Label = art.get_node("Tier")
-		tier.text = "Lv.%d" % int(entry.get("tier", 1))
+		tier.text = "공명" if resonating else "Lv.%d" % int(entry.get("tier", 1))
+		tier.add_theme_color_override("font_color", Color("e4c1f9") if resonating else Palette.CREAM)
+		index += 1
 
 
 static func _results(main: Node) -> void:

@@ -10,7 +10,7 @@ static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 	if index >= 0:
 		var w: Dictionary = main.weapon_loadouts[slot][index]
 		if id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
-			if bool(w.get("evolved", false)) or int(w.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+			if int(w.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
 				return false
 		if id == "weapon_rate":
 			return maxf(0.25, maxf(0.32, float(w["cooldown"]) * main.WEAPON_RATE_STEP) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
