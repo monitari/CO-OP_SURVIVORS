@@ -48,12 +48,15 @@ func _run() -> void:
 	settings.settings_path = SETTINGS_SAVE
 	settings.sound_enabled = false
 	settings.fullscreen_enabled = true
+	settings.window_size_index = 2
 	_check(settings.save_settings() == OK, "settings report a successful save")
 	var loaded_settings := SettingsScript.new() as GameSettings
 	loaded_settings.settings_path = SETTINGS_SAVE
 	loaded_settings.load_settings()
 	_check(not loaded_settings.sound_enabled and loaded_settings.fullscreen_enabled,
 		"audio and fullscreen settings persist together")
+	_check(loaded_settings.window_size_index == 2,
+		"1920x1080 window preference persists with display settings")
 
 	var failing := MetaScript.new() as MetaProgression
 	failing.save_path = SAVE + "/cannot_write.cfg"

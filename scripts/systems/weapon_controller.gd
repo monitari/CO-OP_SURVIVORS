@@ -14,6 +14,7 @@ const ReactiveLightScript := preload("res://scripts/effects/reactive_light.gd")
 const REACTIVE_LIGHT_CAP := 4
 
 signal cue_requested(cue_id: String)
+signal attack_visual(player_index: int, weapon_id: String, origin: Vector2, color: Color, radius: float)
 
 var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
@@ -92,6 +93,10 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 			player.heal(0.45)
 	if play_cast_cue:
 		cue_requested.emit("weapon_" + weapon_id)
+		var visual_radius := maxf(float(scaled.get("radius", 0.0)), float(scaled.get("width", 0.0)) * 2.0)
+		visual_radius = maxf(visual_radius, float(scaled.get("range", 0.0)) * 0.22)
+		attack_visual.emit(player_index, weapon_id, owner_player.global_position,
+			color, clampf(visual_radius, 52.0, 170.0))
 
 
 func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
@@ -355,6 +360,10 @@ func _play_resonance_flare(center: Vector2, resonance: Dictionary) -> void:
 
 func play_boss_flare(center: Vector2, enraged := false) -> void:
 	_spawn_combat_flare(center, Color("ff334f") if enraged else Color("c1121f"), Color("fff275"), 235.0 if enraged else 205.0, 0.72)
+
+
+func play_remote_attack(origin: Vector2, color: Color, radius: float) -> void:
+	_spawn_combat_flare(origin, color, color.lightened(0.38), radius, 0.24)
 
 
 ## Treasure-driven dash attack, resolved through the same grid and feedback

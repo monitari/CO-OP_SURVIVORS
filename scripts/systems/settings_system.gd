@@ -10,6 +10,7 @@ var music_enabled := true
 var damage_numbers_enabled := true
 var screen_shake_enabled := true
 var fullscreen_enabled := false
+var window_size_index := 0
 var last_save_error: Error = OK
 
 
@@ -22,6 +23,7 @@ func load_settings() -> void:
 	damage_numbers_enabled = bool(config.get_value(SECTION, "damage_numbers_enabled", damage_numbers_enabled))
 	screen_shake_enabled = bool(config.get_value(SECTION, "screen_shake_enabled", screen_shake_enabled))
 	fullscreen_enabled = bool(config.get_value(SECTION, "fullscreen_enabled", fullscreen_enabled))
+	window_size_index = clampi(int(config.get_value(SECTION, "window_size_index", window_size_index)), 0, 2)
 
 
 func save_settings() -> Error:
@@ -31,5 +33,6 @@ func save_settings() -> Error:
 	config.set_value(SECTION, "damage_numbers_enabled", damage_numbers_enabled)
 	config.set_value(SECTION, "screen_shake_enabled", screen_shake_enabled)
 	config.set_value(SECTION, "fullscreen_enabled", fullscreen_enabled)
+	config.set_value(SECTION, "window_size_index", window_size_index)
 	last_save_error = config.save(settings_path)
 	return last_save_error

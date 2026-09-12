@@ -2,11 +2,22 @@ class_name OnlineCoop
 extends Node
 
 const SessionScript := preload("res://scripts/systems/network_session.gd")
+const EnemyProjectileScript := preload("res://scripts/entities/enemy_projectile.gd")
+const FieldItemScript := preload("res://scripts/entities/field_item.gd")
+
+# Positional wire schema. Repeating eighteen Dictionary keys for every enemy was
+# larger than the actual values and pushed tiny ENet chunks over the MTU.
+enum EnemyField {
+	ID, POSITION, ROTATION, ARCHETYPE, ELITE, BOSS, RANK, HEALTH, MAX_HEALTH,
+	SLOW_TIMER, TELEGRAPHING, CHARGE_WINDUP, SHOOTER_WINDUP, CHAIN_WINDUP,
+	BOSS_SLAM_WINDUP, TELEGRAPH_DIRECTION, BOSS_SLAM_POINT, BOSS_ENRAGED,
+}
 
 var game: Node
 var session: NetworkSession
 var snapshot_timer := 0.0
 var replica_enemies: Dictionary = {}
+var replica_items: Dictionary = {}
 
 
 func configure(main: Node) -> void:
@@ -21,6 +32,7 @@ func configure(main: Node) -> void:
 	session.connected_to_host.connect(_connected)
 	session.input_received.connect(_remote_input)
 	session.control_received.connect(_control)
+	session.event_received.connect(_event)
 	session.snapshot_received.connect(_apply_snapshot)
 
 
@@ -57,6 +69,7 @@ func join_game(address: String) -> void:
 
 
 func stop() -> void:
+	_clear_replicas()
 	session.stop()
 
 
@@ -136,9 +149,86 @@ func send_growth_close() -> void:
 		})
 
 
-func _control(_peer_id: int, payload: Dictionary) -> void:
+func send_pause_state(enabled: bool) -> void:
+	if is_host():
+		session.send_control({"type": "pause_state", "enabled": enabled})
+
+
+func request_pause(enabled: bool) -> void:
+	if is_client():
+		session.send_control({"type": "pause_request", "enabled": enabled})
+
+
+func request_character_choice(index: int, confirmed: bool) -> void:
+	if is_client():
+		session.send_control({
+			"type": "character_choice", "index": index, "confirmed": confirmed,
+		})
+
+
+func request_growth_select(index: int) -> void:
+	if is_client():
+		session.send_control({"type": "growth_select", "index": index})
+
+
+func request_growth_cancel() -> void:
+	if is_client():
+		session.send_control({"type": "growth_cancel"})
+
+
+func request_growth_reroll() -> void:
+	if is_client():
+		session.send_control({"type": "growth_reroll"})
+
+
+func send_result(victory: bool) -> void:
+	if is_host():
+		session.send_control({
+			"type": "run_result", "victory": victory,
+			"elapsed": game.elapsed, "kills": game.kills,
+			"run_stats": game.run_stats.duplicate(true),
+		})
+
+
+func send_enemy_shot(origin: Vector2, direction: Vector2, speed: float) -> void:
+	if is_host():
+		session.send_event({
+			"type": "enemy_shot", "origin": origin,
+			"direction": direction, "speed": speed,
+		})
+
+
+func send_player_attack(player_index: int, weapon_id: String, origin: Vector2,
+		color: Color, radius: float) -> void:
+	if is_host():
+		session.send_event({
+			"type": "player_attack", "player": player_index,
+			"weapon": weapon_id, "origin": origin,
+			"color": color, "radius": radius,
+		})
+
+
+func _event(_peer_id: int, payload: Dictionary) -> void:
+	if not is_client():
+		return
+	match String(payload.get("type", "")):
+		"enemy_shot": _receive_enemy_shot(payload)
+		"player_attack":
+			game.weapon_controller.play_remote_attack(
+				Vector2(payload.get("origin", Vector2.ZERO)),
+				Color(payload.get("color", Color.WHITE)),
+				clampf(float(payload.get("radius", 64.0)), 32.0, 220.0))
+
+
+func _control(peer_id: int, payload: Dictionary) -> void:
 	var kind := String(payload.get("type", ""))
 	if is_host():
+		if peer_id not in session.multiplayer.get_peers():
+			return
+		if kind == "character_choice" and not game.character_select_active:
+			return
+		if kind.begins_with("growth_") and not game.level_up_active:
+			return
 		match kind:
 			"character_choice":
 				game.selected_character_indices[1] = clampi(int(payload.get("index", 0)), 0, game.character_catalog.size() - 1)
@@ -157,6 +247,12 @@ func _control(_peer_id: int, payload: Dictionary) -> void:
 				if game.selected_upgrade_indices[1] < 0 and game.rerolls_remaining[1] > 0:
 					game._reroll_choices(2)
 					send_growth_state("growth_open")
+			"pause_request":
+				var requested := bool(payload.get("enabled", false))
+				if ((requested and not game.game_over and not game.level_up_active
+						and not game.character_select_active and not game.cinematic_active)
+						or (not requested and game.pause_active)):
+					game._set_pause(requested)
 		return
 	match kind:
 		"character_state": _receive_character_state(payload)
@@ -169,6 +265,15 @@ func _control(_peer_id: int, payload: Dictionary) -> void:
 			game.level_up_active = false
 			game.level_overlay.visible = false
 			game.get_tree().paused = false
+		"pause_state": game._set_pause(bool(payload.get("enabled", false)), false)
+		"run_result": _receive_result(payload)
+
+
+func _receive_result(payload: Dictionary) -> void:
+	game.elapsed = float(payload.get("elapsed", game.elapsed))
+	game.kills = int(payload.get("kills", game.kills))
+	game.run_stats = payload.get("run_stats", game.run_stats).duplicate(true)
+	game._end_run(bool(payload.get("victory", false)), false)
 
 
 func _receive_character_state(payload: Dictionary) -> void:
@@ -202,6 +307,16 @@ func _receive_growth_state(payload: Dictionary) -> void:
 
 
 func client_tick(delta: float) -> void:
+	if game.game_over:
+		return
+	if game.pause_active:
+		if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
+			request_pause(false)
+		return
+	if (not game.level_up_active and not game.character_select_active
+			and Input.is_action_just_pressed("pause")):
+		request_pause(true)
+		return
 	if game.character_select_active:
 		_client_character_input()
 		return
@@ -223,28 +338,16 @@ func client_tick(delta: float) -> void:
 
 
 func _client_character_input() -> void:
-	var changed := false
 	if Input.is_action_just_pressed("p1_select_previous"):
-		game.selected_character_indices[1] = wrapi(game.selected_character_indices[1] - 1, 0, game.character_catalog.size())
-		game.character_confirmed[1] = false
-		changed = true
+		game._set_character_choice(1,
+			wrapi(game.selected_character_indices[1] - 1, 0, game.character_catalog.size()), false)
 	elif Input.is_action_just_pressed("p1_select_next"):
-		game.selected_character_indices[1] = wrapi(game.selected_character_indices[1] + 1, 0, game.character_catalog.size())
-		game.character_confirmed[1] = false
-		changed = true
+		game._set_character_choice(1,
+			wrapi(game.selected_character_indices[1] + 1, 0, game.character_catalog.size()), false)
 	elif Input.is_action_just_pressed("p1_select_confirm"):
-		game.character_confirmed[1] = true
-		changed = true
+		game._set_character_choice(1, game.selected_character_indices[1], true)
 	elif Input.is_action_just_pressed("p1_select_cancel"):
-		game.character_confirmed[1] = false
-		changed = true
-	if changed:
-		game._refresh_character_select_ui()
-		session.send_control({
-			"type": "character_choice",
-			"index": game.selected_character_indices[1],
-			"confirmed": game.character_confirmed[1],
-		})
+		game._set_character_choice(1, game.selected_character_indices[1], false)
 
 
 func _client_growth_input() -> void:
@@ -257,11 +360,21 @@ func _client_growth_input() -> void:
 		game.upgrade_cursors[1] = wrapi(game.upgrade_cursors[1] + 1, 0, game.p2_choices.size())
 		game._refresh_level_up_ui()
 	elif Input.is_action_just_pressed("p1_select_confirm"):
-		session.send_control({"type": "growth_select", "index": game.upgrade_cursors[1]})
+		game._confirm_growth_choice(1, game.upgrade_cursors[1])
 	elif Input.is_action_just_pressed("p1_select_cancel"):
-		session.send_control({"type": "growth_cancel"})
+		game._cancel_growth_choice(1)
 	elif Input.is_action_just_pressed("p1_reroll"):
-		session.send_control({"type": "growth_reroll"})
+		game._reroll_growth_choice(1)
+
+
+func _receive_enemy_shot(payload: Dictionary) -> void:
+	var projectile := EnemyProjectileScript.new() as EnemyProjectile
+	projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
+	var no_targets: Array[ChainPlayer] = []
+	projectile.setup(Vector2(payload.get("origin", Vector2.ZERO)),
+		Vector2(payload.get("direction", Vector2.RIGHT)), 0.0, no_targets)
+	projectile.speed = float(payload.get("speed", projectile.speed))
+	game.add_child(projectile)
 
 
 func host_tick(delta: float) -> void:
@@ -284,15 +397,21 @@ func _snapshot() -> Dictionary:
 	var enemy_states: Array = []
 	for enemy in game.enemies:
 		if is_instance_valid(enemy) and not enemy.dead:
-			enemy_states.append({
-				"id": enemy.get_instance_id(), "position": enemy.position,
-				"rotation": enemy.rotation, "archetype": enemy.archetype,
-				"elite": enemy.elite, "boss": enemy.boss, "rank": enemy.boss_rank,
-				"health": enemy.health, "max_health": enemy.max_health,
-				"slow_timer": enemy.slow_timer, "telegraphing": enemy.telegraphing,
-			})
+			enemy_states.append([
+				enemy.get_instance_id(), enemy.position, enemy.rotation, enemy.archetype,
+				enemy.elite, enemy.boss, enemy.boss_rank, enemy.health, enemy.max_health,
+				enemy.slow_timer, enemy.telegraphing, enemy.charge_windup,
+				enemy.shooter_windup, enemy.chain_windup, enemy.boss_slam_windup,
+				enemy.telegraph_direction, enemy.boss_slam_point, enemy.boss_enraged,
+			])
+	var item_states: Array = []
+	for item in game.field_items.active_items:
+		if is_instance_valid(item) and item.active:
+			item_states.append([
+				item.get_instance_id(), item.position, item.item_id, item.lifetime,
+			])
 	return {
-		"players": player_states, "enemies": enemy_states,
+		"players": player_states, "enemies": enemy_states, "items": item_states,
 		"elapsed": game.elapsed, "kills": game.kills,
 		"chain_integrity": game.chain_integrity,
 		"level": game.progression.level, "xp": game.progression.experience,
@@ -321,6 +440,7 @@ func _apply_snapshot(payload: Dictionary) -> void:
 	game.progression.required_experience = int(payload.get("required_xp", game.progression.required_experience))
 	_sync_attack_timers()
 	_sync_enemies(payload.get("enemies", []))
+	_sync_items(payload.get("items", []))
 
 
 func _sync_attack_timers() -> void:
@@ -331,28 +451,86 @@ func _sync_attack_timers() -> void:
 			game.attack_timers[slot].pop_back()
 
 
+func _sync_items(states: Array) -> void:
+	var live: Dictionary = {}
+	for state: Array in states:
+		if state.size() < 4:
+			continue
+		var id := int(state[0])
+		live[id] = true
+		var item: FieldItem = replica_items.get(id)
+		var item_kind := String(state[2])
+		var remote_lifetime := float(state[3])
+		if not is_instance_valid(item):
+			item = FieldItemScript.new() as FieldItem
+			game.field_items.add_child(item)
+			item.activate(Vector2(state[1]), item_kind,
+				game.field_items.item_color(item_kind))
+			replica_items[id] = item
+		elif item.item_id != item_kind or remote_lifetime > item.lifetime + 0.25:
+			# The host pools item nodes, so a collected node can reappear with the
+			# same instance id before the next snapshot. A reset lifetime marks it
+			# as a new drop and must snap it to the new spawn instead of drifting.
+			item.activate(Vector2(state[1]), item_kind,
+				game.field_items.item_color(item_kind))
+		else:
+			item.position = item.position.lerp(Vector2(state[1]), 0.7)
+		item.lifetime = remote_lifetime
+		item.queue_redraw()
+	for id in replica_items.keys():
+		if not live.has(id):
+			var stale: FieldItem = replica_items[id]
+			if is_instance_valid(stale):
+				stale.queue_free()
+			replica_items.erase(id)
+
+
+func _clear_replicas() -> void:
+	for enemy in replica_enemies.values():
+		if is_instance_valid(enemy):
+			enemy.queue_free()
+	for item in replica_items.values():
+		if is_instance_valid(item):
+			item.queue_free()
+	replica_enemies.clear()
+	replica_items.clear()
+
+
 func _sync_enemies(states: Array) -> void:
 	var live: Dictionary = {}
 	var synced: Array[ChaserEnemy] = []
-	for state: Dictionary in states:
-		var id := int(state["id"])
+	for state: Array in states:
+		if state.size() < EnemyField.size():
+			continue
+		var id := int(state[EnemyField.ID])
 		live[id] = true
 		var enemy: ChaserEnemy = replica_enemies.get(id)
 		if not is_instance_valid(enemy):
 			enemy = ChaserEnemy.new()
-			enemy.setup(1.0, String(state["archetype"]), bool(state["elite"]), bool(state["boss"]), int(state["rank"]))
+			enemy.setup(1.0, String(state[EnemyField.ARCHETYPE]),
+				bool(state[EnemyField.ELITE]), bool(state[EnemyField.BOSS]),
+				int(state[EnemyField.RANK]))
 			game.wave_director.add_child(enemy)
 			replica_enemies[id] = enemy
-		enemy.position = enemy.position.lerp(Vector2(state["position"]), 0.65)
-		enemy.rotation = float(state["rotation"])
-		enemy.health = float(state["health"])
-		enemy.max_health = float(state["max_health"])
+		enemy.position = enemy.position.lerp(Vector2(state[EnemyField.POSITION]), 0.65)
+		enemy.rotation = float(state[EnemyField.ROTATION])
+		enemy.health = float(state[EnemyField.HEALTH])
+		enemy.max_health = float(state[EnemyField.MAX_HEALTH])
 		enemy.dead = false
 		enemy.active = true
 		enemy.visible = true
-		enemy.slow_timer = float(state["slow_timer"])
-		enemy.telegraphing = bool(state["telegraphing"])
+		enemy.slow_timer = float(state[EnemyField.SLOW_TIMER])
+		enemy.telegraphing = bool(state[EnemyField.TELEGRAPHING])
+		enemy.charge_windup = float(state[EnemyField.CHARGE_WINDUP])
+		enemy.shooter_windup = float(state[EnemyField.SHOOTER_WINDUP])
+		enemy.chain_windup = float(state[EnemyField.CHAIN_WINDUP])
+		enemy.boss_slam_windup = float(state[EnemyField.BOSS_SLAM_WINDUP])
+		enemy.telegraph_direction = Vector2(state[EnemyField.TELEGRAPH_DIRECTION])
+		enemy.boss_slam_point = Vector2(state[EnemyField.BOSS_SLAM_POINT])
+		enemy.boss_enraged = bool(state[EnemyField.BOSS_ENRAGED])
 		enemy.queue_redraw()
+		if enemy.boss:
+			game.boss_enemy = enemy
 		synced.append(enemy)
 	for id in replica_enemies.keys():
 		if not live.has(id):
@@ -361,4 +539,19 @@ func _sync_enemies(states: Array) -> void:
 				stale.queue_free()
 			replica_enemies.erase(id)
 	game.enemies.assign(synced)
+	if is_instance_valid(game.boss_enemy) and game.boss_enemy in synced:
+		game.boss_bar.max_value = game.boss_enemy.max_health
+		game.boss_bar.value = game.boss_enemy.health
+		game.boss_bar.visible = true
+		game.boss_label.text = "%s   %d/%d" % [
+			game.boss_name(game.boss_enemy.boss_rank), game.boss_enemy.boss_rank,
+			WaveDirector.BOSS_COUNT,
+		]
+		game.boss_label.visible = true
+		game.boss_health_text_label.text = "%d / %d" % [
+			int(ceil(game.boss_enemy.health)), int(ceil(game.boss_enemy.max_health))]
+		game.boss_health_text_label.visible = true
+	else:
+		game.boss_enemy = null
+		game._hide_boss_readout()
 	game.spatial_grid.rebuild(game.enemies)

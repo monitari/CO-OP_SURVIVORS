@@ -4,6 +4,10 @@ const CompanionController := preload("res://scripts/systems/companion_controller
 const CoopSelectionUI := preload("res://scripts/ui/coop_selection_ui.gd")
 const OnlineCoopScript := preload("res://scripts/systems/online_coop.gd")
 
+const WINDOW_SIZES: Array[Vector2i] = [
+	Vector2i(1280, 720), Vector2i(1600, 900), Vector2i(1920, 1080),
+]
+
 const PlayerScene := preload("res://scripts/entities/player.gd")
 const CharacterData := preload("res://scripts/catalogs/character_catalog.gd")
 const EnemyProjectileScript := preload("res://scripts/entities/enemy_projectile.gd")
@@ -437,6 +441,8 @@ func _ready() -> void:
 	settings.load_settings()
 	if DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen_enabled else DisplayServer.WINDOW_MODE_WINDOWED)
+		if not settings.fullscreen_enabled:
+			_apply_window_size()
 	meta_progression = MetaProgressionScript.new() as MetaProgression
 	meta_progression.load_progress()
 	_setup_input_map()
@@ -462,6 +468,7 @@ func _ready() -> void:
 	# it from inside the controller and from inside the fields it spawns.
 	weapon_controller.enemy_shots = enemy_shots
 	weapon_controller.cue_requested.connect(feedback.play_cue)
+	weapon_controller.attack_visual.connect(_on_player_attack_visual)
 	_create_hud()
 	ReviewUI.install(self)
 	CoopSelectionUI.install(self)
@@ -529,8 +536,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("toggle_fullscreen"):
-		var mode := DisplayServer.window_get_mode()
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if mode == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		_toggle_fullscreen()
 		_persist_settings()
 		if title_active:
 			_refresh_title_ui()
@@ -1589,7 +1595,7 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 
 ## Menu rows, per page. The last entry of every page is the way out of it.
 const TITLE_MENU := ["게임 시작", "영구 성장", "설정", "제작진", "게임 종료"]
-const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음", "음악", "전체 화면", "뒤로"]
+const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음", "음악", "창 해상도", "전체 화면", "뒤로"]
 const TITLE_CREDITS := ["뒤로"]
 
 
@@ -1672,12 +1678,14 @@ func _activate_title_item(index: int) -> void:
 				feedback.music_enabled = not feedback.music_enabled
 				feedback.refresh_music()
 			4:
-				var mode := DisplayServer.window_get_mode()
-				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if mode == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)
-			5:
+				settings.window_size_index = wrapi(settings.window_size_index + 1, 0, WINDOW_SIZES.size())
+				if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED:
+					_apply_window_size()
+			5: _toggle_fullscreen()
+			6:
 				title_mode = "menu"
 				title_cursor = 2
-		if index < 5:
+		if index < 6:
 			_persist_settings()
 		_refresh_title_ui()
 		return
@@ -1734,6 +1742,58 @@ func _join_ai_companion() -> void:
 	if not lobby_joined[0]:
 		_join_lobby_slot(0, -1, "키보드 WASD")
 	_join_lobby_slot(1, -2, "AI 동료 · 자동 이동 / 구조 / 성장")
+
+
+func _can_control_player_slot(slot: int) -> bool:
+	if slot < 0 or slot > 1:
+		return false
+	if online != null and online.is_client():
+		return slot == 1
+	if (online != null and online.is_host()) or ai_companion:
+		return slot == 0
+	return true
+
+
+func _set_character_choice(slot: int, character_index: int, confirmed: bool) -> void:
+	if not _can_control_player_slot(slot) or not character_select_active:
+		return
+	selected_character_indices[slot] = clampi(character_index, 0, character_catalog.size() - 1)
+	character_confirmed[slot] = confirmed
+	_refresh_character_select_ui()
+	if online != null and online.is_client():
+		online.request_character_choice(selected_character_indices[slot], confirmed)
+	elif character_confirmed[0] and character_confirmed[1]:
+		_start_selected_run()
+
+
+func _confirm_growth_choice(slot: int, choice_index: int) -> void:
+	if not _can_control_player_slot(slot) or not level_up_active or level_up_input_delay > 0.0:
+		return
+	if online != null and online.is_client():
+		online.request_growth_select(choice_index)
+	else:
+		_select_upgrade(slot + 1, choice_index)
+
+
+func _cancel_growth_choice(slot: int) -> void:
+	if not _can_control_player_slot(slot) or not level_up_active:
+		return
+	if online != null and online.is_client():
+		online.request_growth_cancel()
+	elif selected_upgrade_indices[slot] >= 0 and selected_upgrade_indices[1 - slot] < 0:
+		selected_upgrade_indices[slot] = -1
+		_refresh_level_up_ui()
+
+
+func _reroll_growth_choice(slot: int) -> void:
+	if (not _can_control_player_slot(slot) or not level_up_active
+			or level_up_input_delay > 0.0 or selected_upgrade_indices[slot] >= 0
+			or rerolls_remaining[slot] <= 0):
+		return
+	if online != null and online.is_client():
+		online.request_growth_reroll()
+	else:
+		_reroll_choices(slot + 1)
 
 
 func _join_lobby_with_gamepad(device: int) -> void:
@@ -1820,6 +1880,7 @@ func _handle_character_select_input() -> void:
 
 func _refresh_character_select_ui() -> void:
 	if ai_companion:
+		selected_character_indices[1] = CompanionController.choose_character(self, 0)
 		character_confirmed[1] = true
 	character_p1_label.text = _format_character_card(0)
 	character_p2_label.text = _format_character_card(1)
@@ -2339,6 +2400,14 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 	projectile.broken.connect(_on_enemy_shot_broken)
 	enemy_shots.append(projectile)
 	add_child(projectile)
+	if online != null:
+		online.send_enemy_shot(origin, direction, projectile.speed)
+
+
+func _on_player_attack_visual(player_index: int, weapon_id: String,
+		origin: Vector2, color: Color, radius: float) -> void:
+	if online != null:
+		online.send_player_attack(player_index, weapon_id, origin, color, radius)
 
 
 ## A shot knocked out of the air by 월식 낫, 결속 파동, 궤도 파편 or 지뢰 결계.
@@ -2487,7 +2556,7 @@ func _on_player_revived(player: ChainPlayer) -> void:
 	_show_message("%s 부활 — 사슬이 다시 이어집니다" % player.character_name, Color("80ed99"))
 
 
-func _set_pause(enabled: bool) -> void:
+func _set_pause(enabled: bool, replicate := true) -> void:
 	pause_active = enabled
 	restart_pending = false
 	pending_quits = false
@@ -2508,6 +2577,8 @@ func _set_pause(enabled: bool) -> void:
 	if enabled:
 		_update_pause_text()
 	get_tree().paused = enabled
+	if replicate and online != null:
+		online.send_pause_state(enabled)
 
 
 func _handle_pause_input() -> void:
@@ -2552,6 +2623,24 @@ func _handle_pause_input() -> void:
 		_update_pause_text()
 
 
+func window_size_label() -> String:
+	var index := clampi(settings.window_size_index, 0, WINDOW_SIZES.size() - 1)
+	var size := WINDOW_SIZES[index]
+	return "%d × %d" % [size.x, size.y]
+
+
+func _apply_window_size() -> void:
+	var index := clampi(settings.window_size_index, 0, WINDOW_SIZES.size() - 1)
+	DisplayServer.window_set_size(WINDOW_SIZES[index])
+
+
+func _toggle_fullscreen() -> void:
+	var fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
+	if fullscreen:
+		_apply_window_size()
+
+
 func _persist_settings() -> void:
 	settings.screen_shake_enabled = screen_shake_enabled
 	settings.damage_numbers_enabled = feedback.damage_numbers_enabled
@@ -2582,7 +2671,10 @@ func _activate_pause_item(index: int) -> void:
 		return
 	match index:
 		0:
-			_set_pause(false)
+			if online != null and online.is_client():
+				online.request_pause(false)
+			else:
+				_set_pause(false)
 			return
 		1: screen_shake_enabled = not screen_shake_enabled
 		2: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
@@ -5252,13 +5344,13 @@ func _refresh_meta_result_ui() -> void:
 			style.border_color = Color("ffd166") if index == meta_cursor else Color("73858c")
 
 
-func _end_run(victory: bool = false) -> void:
+func _end_run(victory: bool = false, grant_rewards := true) -> void:
 	if game_over:
 		return
 	game_over = true
 	run_won = victory
 	run_reward = 0
-	if victory and not debug_run_tainted and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT:
+	if grant_rewards and victory and not debug_run_tainted and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT:
 		run_reward = meta_progression.award_clear()
 	level_up_active = false
 	level_overlay.visible = false
@@ -5278,6 +5370,8 @@ func _end_run(victory: bool = false) -> void:
 	_update_hud()
 	feedback.stop_music()
 	feedback.play_cue("victory" if victory else "down")
+	if online != null:
+		online.send_result(victory)
 
 
 func _setup_input_map() -> void:

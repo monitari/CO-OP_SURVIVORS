@@ -1,5 +1,7 @@
 extends RefCounted
 
+const CharacterCatalog := preload("res://scripts/catalogs/character_catalog.gd")
+
 ## Produces the same movement/dash command that a remote peer can supply.
 ## Decisions use nearby bodies only; combat still uses the normal weapon system.
 static func command(player: ChainPlayer, partner: ChainPlayer, grid: EnemySpatialGrid,
@@ -50,6 +52,39 @@ static func choose(main: Node, slot: int, choices: Array) -> int:
 			score += 18.0
 		if String(option["id"]) == "choose_tech":
 			score += float((index + slot) % maxi(1, choices.size()))
+		if score > best_score:
+			best_score = score
+			best = index
+	return best
+
+
+## Picks a partner that covers the human survivor's weakest axes. Keeping this
+## deterministic makes the lobby recommendation understandable: choosing the
+## same cat again always produces the same companion.
+static func choose_character(main: Node, human_slot := 0) -> int:
+	if main.character_catalog.is_empty():
+		return 0
+	var human_index := clampi(main.selected_character_indices[human_slot], 0,
+		main.character_catalog.size() - 1)
+	var human: Dictionary = main.character_catalog[human_index]
+	var human_profile := CharacterCatalog.difficulty_profile(human)
+	var human_tags: Array = human.get("tags", [])
+	var best := human_index
+	var best_score := -INF
+	for index in main.character_catalog.size():
+		if index == human_index:
+			continue
+		var candidate: Dictionary = main.character_catalog[index]
+		var profile := CharacterCatalog.difficulty_profile(candidate)
+		var score := 0.0
+		score += float(profile["coverage"]) * (1.25 - float(human_profile["coverage"])) * 3.2
+		score += float(profile["durability"]) * (1.25 - float(human_profile["durability"])) * 2.8
+		score += float(profile["mobility"]) * (1.15 - float(human_profile["mobility"])) * 1.8
+		for tag in candidate.get("tags", []):
+			if tag not in human_tags:
+				score += 0.18
+		var pair_length := CharacterCatalog.chain_length_for(human, candidate)
+		score -= absf(pair_length - 390.0) / 180.0
 		if score > best_score:
 			best_score = score
 			best = index

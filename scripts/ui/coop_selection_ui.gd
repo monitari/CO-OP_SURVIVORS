@@ -37,6 +37,7 @@ static func install(main: Node) -> void:
 	detail.name = "Detail"
 	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	Review.button(main.level_overlay, "P1 선택 다시 보기", Rect2(736, 398, 280, 36), func() -> void:
+		if main.online != null and main.online.is_online(): return
 		main.selected_upgrade_indices[0] = -1
 		main._refresh_level_up_ui()).name = "ReturnToFirst"
 
@@ -81,7 +82,8 @@ static func refresh(main: Node) -> void:
 		detail += "\n\n현재 플레이어가 확정하면\n다음 선택 화면으로 넘어갑니다."
 	panel.get_node("Detail").text = detail
 	main.level_title.text = "P%d 성장 선택 / LV.%02d" % [focus + 1, main.progression.level]
-	main.level_overlay.get_node("ReturnToFirst").visible = not main.ai_companion and focus == 1 and main.selected_upgrade_indices[0] >= 0
+	main.level_overlay.get_node("ReturnToFirst").visible = (not main.ai_companion
+		and not main.online.is_online() and focus == 1 and main.selected_upgrade_indices[0] >= 0)
 	if main.level_overlay.has_node("ControlFooter"):
 		main.level_overlay.get_node("ControlFooter").text = "내 카드 선택 → 선택 확정 · 동료의 빌드는 오른쪽에서 확인"
 

@@ -131,7 +131,7 @@ static func _title(main: Node) -> void:
 	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	label(screen, "한 화면에서 함께 지키는 로컬 2인 협동",
+	label(screen, "로컬 · LAN · AI로 함께 지키는 2인 협동",
 		Rect2(Palette.PADDING, 12, 250, 24), Palette.TYPE_CAPTION, Palette.GOLD).name = "TitleEyebrow"
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
@@ -165,9 +165,12 @@ static func refresh_title(main: Node) -> void:
 		# names the setting makes a player press it to find out what it was.
 		var state: Label = row.get_node("State")
 		state.text = ""
-		if main.title_mode == "settings" and index < 5:
+		if main.title_mode == "settings" and index == 4:
+			state.text = main.window_size_label()
+			state.add_theme_color_override("font_color", Palette.P1)
+		elif main.title_mode == "settings" and index < 6:
 			var states := [main.screen_shake_enabled, main.feedback.damage_numbers_enabled,
-				main.feedback.sound_enabled, main.feedback.music_enabled,
+				main.feedback.sound_enabled, main.feedback.music_enabled, false,
 				DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN]
 			state.text = "● 켜짐" if states[index] else "○ 꺼짐"
 			state.add_theme_color_override("font_color", Palette.P1 if states[index] else Palette.MUTED)
@@ -313,7 +316,14 @@ static func _characters(main: Node) -> void:
 
 static func refresh_characters(main: Node) -> void:
 	var screen: Control = main.character_overlay
-	main.character_roster_label.text = "클릭 P1 · 우클릭 P2"
+	if main.ai_companion:
+		main.character_roster_label.text = "클릭으로 P1 선택 · AI는 조합에 맞춰 자동 선택"
+	elif main.online != null and main.online.is_client():
+		main.character_roster_label.text = "클릭으로 내 캐릭터 선택 · P1은 호스트가 선택"
+	elif main.online != null and main.online.is_host():
+		main.character_roster_label.text = "클릭으로 내 캐릭터 선택 · P2 선택을 기다리는 중"
+	else:
+		main.character_roster_label.text = "클릭 P1 · 우클릭 P2"
 	for slot in 2:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
 		screen.get_node("CatName%d" % slot).text = String(cat["name"])
@@ -332,9 +342,13 @@ static func refresh_characters(main: Node) -> void:
 			Palette.player_surface(slot, not main.character_confirmed[slot], main.character_confirmed[slot]))
 		if screen.has_node("CharacterConfirm%d" % slot):
 			var confirm: Button = screen.get_node("CharacterConfirm%d" % slot)
+			confirm.disabled = not main._can_control_player_slot(slot)
 			confirm.text = "✓ 준비 완료" if main.character_confirmed[slot] else "준비하기"
 			confirm.add_theme_stylebox_override("normal",
 				Palette.button_surface("normal", Palette.P1 if slot == 0 else Palette.P2, true))
+		for action in ["CharacterPrevious%d" % slot, "CharacterNext%d" % slot]:
+			if screen.has_node(action):
+				(screen.get_node(action) as Button).disabled = not main._can_control_player_slot(slot)
 	# One number for the two of them, read after both dossiers are refreshed:
 	# it is the pair that has a leash, not either cat on its own.
 	var pair_leash := CharacterCatalog.chain_length_for(

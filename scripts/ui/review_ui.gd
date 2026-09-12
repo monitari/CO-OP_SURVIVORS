@@ -85,9 +85,7 @@ static func install(main: Node) -> void:
 			if not (event is InputEventMouseButton and event.pressed) or main.lobby_input_cooldown > 0: return
 			if event.button_index not in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]: return
 			var slot := 0 if event.button_index == MOUSE_BUTTON_LEFT else 1
-			main.character_confirmed[slot] = false
-			main.selected_character_indices[slot] = index
-			main._refresh_character_select_ui())
+			main._set_character_choice(slot, index, false))
 	for slot in 2:
 		var join: Label = main.lobby_p1_label if slot == 0 else main.lobby_p2_label
 		join.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -103,9 +101,8 @@ static func install(main: Node) -> void:
 		var accent := Palette.P1 if slot == 0 else Palette.P2
 		var confirm := button(main.character_overlay, "준비하기", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 497, 174, 36), func() -> void:
 			if main.lobby_input_cooldown > 0.0: return
-			main.character_confirmed[slot] = not main.character_confirmed[slot]
-			main._refresh_character_select_ui()
-			if main.character_confirmed[0] and main.character_confirmed[1]: main._start_selected_run())
+			main._set_character_choice(slot, main.selected_character_indices[slot],
+				not main.character_confirmed[slot]))
 		confirm.name = "CharacterConfirm%d" % slot
 		confirm.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
 		confirm.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
@@ -130,18 +127,17 @@ static func install(main: Node) -> void:
 					main._refresh_level_up_ui())
 		var growth_confirm := button(main.level_overlay, "선택 확정", Rect2(main.LEVEL_HALF_X[slot] + 12, 492, 200, 34), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
-				main._select_upgrade(slot + 1, main.upgrade_cursors[slot]))
+				main._confirm_growth_choice(slot, main.upgrade_cursors[slot]))
 		growth_confirm.name = "Confirm%d" % slot
 		growth_confirm.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
 		growth_confirm.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
 		growth_confirm.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
 		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + 224, 492, 136, 34), func() -> void:
 			if main.level_up_active:
-				main.selected_upgrade_indices[slot] = -1
-				main._refresh_level_up_ui()).name = "Cancel%d" % slot
+				main._cancel_growth_choice(slot)).name = "Cancel%d" % slot
 		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + 372, 492, 200, 34), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0 and main.rerolls_remaining[slot] > 0:
-				main._reroll_choices(slot + 1)).name = "Reroll%d" % slot
+				main._reroll_growth_choice(slot)).name = "Reroll%d" % slot
 		for index in main.resonance_cards.size():
 			var card: Label = main.resonance_cards[index]
 			button(card, "P%d 선택" % (slot + 1), Rect2(14 + slot * 110, 244, 98, 32), func() -> void:
@@ -208,9 +204,8 @@ static func _detail_card(parent: Control, x: float, y: float, icon_id: String, t
 
 static func choose_cat(main: Node, slot: int, direction: int) -> void:
 	if main.lobby_input_cooldown > 0.0: return
-	main.character_confirmed[slot] = false
-	main.selected_character_indices[slot] = wrapi(main.selected_character_indices[slot] + direction, 0, main.character_catalog.size())
-	main._refresh_character_select_ui()
+	main._set_character_choice(slot,
+		wrapi(main.selected_character_indices[slot] + direction, 0, main.character_catalog.size()), false)
 
 static func refresh_pause(main: Node) -> void:
 	if not main.pause_overlay.has_node("PauseAction0"): return

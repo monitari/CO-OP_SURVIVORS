@@ -8,19 +8,21 @@ signal connected_to_host
 signal connection_failed
 signal input_received(peer_id: int, movement: Vector2, dash: bool)
 signal control_received(peer_id: int, payload: Dictionary)
+signal event_received(peer_id: int, payload: Dictionary)
 signal snapshot_received(payload: Dictionary)
 
 enum Role { OFFLINE, HOST, CLIENT }
 
 const DEFAULT_PORT := 24872
 const MAX_CLIENTS := 1
-const ENEMIES_PER_SNAPSHOT_PART := 2
+const ENEMIES_PER_SNAPSHOT_PART := 3
 
 var role := Role.OFFLINE
 var address := "127.0.0.1"
 var port := DEFAULT_PORT
 var snapshot_sequence := 0
 var incoming_snapshots: Dictionary = {}
+var last_applied_snapshot_sequence := -1
 
 
 func _ready() -> void:
@@ -68,6 +70,8 @@ func stop() -> void:
 		multiplayer.multiplayer_peer.close()
 		multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	role = Role.OFFLINE
+	incoming_snapshots.clear()
+	last_applied_snapshot_sequence = -1
 
 
 func is_online() -> bool:
@@ -84,6 +88,11 @@ func send_control(payload: Dictionary) -> void:
 		_receive_control.rpc_id(1, payload)
 	elif role == Role.HOST:
 		_receive_control.rpc(payload)
+
+
+func send_event(payload: Dictionary) -> void:
+	if role == Role.HOST and not multiplayer.get_peers().is_empty():
+		_receive_event.rpc(payload)
 
 
 func send_snapshot(payload: Dictionary) -> void:
@@ -112,10 +121,18 @@ func _receive_control(payload: Dictionary) -> void:
 	control_received.emit(multiplayer.get_remote_sender_id(), payload)
 
 
-@rpc("authority", "call_remote", "unreliable_ordered", 2)
+@rpc("authority", "call_remote", "unreliable", 3)
+func _receive_event(payload: Dictionary) -> void:
+	if role == Role.CLIENT:
+		event_received.emit(multiplayer.get_remote_sender_id(), payload)
+
+
+@rpc("authority", "call_remote", "unreliable", 2)
 func _receive_snapshot_part(sequence: int, part: int, part_count: int,
 		base: Dictionary, enemies: Array) -> void:
 	if role != Role.CLIENT:
+		return
+	if sequence <= last_applied_snapshot_sequence:
 		return
 	if not incoming_snapshots.has(sequence):
 		incoming_snapshots[sequence] = {"base": {}, "parts": {}, "count": part_count}
@@ -134,6 +151,10 @@ func _receive_snapshot_part(sequence: int, part: int, part_count: int,
 		combined.append_array((assembly["parts"] as Dictionary)[index])
 	payload["enemies"] = combined
 	incoming_snapshots.erase(sequence)
+	last_applied_snapshot_sequence = sequence
+	for old_sequence in incoming_snapshots.keys():
+		if int(old_sequence) <= sequence:
+			incoming_snapshots.erase(old_sequence)
 	snapshot_received.emit(payload)
 
 

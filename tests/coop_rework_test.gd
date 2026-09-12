@@ -23,6 +23,16 @@ func _run() -> void:
 	main.lobby_input_cooldown = 0.0
 	main._join_ai_companion()
 	check(main.ai_companion and main.character_select_active and main.character_confirmed[1], "AI lobby joins and readies P2")
+	check(main.selected_character_indices[1] == Bot.choose_character(main, 0)
+		and main.selected_character_indices[1] != main.selected_character_indices[0],
+		"AI automatically chooses a complementary character")
+	main._set_character_choice(0, 1, false)
+	check(main.selected_character_indices[1] == Bot.choose_character(main, 0)
+		and main.character_confirmed[1],
+		"AI updates its character when P1 changes")
+	check(main.character_overlay.get_node("CharacterPrevious1").disabled
+		and main.character_overlay.get_node("CharacterConfirm1").disabled,
+		"AI character controls are visibly locked")
 	main._start_selected_run()
 	main.set_physics_process(false)
 	main.wave_director.set_physics_process(false)
