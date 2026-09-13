@@ -181,16 +181,13 @@ func _build_world() -> void:
 	stage.z_index = 4
 	add_child(stage)
 
-	# The chain joins the sorted layer rather than sitting under all of it. Both
-	# halves are anchored at the pair's midpoint and drawn around it, so the rope
-	# sorts against the furniture by the same ground line everything else uses —
-	# a chain permanently behind every planter went behind them even when both
-	# cats were standing in front.
+	# The chain joins the sorted layer, but at its own depth under the actors
+	# rather than sorted among them — see ChainArc.BEHIND_ACTORS for why that is
+	# a rule and not a preference. Both nodes are added here so the running
+	# light lands on the rope, and both are given the pair's colour every frame.
 	chain_arc = ChainArcScript.new() as ChainArc
-	chain_arc.z_index = 0
 	stage.add_child(chain_arc)
 	chain_flow = ChainFlowScript.new() as ChainFlow
-	chain_flow.z_index = 0
 	stage.add_child(chain_flow)
 
 	near_edge = ProxyScript.new() as DrawProxy
@@ -295,9 +292,9 @@ func _build_legend() -> void:
 
 func _refresh_legend() -> void:
 	legend.text = "\n".join([
-		"옥상 2.5D 시제품 · WASD 이동 / Space 대시 · 방향키로 동료 조작",
-		"별은 몸 높이 · 우유는 바닥 — 그림자와 착탄 빛으로 구분",
-		"F1 시점 %s · F2 실루엣 비침 %s · F3 사슬 처짐 %s · F12 달빛 %s" % [
+		"옥상 2.5D 시제품    WASD 이동 / Space 대시    방향키로 동료 조작",
+		"별은 몸 높이    우유는 바닥 — 그림자와 착탄 빛으로 구분",
+		"F1 시점 %s    F2 실루엣 비침 %s    F3 사슬 처짐 %s    F12 달빛 %s" % [
 			VIEW_NAMES[RooftopSpace.view_mode], _state(show_silhouettes),
 			_state(hang_chain), _state(Moonlight.enabled),
 		],

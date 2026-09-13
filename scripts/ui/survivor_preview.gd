@@ -8,6 +8,7 @@ var enemies: Array[ChaserEnemy] = []
 var actors: Array[ChainPlayer] = []
 var grid := EnemySpatialGrid.new()
 var caption: Label
+var details: Label
 var timer := 0.0
 var cooldown := 1.0
 
@@ -16,26 +17,35 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true
 	var display := SubViewportContainer.new()
-	display.size = Vector2(330, 130)
+	display.size = Vector2(430, 128)
 	display.stretch = true
+	display.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	display.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(display)
 	arena = SubViewport.new()
-	arena.size = Vector2i(660, 260)
+	arena.size = Vector2i(860, 256)
 	arena.transparent_bg = true
+	arena.msaa_2d = Viewport.MSAA_4X
 	arena.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	display.add_child(arena)
 	# Explicit texture sizing keeps world distances independent of UI scale.
 	display.stretch = false
-	display.size = Vector2(660, 260)
-	arena.size = Vector2i(660, 260)
+	display.size = Vector2(860, 256)
+	arena.size = Vector2i(860, 256)
 	display.scale = Vector2.ONE * 0.5
 	caption = Label.new()
-	caption.position = Vector2(0, 132)
-	caption.size = Vector2(330, 43)
+	caption.position = Vector2(0, 130)
+	caption.size = Vector2(430, 40)
 	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	caption.add_theme_font_size_override("font_size", 13)
+	caption.add_theme_font_size_override("font_size", 14)
 	add_child(caption)
+	details = Label.new()
+	details.position = Vector2(0, 170)
+	details.size = Vector2(430, 22)
+	details.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	details.add_theme_font_size_override("font_size", 12)
+	details.add_theme_color_override("font_color", Color("b9c7d9"))
+	add_child(details)
 
 func set_character(character: Dictionary, weapon: Dictionary = {}) -> void:
 	if arena == null or character_id == String(character["id"]):
@@ -46,6 +56,7 @@ func set_character(character: Dictionary, weapon: Dictionary = {}) -> void:
 	enemies.clear()
 	actors.clear()
 	grid = EnemySpatialGrid.new()
+	_add_demo_floor()
 	for slot in 2:
 		var player := ChainPlayer.new()
 		player.input_source = ChainPlayer.InputSource.AI
@@ -53,7 +64,7 @@ func set_character(character: Dictionary, weapon: Dictionary = {}) -> void:
 		player.apply_character(character)
 		player.display_name = "나" if slot == 0 else "동료"
 		arena.add_child(player)
-		player.position = Vector2(230 + slot * 190, 135)
+		player.position = Vector2(300 + slot * 260, 136)
 		actors.append(player)
 	cat = actors[0]
 	actors[1].visible = String(character["weapon_id"]) == "chain"
@@ -63,7 +74,7 @@ func set_character(character: Dictionary, weapon: Dictionary = {}) -> void:
 		enemy.setup(1.0)
 		enemy.remove_from_group("enemies")
 		enemy.health = 100000.0
-		enemy.position = Vector2(340, 130) + Vector2.from_angle(index * TAU / 7.0) * Vector2(150, 80)
+		enemy.position = Vector2(430, 128) + Vector2.from_angle(index * TAU / 7.0) * Vector2(205, 92)
 		enemies.append(enemy)
 	grid.rebuild(enemies)
 	var state := weapon.duplicate(true)
@@ -90,7 +101,29 @@ func set_character(character: Dictionary, weapon: Dictionary = {}) -> void:
 		"boomerang": "던진 장난감이 돌아와 반대쪽까지 지나갑니다.",
 		"milk": "주변에 깐 웅덩이가 지속 피해와 둔화를 줍니다."
 	}
-	caption.text = String(character["weapon_name"]) + " · 실제 무기 시연\n" + String(explanation.get(character["weapon_id"], character["description"]))
+	caption.text = String(character["weapon_name"]) + "  실제 전투 시연\n" + String(explanation.get(character["weapon_id"], character["description"]))
+	var reach: float = float(state.get("range", state.get("cast_range", state.get("radius", 0.0))))
+	details.text = "피해 %.0f    발동 %.2f초    %s" % [
+		float(state.get("damage", 0.0)), float(state.get("cooldown", 0.0)),
+		"사거리 %.0f" % reach if reach > 0.0 else "사슬 구간 전체"]
+
+
+func _add_demo_floor() -> void:
+	var floor := ColorRect.new()
+	floor.position = Vector2.ZERO
+	floor.size = Vector2(860, 256)
+	floor.color = Color("101b2d")
+	floor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	floor.z_index = -20
+	arena.add_child(floor)
+	for row in range(32, 256, 32):
+		var rule := ColorRect.new()
+		rule.position = Vector2(0, row)
+		rule.size = Vector2(860, 1)
+		rule.color = Color("29405a66")
+		rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rule.z_index = -19
+		arena.add_child(rule)
 
 func _process(delta: float) -> void:
 	if arena == null:

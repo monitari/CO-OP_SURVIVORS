@@ -199,13 +199,21 @@ func _check_chain(stage) -> void:
 	check(stage.chain_flow.point_at(0.5).distance_to(
 		RooftopSpace.raised(taut[taut.size() / 2], RooftopSpace.CHAIN_ANCHOR) - stage.chain_arc.position) < 2.0,
 		"The light samples the chain rather than the chord")
-	# The rope sorts against the furniture instead of living under all of it, so
-	# both halves have to be anchored where the sorting expects them.
+	# The rope lives in the sorted layer with everything else on the roof, but at
+	# its own depth under the actors, and it is anchored on a row behind both of
+	# them — see ChainArc.BEHIND_ACTORS. Checked from a pose with the pair level
+	# and again below from a pose with one cat well in front of the other, since
+	# a midpoint anchor passes the first and fails the second.
 	check(stage.chain_arc.get_parent() == stage.stage and stage.chain_flow.get_parent() == stage.stage,
 		"The chain sorts in the same layer as the props")
-	check(stage.chain_arc.position.distance_to(
-		(stage.players[0].position + stage.players[1].position) * 0.5) < 0.01,
-		"The chain is anchored at the pair's midpoint")
+	check(stage.chain_arc.z_index < stage.players[0].z_index
+		and stage.chain_flow.z_index < stage.players[1].z_index,
+		"The chain and its light are drawn under both survivors")
+	_pose(stage, Vector2(-120.0, -90.0), Vector2(120.0, 140.0))
+	check(stage.chain_arc.position.y < stage.players[0].position.y
+		and stage.chain_arc.position.y < stage.players[1].position.y,
+		"The chain anchors behind the rear cat rather than between the pair")
+	_pose(stage, Vector2(-stage.chain_length * 0.5, 0.0), Vector2(stage.chain_length * 0.5, 0.0))
 	await shot("chain-taut")
 
 	_pose(stage, Vector2(-60.0, 0.0), Vector2(60.0, 0.0))
@@ -389,6 +397,9 @@ func _check_run_integration() -> void:
 	check(main.chain_arc.get_parent() == main.world_stage
 		and not main.chain_flow.curve.is_empty(),
 		"The run's chain and moving light follow the same hung curve")
+	check(main.chain_arc.z_index < main.players[0].z_index
+		and main.chain_flow.z_index < main.players[1].z_index,
+		"The chain body and moving light always render behind both survivors")
 	check(main.weapon_controller.chain_path.size() == main.chain_arc.ground_points().size(),
 		"Chain attacks receive the visible leash's sampled ground path")
 	var shot: HomingProjectile = main.weapon_controller._acquire_projectile()

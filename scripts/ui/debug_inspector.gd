@@ -215,16 +215,16 @@ func _build_panel() -> void:
 func _refresh() -> void:
 	if readout == null or not is_instance_valid(game):
 		return
-	ribbon_label.text = "INSPECTOR 접힘  ·  %s 화면을 닫으면 다시 펼쳐집니다  ·  %s배속  ·  %s" % [
+	ribbon_label.text = "INSPECTOR 접힘      %s 화면을 닫으면 다시 펼쳐집니다      %s배속      %s" % [
 		_state_name(), _speed_text(Engine.time_scale), notice,
 	]
 	var lines: Array[String] = []
 	lines.append("[font_size=20][color=#43d9ff][b]RUNTIME INSPECTOR[/b][/color][/font_size]  [color=#7f96ae]F10 닫기[/color]")
-	lines.append("[color=#94a8bd]F5 배속 2 → 5 → 0.15 → 1배  ·  F6 레벨업[/color]")
-	lines.append("[color=#94a8bd]F7 보물 강화 준비  ·  F8 완전 회복  ·  F9 다음 보스[/color]")
+	lines.append("[color=#94a8bd]F5 배속 2 → 5 → 0.15 → 1배      F6 레벨업[/color]")
+	lines.append("[color=#94a8bd]F7 보물 강화 준비      F8 완전 회복      F9 다음 보스[/color]")
 	lines.append("[color=#24384f]────────────────────────────────────────[/color]")
 	if game.debug_run_tainted:
-		lines.append("[color=#ff5d8f][b]DEBUG MUTATED[/b]  보상·발견 기록 저장 안 함[/color]")
+		lines.append("[color=#ff5d8f][b]DEBUG MUTATED[/b]  보상  발견 기록 저장 안 함[/color]")
 	lines.append("[color=#ffd166]%s[/color]" % notice)
 	lines.append("")
 	lines.append(_run_report())
@@ -280,11 +280,11 @@ func _run_report() -> String:
 		" (휴식)" if game.wave_director.in_calm else "",
 	]
 	var next_boss := float(game.wave_director.next_boss_time())
-	return ("[color=#80ed99][b]RUN[/b][/color]  %s  ·  %s  ·  %s배속  ·  %d FPS\n" % [
+	return ("[color=#80ed99][b]RUN[/b][/color]  %s      %s      %s배속      %d FPS\n" % [
 		state, _clock(elapsed), _speed_text(Engine.time_scale), Engine.get_frames_per_second()
-	] + "웨이브 %s  ·  적 %d/%d  ·  처치 %d\n" % [
+	] + "웨이브 %s      적 %d/%d      처치 %d\n" % [
 		wave_text, game.enemies.size(), int(game.wave_director.enemy_cap), int(game.kills)
-	] + "LV.%d  XP %d/%d  ·  보스 %d/%d  ·  다음 %s%s" % [
+	] + "LV.%d  XP %d/%d      보스 %d/%d      다음 %s%s" % [
 		int(game.progression.level), int(game.progression.experience), int(game.progression.required_experience),
 		int(game.wave_director.bosses_spawned), int(game.wave_director.BOSS_COUNT),
 		"완료" if int(game.wave_director.bosses_spawned) >= int(game.wave_director.BOSS_COUNT) else _clock(next_boss),
@@ -296,7 +296,7 @@ func _chain_report() -> String:
 	var distance: float = game.players[0].global_position.distance_to(game.players[1].global_position)
 	var ratio: float = distance / maxf(1.0, float(game.chain_max_length))
 	var state := "과부하" if game.chain_overloaded else ("위험" if ratio >= float(game.CHAIN_WARNING_RATIO) else "안정")
-	return "[color=#c77dff][b]CHAIN[/b][/color]  %.0f / %.0f px  (%d%%, %s)\n내구도 %.0f / %.0f  ·  오버차지 보너스 +%.0f%%" % [
+	return "[color=#c77dff][b]CHAIN[/b][/color]  %.0f / %.0f px  (%d%%, %s)\n내구도 %.0f / %.0f      오버차지 보너스 +%.0f%%" % [
 		distance, float(game.chain_max_length), int(round(ratio * 100.0)), state,
 		float(game.chain_integrity), float(game.CHAIN_INTEGRITY_MAX), float(game.team_overcharge) * 100.0,
 	]
@@ -310,7 +310,7 @@ func _player_report(slot: int) -> String:
 		color, game.player_label(slot), player.character_name, player.health, player.max_health,
 		"  [다운]" if player.downed else "",
 	])
-	lines.append("공격 %.0f%%  ·  공속 %.0f%%  ·  범위 %.0f%%  ·  방어 %.1f  ·  재생 %.1f/s" % [
+	lines.append("공격 %.0f%%      공속 %.0f%%      범위 %.0f%%      방어 %.1f      재생 %.1f/s" % [
 		player.might * 100.0, (1.0 / maxf(0.01, player.haste)) * 100.0,
 		player.area * 100.0, player.armor, player.recovery,
 	])
@@ -320,7 +320,7 @@ func _player_report(slot: int) -> String:
 	else:
 		for weapon_slot in weapons.size():
 			var weapon: Dictionary = weapons[weapon_slot]
-			lines.append("무기  %s  T%d%s  ·  피해 %.1f  ·  발동 %.2fs" % [
+			lines.append("무기  %s  T%d%s      피해 %.1f      발동 %.2fs" % [
 				String(weapon.get("weapon_name", weapon.get("weapon_id", "?"))),
 				int(weapon.get("tier", 1)), " [보물 강화]" if bool(weapon.get("evolved", false)) else "",
 				float(weapon.get("damage", 0.0)), float(game._weapon_interval(slot, weapon_slot)),
@@ -332,7 +332,7 @@ func _player_report(slot: int) -> String:
 	for treasure: Dictionary in game.treasure_loadouts[slot]:
 		treasure_bits.append("%s T%d%s" % [
 			String(treasure.get("name", treasure.get("id", "?"))), int(treasure.get("tier", 1)),
-			"·공유" if bool(treasure.get("shared", false)) else "",
+			"  공유" if bool(treasure.get("shared", false)) else "",
 		])
 	lines.append("보물  %s" % ("없음" if treasure_bits.is_empty() else " / ".join(treasure_bits)))
 	return "\n".join(lines)
@@ -355,7 +355,7 @@ func _resonance_report() -> String:
 			var candidate_name := String(candidate.get("name", candidate.get("id", "?")))
 			if candidate_name not in candidate_names:
 				candidate_names.append(candidate_name)
-		result += "\n대기 후보 %d개  ·  %s" % [candidate_names.size(), " / ".join(candidate_names)]
+		result += "\n대기 후보 %d개      %s" % [candidate_names.size(), " / ".join(candidate_names)]
 	return result
 
 
@@ -373,7 +373,7 @@ func _fusion_path_report(slot: int, weapon: Dictionary) -> String:
 	if carried_slot >= 0:
 		treasure_tier = int(game.treasure_loadouts[slot][carried_slot].get("tier", 1))
 	var evolution_ready := weapon_tier >= Evolutions.EVOLUTION_TIER and treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER
-	return "      [color=%s]↳ %s  ·  무기 %d/%d + %s %d/%d%s[/color]" % [
+	return "      [color=%s]↳ %s      무기 %d/%d + %s %d/%d%s[/color]" % [
 		"#80ed99" if evolution_ready else "#8298ad", String(evolution["weapon_name"]),
 		weapon_tier, Evolutions.EVOLUTION_TIER,
 		String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
@@ -468,7 +468,7 @@ func _prepare_fusions() -> void:
 	game.progression.add_experience(needed)
 	game._begin_level_up()
 	notice = "보물 강화 준비 완료: %s%s" % [
-		", ".join(prepared), " · " + ", ".join(blocked) if not blocked.is_empty() else "",
+		", ".join(prepared), "    " + ", ".join(blocked) if not blocked.is_empty() else "",
 	]
 	_refresh()
 

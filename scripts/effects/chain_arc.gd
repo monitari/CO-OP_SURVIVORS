@@ -30,6 +30,25 @@ extends Node2D
 ## same sweep — see the note in the prototype about the hit geometry the run
 ## still uses.
 
+## The depth the leash is drawn at, and a rule rather than a tuning value: the
+## chain is always behind both cats, at every tension, from every camera angle.
+##
+## It has to be a rule because the alternative cannot be made to work. The rope
+## spans the pair, so no single row on the roof is honestly "where the chain
+## is" — sorted by its own middle it passes in front of whichever cat is
+## further back, and sorted by either end it passes in front of the other. And
+## a rope drawn over a cat does not read as a rope in front of a cat; it reads
+## as the cat having been cut in half, because the two are the same colour and
+## the rope is the thing the eye tracks. Behind is the only order that is right
+## from both sides, so it is fixed here rather than left to the sort.
+##
+## The actors it sits behind share the stage's own depth; one step under that is
+## still above the floor, the shadows and the architecture.
+const BEHIND_ACTORS := -1
+## How far behind the rear cat's row the rope anchors itself. Small, because the
+## anchor is only the frame the rope is drawn in — BEHIND_ACTORS is what decides
+## the order — but it keeps the two consistent if the layer is ever flattened.
+const BEHIND_BIAS := 1.0
 const SEGMENTS := 26
 ## How far a fully slack chain bows toward the viewer, in floor units. Tuned
 ## against the shortest leash in the roster: at 275px of chain the belly has to
@@ -52,21 +71,25 @@ var _slack := 0.0
 
 
 func _ready() -> void:
-	# It shares the actors' sorted layer. Its origin is the pair's midpoint, so
-	# furniture in front of that row covers the rope while furniture behind it
-	# does not.
-	z_index = 0
+	z_index = BEHIND_ACTORS
 
 
 ## `a` and `b` are the cats' points on the floor, in world coordinates. The node
-## moves itself to the projected middle of the rope, because that is the ground
-## line the sorted layer has to order it by — everything it draws is then
-## measured back off that anchor.
+## anchors itself on the floor just behind whichever cat is further back —
+## everything it draws is measured off that anchor, so the anchor's own position
+## never moves the rope, only the row the sorted layer files it under.
+##
+## Behind the rear cat rather than at the pair's middle, and on the floor rather
+## than through the projection, because those are the two things that make the
+## row comparable with the cats it has to stay behind: an actor is sorted by the
+## ground point it stands on, so a rope sorted by a projected midpoint was being
+## measured in the wrong units against a row between the two cats rather than
+## behind them both.
 func set_state(a: Vector2, b: Vector2, color: Color, leash: float,
 		is_overloaded := false, is_warded := false) -> void:
 	head_a = a
 	head_b = b
-	position = RooftopSpace.project((a + b) * 0.5)
+	position = Vector2((a.x + b.x) * 0.5, minf(a.y, b.y) - BEHIND_BIAS)
 	tint = color
 	max_length = maxf(1.0, leash)
 	overloaded = is_overloaded

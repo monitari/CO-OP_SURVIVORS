@@ -62,7 +62,7 @@ static func all_treasures() -> Array[Dictionary]:
 			"name": "달빛 모래시계",
 			"shared": false,
 			"stat": "지속",
-			"per_tier": "투사체·장판 지속시간 +10%",
+			"per_tier": "투사체  장판 지속시간 +10%",
 		},
 		{
 			"id": "armor",
@@ -165,7 +165,7 @@ static func all_treasures() -> Array[Dictionary]:
 			"name": "진홍 목방울",
 			"shared": true,
 			"stat": "흡혈",
-			"per_tier": "가한 피해 0.6%를 팀 체력으로 회복 · 초당 최대 1.5",
+			"per_tier": "가한 피해 0.6%를 팀 체력으로 회복    초당 최대 1.5",
 		},
 		{
 			"id": "catnip",
@@ -179,7 +179,7 @@ static func all_treasures() -> Array[Dictionary]:
 			"name": "사냥꾼 방울",
 			"shared": true,
 			"stat": "강적 경험치",
-			"per_tier": "엘리트·보스 경험치 +18%",
+			"per_tier": "엘리트  보스 경험치 +18%",
 		},
 		{
 			"id": "twin_charm",

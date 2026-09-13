@@ -143,6 +143,23 @@ static var view_mode := View.LIFTED
 ## standing on it.
 static var focus := Vector2.ZERO
 
+## Counteract the battlefield projection for upright bodies only. Ground
+## shadows and attack areas continue to use the original floor projection.
+static func upright_basis(item: Node2D, offset := Vector2.ZERO) -> Transform2D:
+	var viewport := item.get_viewport()
+	if not viewport is SubViewport:
+		return Transform2D(0.0, offset)
+	var camera := viewport.get_camera_2d()
+	if camera == null:
+		return Transform2D(0.0, offset)
+	var view := viewport.get_parent()
+	if not view is EndlessRooftopView:
+		return Transform2D(0.0, offset)
+	var p: Vector2 = (item.global_position - camera.get_screen_center_position()) * camera.zoom / view.view_size
+	var k := 1.0 - EndlessRooftopView.PERSPECTIVE * p.y
+	var shear: float = -EndlessRooftopView.PERSPECTIVE * p.x * view.view_size.x / view.view_size.y / EndlessRooftopView.TILT
+	return Transform2D(Vector2.RIGHT, Vector2(shear, k / EndlessRooftopView.TILT), offset)
+
 
 ## The flying height of a weapon, or the floor for anything not listed — a new
 ## weapon is on the ground until someone decides otherwise, which is the safe

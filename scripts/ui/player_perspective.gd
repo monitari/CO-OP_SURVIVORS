@@ -18,25 +18,29 @@ static func hud(main: Node) -> void:
 		main.players[slot].display_name = main.player_label(slot)
 		main.players[slot].display_index = main.display_player_number(slot)
 		main.players[slot].queue_redraw()
-		var origin := Vector2(14 if slot == 0 else 874, 8)
-		var target := Vector2(14 if own else 954, 8)
-		var factor := 1.0 if own else 0.78
-		var bar: Control = main.p1_health_bar if slot == 0 else main.p2_health_bar
-		var caption: Control = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
-		for item in [bar, caption, main.hud_portrait_icons[slot], main.combat_hud.get_node("PlayerIdentity%d" % slot), main.combat_hud.get_node("PlayerNumber%d" % slot), main.combat_hud.get_node("P%dFrame" % (slot + 1)), main.combat_hud.get_node("Carried%d" % slot)]:
-			transform(item, origin, target, factor)
-		bar.position.y = 35
-		caption.position.y = 35
-		main.combat_hud.get_node("PlayerNumber%d" % slot).text = "%s" % main.player_label(slot)
+		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
+		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
+		# Every client reads itself on the left and its partner on the right. Both
+		# sides use identical geometry, mirrored around the screen centre.
+		bar.position = Vector2(76, 27) if own else Vector2(884, 27)
+		bar.size = Vector2(320, 22)
+		bar.fill_mode = ProgressBar.FILL_BEGIN_TO_END if own else ProgressBar.FILL_END_TO_BEGIN
+		caption.position = bar.position
+		caption.size = bar.size
+		var portrait: Control = main.hud_portrait_icons[slot]
+		portrait.position = Vector2(24, 16) if own else Vector2(1212, 16)
+		portrait.size = Vector2(44, 44)
+		portrait.scale = Vector2.ONE
+		portrait.show()
+		main.combat_hud.get_node("PlayerNumber%d" % slot).hide()
+		main.combat_hud.get_node("PlayerIdentity%d" % slot).hide()
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
-		preload("res://scripts/ui/neon_growth_ui.gd").trim(frame, CatTheme.P1 if own else CatTheme.P2)
-		frame.size.y = (76 if main.level_up_active else 116) if own else 64
-		frame.get_node("PortraitPlaque").hide()
-		for decoration in frame.get_children():
-			if decoration is TextureRect:
-				decoration.visible = own
-		# Hide the detailed loadout after refresh_hud has updated its contents.
-		main.combat_hud.get_node("Carried%d" % slot).set_meta("compact", not own)
+		frame.hide()
+		# Equipment remains available in the details screen; moment-to-moment HUD
+		# is deliberately reduced to portrait and health on both sides.
+		var carried: Control = main.combat_hud.get_node("Carried%d" % slot)
+		carried.hide()
+		carried.set_meta("compact", true)
 
 
 static func characters(main: Node) -> void:
@@ -76,13 +80,13 @@ static func characters(main: Node) -> void:
 	if preview == null:
 		preview = Preview.new()
 		preview.name = "SurvivorPreview"
-		preview.position = Vector2(690, 345)
-		preview.size = Vector2(330, 175)
+		preview.position = Vector2(680, 340)
+		preview.size = Vector2(430, 195)
 		screen.add_child(preview)
 	preview.visible = not shared
 	var character: Dictionary = main.character_catalog[main.selected_character_indices[local]]
 	preview.set_character(character, main._build_weapon_state(character))
-	screen.get_node("ControlFooter").text = "A / D 또는 패드 좌우 · 선택    W / 패드 A · 준비    ESC · 뒤로" if not shared else "나 A / D · W 준비     동료 ← / → · ↑ 준비     ESC 뒤로"
+	screen.get_node("ControlFooter").text = "A / D 또는 패드 좌우    선택    W / 패드 A    준비    ESC    뒤로" if not shared else "나 A / D    W 준비     동료 ← / →    ↑ 준비     ESC 뒤로"
 
 static func restore_characters(main: Node) -> void:
 	for item in main.character_overlay.get_children():
@@ -112,4 +116,4 @@ static func details(main: Node) -> void:
 	summary.visible = not shared
 	if not shared:
 		var partner: ChainPlayer = main.players[1 - main.local_view_slot()]
-		summary.text = "동료 · %s\n체력 %.0f / %.0f\n위력 %.0f%% · 방어 %.1f" % [partner.character_name, partner.health, partner.max_health, partner.might * 100.0, partner.armor]
+		summary.text = "동료    %s\n체력 %.0f / %.0f\n위력 %.0f%%    방어 %.1f" % [partner.character_name, partner.health, partner.max_health, partner.might * 100.0, partner.armor]

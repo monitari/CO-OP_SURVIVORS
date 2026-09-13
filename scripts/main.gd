@@ -300,6 +300,13 @@ var meta_page := 0
 var meta_reset_pending := false
 var boss_enemy: ChaserEnemy
 var camera_shake := 0.0
+## The camera follow, before it is rounded onto the battlefield buffer's texel
+## grid, and the rounded value that was last handed to the camera. Everything
+## that reads world_camera.position still gets the rounded one — the difference
+## is under a pixel — but the follow has to accumulate off the unrounded value.
+## See EndlessRooftopView.snap_to_source_texels for why the rounding is there.
+var camera_focus := Vector2.ZERO
+var camera_written := Vector2.ZERO
 var screen_shake_enabled := true
 var previous_chain_stage := 0
 var last_input_gamepad: Array[bool] = [false, false]
@@ -1536,7 +1543,7 @@ func _create_icon_rect(parent: Node, icon_position: Vector2, icon_size: Vector2)
 ## One row of small badged icons — the build ribbon uses two of them, weapons
 ## and treasures, in place of the two dense lines of attribute numbers that used
 ## to sit here. A row of icons says "this is what you are carrying" at a glance;
-## "공격 100 · 범위 100 · 탄량 +0 · 신속 100" did not.
+## "공격 100    범위 100    탄량 +0    신속 100" did not.
 func _create_badged_icon_row(parent: Node, start_x: float, row_y: float, count: int) -> Array:
 	var icons: Array = []
 	for index in count:
@@ -1737,16 +1744,16 @@ func _begin_title() -> void:
 
 func _title_rows() -> Array:
 	match title_mode:
-		"modes": return ["AI 모드 · 혼자 출발", "로컬 멀티 · 함께 출발", "LAN 멀티 · 방 만들기 / 연결", "뒤로"]
+		"modes": return ["AI 모드    혼자 출발", "로컬 멀티    함께 출발", "LAN 멀티    방 만들기 / 연결", "뒤로"]
 		"settings": return TITLE_SETTINGS
 		"meta":
 			var rows: Array = []
 			if meta_reset_pending:
-				return ["취소", "성장 초기화 · 사용한 생선 전액 환급"]
+				return ["취소", "성장 초기화    사용한 생선 전액 환급"]
 			for entry in MetaProgression.UPGRADES.slice(meta_page * 6, meta_page * 6 + 6):
 				rows.append(String(entry["name"]))
 			rows.append("다음 성장 분야  %d / %d" % [meta_page + 1, ceili(MetaProgression.UPGRADES.size() / 6.0)])
-			rows.append("성장 초기화 · 전액 환급")
+			rows.append("성장 초기화    전액 환급")
 			return rows
 		"credits": return TITLE_CREDITS
 	return TITLE_MENU
@@ -1908,7 +1915,7 @@ func _join_ai_companion() -> void:
 	ai_character_preference = posmod(ai_character_preference + 1, 5)
 	if not lobby_joined[0]:
 		_join_lobby_slot(0, -1, "키보드 WASD")
-	_join_lobby_slot(1, -2, "AI 동료 · 자동 이동 / 구조 / 성장")
+	_join_lobby_slot(1, -2, "AI 동료    자동 이동 / 구조 / 성장")
 
 
 func local_view_slot() -> int:
@@ -2093,7 +2100,7 @@ func _refresh_character_select_ui() -> void:
 	if online != null:
 		online.send_character_state()
 	if ai_companion:
-		character_overlay.get_node("CharacterConfirm1").text = "AI · 준비 완료" if character_confirmed[1] else "AI · 조합 고민 중…"
+		character_overlay.get_node("CharacterConfirm1").text = "AI    준비 완료" if character_confirmed[1] else "AI    조합 고민 중…"
 
 
 ## The select screen used to show a name, two bars and a sentence, which is not
@@ -2113,12 +2120,12 @@ func _format_character_card(player_index: int) -> String:
 		tech_names.append(String(tech["name"]))
 		material_names.append(String(treasure.get("name", "보물")))
 	var playstyle := String(EditorialUI.PLAYSTYLE.get(
-		String(character["weapon_id"]), "자동 공격")).split(" · ")[-1]
+		String(character["weapon_id"]), "자동 공격")).split("    ")[-1]
 	return "\n".join([
-		"무기 · %s · %s" % [String(character["weapon_name"]), playstyle],
-		"테크 · %s" % " / ".join(tech_names),
-		"필요 보물 · %s" % " / ".join(material_names),
-		"최종 · %s · 자동 공명" % String(evolution.get("weapon_name", "최종 진화")),
+		"무기    %s    %s" % [String(character["weapon_name"]), playstyle],
+		"테크    %s" % " / ".join(tech_names),
+		"필요 보물    %s" % " / ".join(material_names),
+		"최종    %s    자동 공명" % String(evolution.get("weapon_name", "최종 진화")),
 	])
 
 ## What this survivor does to the pair's leash, in plain language. The number
@@ -2241,7 +2248,7 @@ func _start_selected_run() -> void:
 	help_label.visible = false
 	# Derived from the schedule rather than written out, which is how it came to
 	# still say 02:00 after the boss moved to five minutes.
-	_show_message("옥상 보스 %d명 격파 · 총 %02d:%02d" % [
+	_show_message("옥상 보스 %d명 격파    총 %02d:%02d" % [
 		WaveDirectorScript.BOSS_COUNT, int(RUN_LENGTH) / 60, int(RUN_LENGTH) % 60
 	], Color("80ed99"))
 
@@ -2427,7 +2434,7 @@ func _trigger_chain_overload() -> void:
 		player.hurt(CHAIN_OVERLOAD_DAMAGE, Vector2.INF, false)
 	camera_shake = maxf(camera_shake, 14.0)
 	feedback.play_cue("down")
-	_show_message("사슬 과부하 · 서로 가까이!", Color("ff5d8f"))
+	_show_message("사슬 과부하    서로 가까이!", Color("ff5d8f"))
 
 
 func _update_chain_visual() -> void:
@@ -2470,8 +2477,9 @@ func _update_chain_visual() -> void:
 		chain_color, stage, chain_warded(), chain_overloaded)
 	weapon_controller.chain_path = chain_arc.ground_points()
 	weapon_controller.chain_visual_path = chain_arc.drawn_points()
+	# Only entering the final tension band produces a leash cue.
+	feedback.play_chain_limit(stage, previous_chain_stage)
 	if stage == 3 and previous_chain_stage < 3:
-		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 4.0)
 	previous_chain_stage = stage
 
@@ -2522,7 +2530,18 @@ func _update_camera(delta: float) -> void:
 	if screen_shake_enabled and camera_shake > 0.05:
 		shake_offset = Vector2(randf_range(-camera_shake, camera_shake), randf_range(-camera_shake, camera_shake))
 		camera_shake = move_toward(camera_shake, 0.0, delta * 24.0)
-	world_camera.position = world_camera.position.lerp(midpoint, minf(1.0, delta * 8.0)) + shake_offset
+	# Anything that places the camera outright — a run starting, a test walking
+	# the pair to the far side of the roof — writes world_camera.position. The
+	# value this function last wrote is remembered, so a position that is no
+	# longer that value belongs to somebody else and becomes the new truth.
+	if not world_camera.position.is_equal_approx(camera_written):
+		camera_focus = world_camera.position
+	# The follow is tracked unrounded and only the camera is snapped. Rounding
+	# the tracked value instead would let a slow follow round its own step back
+	# to zero every frame and stall the camera short of the pair.
+	camera_focus = camera_focus.lerp(midpoint, minf(1.0, delta * 8.0))
+	camera_written = rooftop_view.snap_to_source_texels(camera_focus + shake_offset, world_camera.zoom)
+	world_camera.position = camera_written
 	# The rooftop follows the view rather than existing as a fixed slab, so
 	# there is no edge to reach however far the pair kites.
 	var coverage := rooftop_view.view_size * EndlessRooftopView.OVERSCAN * 0.5 / world_camera.zoom
@@ -2536,16 +2555,16 @@ func _update_camera(delta: float) -> void:
 ## visible before the enemies actually arrive.
 func _on_wave_started(wave_index: int, is_surge: bool) -> void:
 	if is_surge:
-		_show_message("%d파 대공세 · 서로 등을 맡으세요!" % (wave_index + 1), Color("ff5d8f"))
+		_show_message("%d파 대공세    서로 등을 맡으세요!" % (wave_index + 1), Color("ff5d8f"))
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 7.0)
 	else:
-		_show_message("%d파 시작 · 발을 맞춰 포위를 뚫으세요" % (wave_index + 1), Color("fff275"))
+		_show_message("%d파 시작    발을 맞춰 포위를 뚫으세요" % (wave_index + 1), Color("fff275"))
 		feedback.play_cue("kill")
 
 
 func _on_wave_calm_started(_wave_index: int) -> void:
-	_show_message("공세 종료 · 잠시 숨을 고르세요", Color("80ed99"))
+	_show_message("공세 종료    잠시 숨을 고르세요", Color("80ed99"))
 
 
 func _register_enemy(enemy: ChaserEnemy) -> void:
@@ -2578,7 +2597,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		]
 		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
 		boss_health_text_label.visible = true
-		_show_message("%s 출현 · 철벽 포위   %d / %d" % [
+		_show_message("%s 출현    철벽 포위   %d / %d" % [
 			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
 		], Color("ff5d8f"))
 		weapon_controller.play_boss_flare(enemy.global_position)
@@ -2633,7 +2652,7 @@ func _on_player_attack_visual(player_index: int, weapon_id: String,
 ## would read as the weapon having missed it rather than having answered it.
 func _on_enemy_shot_broken(at: Vector2) -> void:
 	particles.emit_sparks(at, Color("ffd166"), 5, 190.0)
-	feedback.play_cue("hit")
+	feedback.report_hit()
 
 
 ## The boss's Chain Slam always drains chain integrity directly — it is
@@ -2645,7 +2664,7 @@ func _on_boss_enraged(_enemy: ChaserEnemy) -> void:
 	feedback.play_cue("boss_enrage")
 	weapon_controller.play_boss_flare(_enemy.global_position, true)
 	camera_shake = maxf(camera_shake, 12.0)
-	_show_message("청소 로봇 폭주 · 속도 증가", Color("ff5d8f"))
+	_show_message("청소 로봇 폭주    속도 증가", Color("ff5d8f"))
 
 
 func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) -> void:
@@ -2656,7 +2675,7 @@ func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) ->
 	chain_integrity = maxf(0.0, chain_integrity - BOSS_SLAM_INTEGRITY_DRAIN)
 	camera_shake = maxf(camera_shake, 13.0)
 	feedback.play_cue("warning")
-	_show_message("사슬 강타 · 내구도 주의" if hit_someone else "충격 회피 · 내구도 주의", Color("ff5d8f"))
+	_show_message("사슬 강타    내구도 주의" if hit_someone else "충격 회피    내구도 주의", Color("ff5d8f"))
 
 
 func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
@@ -2665,7 +2684,11 @@ func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	# critical do not look identical, and a screenful of swarm hits does not
 	# spend the whole particle budget on chip damage.
 	particles.emit_sparks(enemy.global_position, Color("fff4cf"), 2 if amount < 40.0 else 5, 150.0 + amount)
-	feedback.play_cue("hit")
+	# The weapon that landed the blow picks the impact sound, so a lightning
+	# tick and a scythe sweep are different events to the ear as well as to the
+	# eye. Reported rather than played: an area weapon can land dozens of these
+	# in one tick and they are flushed together — see FeedbackSystem.report_hit.
+	feedback.report_hit(enemy.last_damage_weapon)
 	_record_combat_damage(enemy.last_damage_player, enemy.last_damage_weapon, amount)
 	if not enemy.scenery:
 		_apply_lifesteal(amount)
@@ -3138,7 +3161,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	kills += 1
 	_drop_experience(death_position, dropped_xp, dropped_grade, was_elite or defeated_boss)
 	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
-	feedback.play_cue("kill")
+	feedback.report_kill()
 	wave_director.release_enemy(enemy)
 	if defeated_boss:
 		boss_bar.visible = false
@@ -3166,7 +3189,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		field_items.spawn_item(death_position, "chest")
 		feedback.play_music("moonlight" if enemy.boss_rank % 2 == 1 else "field")
 		feedback.play_cue("victory")
-		_show_message("%s 격파 · 남은 보스 %d · 둘의 체력 +%d" % [
+		_show_message("%s 격파    남은 보스 %d    둘의 체력 +%d" % [
 			boss_name(enemy.boss_rank), wave_director.bosses_remaining(), roundi(restored)
 		], Color("80ed99"))
 		return
@@ -3208,7 +3231,7 @@ func _on_planter_broken(enemy: ChaserEnemy, at: Vector2) -> void:
 	wave_director.release_enemy(enemy)
 	bursts.spawn(at, Color("80ed99"), 1.2)
 	particles.emit_motes(at, Color("b7e4c7"), 10)
-	feedback.play_cue("kill")
+	feedback.report_kill()
 	field_items.spawn_item(at, field_items.roll_item_id(team_luck))
 	run_stats["planters"] = int(run_stats.get("planters", 0)) + 1
 
@@ -3254,7 +3277,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(centre, 260.0, color, 0.48, false)
 			particles.emit_motes(centre, color, 22)
 			camera_shake = maxf(camera_shake, 12.0)
-			label += " · 카드 %d장 획득" % rewards.size()
+			label += "    카드 %d장 획득" % rewards.size()
 			# Pushed to the front so the box is seen opening before anything it
 			# contained gets its own showcase (a chest can hand out a fusion).
 			_queue_showcase({"kind": "chest", "rewards": rewards}, true)
@@ -3265,7 +3288,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 				var before := players[slot].health
 				players[slot].heal(players[slot].max_health * FIELD_ITEM_HEAL_RATIO)
 				restored[slot] = roundi(players[slot].health - before)
-			label += " · 나 +%d HP · 동료 +%d HP" % [restored[local_view_slot()], restored[1 - local_view_slot()]]
+			label += "    나 +%d HP    동료 +%d HP" % [restored[local_view_slot()], restored[1 - local_view_slot()]]
 		"magnet":
 			var pulled := experience_system.magnetize_all()
 			# Two rings from the pair's midpoint so the pull has a visible source
@@ -3273,7 +3296,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			var centre := (players[0].global_position + players[1].global_position) * 0.5
 			weapon_controller.play_shockwave(centre, 900.0, color, 0.55, true)
 			camera_shake = maxf(camera_shake, 4.0)
-			label += " · 경험치 결정 %d개 견인" % pulled
+			label += "    경험치 결정 %d개 견인" % pulled
 		"chain_ward":
 			chain_ward_remaining = CHAIN_WARD_DURATION
 			chain_ward_pulse_timer = 0.0
@@ -3286,7 +3309,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			for player in players:
 				particles.emit_ring(player.global_position, color, 60.0, 0.45)
 			camera_shake = maxf(camera_shake, 10.0)
-			label += " · %d초 사슬 무적 · 화력 +%d%%" % [
+			label += "    %d초 사슬 무적    화력 +%d%%" % [
 				int(CHAIN_WARD_DURATION), roundi((CHAIN_WARD_POWER - 1.0) * 100.0)]
 		"guard":
 			guard_remaining = GUARD_DURATION
@@ -3295,14 +3318,14 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 					player.invulnerability = maxf(player.invulnerability, GUARD_DURATION)
 				particles.emit_ring(player.global_position, color, 74.0, 0.5)
 			camera_shake = maxf(camera_shake, 6.0)
-			label += " · %d초 무적" % int(GUARD_DURATION)
+			label += "    %d초 무적" % int(GUARD_DURATION)
 		"frenzy":
 			frenzy_remaining = FRENZY_DURATION
 			for player in players:
 				player.field_move_multiplier = FRENZY_MOVE_SPEED
 				particles.emit_sparks(player.global_position, color, 12, 300.0)
 			camera_shake = maxf(camera_shake, 9.0)
-			label += " · %d초 광란 · 피해 +%d%% · 이속 +%d%% · 공속 +%d%%" % [
+			label += "    %d초 광란    피해 +%d%%    이속 +%d%%    공속 +%d%%" % [
 				int(FRENZY_DURATION), roundi((FRENZY_POWER - 1.0) * 100.0),
 				roundi((FRENZY_MOVE_SPEED - 1.0) * 100.0), roundi((FRENZY_ATTACK_SPEED - 1.0) * 100.0),
 			]
@@ -3312,7 +3335,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(stop_centre, 1100.0, color, 0.7, false)
 			particles.emit_motes(stop_centre, color, 20)
 			camera_shake = maxf(camera_shake, 14.0)
-			label += " · %d초 시간 정지" % int(TIME_STOP_DURATION)
+			label += "    %d초 시간 정지" % int(TIME_STOP_DURATION)
 		"purge":
 			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 			var visible_world := _visible_world_rect()
@@ -3333,7 +3356,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(midpoint, view_radius * 0.55, Color.WHITE, 0.3, false)
 			weapon_controller.play_purge_rays(midpoint, view_radius, color)
 			camera_shake = maxf(camera_shake, 22.0)
-			label += " · 시야 내 적 %d체 청소" % purged
+			label += "    시야 내 적 %d체 청소" % purged
 	run_stats["items"] = int(run_stats["items"]) + 1
 	if collector_index >= 0 and collector_index < 2:
 		run_stats["items_by_player"][collector_index] = int(run_stats["items_by_player"][collector_index]) + 1
@@ -3403,7 +3426,7 @@ func _open_chest() -> Array[Dictionary]:
 		var slot := int(chosen["slot"])
 		var option: Dictionary = chosen["option"]
 		var art := IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
-		var detail := _upgrade_preview(slot, option).replace("\n", " · ")
+		var detail := _upgrade_preview(slot, option).replace("\n", "    ")
 		var rating := _score_upgrade_option(slot, option)
 		var score := float(rating["score"])
 		var advice := "recommended" if score >= RECOMMEND_MIN_SCORE else (
@@ -3614,7 +3637,7 @@ func _gain_shared_xp(amount: int, collector_index := -1) -> void:
 	if collector_index >= 0 and collector_index < 2:
 		run_stats["xp_by_player"][collector_index] = int(run_stats["xp_by_player"][collector_index]) + gained
 		run_stats["personal_levels"][collector_index] = _personal_level_for_xp(int(run_stats["xp_by_player"][collector_index]))
-	feedback.play_cue("xp")
+	feedback.report_xp()
 	# Not opened here any more: the physics loop watches the queue so a level
 	# earned mid-burst waits out the gap instead of interrupting on the frame
 	# the gem happened to land.
@@ -3792,7 +3815,7 @@ func _consume_overflow_levels() -> void:
 	level_up_gap_remaining = 0.0
 	if gained <= 0:
 		return
-	_show_message("초월 성장 %d · 빌드 완성 이후에도 계속 강해집니다" % overflow_levels,
+	_show_message("초월 성장 %d    빌드 완성 이후에도 계속 강해집니다" % overflow_levels,
 		Color("80ed99"))
 	_update_hud()
 
@@ -4345,7 +4368,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			reason = "발동 빈도"
 		"special_a", "special_b":
 			score = 28.0
-			reason = "제어 · 편의 강화"
+			reason = "제어    편의 강화"
 			var w: Dictionary = loadout[int(option["weapon_slot"])]
 			if upgrade_id == "special_b" and w.has("speed"):
 				score += 30.0 * (70.0 if w["weapon_id"] == "homing" else 55.0) / maxf(1.0, float(w["speed"]))
@@ -4368,7 +4391,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			reason = "명중 안정화"
 		"duration":
 			score = 40.0
-			reason = "투사체·장판 유지"
+			reason = "투사체  장판 유지"
 		"vitality":
 			score = 34.0 + (1.0 - health_ratio) * 48.0
 			reason = "체력 여유" if health_ratio >= 0.5 else "위기 생존"
@@ -4604,7 +4627,7 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		WeaponTechs.apply_to_state(state, tech)
 		var base := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
 		var evolution := WeaponTechs.evolution_for(base, state)
-		return "%s\n필수 · %s\n완성 · %s" % [
+		return "%s\n필수    %s\n완성    %s" % [
 			_tech_focus(tech), String(material.get("name", "보물")),
 			String(evolution.get("weapon_name", "최종 진화")),
 		]
@@ -4612,10 +4635,10 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		var character: Dictionary = option["character"]
 		var tech: Dictionary = option.get("tech", {})
 		var material := Treasures.by_id(String(tech.get("treasure_id", "")))
-		return "%s\n%s · 필수 %s" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), _tech_focus(tech), String(material.get("name", "보물"))]
+		return "%s\n%s    필수 %s" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), _tech_focus(tech), String(material.get("name", "보물"))]
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
-		return "%s\n최종 단계 · 완성 후 공명 자동 판정" % String(evolution["description"])
+		return "%s\n최종 단계    완성 후 공명 자동 판정" % String(evolution["description"])
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		return "%s
@@ -5245,7 +5268,7 @@ func _finish_level_up() -> void:
 	if team_level_heal > 0.0:
 		for player in players:
 			player.heal(player.max_health * team_level_heal)
-	_show_message("LV.%d · 둘 다 성장 완료" % progression.level, Color("fff275"))
+	_show_message("LV.%d    둘 다 성장 완료" % progression.level, Color("fff275"))
 	if progression.can_level_up():
 		level_up_gap_remaining = LEVEL_UP_GAP
 
@@ -5503,16 +5526,16 @@ func _update_hud() -> void:
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
-		chain_state = "과부하 · 붙어서 회복"
+		chain_state = "과부하    붙어서 회복"
 		chain_color = Color("ff5d8f")
 	elif tension >= 0.95:
-		chain_state = "한계 · 가까이 붙기"
+		chain_state = "한계    가까이 붙기"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
 		chain_state = "과충전   공격 +%d%%" % roundi((0.25 + team_overcharge) * 100.0)
 		chain_color = Color("fff275")
 	elif tension >= CHAIN_RESIST_RATIO:
-		chain_state = "저항 · 붙으면 회복"
+		chain_state = "저항    붙으면 회복"
 		chain_color = Color("8ecae6")
 	chain_status_label.text = chain_state
 	chain_status_label.visible = not chain_state.is_empty()
@@ -5645,7 +5668,7 @@ func _show_message(text: String, color: Color) -> void:
 	if notice_stack.size() >= 4:
 		notice_stack.pop_front().queue_free()
 	var notice := Label.new()
-	notice.text = text.replace("\n", " · ")
+	notice.text = text.replace("\n", "    ")
 	notice.size = Vector2(372, 48)
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -5691,9 +5714,9 @@ func _refresh_meta_result_ui() -> void:
 		return
 	var title := result_overlay.get_node("MetaTitle") as Label
 	title.visible = run_won
-	title.text = "클리어 보상 +%d 달빛 생선  ·  보유 %d  ·  다음 원정부터 적용" % [run_reward, meta_progression.points]
+	title.text = "클리어 보상 +%d 달빛 생선      보유 %d      다음 원정부터 적용" % [run_reward, meta_progression.points]
 	if meta_progression.last_save_error != OK:
-		title.text = "저장할 수 없습니다 · 진행 상황은 변경되지 않았어요"
+		title.text = "저장할 수 없습니다    진행 상황은 변경되지 않았어요"
 	for visible_index in 6:
 		var index := (meta_cursor / 6) * 6 + visible_index
 		var card := result_overlay.get_node("MetaUpgrade%d" % visible_index) as Label
@@ -5705,7 +5728,7 @@ func _refresh_meta_result_ui() -> void:
 		var rank := meta_progression.rank(id)
 		var cap := int(entry["max_rank"])
 		var price := meta_progression.cost(id)
-		card.text = "%s%s\nLv.%d/%d · %s\n%s" % [
+		card.text = "%s%s\nLv.%d/%d    %s\n%s" % [
 			"◆ " if index == meta_cursor else "", String(entry["name"]), rank, cap,
 			"MAX" if price <= 0 else "%d개" % price, String(entry["summary"])]
 		var style := card.get_theme_stylebox("normal") as StyleBoxFlat

@@ -56,7 +56,7 @@ static func refresh_title(main: Node) -> void:
 
 
 static func install(main: Node) -> void:
-	button(main.character_overlay, "상세 보기 · TAB / X", Rect2(936, 14, 224, 36), func() -> void:
+	button(main.character_overlay, "상세 보기    TAB / X", Rect2(936, 14, 224, 36), func() -> void:
 		toggle_character_details(main)).name = "CharacterDetails"
 	for index in main.title_rows.size():
 		var hit := button(main.title_overlay, "", Rect2(0, 0, 10, 10), func() -> void: main._activate_title_item(index))
@@ -144,7 +144,7 @@ static func install(main: Node) -> void:
 		var action := button(main.pause_overlay, "", pause_rects[index], func() -> void: main._activate_pause_item(index))
 		action.name = "PauseAction%d" % index
 		action.add_theme_font_size_override("font_size", 17 if index == 0 else 15)
-	button(main.pause_overlay, "전체 능력치 · TAB / X", Rect2(G.w(8) - 236, 24, 220, 36), func() -> void: toggle_details(main)).name = "PauseDetails"
+	button(main.pause_overlay, "전체 능력치    TAB / X", Rect2(G.w(8) - 236, 24, 220, 36), func() -> void: toggle_details(main)).name = "PauseDetails"
 	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 370, G.w(8) - G.GUTTER * 2.0, 104), Palette.CARD)
 	snapshot.name = "RunSnapshot"
 	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
@@ -157,8 +157,8 @@ static func install(main: Node) -> void:
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.details_overlay.z_index = 20
 	main.details_overlay.hide()
-	UI.label(main.details_overlay, "성장 기록 · 전체 능력치", Rect2(24, 12, 900, 40), Palette.TYPE_TITLE)
-	button(main.details_overlay, "닫기 · TAB / X", Rect2(G.w(12) - 210.0 - G.GUTTER, 16, 210, 34), func() -> void: toggle_details(main))
+	UI.label(main.details_overlay, "성장 기록    전체 능력치", Rect2(24, 12, 900, 40), Palette.TYPE_TITLE)
+	button(main.details_overlay, "닫기    TAB / X", Rect2(G.w(12) - 210.0 - G.GUTTER, 16, 210, 34), func() -> void: toggle_details(main))
 	for slot in 2:
 		var x := 24.0 + slot * 576.0
 		var header := UI.plate(main.details_overlay, Rect2(x, 64, 560, 72), Palette.CARD)
@@ -177,7 +177,7 @@ static func install(main: Node) -> void:
 		build.name = "Build%d" % slot
 		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 14, Palette.GOLD)
 		UI.label(build, "", Rect2(16, 32, 528, 78), 14, Palette.INK).name = "Value"
-	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다 · 선택은 창을 닫은 뒤 확정", Rect2(24, 508, 1138, 24), 14, Palette.MUTED)
+	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다    선택은 창을 닫은 뒤 확정", Rect2(24, 508, 1138, 24), 14, Palette.MUTED)
 
 
 static func toggle_character_details(main: Node) -> void:
@@ -223,7 +223,7 @@ static func refresh_pause(main: Node) -> void:
 		button.size = PAUSE_SLOTS[index].size
 		button.text = names[index]
 		if index in [1, 2, 3, 4]:
-			button.text += "   ·   " + ("켜짐" if states[index] else "꺼짐")
+			button.text += "        " + ("켜짐" if states[index] else "꺼짐")
 		if main.restart_pending and index < 2:
 			button.position = Vector2(20, 100 + index * 60)
 			button.text = "취소" if index == 0 else "종료" if main.pending_quits else "메뉴로 돌아가기"
@@ -232,7 +232,7 @@ static func refresh_pause(main: Node) -> void:
 	details.visible = not main.restart_pending and not main.pause_settings
 	details.position = Vector2(20, 302)
 	details.size = Vector2(340, 34)
-	details.text = "내 장비 · 능력치   TAB"
+	details.text = "내 장비    능력치   TAB"
 	main.pause_label.hide()
 
 
@@ -249,11 +249,11 @@ static func toggle_details(main: Node) -> void:
 		header.get_node("Portrait").texture = Icons.survivor(String(main.selected_characters[slot]["id"]))
 		header.get_node("Weapon").texture = Icons.weapon(String(main.weapon_loadouts[slot][0]["weapon_id"]))
 		header.get_node("Name").text = "%s  %s" % [main.player_label(slot), p.character_name]
-		header.get_node("WeaponName").text = "%d 무기 · %d 보물" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
-		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%% · 치명 %d%% · 발동 %d%%\n추가 +%d · 관통 +%d · 탄속 %d%% · 지속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)]
-		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f · 방어 %.0f · 재생 %.1f/s\n회피 %d%% · 반사 %d%% · 목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
-		main.details_overlay.get_node("Coop%d/Value" % slot).text = "사슬 %.0f · 구조 %.2f초 · 유예 %.0f초\n과충전 +%d%% · 밀착 +%d%% · 대시 %.0f" % [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst]
-		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f · 범위 %d%% · 자력 %d%%\nXP %d%% · 강적 +%d%% · 행운 %d · 흡혈 %.1f%%\n레벨 회복 %d%% · 드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_lifesteal * 100.0, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
+		header.get_node("WeaponName").text = "%d 무기    %d 보물" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%%    치명 %d%%    발동 %d%%\n추가 +%d    관통 +%d    탄속 %d%%    지속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)]
+		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f    방어 %.0f    재생 %.1f/s\n회피 %d%%    반사 %d%%    목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
+		main.details_overlay.get_node("Coop%d/Value" % slot).text = "사슬 %.0f    구조 %.2f초    유예 %.0f초\n과충전 +%d%%    밀착 +%d%%    대시 %.0f" % [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst]
+		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f    범위 %d%%    자력 %d%%\nXP %d%%    강적 +%d%%    행운 %d    흡혈 %.1f%%\n레벨 회복 %d%%    드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_lifesteal * 100.0, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
 		var build_lines: Array[String] = []
 		var weapon_names: Array[String] = []
 		for index in main.weapon_loadouts[slot].size():
@@ -261,18 +261,18 @@ static func toggle_details(main: Node) -> void:
 			# A weapon a resonance is firing for still has a level, and that level
 			# still feeds the resonance — this is the one readout with room to say
 			# both, so the HUD and the growth row can get away with just "공명".
-			var silenced: String = " · 공명 전담" if main.resonance_system.is_bound(slot, index) else ""
+			var silenced: String = "    공명 전담" if main.resonance_system.is_bound(slot, index) else ""
 			weapon_names.append("%s Lv.%d%s" % [w["weapon_name"], w.get("tier", 1), silenced])
 		var treasure_names: Array[String] = []
 		for treasure: Dictionary in main.treasure_loadouts[slot]:
 			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])
-		build_lines.append("무기  " + (" · ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
-		build_lines.append("보물  " + (" · ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
+		build_lines.append("무기  " + ("    ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
+		build_lines.append("보물  " + ("    ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
 		build_lines.append("보물 강화  " + main._fusion_progress_line(slot))
 		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 		if main.level_up_active and not choices.is_empty():
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]
-			build_lines.append("선택  %s · ★ %s" % [String(choice["title"]).replace("\n", " "), String(choice.get("recommendation_reason", "균형 성장")).split("   ")[0]])
+			build_lines.append("선택  %s    ★ %s" % [String(choice["title"]).replace("\n", " "), String(choice.get("recommendation_reason", "균형 성장")).split("   ")[0]])
 		main.details_overlay.get_node("Build%d/Value" % slot).text = "\n".join(build_lines)
 
 	preload("res://scripts/ui/player_perspective.gd").details(main)

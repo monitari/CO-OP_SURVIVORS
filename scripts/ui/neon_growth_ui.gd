@@ -58,11 +58,11 @@ static func refresh(main: Node) -> void:
 	hint.text = "좋은 선택이 더 강한 고양이를 만든다."
 	hint.position.y = 500 if main.level_overlay.get_node("Reroll%d" % primary).visible else 456
 	var controls: Label = main.level_overlay.get_node("NeonControls")
-	controls.text = "A / D · W 확정    우클릭 · 상세 보기" if primary == 0 else "← / → · ↑ 확정    우클릭 · 상세 보기"
+	controls.text = "A / D    W 확정    우클릭    상세 보기" if primary == 0 else "← / →    ↑ 확정    우클릭    상세 보기"
 	if main.last_input_gamepad[primary]:
-		controls.text = "LB / RB 이동 · A 확정 · B 취소"
+		controls.text = "LB / RB 이동    A 확정    B 취소"
 	if main.selected_upgrade_indices[primary] >= 0:
-		hint.text = "선택 완료 · 동료를 기다리는 중"
+		hint.text = "선택 완료    동료를 기다리는 중"
 	# Compact health plaques leave the paused playfield open above the hand.
 	for slot in 2:
 		main.combat_hud.get_node("Carried%d" % slot).hide()
@@ -163,7 +163,7 @@ static func _install(main: Node) -> void:
 	detail.name = "Detail"
 	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var button := Button.new()
-	button.text = "⌕  전체 능력치 · TAB"
+	button.text = "⌕  전체 능력치    TAB"
 	button.position = Vector2(46, 113)
 	button.size = Vector2(198, 25)
 	button.add_theme_font_size_override("font_size", 13)
@@ -185,7 +185,7 @@ static func _partner(main: Node, slot: int) -> void:
 	var selected: int = main.selected_upgrade_indices[slot]
 	var index: int = selected if selected >= 0 else main.upgrade_cursors[slot]
 	var character: String = main.players[slot].character_name
-	panel.get_node("Heading").text = "%s의 선택 · %d장 중 1" % [character, choices.size()]
+	panel.get_node("Heading").text = "%s의 선택    %d장 중 1" % [character, choices.size()]
 	panel.get_node("State").text = "✓ 선택 완료" if selected >= 0 else ("빌드 완성" if selected == -2 else "선택을 고민하는 중…")
 	if choices.is_empty() or index < 0 or index >= choices.size():
 		panel.get_node("Art").texture = null

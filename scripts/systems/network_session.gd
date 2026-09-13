@@ -38,12 +38,12 @@ func host_game(listen_port := DEFAULT_PORT) -> Error:
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_server(listen_port, MAX_CLIENTS)
 	if error != OK:
-		status_changed.emit("방을 열 수 없습니다 · 포트 %d" % listen_port)
+		status_changed.emit("방을 열 수 없습니다    포트 %d" % listen_port)
 		return error
 	role = Role.HOST
 	port = listen_port
 	multiplayer.multiplayer_peer = peer
-	status_changed.emit("LAN 방 열림 · 포트 %d · 친구를 기다리는 중" % port)
+	status_changed.emit("LAN 방 열림    포트 %d    친구를 기다리는 중" % port)
 	return OK
 
 
@@ -55,7 +55,7 @@ func join_game(host_address: String, host_port := DEFAULT_PORT) -> Error:
 		clean_address = "127.0.0.1"
 	var error := peer.create_client(clean_address, host_port)
 	if error != OK:
-		status_changed.emit("접속을 시작할 수 없습니다 · %s:%d" % [clean_address, host_port])
+		status_changed.emit("접속을 시작할 수 없습니다    %s:%d" % [clean_address, host_port])
 		return error
 	role = Role.CLIENT
 	address = clean_address

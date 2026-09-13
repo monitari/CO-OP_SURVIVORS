@@ -22,6 +22,23 @@ const HUD := Color("0c172ae6")
 const RADIUS := 10
 const BORDER := 1
 const BORDER_ACTIVE := 2
+const PANEL_ART := preload("res://assets/ui/moonroof_panel_v2.png")
+static var panel_texture: ImageTexture
+
+static func image_surface(active := false) -> StyleBoxTexture:
+	var style := StyleBoxTexture.new()
+	if panel_texture == null:
+		var bitmap := PANEL_ART.get_image()
+		bitmap.resize(384, 256, Image.INTERPOLATE_LANCZOS)
+		panel_texture = ImageTexture.create_from_image(bitmap)
+	style.texture = panel_texture
+	style.set_texture_margin_all(16.0)
+	style.set_expand_margin_all(0.0)
+	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
+		style.set_content_margin(side, 4.0)
+	style.modulate_color = Color(1.15, 1.25, 1.3) if active else Color(0.72, 0.8, 0.9)
+	return style
+
 const PADDING := 16
 
 const TYPE_TITLE := 28

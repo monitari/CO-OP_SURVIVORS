@@ -96,7 +96,7 @@ func _run() -> void:
 	await process_frame
 	_audit("전투 HUD", main.combat_hud)
 	_test_nothing_says_tier(main, "전투 HUD", main.combat_hud)
-	_test_the_play_field_shows_the_whole_build(main)
+	_test_play_field_hud_alignment(main)
 
 	main._set_pause(true)
 	await process_frame
@@ -230,14 +230,17 @@ func _test_the_growth_screen_arrives_and_leaves(main: Node) -> void:
 	main.level_up_active = true
 
 
-## The play screen is where a build lives, so it has to show the build: both
-## rows, both survivors, with the tier on each icon. It used to show four weapon
-## icons and nothing else — no treasures at all, and no way to tell a tier-one
-## weapon from a tier-seven one without opening a menu.
-func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
+## Combat keeps only the two portraits and mirrored health bars. Build details
+## still live in the details screen, where they do not cover the play field.
+func _test_play_field_hud_alignment(main: Node) -> void:
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
-		_check(holder.visible == (slot == main.local_view_slot()), "P%d's build readout is on screen during play" % (slot + 1))
+		_check(not holder.visible, "P%d build readout stays off the play field" % (slot + 1))
+		_check(not main.combat_hud.get_node("P%dFrame" % (slot + 1)).visible,
+			"P%d decorative HUD box stays hidden" % (slot + 1))
+		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).visible
+			and not main.combat_hud.get_node("PlayerNumber%d" % slot).visible,
+			"P%d name and player label stay hidden" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
 			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)
@@ -246,27 +249,18 @@ func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 				var art: TextureRect = holder.get_node("%s%d" % [row, index])
 				_check(art.visible == (index < carried.size()),
 					"P%d %s slot %d is shown exactly when it is carried" % [slot + 1, row, index])
-				if not art.visible:
-					continue
-				_check(art.texture != null, "P%d %s %d draws an icon" % [slot + 1, row, index])
-				# A bare level number with no plate behind it: "T3" reads as a tier
-				# list rather than as something that grew, and eight little boxes
-				# over the play field are chrome the field does not need.
-				var tier: Label = art.get_node("Tier")
-				_check(tier.text == str(int((carried[index] as Dictionary).get("tier", 1))),
-					"P%d %s %d states its level as a number (%s)" % [slot + 1, row, index, tier.text])
-				# has_theme_stylebox_override, not get_theme_stylebox: the getter
-				# falls back to the theme default and never returns null, so the
-				# obvious version of this check passes with a plate still on.
-				_check(not tier.has_theme_stylebox_override("normal"),
-					"P%d %s %d wears no plate" % [slot + 1, row, index])
-		# Both rows have to stay on screen: P2's sits against the right edge and
-		# a wider icon or a seventh slot would push it off.
-		var last: Control = holder.get_node("WeaponSlot%d" % (int(main.WEAPON_LOADOUT_CAP) - 1))
-		var far_right: float = holder.position.x + last.position.x + last.size.x
-		_check(far_right <= 1280.0, "P%d's readout stays inside the viewport (%.0f)" % [slot + 1, far_right])
-
-
+	var own: ProgressBar = main.p1_health_bar if main.local_view_slot() == 0 else main.p2_health_bar
+	var partner: ProgressBar = main.p2_health_bar if main.local_view_slot() == 0 else main.p1_health_bar
+	_check(own.size == partner.size and is_equal_approx(own.position.y, partner.position.y),
+		"health bars use identical size and row")
+	_check(is_equal_approx(own.position.x, 1280.0 - partner.position.x - partner.size.x),
+		"health bars mirror around the screen centre")
+	_check(own.fill_mode == ProgressBar.FILL_BEGIN_TO_END
+		and partner.fill_mode == ProgressBar.FILL_END_TO_BEGIN,
+		"health bars fill toward their mirrored portraits")
+	_check(is_equal_approx(main.xp_bar.position.y + main.xp_bar.size.y, 720.0)
+		and is_equal_approx(main.xp_bar.size.x, 1280.0),
+		"shared XP bar fills the bottom edge")
 ## The run is over; the bars along the top are stale, and the P2 panel reaches
 ## far enough right to clip the result panel's own corner.
 func _test_the_result_screen_owns_the_screen(main: Node) -> void:

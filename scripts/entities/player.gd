@@ -321,7 +321,7 @@ func _draw() -> void:
 		RooftopSpace.footing(self, Vector2.ZERO, radius, stand_height, 1.0, burst * 0.7, along)
 	else:
 		Moonlight.ground_shadow(self, Vector2.ZERO, radius, 1.0)
-	draw_set_transform(lift)
+	draw_set_transform_matrix(RooftopSpace.upright_basis(self, lift))
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
 	_draw_tail(color)
 	# The body tilts into a turn and stretches slightly along the direction of
@@ -331,7 +331,7 @@ func _draw() -> void:
 	# A running bob rather than a constant squash: tail_phase already speeds up
 	# with movement, so reusing it keeps the body and the tail on one rhythm.
 	var bob := sin(tail_phase * 2.0) * 0.05 * minf(1.0, current_input.length())
-	draw_set_transform(lift + lunge, tilt, Vector2(1.0 + bob, 1.0 - bob))
+	draw_set_transform_matrix(RooftopSpace.upright_basis(self, lift + lunge) * Transform2D(tilt, Vector2.ZERO).scaled_local(Vector2(1.0 + bob, 1.0 - bob)))
 	if portrait == null:
 		draw_circle(Vector2.ZERO, radius, color)
 		_draw_ears(color)
@@ -344,7 +344,7 @@ func _draw() -> void:
 		draw_texture_rect(portrait, Rect2(-34, -37, 68, 68), false, Color(1.8, 1.8, 1.8) if flash else Color.WHITE)
 	else:
 		draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
-	draw_set_transform(lift, 0.0, Vector2.ONE)
+	draw_set_transform_matrix(RooftopSpace.upright_basis(self, lift))
 	var shown_index := display_index if display_index > 0 else player_index
 	var badge_color := Color("43d9ff") if shown_index == 1 else Color("ff9f43")
 	# The name rides above the head once the cat is standing off the roof. Below
@@ -358,7 +358,7 @@ func _draw() -> void:
 		draw_line(Vector2(-10, -10), Vector2(10, 10), Color("ff5d8f"), 5.0, true)
 		draw_line(Vector2(10, -10), Vector2(-10, 10), Color("ff5d8f"), 5.0, true)
 		draw_arc(Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(revive_progress / 2.6, 0.0, 1.0), 28, Color("80ed99"), 4.0, true)
-		var down_text := "구조 중 %.0f%%" % (revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else "가까이 와서 구조 · %.0f초" % bleedout_remaining
+		var down_text := "구조 중 %.0f%%" % (revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else "가까이 와서 구조    %.0f초" % bleedout_remaining
 		draw_string(ThemeDB.fallback_font, Vector2(-92.0, -43.0), down_text, HORIZONTAL_ALIGNMENT_CENTER, 184.0, 16, Color("ffcfdf"))
 		return
 	draw_circle(facing * (radius + 5.0), 2.5, Color.WHITE)

@@ -65,26 +65,26 @@ const TECHS := {
 const BEHAVIORS := {
 	"homing": {
 		"comet": {"text": "적 둘을 관통하는 유도탄", "pierce": 2},
-		"pursuit": {"text": "유도탄 한 발 추가 · 피해 20% 감소", "count": 1, "damage_scale": 0.8},
-		"constellation": {"text": "동료 위치에서도 유도탄 발사 · 피해 35% 감소", "echo": true, "damage_scale": 0.65}},
+		"pursuit": {"text": "유도탄 한 발 추가    피해 20% 감소", "count": 1, "damage_scale": 0.8},
+		"constellation": {"text": "동료 위치에서도 유도탄 발사    피해 35% 감소", "echo": true, "damage_scale": 0.65}},
 	"lightning": {
-		"overload": {"text": "첫 적에게 집중 낙뢰 · 연쇄 1회", "jumps_set": 1, "damage_scale": 1.65},
-		"conductor": {"text": "연쇄 두 번 추가 · 피해 20% 감소", "jumps": 2, "damage_scale": 0.8}},
+		"overload": {"text": "첫 적에게 집중 낙뢰    연쇄 1회", "jumps_set": 1, "damage_scale": 1.65},
+		"conductor": {"text": "연쇄 두 번 추가    피해 20% 감소", "jumps": 2, "damage_scale": 0.8}},
 	"flame": {
 		"sun": {"text": "적 둘을 관통하는 방사형 불꽃", "pierce": 2},
-		"wildfire": {"text": "불꽃 세 발 추가 · 피해 25% 감소", "count": 3, "damage_scale": 0.75},
+		"wildfire": {"text": "불꽃 세 발 추가    피해 25% 감소", "count": 3, "damage_scale": 0.75},
 		"nebula": {"text": "퍼진 불꽃이 적을 향해 휘어짐", "homing": true}},
 	"frost": {
 		"shatter": {"text": "둔화된 적에게 냉기 파쇄 추가 피해", "shatter": true, "damage_scale": 0.8},
 		"permafrost": {"text": "동료에게도 작은 냉기 영역 생성", "ally_aura": true, "damage_scale": 0.75}},
 	"scythe": {
 		"execution": {"text": "좁은 부채꼴에 강한 집중 베기", "arc_scale": 0.6, "damage_scale": 1.6},
-		"dance": {"text": "앞뒤 동시 베기 · 피해 35% 감소", "rear_sweep": true, "damage_scale": 0.65},
-		"eclipse": {"text": "한 바퀴 원형 베기 · 피해 25% 감소", "full_circle": true, "damage_scale": 0.75}},
+		"dance": {"text": "앞뒤 동시 베기    피해 35% 감소", "rear_sweep": true, "damage_scale": 0.65},
+		"eclipse": {"text": "한 바퀴 원형 베기    피해 25% 감소", "full_circle": true, "damage_scale": 0.75}},
 	"chain": {"vow": {"text": "사슬 발동마다 두 고양이 체력 회복", "team_heal": true}},
 	"orbit": {
-		"shards": {"text": "궤도 파편 두 개 추가 · 피해 25% 감소", "count": 2, "damage_scale": 0.75},
-		"ritual": {"text": "반대 방향 이중 궤도 · 피해 35% 감소", "double_orbit": true, "damage_scale": 0.65}},
+		"shards": {"text": "궤도 파편 두 개 추가    피해 25% 감소", "count": 2, "damage_scale": 0.75},
+		"ritual": {"text": "반대 방향 이중 궤도    피해 35% 감소", "double_orbit": true, "damage_scale": 0.65}},
 	"lance": {
 		"judgement": {"text": "한 줄에 집중하는 장거리 관통창", "beams_set": 1, "range_scale": 1.35, "damage_scale": 1.25},
 		"prism": {"text": "다른 적을 겨냥하는 광선 두 줄 추가", "beams": 2, "damage_scale": 0.65},

@@ -54,7 +54,7 @@ func host_game() -> void:
 	game.ai_companion = false
 	game.lobby_joined.assign([true, false])
 	game.lobby_devices.assign([-1, -3])
-	game.lobby_device_names.assign(["이 PC · 호스트", "온라인 동료 대기 중"])
+	game.lobby_device_names.assign(["이 PC    호스트", "온라인 동료 대기 중"])
 	game._refresh_lobby_ui()
 
 
@@ -64,7 +64,7 @@ func join_game(address: String) -> void:
 	game.ai_companion = false
 	game.lobby_joined.assign([false, true])
 	game.lobby_devices.assign([-3, -1])
-	game.lobby_device_names.assign(["호스트 연결 중", "이 PC · 나"])
+	game.lobby_device_names.assign(["호스트 연결 중", "이 PC    나"])
 	game._refresh_lobby_ui()
 
 
@@ -84,7 +84,7 @@ func _peer_joined(_peer_id: int) -> void:
 	if not is_host() or not game.lobby_active:
 		return
 	game.lobby_joined.assign([true, true])
-	game.lobby_device_names.assign(["이 PC · 호스트", "온라인 동료"])
+	game.lobby_device_names.assign(["이 PC    호스트", "온라인 동료"])
 	game._refresh_lobby_ui()
 	game._finish_lobby()
 	send_character_state()
@@ -92,14 +92,14 @@ func _peer_joined(_peer_id: int) -> void:
 
 func _connected() -> void:
 	game.lobby_joined.assign([true, true])
-	game.lobby_device_names.assign(["온라인 호스트", "이 PC · 나"])
+	game.lobby_device_names.assign(["온라인 호스트", "이 PC    나"])
 	game._refresh_lobby_ui()
 
 
 func _peer_left(_peer_id: int) -> void:
 	if session.role == NetworkSession.Role.OFFLINE:
 		game._begin_lobby()
-		_status("연결 종료 · 다시 방을 만들거나 참가하세요")
+		_status("연결 종료    다시 방을 만들거나 참가하세요")
 	elif is_host():
 		game._begin_lobby()
 		_status("온라인 동료가 나갔습니다")

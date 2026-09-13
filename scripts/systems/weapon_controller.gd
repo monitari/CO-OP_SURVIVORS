@@ -842,7 +842,7 @@ func _fire_supernova(player_index: int, state: Dictionary, damage: float, color:
 		_damage_area(centre, radius, damage * 1.6, 1.0, source_player, source_weapon)
 		_draw_ring(centre, radius, color.lightened(0.2), 10.0)
 		_spawn_combat_flare(centre, color, color.lightened(0.5), radius * 0.6, 0.3)
-	get_tree().create_timer(0.45).timeout.connect(blast)
+	get_tree().create_timer(0.45, false).timeout.connect(blast)
 
 
 ## No facing requirement any more: two full circles around the swinger.

@@ -11,7 +11,8 @@ func _ready() -> void:
 		_update_body_facing()
 
 func _update_body_facing() -> void:
-	body_sprite.rotation = -rotation
+	var body_size := radius * 2.65 / maxf(body_sprite.texture.get_width(), body_sprite.texture.get_height())
+	body_sprite.transform = Transform2D(-rotation, Vector2.ZERO) * RooftopSpace.upright_basis(self).scaled_local(Vector2.ONE * body_size)
 	# The parent rotates to carry its attack heading. Counter-rotate the lift as
 	# well so standing height always means screen-up rather than "above the
 	# enemy's nose".

@@ -54,8 +54,12 @@ var curve := PackedVector2Array()
 
 func _ready() -> void:
 	material = Moonlight.additive()
-	# Above the chain body and its halo, below the survivors.
-	z_index = 0
+	# The light shares the rope's depth, so it is behind the survivors for the
+	# reason ChainArc.BEHIND_ACTORS gives, and it is added to the stage after
+	# the rope so it lands on top of the rope itself. Additive light drawn over
+	# a cat would wash the cat out, which is the same readability problem the
+	# rope's own ordering exists to avoid — only brighter.
+	z_index = ChainArc.BEHIND_ACTORS
 
 
 ## Called from the chain update each frame. `stage` is the tension band main.gd

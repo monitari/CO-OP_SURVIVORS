@@ -62,7 +62,6 @@ func _draw() -> void:
 	# came out as a beige sliver poking from behind the panel and cut by the HUD.
 	# It lives inside the lobby panel now, clear of everything, where it is a
 	# moon rather than an artefact.
-	_draw_moon(Vector2(986.0, 74.0), 34.0)
 	_draw_ellipse(Vector2(147.0, 335.0), Vector2(57.0, 10.0), Color(0.02, 0.05, 0.08, 0.20))
 	_draw_ellipse(Vector2(957.0, 335.0), Vector2(57.0, 10.0), Color(0.02, 0.05, 0.08, 0.20))
 	for index in STARS.size():
