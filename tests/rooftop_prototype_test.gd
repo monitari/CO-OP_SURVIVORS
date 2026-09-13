@@ -205,6 +205,12 @@ func _check_weapon_heights(stage) -> void:
 	check(not stage.shots.is_empty(), "The pair actually fires something")
 	# Named `star` rather than `shot`, which is this file's capture helper.
 	var star: HomingProjectile = stage.shots[0]
+	# Stepped by hand. A projectile runs on the engine's own physics tick rather
+	# than on the stage's, so how many times it has moved by this line depends on
+	# how fast the frames above happened to come — which passed windowed and
+	# failed headless, where a freshly fired shot was still sitting at its
+	# spawn point with its lift not yet applied.
+	star._physics_process(1.0 / 60.0)
 	check(star.flight_height > 0.0, "The star flies at body height")
 	check(star.position.y < star.ground_position.y, "A flying shot is drawn above the roof it crosses")
 	check(is_equal_approx(star.position.x, star.ground_position.x),
