@@ -1,5 +1,7 @@
 class_name Showcase
 extends Control
+
+const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
 var player_labels: Array = ["나", "동료"]
 
 ## The three moments a run is actually about, given the screen for a few seconds.
@@ -93,43 +95,47 @@ func play_resonance(first: Texture2D, second: Texture2D, display_name: String, t
 func play_chest(entries: Array) -> void:
 	mode = Mode.CHEST
 	rewards = entries
-	# Leave a readable final beat after the last reward lands. The chest used to
-	# finish before a player could tell which stat the icon had actually raised.
+	# Leave a readable final beat after the last reward lands.
 	duration = maxf(CHEST_DURATION, CHEST_BURST_AT + 0.5 + float(entries.size()) * REWARD_STAGGER + 2.2)
 	accent = Color("ffd166")
-	headline = "수염 상자"
+	headline = "행운 상자"
 	subtitle = "%d개 획득" % entries.size()
 	for entry: Dictionary in entries:
 		var card := Panel.new()
-		card.size = Vector2(208, 244)
+		card.size = Vector2(208, 294)
 		card.tooltip_text = String(entry.get("label", "보상")) + "\n" + String(entry.get("detail", "")) + "\n" + String(entry.get("advice_reason", ""))
 		card.pivot_offset = card.size * 0.5
-		var frame := StyleBoxFlat.new()
-		frame.bg_color = Color("182333")
-		frame.border_color = Color("d8bd7d")
-		frame.set_border_width_all(2)
-		frame.set_corner_radius_all(12)
-		card.add_theme_stylebox_override("panel", frame)
+		var owner := int(entry.get("slot", -1))
+		var tint := CardVisual.CYAN if owner == 0 else (CardVisual.PARTNER if owner == 1 else CardVisual.CHEST)
+		CardVisual.decorate(card, tint, true, true)
 		add_child(card)
 		card.modulate.a = 0.0
-		var art := _add_icon(entry.get("icon"), 62.0)
+		var category := _card_text(card, "상자 보상", 12, 28, 15, tint.lightened(0.32))
+		category.name = "Category"
+		var art := _add_icon(entry.get("icon"), 88.0)
 		remove_child(art)
 		card.add_child(art)
-		art.position = Vector2(73, 16)
+		art.name = "Icon"
+		art.position = Vector2(60, 48)
 		reward_icons.append(art)
 		reward_cards.append(card)
 		var advice := String(entry.get("advice", "neutral"))
-		_card_text(card, String(entry.get("label", "보상")), 84, 46, 16, Color("fff0ce"))
-		_card_text(card, String(entry.get("detail", "획득")), 132, 62, 14, Color("f4efe2"))
-		_card_text(card, "👍" if advice == "recommended" else ("👎" if advice == "discouraged" else "—"), 196, 24, 15, Color("9bf6ff"))
-		_card_text(card, String(entry.get("advice_reason", "")), 219, 22, 11, Color("c6ccdc"))
+		var title := _card_text(card, String(entry.get("label", "보상")), 141, 46, 17, CardVisual.INK)
+		title.name = "CardTitle"
+		var detail := _card_text(card, String(entry.get("detail", "획득")), 188, 52, 13, Color("dce8f8"))
+		detail.name = "Detail"
+		var reason := String(entry.get("advice_reason", "무난한 선택"))
+		var badge := _card_text(card, CardVisual.recommendation_text(advice, reason), 248, 36, 12,
+			CardVisual.recommendation_color(advice))
+		badge.name = "Recommendation"
+		badge.add_theme_stylebox_override("normal", CardVisual.surface(tint.darkened(0.3)))
 
 
-func _card_text(card: Control, text: String, y: float, height: float, font_size: int, ink: Color) -> void:
+func _card_text(card: Control, text: String, y: float, height: float, font_size: int, ink: Color) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.position = Vector2(10, y)
-	label.size = Vector2(188, height)
+	label.size = Vector2(card.size.x - 20, height)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.clip_text = true
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -137,6 +143,7 @@ func _card_text(card: Control, text: String, y: float, height: float, font_size:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", ink)
 	card.add_child(label)
+	return label
 
 
 func _ready() -> void:
@@ -305,7 +312,7 @@ func _step_chest() -> void:
 		var columns := mini(4, reward_cards.size())
 		var row_count := mini(columns, reward_cards.size() - (index / 4) * 4)
 		var x := centre.x + (index % 4 - (row_count - 1) * 0.5) * 226.0
-		var y := 250.0 + (index / 4) * 260.0 if reward_cards.size() > 4 else 370.0
+		var y := 210.0 + (index / 4) * 310.0 if reward_cards.size() > 4 else 370.0
 		var target := Vector2(x, y)
 		card.position = centre.lerp(target, pop) - card.size * 0.5
 		card.scale = Vector2.ONE * lerpf(0.1, 1.0, pop)

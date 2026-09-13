@@ -12,6 +12,10 @@ func _ready() -> void:
 
 func _update_body_facing() -> void:
 	body_sprite.rotation = -rotation
+	# The parent rotates to carry its attack heading. Counter-rotate the lift as
+	# well so standing height always means screen-up rather than "above the
+	# enemy's nose".
+	body_sprite.position = RooftopSpace.lift(stand_height).rotated(-rotation)
 	body_sprite.flip_h = faces_along_heading and cos(rotation) < 0.0
 
 signal died(enemy: ChaserEnemy)
@@ -120,6 +124,9 @@ var immovable := false
 var faces_along_heading := false ## Mobile art faces +X, so it mirrors rather than spins.
 var leads_its_target := false ## Aims where the survivor is going, not where they are.
 var hunts_the_chain := false ## Walks the midpoint between the pair, not the nearer cat.
+## Visual height only. Movement, targeting and every hit still use the node's
+## ground position.
+var stand_height := 8.0
 var _tinted := false ## Whether body_sprite.modulate currently holds anything but white.
 ## Whether a warning is currently drawn on this body. The crowd loop reads it to
 ## keep anything mid-telegraph on the full-rate tick: a slam ring that fills in
@@ -140,6 +147,7 @@ static var _batch_cursor := 0
 func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false, rank: int = 0) -> void:
 	archetype = new_archetype
 	scenery = archetype == "planter"
+	stand_height = 0.0 if scenery else (20.0 if archetype in ["wasp", "owl"] else (4.0 if archetype == "mole" else 8.0))
 	immovable = is_boss or scenery
 	# Every mobile enemy now has a readable +X source silhouette. Keep the body
 	# upright and mirror that art from its movement heading instead of rotating
@@ -344,6 +352,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	body_sprite.texture = EnemyIcons.get_icon(archetype)
 	body_sprite.scale = Vector2.ONE * (radius * 2.65 / maxf(body_sprite.texture.get_width(), body_sprite.texture.get_height()))
 	body_sprite.modulate = Color.WHITE
+	_update_body_facing()
 	_tinted = false
 	add_to_group("enemies")
 	queue_redraw()
@@ -703,6 +712,9 @@ func _draw() -> void:
 	# chaser next to a drawn one read as the two standing on different floors.
 	# Negating the rotation keeps it lying flat while the enemy turns.
 	Moonlight.ground_shadow(self, Vector2.ZERO, radius, 0.95, -rotation)
+	# Everything except the contact shadow is carried above the floor together:
+	# body, health, and warnings cannot drift onto different vertical planes.
+	draw_set_transform(RooftopSpace.lift(stand_height).rotated(-rotation))
 	# Wings, claws and spines are now part of the painted sprite itself.
 	if charge_windup > 0.0:
 		var charge_alpha := 0.25 + sin(charge_windup * 34.0) * 0.12

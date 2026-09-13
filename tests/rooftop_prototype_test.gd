@@ -74,7 +74,7 @@ func run() -> void:
 	await shot("flat")
 	await _look_in(stage, RooftopSpace.View.PERSPECTIVE)
 
-	await _check_run_untouched()
+	await _check_run_integration()
 
 	if failures.is_empty():
 		print("ROOFTOP25 OK")
@@ -360,13 +360,10 @@ func _walk_distance(stage, row: float) -> float:
 	return snappedf(start.distance_to(stage.grounds[0]), 0.01)
 
 
-## The live run must be exactly where it was. Height is opt-in per survivor and
-## nothing in main.gd opts in yet, so a run's cats still draw at their own
-## position with the shadow Moonlight has always put under them.
-func _check_run_untouched() -> void:
-	# The view is a global switch, so the run has to be handed back the one it
-	# expects. Nothing in main.gd projects anything, but leaving the prototype's
-	# view on would be a trap for the next thing that reads it.
+## The prototype's useful rules now belong to a real run. The endless arena
+## deliberately uses LIFTED rather than camera-relative PERSPECTIVE, but bodies,
+## props, chain and weapons must all share its height convention.
+func _check_run_integration() -> void:
 	RooftopSpace.view_mode = RooftopSpace.View.LIFTED
 	RooftopSpace.focus = Vector2.ZERO
 	var main := MainScene.instantiate()
@@ -381,10 +378,31 @@ func _check_run_untouched() -> void:
 	main._start_selected_run()
 	for frame in 5:
 		await physics_frame
-	check(main.players[0].stand_height == 0.0 and main.players[1].stand_height == 0.0,
-		"The run's survivors are still drawn flat on the roof")
-	check(main.chain_flow.curve.is_empty(), "The run's chain light still follows the straight segment")
+	check(main.players[0].stand_height == RooftopSpace.CAT_STAND
+		and main.players[1].stand_height == RooftopSpace.CAT_STAND,
+		"The run's survivors stand above their contact shadows")
+	check(main.world_stage.y_sort_enabled
+		and main.players[0].get_parent() == main.world_stage,
+		"Survivors and furniture share the y-sorted stage")
+	check(main.rooftop_props.living_props().size() > 0,
+		"The endless roof supplies solid 2.5D furniture around the camera")
+	check(main.chain_arc.get_parent() == main.world_stage
+		and not main.chain_flow.curve.is_empty(),
+		"The run's chain and moving light follow the same hung curve")
+	check(main.weapon_controller.chain_path.size() == main.chain_arc.ground_points().size(),
+		"Chain attacks receive the visible leash's sampled ground path")
+	var shot: HomingProjectile = main.weapon_controller._acquire_projectile()
+	shot.global_position = Vector2(30.0, 40.0)
+	shot.setup(Vector2.RIGHT, null)
+	main.weapon_controller._give_projectile_height(shot, "homing")
+	check(shot.flight_height > 0.0 and main.flight_field.flyers.size() == 1,
+		"A real run's airborne shot leaves a tracked floor shadow")
+	check(shot.global_position.y < RooftopSpace.project(shot.ground_position).y,
+		"The shot is drawn above the ground point where it hits")
+	shot.release()
+	check(not main.flight_field.flashes.is_empty(),
+		"An airborne shot leaves its landing light on the roof")
 	check(RooftopSpace.project(Vector2(700.0, 700.0)) == Vector2(700.0, 700.0),
-		"The run's floor is not projected")
+		"The endless run keeps stable ground coordinates while using visual height")
 	main.queue_free()
 	await process_frame

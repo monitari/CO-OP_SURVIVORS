@@ -100,7 +100,7 @@ func _run() -> void:
 	})
 	await process_frame
 	var visual_projectile: EnemyProjectile
-	for child in main.get_children():
+	for child in main.rooftop_view.world.get_children():
 		if child is EnemyProjectile:
 			visual_projectile = child
 			break

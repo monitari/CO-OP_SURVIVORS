@@ -25,6 +25,11 @@ var elapsed := 0.0
 ## the HUD reads rather than a second opinion about them.
 var chain_length := 370.0
 var chain_tension := 0.0
+## Sampled from the same ChainArc the run draws. The ground path owns damage;
+## the raised path owns the flash laid over it.
+var chain_path := PackedVector2Array()
+var chain_visual_path := PackedVector2Array()
+var flight_field: FlightField
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
 var sustained_fields: Dictionary = {}
@@ -474,6 +479,9 @@ func _acquire_projectile() -> HomingProjectile:
 
 
 func _on_projectile_released(projectile: HomingProjectile) -> void:
+	if is_instance_valid(flight_field) and projectile.flight_height > 0.0:
+		flight_field.flash(projectile.ground_position, projectile.projectile_color,
+			maxf(18.0, projectile.radius * 2.6))
 	active_projectiles.erase(projectile)
 	if projectile not in projectile_pool:
 		projectile_pool.append(projectile)
@@ -520,6 +528,7 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.spawn_lifetime = projectile.lifetime
 		projectile.projectile_color = color
 		projectile.remaining_hits = 1 + players[current_source_player].pierce + int(state.get("tech_pierce", 0))
+		_give_projectile_height(projectile, "homing")
 	return true
 
 
@@ -563,7 +572,16 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		projectile.radius = 9.0
 		projectile.style = "ember"
 		projectile.projectile_color = color
+		_give_projectile_height(projectile, "flame")
 	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
+
+
+func _give_projectile_height(projectile: HomingProjectile, weapon_id: String) -> void:
+	projectile.flight_height = RooftopSpace.weapon_height(weapon_id)
+	projectile.ground_position = projectile.global_position
+	projectile.global_position = RooftopSpace.raised(projectile.ground_position, projectile.flight_height)
+	if is_instance_valid(flight_field):
+		flight_field.track(projectile)
 
 
 func _ensure_frost_aura(player_index: int, weapon_slot: int, state: Dictionary, damage: float, color: Color) -> bool:
@@ -976,7 +994,9 @@ func _damage_along_chain(width: float, damage: float, slow_multiplier: float) ->
 	var midpoint := (from + to) * 0.5
 	var search_radius := from.distance_to(to) * 0.5 + width + 45.0
 	for enemy in spatial_grid.query_radius(midpoint, search_radius):
-		if _distance_to_segment(enemy.global_position, from, to) <= width + enemy.radius:
+		var distance := _distance_to_polyline(enemy.global_position, chain_path) \
+			if chain_path.size() >= 2 else _distance_to_segment(enemy.global_position, from, to)
+		if distance <= width + enemy.radius:
 			enemy.take_damage(damage, current_source_player, current_source_weapon)
 			if slow_multiplier < 1.0 and is_instance_valid(enemy) and not enemy.dead:
 				enemy.apply_slow(1.8, slow_multiplier)
@@ -990,6 +1010,15 @@ func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
 		return point.distance_to(from)
 	var ratio := clampf((point - from).dot(segment) / length_squared, 0.0, 1.0)
 	return point.distance_to(from + segment * ratio)
+
+
+func _distance_to_polyline(point: Vector2, points: PackedVector2Array) -> float:
+	if points.size() < 2:
+		return INF
+	var nearest := INF
+	for index in points.size() - 1:
+		nearest = minf(nearest, _distance_to_segment(point, points[index], points[index + 1]))
+	return nearest
 
 
 ## Lightning is a hard white line with light spilling off it, and those are two
@@ -1059,7 +1088,10 @@ func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> v
 
 func _draw_chain_pulse(from: Vector2, to: Vector2, width: float) -> void:
 	var strike = ChainStrikeScript.new()
-	strike.setup(from, to, width, Color("80ed99"))
+	if chain_visual_path.size() >= 2:
+		strike.setup_path(chain_visual_path, width, Color("80ed99"))
+	else:
+		strike.setup(from, to, width, Color("80ed99"))
 	add_child(strike)
 
 

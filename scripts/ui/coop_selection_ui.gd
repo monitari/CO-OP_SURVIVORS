@@ -53,36 +53,7 @@ const WAITING_TINT := Color(0.90, 0.90, 0.90, 1.0)
 
 
 static func refresh(main: Node) -> void:
-	var focus: int = main.focused_growth_slot()
-	for slot in 2:
-		for card: Label in main.level_card_labels[slot]:
-			card.modulate *= Color.WHITE if slot == focus else WAITING_TINT
-
-	if main.ai_companion or main.online.is_online():
-		var local: int = main.local_view_slot()
-		for slot in 2:
-			var own := slot == local
-			var picked: int = main.selected_upgrade_indices[slot]
-			var shown: int = picked if picked >= 0 else main.upgrade_cursors[slot]
-			for index in main.level_card_labels[slot].size():
-				var card: Label = main.level_card_labels[slot][index]
-				if own:
-					card.mouse_filter = Control.MOUSE_FILTER_STOP
-					var count: int = (main.p1_choices if slot == 0 else main.p2_choices).size()
-					var spread := minf(176.0, 850.0 / maxf(1.0, count - 1.0))
-					card.position.x = 640.0 + (index - (count - 1) * 0.5) * spread - card.size.x * 0.5
-				else:
-					card.visible = card.visible and index == shown
-					card.pivot_offset = Vector2.ZERO
-					card.rotation = 0.0
-					card.position = Vector2(1060, -120)
-					card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-					card.scale = Vector2.ONE * 0.48
-			var reroll: Control = main.level_overlay.get_node_or_null("Reroll%d" % slot)
-			if reroll != null:
-				reroll.visible = own and reroll.visible
-				if own:
-					reroll.position.x = 552
+	# The neon hand owns all card transforms and partner presentation.
 	preload("res://scripts/ui/neon_growth_ui.gd").refresh(main)
 
 

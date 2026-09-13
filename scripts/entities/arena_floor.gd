@@ -31,6 +31,7 @@ const GUTTER_OFFSET := GUTTER_SPACING * 0.5
 const TILE_OVERDRAW := 2.0
 
 var draw_origin := Vector2.ZERO
+var draw_margin := VIEW_MARGIN
 
 
 ## Shorthand for the grade every ground surface goes through, so the palette
@@ -46,17 +47,19 @@ func _ready() -> void:
 
 ## Called from the camera update. Snapping to REDRAW_STEP means the window is
 ## rebuilt a few times a minute rather than every frame.
-func follow(focus: Vector2) -> void:
+func follow(focus: Vector2, coverage := VIEW_MARGIN) -> void:
+	var margin := maxf(VIEW_MARGIN, ceilf(coverage / REDRAW_STEP) * REDRAW_STEP)
 	var snapped_focus := (focus / REDRAW_STEP).floor() * REDRAW_STEP
-	if snapped_focus.is_equal_approx(draw_origin):
+	if snapped_focus.is_equal_approx(draw_origin) and is_equal_approx(margin, draw_margin):
 		return
 	draw_origin = snapped_focus
+	draw_margin = margin
 	queue_redraw()
 
 
 func _draw() -> void:
-	var low := draw_origin - Vector2(VIEW_MARGIN, VIEW_MARGIN)
-	var high := draw_origin + Vector2(VIEW_MARGIN, VIEW_MARGIN)
+	var low := draw_origin - Vector2(draw_margin, draw_margin)
+	var high := draw_origin + Vector2(draw_margin, draw_margin)
 	draw_rect(Rect2(low, high - low), _lit(Color("23383e")))
 	_draw_rooftop_texture(low, high)
 
@@ -65,16 +68,18 @@ func _draw() -> void:
 	# like a full-screen debug cross during the opening fight.
 	var first_gutter := int(floor((low.x - GUTTER_OFFSET) / GUTTER_SPACING)) * int(GUTTER_SPACING) + int(GUTTER_OFFSET)
 	for x in range(first_gutter, int(high.x) + int(GUTTER_SPACING), int(GUTTER_SPACING)):
-		draw_rect(Rect2(x - 8, low.y, 16, high.y - low.y), _lit(Color("1e333a")))
+		draw_rect(Rect2(x - 5, low.y, 10, high.y - low.y), _lit(Color("1e333a", 0.65)))
 		# A gutter is a channel, so its far wall is the one the moon reaches
 		# and its near wall is the one in shade. Same rule, cheapest possible
 		# case: two lines that used to be one colour are now two.
-		draw_line(Vector2(x - 8, low.y), Vector2(x - 8, high.y), _lit(Color("53625d"), 0.5), 2)
-		draw_line(Vector2(x + 8, low.y), Vector2(x + 8, high.y), _lit(Color("53625d")).darkened(0.35), 2)
+		draw_line(Vector2(x - 5, low.y), Vector2(x - 5, high.y), _lit(Color("53625d", 0.38), 0.12), 1.3)
+		draw_line(Vector2(x + 5, low.y), Vector2(x + 5, high.y), _lit(Color("53625d", 0.4)).darkened(0.35), 1.3)
 		for y in range(int(low.y) - posmod(int(low.y), 128), int(high.y), 128):
-			draw_line(Vector2(x - 5, y), Vector2(x + 5, y), _lit(Color("405355")), 2)
+			draw_line(Vector2(x - 3, y), Vector2(x + 3, y), _lit(Color("405355", 0.4)), 1)
 
-	_draw_props(low, high)
+	# Solid furniture is now owned by RooftopPropField. Each prop needs its own
+	# y-sort key so survivors can pass behind it; painting the same shapes into
+	# this one background canvas would flatten them again.
 	if _window_contains_origin(low, high):
 		_draw_home_terrace()
 
@@ -115,7 +120,7 @@ func _draw_home_terrace() -> void:
 	# faint wash under the bowls and paw prints so it cannot be mistaken for a
 	# collision box or targeting guide once combat fills the screen.
 	mat.bg_color = _lit(Color("384b48", 0.14))
-	mat.border_color = _lit(Color("657066", 0.11), 0.24)
+	mat.border_color = _lit(Color("657066", 0.035), 0.10)
 	mat.set_border_width_all(2)
 	mat.set_corner_radius_all(16)
 	draw_style_box(mat, Rect2(-230, -160, 460, 320))

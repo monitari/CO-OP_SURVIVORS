@@ -52,14 +52,28 @@ func run() -> void:
 	main.upgrade_cursors.assign([1, 0])
 	main._refresh_level_up_ui()
 	var moving_card: Label = main.level_card_labels[0][2]
-	var before_motion_y := moving_card.position.y
+	var before_motion := moving_card.position
 	main.upgrade_cursors[0] = 2
 	main._refresh_level_up_ui()
-	check(moving_card.position.y > 50.0 and is_equal_approx(moving_card.position.y, before_motion_y),
-		"cursor change begins from the card's current position")
+	check(moving_card.position.distance_to(before_motion) < 0.1,
+		"cursor change does not snap the card upward")
 	for frame in 16: await process_frame
-	check(absf(moving_card.position.y - 50.0) < 1.0,
-		"cursor card eases into its raised position")
+	var rest: Vector2 = moving_card.get_meta("neon_rest_position")
+	var lifted: Vector2 = rest + Vector2.UP.rotated(moving_card.rotation) * 24.0
+	check(moving_card.position.distance_to(lifted) < 1.0,
+		"cursor card eases upward along its own rotated axis")
+	var body_style := moving_card.get_theme_stylebox("normal") as StyleBoxFlat
+	check(body_style.content_margin_top >= 190, "frame decoration preserves the body below title and art")
+	var settled := moving_card.position
+	main._refresh_level_up_ui()
+	check(moving_card.position.distance_to(settled) < 0.1, "unrelated refresh preserves settled card position")
+	main.upgrade_cursors[0] = 0
+	main._refresh_level_up_ui()
+	await process_frame
+	var interrupted := moving_card.position
+	main.upgrade_cursors[0] = 2
+	main._refresh_level_up_ui()
+	check(moving_card.position.distance_to(interrupted) < 0.1, "rapid reversal continues from current position")
 	main._update_hud()
 	for frame in 24: await process_frame
 	await shot("three")

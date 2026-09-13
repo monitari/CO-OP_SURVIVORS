@@ -17,10 +17,14 @@ const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
+const ChainArcScript := preload("res://scripts/effects/chain_arc.gd")
 const ChainFlowScript := preload("res://scripts/effects/chain_flow.gd")
+const FlightFieldScript := preload("res://scripts/effects/flight_field.gd")
+const RooftopOcclusionScript := preload("res://scripts/effects/rooftop_occlusion.gd")
 const ShowcaseScript := preload("res://scripts/effects/showcase.gd")
 const ParticleFieldScript := preload("res://scripts/systems/particle_field.gd")
 const ArenaFloorScript := preload("res://scripts/entities/arena_floor.gd")
+const RooftopPropFieldScript := preload("res://scripts/entities/rooftop_prop_field.gd")
 const WeaponControllerScript := preload("res://scripts/systems/weapon_controller.gd")
 const FeedbackScript := preload("res://scripts/systems/feedback_system.gd")
 const FieldItemScript := preload("res://scripts/systems/field_item_system.gd")
@@ -154,11 +158,15 @@ var ai_character_preference := randi()
 var online: OnlineCoop
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
+var world_stage: Node2D
+var rooftop_view: EndlessRooftopView
 var chain_line: Line2D
 var chain_glow: Line2D
+var chain_arc: ChainArc
 var chain_flow: ChainFlow
 var bursts: BurstField
 var particles: ParticleField
+var flight_field: FlightField
 ## A fusion, a resonance and a chest each stop the run and take the screen for
 ## a couple of seconds. The queue exists because one level-up can produce two
 ## fusions, and a chest can contain one — they play in order rather than on
@@ -168,6 +176,8 @@ var cinematic_active := false
 var cinematic_continuation := Callable()
 var cinematic_resume_paused := false
 var arena_floor: ArenaFloor
+var rooftop_props: RooftopPropField
+var rooftop_occlusion: RooftopOcclusion
 var modal_dim: ColorRect
 ## One gold wash over the whole frame at the instant a level lands. The growth
 ## screen no longer arrives as a box appearing, so something has to say "this
@@ -482,6 +492,9 @@ func _ready() -> void:
 	character_catalog = CharacterData.all_characters()
 	_create_world()
 	_create_players()
+	rooftop_occlusion = RooftopOcclusionScript.new() as RooftopOcclusion
+	add_child(rooftop_occlusion)
+	rooftop_occlusion.configure(players, rooftop_props)
 	feedback = FeedbackScript.new() as FeedbackSystem
 	add_child(feedback)
 	feedback.sound_enabled = settings.sound_enabled
@@ -491,6 +504,7 @@ func _ready() -> void:
 	weapon_controller = WeaponControllerScript.new() as WeaponController
 	add_child(weapon_controller)
 	weapon_controller.configure(players, weapon_loadouts, spatial_grid)
+	weapon_controller.flight_field = flight_field
 	# Handed over rather than copied: four weapons knock shots down, and they do
 	# it from inside the controller and from inside the fields it spawns.
 	weapon_controller.enemy_shots = enemy_shots
@@ -505,6 +519,12 @@ func _ready() -> void:
 		debug_inspector = DebugInspectorScript.new()
 		add_child(debug_inspector)
 		debug_inspector.configure(self)
+	rooftop_view = preload("res://scripts/effects/endless_rooftop_view.gd").new()
+	add_child(rooftop_view)
+	for world_node in [arena_floor, world_stage, wave_director, experience_system,
+		field_items, item_aura, bursts, particles, flight_field, rooftop_occlusion,
+		chain_glow, chain_line, world_camera, weapon_controller, feedback]:
+		rooftop_view.adopt(world_node)
 	_begin_title()
 	queue_redraw()
 
@@ -737,6 +757,8 @@ func _physics_process(delta: float) -> void:
 			return
 	bursts.step(delta)
 	particles.step(delta)
+	flight_field.step(delta)
+	rooftop_occlusion.step()
 	_update_threat_indicator()
 	_profile("effects")
 	experience_system.step(players, delta)
@@ -806,6 +828,11 @@ func _hide_boss_readout() -> void:
 
 
 func _create_world() -> void:
+	# The run remains an ordinary 2D simulation. LIFTED only gives drawings a
+	# vertical axis; unlike the finite prototype's perspective view it never
+	# changes a gameplay coordinate as the camera crosses the endless roof.
+	RooftopSpace.view_mode = RooftopSpace.View.LIFTED
+	RooftopSpace.focus = Vector2.ZERO
 	spatial_grid = SpatialGridScript.new() as EnemySpatialGrid
 	progression = ProgressionScript.new() as SharedProgression
 	add_child(progression)
@@ -831,11 +858,26 @@ func _create_world() -> void:
 	arena_floor = ArenaFloorScript.new() as ArenaFloor
 	add_child(arena_floor)
 
+	# Actors and solid roof furniture share one y-sorted layer. Their origins
+	# are all the point where they meet the roof, so this alone decides whether
+	# a cat passes behind or in front of a vent.
+	world_stage = Node2D.new()
+	world_stage.name = "WorldStage"
+	world_stage.y_sort_enabled = true
+	world_stage.z_index = 4
+	add_child(world_stage)
+	rooftop_props = RooftopPropFieldScript.new() as RooftopPropField
+	rooftop_props.configure(world_stage)
+	add_child(rooftop_props)
+	rooftop_props.follow(Vector2.ZERO)
+
 	bursts = BurstFieldScript.new() as BurstField
 	add_child(bursts)
 
 	particles = ParticleFieldScript.new() as ParticleField
 	add_child(particles)
+	flight_field = FlightFieldScript.new() as FlightField
+	add_child(flight_field)
 
 	# Three layers, and the split is the point. The halo adds light, the body
 	# never does — a chain that was additive all the way through lost its dark
@@ -847,10 +889,14 @@ func _create_world() -> void:
 	chain_glow.z_index = -2
 	chain_glow.add_point(Vector2.ZERO)
 	chain_glow.add_point(Vector2.ZERO)
+	chain_glow.visible = false
 	add_child(chain_glow)
 
+	chain_arc = ChainArcScript.new() as ChainArc
+	world_stage.add_child(chain_arc)
+
 	chain_flow = ChainFlowScript.new() as ChainFlow
-	add_child(chain_flow)
+	world_stage.add_child(chain_flow)
 
 	chain_line = Line2D.new()
 	chain_line.width = 5.0
@@ -858,6 +904,7 @@ func _create_world() -> void:
 	chain_line.z_index = -1
 	chain_line.add_point(Vector2.ZERO)
 	chain_line.add_point(Vector2.ZERO)
+	chain_line.visible = false
 	add_child(chain_line)
 
 	world_camera = Camera2D.new()
@@ -897,13 +944,17 @@ func _apply_moonlight() -> void:
 	for enemy in enemies:
 		if is_instance_valid(enemy):
 			enemy.queue_redraw()
+	if is_instance_valid(chain_arc):
+		chain_arc.queue_redraw()
 
 
 func _create_players() -> void:
 	var player_one := PlayerScene.new() as ChainPlayer
 	player_one.setup(1, Color("43d9ff"))
 	player_one.position = Vector2(-105.0, 0.0)
-	add_child(player_one)
+	player_one.stand_height = RooftopSpace.CAT_STAND
+	player_one.z_index = 0
+	world_stage.add_child(player_one)
 	player_one.damaged.connect(_on_player_damaged)
 	player_one.downed_started.connect(_on_player_downed)
 	player_one.revived_player.connect(_on_player_revived)
@@ -917,7 +968,9 @@ func _create_players() -> void:
 	var player_two := PlayerScene.new() as ChainPlayer
 	player_two.setup(2, CatTheme.P2)
 	player_two.position = Vector2(105.0, 0.0)
-	add_child(player_two)
+	player_two.stand_height = RooftopSpace.CAT_STAND
+	player_two.z_index = 0
+	world_stage.add_child(player_two)
 	player_two.damaged.connect(_on_player_damaged)
 	player_two.downed_started.connect(_on_player_downed)
 	player_two.revived_player.connect(_on_player_revived)
@@ -2175,6 +2228,7 @@ func _start_selected_run() -> void:
 	field_items.clear_all()
 	bursts.clear_all()
 	particles.clear_all()
+	flight_field.clear_all()
 	showcase_queue.clear()
 	cinematic_active = false
 	cinematic_continuation = Callable()
@@ -2403,9 +2457,19 @@ func _update_chain_visual() -> void:
 	chain_line.default_color = chain_color
 	chain_line.width = (10.0 + sin(elapsed * 16.0) * 2.0) if chain_warded() else (2.5 if chain_overloaded else 5.0)
 	chain_glow.default_color = Color(chain_color, 0.30 if chain_warded() else (0.05 if chain_overloaded else 0.12 + ratio * 0.13))
-	# The same stage the colour came from, so what the light is doing and what
-	# colour it is can never say two different things about the tension.
-	chain_flow.set_state(players[0].position, players[1].position, chain_color, stage, chain_warded(), chain_overloaded)
+	# The visible leash, its running light and the weapon hit path all come from
+	# one sampled rope. A slack tether therefore bows toward the viewer, settles
+	# close to the roof, and attacks exactly where the player sees it lying.
+	chain_arc.set_state(players[0].position, players[1].position, chain_color,
+		chain_max_length, chain_overloaded, chain_warded())
+	chain_flow.position = chain_arc.position
+	chain_flow.curve = chain_arc.local_points()
+	chain_flow.set_state(
+		RooftopSpace.raised(players[0].position, RooftopSpace.CHAIN_ANCHOR) - chain_arc.position,
+		RooftopSpace.raised(players[1].position, RooftopSpace.CHAIN_ANCHOR) - chain_arc.position,
+		chain_color, stage, chain_warded(), chain_overloaded)
+	weapon_controller.chain_path = chain_arc.ground_points()
+	weapon_controller.chain_visual_path = chain_arc.drawn_points()
 	if stage == 3 and previous_chain_stage < 3:
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 4.0)
@@ -2417,7 +2481,7 @@ func _update_chain_visual() -> void:
 ## indicator, pointed at whichever heavy enemy is nearest and outside the
 ## view, clamped to the screen edge along that bearing.
 func _update_threat_indicator() -> void:
-	var view := Vector2(1280.0, 720.0)
+	var view := rooftop_view.view_size
 	var centre := world_camera.position
 	var nearest: ChaserEnemy = null
 	var nearest_distance := 0.0
@@ -2425,7 +2489,7 @@ func _update_threat_indicator() -> void:
 		var enemy := candidate as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead or not (enemy.elite or enemy.boss):
 			continue
-		var offset := enemy.global_position - centre
+		var offset := rooftop_view.project_offset((enemy.global_position - centre) * world_camera.zoom)
 		if absf(offset.x) < view.x * 0.5 - 40.0 and absf(offset.y) < view.y * 0.5 - 40.0:
 			continue
 		var distance := offset.length()
@@ -2435,7 +2499,7 @@ func _update_threat_indicator() -> void:
 	if nearest == null:
 		threat_edge_indicator.visible = false
 		return
-	var direction := (nearest.global_position - centre).normalized()
+	var direction := rooftop_view.project_offset((nearest.global_position - centre) * world_camera.zoom).normalized()
 	var half := view * 0.5 - Vector2(80.0, 112.0)
 	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
 	threat_edge_indicator.position = view * 0.5 + direction * reach - threat_edge_indicator.size * 0.5
@@ -2461,7 +2525,10 @@ func _update_camera(delta: float) -> void:
 	world_camera.position = world_camera.position.lerp(midpoint, minf(1.0, delta * 8.0)) + shake_offset
 	# The rooftop follows the view rather than existing as a fixed slab, so
 	# there is no edge to reach however far the pair kites.
-	arena_floor.follow(world_camera.position)
+	var coverage := rooftop_view.view_size * EndlessRooftopView.OVERSCAN * 0.5 / world_camera.zoom
+	arena_floor.follow(world_camera.position, maxf(coverage.x, coverage.y) + ArenaFloor.REDRAW_STEP)
+	rooftop_props.follow(world_camera.position)
+	rooftop_props.update_visibility(players, delta)
 
 
 ## A wave only reads as a wave if it is announced. The surge waves get their
@@ -2482,6 +2549,12 @@ func _on_wave_calm_started(_wave_index: int) -> void:
 
 
 func _register_enemy(enemy: ChaserEnemy) -> void:
+	# WaveDirector owns pooling, while WorldStage owns presentation. Reparenting
+	# keeps the same global ground point and lets every live body participate in
+	# the same front-to-back order as the survivors and roof furniture.
+	if enemy.get_parent() != world_stage:
+		enemy.reparent(world_stage, true)
+	enemy.z_index = 0
 	if not enemy.died.is_connected(_on_enemy_died):
 		enemy.died.connect(_on_enemy_died)
 	if not enemy.ranged_attack.is_connected(_on_enemy_ranged_attack):
@@ -2544,7 +2617,7 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 	projectile.setup(origin, direction, damage, players)
 	projectile.broken.connect(_on_enemy_shot_broken)
 	enemy_shots.append(projectile)
-	add_child(projectile)
+	rooftop_view.world.add_child(projectile)
 	if online != null:
 		online.send_enemy_shot(origin, direction, projectile.speed)
 
@@ -3276,6 +3349,8 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 ## uses the actual view instead of a fixed radius so zooming out never leaves a
 ## visible elite or boss inexplicably untouched.
 func _visible_world_rect() -> Rect2:
+	if is_instance_valid(rooftop_view):
+		return rooftop_view.visible_bounds(world_camera.get_screen_center_position(), world_camera.zoom)
 	var viewport_size := get_viewport_rect().size
 	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
 		viewport_size = Vector2(1280.0, 720.0)

@@ -47,26 +47,30 @@ var head_b := Vector2.ZERO
 var tint := Color("43d9ff")
 var max_length := 360.0
 var overloaded := false
+var warded := false
 var _slack := 0.0
 
 
 func _ready() -> void:
-	# Under the actors: the chain runs between the cats' shoulders, and a rope
-	# drawn over the top of a cat reads as being in front of it.
-	z_index = -1
+	# It shares the actors' sorted layer. Its origin is the pair's midpoint, so
+	# furniture in front of that row covers the rope while furniture behind it
+	# does not.
+	z_index = 0
 
 
 ## `a` and `b` are the cats' points on the floor, in world coordinates. The node
 ## moves itself to the projected middle of the rope, because that is the ground
 ## line the sorted layer has to order it by — everything it draws is then
 ## measured back off that anchor.
-func set_state(a: Vector2, b: Vector2, color: Color, leash: float, is_overloaded := false) -> void:
+func set_state(a: Vector2, b: Vector2, color: Color, leash: float,
+		is_overloaded := false, is_warded := false) -> void:
 	head_a = a
 	head_b = b
 	position = RooftopSpace.project((a + b) * 0.5)
 	tint = color
 	max_length = maxf(1.0, leash)
 	overloaded = is_overloaded
+	warded = is_warded
 	# Slack is eased rather than taken raw so the belly lifts steadily as the
 	# pair separates instead of snapping straight over the last few pixels.
 	var ratio := clampf(a.distance_to(b) / max_length, 0.0, 1.0)
@@ -126,8 +130,11 @@ func _draw() -> void:
 	# edge is what keeps the chain visible over a pale floor and inside a crowd,
 	# and it is the reason nothing in this file is additively blended.
 	var body := Color("0a1520") if not overloaded else Color("120a10")
-	draw_polyline(drawn, Color(body, 0.85), 9.0 if not overloaded else 5.0, true)
-	draw_polyline(drawn, Color(tint, 0.95 if not overloaded else 0.4), 5.0 if not overloaded else 2.5, true)
+	var pulse := 1.0 + sin(Time.get_ticks_msec() * 0.016) * 0.16 if warded else 1.0
+	var body_width := (13.0 * pulse) if warded else (9.0 if not overloaded else 5.0)
+	var core_width := (8.0 * pulse) if warded else (5.0 if not overloaded else 2.5)
+	draw_polyline(drawn, Color(body, 0.85), body_width, true)
+	draw_polyline(drawn, Color(tint, 1.0 if warded else (0.95 if not overloaded else 0.4)), core_width, true)
 	_draw_links(drawn)
 
 

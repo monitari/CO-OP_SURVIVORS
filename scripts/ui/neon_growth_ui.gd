@@ -1,31 +1,19 @@
 extends RefCounted
 const UI := preload("res://scripts/ui/editorial_ui.gd")
-const Frame := preload("res://scripts/ui/neon_frame.gd")
-const CYAN := Color("35dbff")
-const VIOLET := Color("ff9f43")
-const INK := Color("f1f7ff")
+const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
+const CYAN := CardVisual.CYAN
+const VIOLET := CardVisual.PARTNER
+const INK := CardVisual.INK
+const CARD_HOVER_LIFT := 24.0
+const CARD_HOVER_TIME := 0.18
 
 static func trim(parent: Control, tint: Color, selected := false, ears := false) -> void:
-	var frame := parent.get_node_or_null("NeonTrim")
-	if frame == null:
-		frame = Frame.new()
-		frame.name = "NeonTrim"
-		parent.add_child(frame)
-	frame.accent = tint
-	frame.active = selected
-	frame.ears = ears
-	frame.paws = parent is Label or parent.name == "PartnerChoice"
-	frame.queue_redraw()
+	CardVisual.decorate(parent, tint, selected, ears, parent is Label or parent.name == "PartnerChoice", false)
+
 
 static func surface(tint: Color, selected := false) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("09182f")
-	style.border_color = tint
-	style.set_border_width_all(2 if selected else 1)
-	style.set_corner_radius_all(14)
-	style.shadow_color = Color(tint, 0.3 if selected else 0.12)
-	style.shadow_size = 12 if selected else 6
-	return style
+	return CardVisual.surface(tint, selected)
+
 
 static func refresh(main: Node) -> void:
 	var primary: int = main.local_view_slot() if main.ai_companion or main.online.is_online() else main.focused_growth_slot()
@@ -50,8 +38,8 @@ static func refresh(main: Node) -> void:
 			var middle := (count - 1) * 0.5
 			card.size = Vector2(width, height)
 			card.pivot_offset = Vector2(width * 0.5, height)
-			var target_position := Vector2(625 + (index - middle) * spread - width * 0.5, 50 if selected else 70 + absf(index - middle) * 5)
-			var target_rotation: float = 0.0 if selected else (index - middle) / maxf(1.0, middle) * 0.11
+			var target_position := Vector2(625 + (index - middle) * spread - width * 0.5, 70 + absf(index - middle) * 5)
+			var target_rotation: float = (index - middle) / maxf(1.0, middle) * 0.11
 			_animate_card(card, target_position, target_rotation, selected, was_visible)
 			card.z_index = 8 if selected else 3
 			card.modulate = Color.WHITE if chosen < 0 or selected else Color("aeb8cb")
@@ -81,19 +69,32 @@ static func refresh(main: Node) -> void:
 		main.combat_hud.get_node("P%dFrame" % (slot + 1)).size.y = 76 if slot == main.local_view_slot() else 68
 
 static func _animate_card(card: Control, target: Vector2, angle: float, selected: bool, was_visible: bool) -> void:
+	var destination := target + (Vector2.UP.rotated(angle) * CARD_HOVER_LIFT if selected else Vector2.ZERO)
+	if was_visible and bool(card.get_meta("neon_shown", false)) and card.get_meta("neon_lifted_position", Vector2.INF) == destination:
+		return
 	var old_tween = card.get_meta("neon_tween") if card.has_meta("neon_tween") else null
 	if old_tween is Tween and old_tween.is_valid():
 		old_tween.kill()
 	var first_show := not bool(card.get_meta("neon_shown", false)) or not was_visible
 	if first_show:
 		card.position = target
-	card.rotation = angle
+		card.rotation = angle
 	card.scale = Vector2.ONE
 	card.set_meta("neon_shown", true)
+	card.set_meta("neon_rest_position", target)
+	card.set_meta("neon_hover_lift", CARD_HOVER_LIFT)
+	# Keep the fan angle and move along the card's own vertical axis. This is
+	# equivalent to lifting an inner HTML card inside its rotated slot.
+	var lifted_target := target
+	if selected:
+		lifted_target += Vector2.UP.rotated(angle) * CARD_HOVER_LIFT
+	card.set_meta("neon_lifted_position", lifted_target)
 	var tween := card.create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-	tween.set_parallel(true).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(card, "position", target, 0.18)
+	tween.set_parallel(true).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "position", lifted_target, CARD_HOVER_TIME)
+	tween.tween_property(card, "rotation", angle, CARD_HOVER_TIME)
 	card.set_meta("neon_tween", tween)
+
 
 static func _card(main: Node, card: Label, slot: int, option: Dictionary, selected: bool, width: float, height: float) -> void:
 	var kind := String(option["id"])
@@ -142,7 +143,7 @@ static func _card(main: Node, card: Label, slot: int, option: Dictionary, select
 	badge.add_theme_font_size_override("font_size", 13)
 	badge.add_theme_stylebox_override("normal", surface(tint.darkened(0.3)))
 	badge.add_theme_color_override("font_color", Color("ffafbd") if against else Color("71ffcd"))
-	trim(card, tint, selected, selected)
+	trim(card, tint, selected, false)
 
 static func _install(main: Node) -> void:
 	if main.level_overlay.has_node("PartnerChoice"): return

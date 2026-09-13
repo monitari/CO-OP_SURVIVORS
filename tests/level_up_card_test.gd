@@ -349,10 +349,15 @@ func _test_luck_and_fan_hand(main: Node) -> void:
 	for index in cards.size():
 		var card: Label = cards[index]
 		_check(card.scale.is_equal_approx(Vector2.ONE), "focus does not enlarge a growth card")
+		var rest: Vector2 = card.get_meta("neon_rest_position")
+		var destination: Vector2 = card.get_meta("neon_lifted_position")
 		if index == focused:
-			_check(is_zero_approx(card.rotation), "the card under the cursor comes upright")
+			var local_lift := destination - rest
+			_check(local_lift.dot(Vector2.UP.rotated(card.rotation)) > 20.0,
+				"the focused card rises along its own axis without losing the fan angle")
 		else:
-			_check(not is_zero_approx(card.rotation), "unfocused cards preserve the fan")
+			_check(destination.distance_to(rest) < 0.1,
+				"unfocused cards rest in the fan")
 	_check(int(cards[focused].z_index) > int(cards[(focused + 1) % cards.size()].z_index),
 		"the focused card lifts clear of its neighbours")
 	# Outer cards sit lower than the middle of the fan, which is what makes it

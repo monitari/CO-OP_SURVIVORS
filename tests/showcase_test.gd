@@ -128,9 +128,15 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	_check(resonance.result_icon == null, "a resonance does not — both weapons stay")
 	_check(fusion.sources.size() == 2 and resonance.sources.size() == 2, "both start from two")
 	_check(chest.reward_icons.size() == 1, "a chest shows one icon per reward")
-	_check(chest.reward_cards.size() == 1 and chest.reward_cards[0].get_children().any(
-		func(child: Node) -> bool: return child is Label and child.text.begins_with("👍")),
+	_check(chest.reward_cards.size() == 1
+		and chest.reward_cards[0].get_node("Recommendation").text.begins_with("👍"),
 		"a rated chest card carries a thumbs-up recommendation")
+	_check(chest.reward_cards[0].get_meta("growth_card_visual", false)
+		and chest.reward_cards[0].has_node("Category")
+		and chest.reward_cards[0].has_node("CardTitle")
+		and chest.reward_cards[0].has_node("Detail")
+		and chest.reward_cards[0].has_node("Recommendation"),
+		"a chest reward uses the growth-choice card hierarchy")
 
 	# A chest with more in it takes longer, because each reward is revealed
 	# separately; a chest that dumped everything at once would be a list.
@@ -138,7 +144,19 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	big.play_chest([{"label": "x", "icon": null}, {"label": "y", "icon": null}, {"label": "z", "icon": null}])
 	_check(big.duration > chest.duration,
 		"a fuller chest takes longer to open (%.2f vs %.2f)" % [big.duration, chest.duration])
-	for node: Showcase in [fusion, resonance, chest, big]:
+	var crowded := Showcase.new()
+	crowded.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	crowded.size = Vector2(1280, 720)
+	var eight_rewards: Array = []
+	for index in 8:
+		eight_rewards.append({"label": "reward %d" % index, "icon": null})
+	crowded.play_chest(eight_rewards)
+	crowded.age = crowded._reward_beat(7) + 0.5
+	crowded._step_chest()
+	_check(crowded.reward_cards.all(func(card: Control) -> bool:
+		return card.position.y >= 0.0 and card.position.y + card.size.y <= 720.0),
+		"the maximum eight growth-style rewards fit in two rows")
+	for node: Showcase in [fusion, resonance, chest, big, crowded]:
 		node.free()
 
 

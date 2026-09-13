@@ -374,7 +374,7 @@ func _receive_enemy_shot(payload: Dictionary) -> void:
 	projectile.setup(Vector2(payload.get("origin", Vector2.ZERO)),
 		Vector2(payload.get("direction", Vector2.RIGHT)), 0.0, no_targets)
 	projectile.speed = float(payload.get("speed", projectile.speed))
-	game.add_child(projectile)
+	game.rooftop_view.world.add_child(projectile)
 
 
 func host_tick(delta: float) -> void:
@@ -516,7 +516,8 @@ func _sync_enemies(states: Array) -> void:
 			enemy.setup(1.0, String(state[EnemyField.ARCHETYPE]),
 				bool(state[EnemyField.ELITE]), bool(state[EnemyField.BOSS]),
 				int(state[EnemyField.RANK]))
-			game.wave_director.add_child(enemy)
+			game.world_stage.add_child(enemy)
+			enemy.z_index = 0
 			replica_enemies[id] = enemy
 		enemy.position = enemy.position.lerp(Vector2(state[EnemyField.POSITION]), 0.65)
 		enemy.rotation = float(state[EnemyField.ROTATION])
