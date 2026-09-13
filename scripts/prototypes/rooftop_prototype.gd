@@ -115,10 +115,18 @@ var hang_chain := true
 
 
 func _ready() -> void:
+	# The scene exists to be looked at in perspective — that is the thing being
+	# judged — so it opens in that view rather than in the LIFTED default the
+	# static var otherwise carries over from wherever it was last left (a test
+	# run, an earlier launch). F1 still cycles through all three from here.
+	RooftopSpace.view_mode = RooftopSpace.View.PERSPECTIVE
 	_bind_input()
 	_build_world()
 	_place_props()
 	_spawn_pair()
+	RooftopSpace.focus = (players[0].position + players[1].position) * 0.5
+	world_camera.position = RooftopSpace.focus
+	_to_view()
 	set_process(true)
 	set_physics_process(true)
 
