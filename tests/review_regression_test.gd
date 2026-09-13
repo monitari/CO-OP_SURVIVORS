@@ -24,13 +24,13 @@ func _run() -> void:
 	check(not main.pause_active and is_instance_valid(main), "default confirm resumes safely")
 	main._set_pause(true)
 	await _press(main, "menu_next")
-	check(main.pause_cursor == 1, "pad/keyboard navigation reaches settings")
-	await _press(main, "menu_right")
-	check(main.pause_cursor == 2, "pause navigation follows the visible column")
+	check(main.pause_cursor == 7, "navigation reaches collapsed settings")
+	await _press(main, "menu_confirm")
+	check(main.pause_settings, "confirm opens settings")
 	await _press(main, "menu_next")
-	check(main.pause_cursor == 4, "pause navigation moves down within the right column")
-	await _press(main, "menu_left")
-	check(main.pause_cursor == 3, "pause navigation crosses to the matching row")
+	check(main.pause_cursor == 1, "settings navigation reaches first toggle")
+	await _press(main, "menu_next")
+	check(main.pause_cursor == 2, "settings navigation follows vertical list")
 	main.pause_cursor = 1
 	main._update_pause_text()
 	var before: bool = main.screen_shake_enabled
@@ -139,19 +139,16 @@ func _run() -> void:
 	main._begin_level_up()
 	main.level_up_input_delay = 0
 	main._refresh_level_up_ui()
-	check(main.level_overlay.get_node("Reroll0").text.contains("재추첨 없음"),
-		"fixed tech hands explain why reroll is disabled")
+	check(not main.level_overlay.get_node("Reroll0").visible,
+		"fixed tech hands omit the unavailable reroll action")
 	check(not main._growth_resonance_preview().is_empty(),
 		"highlighted tech routes preview their eventual automatic resonance")
 	var event := InputEventMouseButton.new()
 	event.pressed = true
 	event.button_index = MOUSE_BUTTON_LEFT
 	main.level_card_labels[0][1].gui_input.emit(event)
-	check(main.upgrade_cursors[0] == 1 and main.selected_upgrade_indices[0] == -1,
-		"mouse card chooses without immediately locking")
-	main.level_overlay.get_node("Confirm0").pressed.emit()
-	check(main.selected_upgrade_indices[0] == 1 and main.selected_upgrade_indices[1] == -1,
-		"the explicit confirm button locks only its owner")
+	check(main.upgrade_cursors[0] == 1 and main.selected_upgrade_indices[0] == 1,
+		"mouse card directly locks its owner's choice")
 	main._finish_level_up()
 	var boss := ChaserEnemy.new()
 	main.add_child(boss)

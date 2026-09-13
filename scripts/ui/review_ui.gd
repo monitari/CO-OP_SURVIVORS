@@ -6,26 +6,17 @@ const G := preload("res://scripts/ui/layout_grid.gd")
 
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
-const PAUSE_ITEM_COUNT := 7
+const PAUSE_ITEM_COUNT := 8
 const PAUSE_SLOTS := [
-	Rect2(16, 108, 752, 54), Rect2(16, 176, 368, 56),
-	Rect2(400, 176, 368, 56), Rect2(16, 244, 368, 56),
-	Rect2(400, 244, 368, 56), Rect2(16, 314, 368, 42), Rect2(400, 314, 368, 42),
+	Rect2(20, 80, 340, 44), Rect2(20, 188, 340, 44), Rect2(20, 242, 340, 44),
+	Rect2(20, 296, 340, 44), Rect2(20, 350, 340, 44), Rect2(20, 188, 340, 44),
+	Rect2(20, 242, 340, 44), Rect2(20, 134, 340, 44),
 ]
 
-
-## Move through the pause menu in the same direction as its visible 2-column
-## layout. Continue spans both columns, so either upper setting leads back to it.
-static func pause_neighbor(index: int, direction: String) -> int:
-	var vertical := {
-		"down": [1, 3, 4, 5, 6, 0, 0],
-		"up": [5, 0, 0, 1, 2, 3, 4],
-	}
-	if direction in vertical:
-		return int(vertical[direction][clampi(index, 0, PAUSE_ITEM_COUNT - 1)])
-	if direction in ["left", "right"]:
-		return {1: 2, 2: 1, 3: 4, 4: 3, 5: 6, 6: 5}.get(index, index)
-	return index
+static func pause_neighbor(index: int, direction: String, settings := false) -> int:
+	var order := [0, 7, 1, 2, 3, 4] if settings else [0, 7, 5, 6]
+	var step := -1 if direction in ["up", "left"] else 1
+	return int(order[wrapi(order.find(index) + step, 0, order.size())])
 
 
 static func button(parent: Control, caption: String, rect: Rect2, action: Callable) -> Button:
@@ -65,6 +56,8 @@ static func refresh_title(main: Node) -> void:
 
 
 static func install(main: Node) -> void:
+	button(main.character_overlay, "상세 보기 · TAB / X", Rect2(936, 14, 224, 36), func() -> void:
+		toggle_character_details(main)).name = "CharacterDetails"
 	for index in main.title_rows.size():
 		var hit := button(main.title_overlay, "", Rect2(0, 0, 10, 10), func() -> void: main._activate_title_item(index))
 		hit.name = "TitleHit%d" % index
@@ -120,34 +113,26 @@ static func install(main: Node) -> void:
 				if e.button_index == MOUSE_BUTTON_RIGHT:
 					main.upgrade_cursors[slot] = index
 					toggle_details(main)
-				elif e.button_index == MOUSE_BUTTON_LEFT and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
-					# Clicking points at a card; the separate primary action commits it.
-					main.upgrade_cursors[slot] = index
-					main.feedback.play_cue("select")
-					main._refresh_level_up_ui())
-		# The three growth actions sit between the status strip and the fan, so a
-		# survivor's buttons are under their own hand rather than under the screen.
-		var growth_confirm := button(main.level_overlay, "선택 확정", Rect2(main.LEVEL_HALF_X[slot] + 24, 114, 150, 26), func() -> void:
-			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0:
-				main._confirm_growth_choice(slot, main.upgrade_cursors[slot]))
-		growth_confirm.name = "Confirm%d" % slot
-		growth_confirm.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
-		growth_confirm.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
-		growth_confirm.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
-		button(main.level_overlay, "선택 취소", Rect2(main.LEVEL_HALF_X[slot] + 182, 114, 106, 26), func() -> void:
-			if main.level_up_active:
-				main._cancel_growth_choice(slot)).name = "Cancel%d" % slot
-		button(main.level_overlay, "다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + 296, 114, 172, 26), func() -> void:
+				elif e.button_index == MOUSE_BUTTON_LEFT and main.level_up_input_delay <= 0.0:
+					if main.selected_upgrade_indices[slot] == index and main.selected_upgrade_indices[1 - slot] < 0:
+						main._cancel_growth_choice(slot)
+					elif main.selected_upgrade_indices[slot] < 0:
+						main.upgrade_cursors[slot] = index
+						main._confirm_growth_choice(slot, index))
+		var reroll := button(main.level_overlay, "↻  다시 뽑기", Rect2(main.LEVEL_HALF_X[slot] + 232, 480, 176, 38), func() -> void:
 			if main.level_up_active and main.level_up_input_delay <= 0.0 and main.selected_upgrade_indices[slot] < 0 and main.rerolls_remaining[slot] > 0:
-				main._reroll_growth_choice(slot)).name = "Reroll%d" % slot
+				main._reroll_growth_choice(slot))
+		reroll.name = "Reroll%d" % slot
+		reroll.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
+		reroll.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
+		reroll.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
 		for index in main.resonance_cards.size():
 			var card: Label = main.resonance_cards[index]
-			button(card, "P%d 선택" % (slot + 1), Rect2(14 + slot * 110, 244, 98, 32), func() -> void:
+			button(card, "%s 선택" % main.player_label(slot), Rect2(14 + slot * 110, 244, 98, 32), func() -> void:
 				if not main.resonance_vote_active: return
 				main.resonance_votes[slot] = index
 				main.resonance_cursors[slot] = index
 				main._refresh_resonance_vote_ui())
-	button(main.level_overlay, "상세 · TAB / X", Rect2(1036, 2, 228, 26), func() -> void: toggle_details(main))
 	var result_menu := button(main.result_overlay, "메인 메뉴로", Rect2((G.w(8) - 300.0) * 0.5, 582, 300, 34), func() -> void:
 		main.get_tree().paused = false
 		main.get_tree().reload_current_scene())
@@ -195,6 +180,11 @@ static func install(main: Node) -> void:
 	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다 · 선택은 창을 닫은 뒤 확정", Rect2(24, 508, 1138, 24), 14, Palette.MUTED)
 
 
+static func toggle_character_details(main: Node) -> void:
+	main.character_overlay.set_meta("show_details", not bool(main.character_overlay.get_meta("show_details", false)))
+	UI.refresh_characters(main)
+
+
 static func _detail_card(parent: Control, x: float, y: float, icon_id: String, title: String, node_name: String) -> void:
 	var card := UI.plate(parent, Rect2(x, y, 272, 112), Palette.CARD)
 	card.name = node_name
@@ -211,43 +201,40 @@ static func choose_cat(main: Node, slot: int, direction: int) -> void:
 
 static func refresh_pause(main: Node) -> void:
 	if not main.pause_overlay.has_node("PauseAction0"): return
-	main.pause_overlay.get_node("SettingsRows").hide()
-	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "메인 메뉴로", "게임 종료"]
-	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled, main.feedback.sound_enabled, main.feedback.music_enabled]
-	main.pause_overlay.get_node("PauseHeading").text = ("게임을 종료할까요?" if main.pending_quits else "현재 판을 종료할까요?") if main.restart_pending else "잠시 쉬어가기"
-	for index in PAUSE_ITEM_COUNT:
-		var b: Button = main.pause_overlay.get_node("PauseAction%d" % index)
-		b.visible = not main.restart_pending or index < 2
-		var caption: String = (["취소 · 계속 쉬기", "게임 종료" if main.pending_quits else "종료하고 메인으로"] [index] if main.restart_pending and index < 2 else names[index])
-		if not main.restart_pending and index in [1, 2, 3, 4]: caption += "\n" + ("● 켜짐" if states[index] else "○ 꺼짐")
-		b.text = ("▶  " if main.pause_cursor == index else "") + caption
-		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if main.pause_cursor == index else Palette.CARD)
-		style.border_color = Palette.P1 if main.pause_cursor == index else Palette.OUTLINE
-		style.set_border_width_all(Palette.BORDER_ACTIVE if main.pause_cursor == index else Palette.BORDER)
-		b.add_theme_stylebox_override("normal", style)
-	main.pause_overlay.get_node("PauseHeading").size.x = G.w(8) - (G.GUTTER * 2.0 if main.restart_pending else 268.0)
-	main.pause_overlay.get_node("PauseDetails").visible = not main.restart_pending
-	main.pause_overlay.get_node("RunSnapshot").visible = not main.restart_pending
-	if not main.restart_pending:
-		var values := ["%02d:%02d" % [int(main.elapsed) / 60, int(main.elapsed) % 60], "LV.%d" % main.progression.level, str(main.kills), "%d%%" % roundi(main.chain_integrity)]
-		for index in 4:
-			main.pause_overlay.get_node("RunSnapshot/Metric%d" % index).text = values[index]
-	else:
-		var confirm_x := (G.w(8) - 252.0 * 2.0 - G.GUTTER) * 0.5
-		main.pause_overlay.get_node("PauseAction0").position = Vector2(confirm_x, 190)
-		main.pause_overlay.get_node("PauseAction0").size = Vector2(252, 64)
-		main.pause_overlay.get_node("PauseAction1").position = Vector2(confirm_x + 252.0 + G.GUTTER, 190)
-		main.pause_overlay.get_node("PauseAction1").size = Vector2(252, 64)
-	if not main.restart_pending:
-		for index in PAUSE_ITEM_COUNT:
-			var slot: Rect2 = PAUSE_SLOTS[index]
-			main.pause_overlay.get_node("PauseAction%d" % index).position = slot.position
-			main.pause_overlay.get_node("PauseAction%d" % index).size = slot.size
-	UI.place(main.pause_label, Rect2(G.GUTTER, main.pause_overlay.size.y - 44, G.w(8) - G.GUTTER * 2.0, 30), Palette.TYPE_CAPTION)
-	main.pause_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.pause_label.text = "방향키 / 패드 방향키 이동 · ENTER / A 선택 · ESC / B 닫기"
+	var screen: Control = main.pause_overlay
+	screen.position = Vector2(450, 125 if main.pause_settings else 180)
+	screen.size = Vector2(380, 470 if main.pause_settings else 360)
+	for child in screen.get_children():
+		if child is Label or child.name in ["SettingsRows", "RunSnapshot"]:
+			child.hide()
+	var heading: Label = screen.get_node("PauseHeading")
+	heading.show()
+	UI.place(heading, Rect2(20, 16, 340, 42), 24)
+	heading.text = "설정" if main.pause_settings else "잠시 쉬어가기"
 	if main.restart_pending:
-		main.pause_label.text = "현재 판의 성장과 기록은 사라집니다. 취소가 기본 선택입니다."
+		heading.text = "게임을 종료할까요?" if main.pending_quits else "메뉴로 돌아갈까요?"
+	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "메인 메뉴로", "게임 종료", "돌아가기" if main.pause_settings else "설정"]
+	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled, main.feedback.sound_enabled, main.feedback.music_enabled]
+	var order := [0, 7, 1, 2, 3, 4] if main.pause_settings else [0, 7, 5, 6]
+	for index in PAUSE_ITEM_COUNT:
+		var button: Button = screen.get_node("PauseAction%d" % index)
+		button.visible = index < 2 if main.restart_pending else index in order
+		button.position = PAUSE_SLOTS[index].position
+		button.size = PAUSE_SLOTS[index].size
+		button.text = names[index]
+		if index in [1, 2, 3, 4]:
+			button.text += "   ·   " + ("켜짐" if states[index] else "꺼짐")
+		if main.restart_pending and index < 2:
+			button.position = Vector2(20, 100 + index * 60)
+			button.text = "취소" if index == 0 else "종료" if main.pending_quits else "메뉴로 돌아가기"
+		button.add_theme_stylebox_override("normal", Palette.button_surface("hover" if index == main.pause_cursor else "normal", Palette.P1, index == main.pause_cursor))
+	var details: Button = screen.get_node("PauseDetails")
+	details.visible = not main.restart_pending and not main.pause_settings
+	details.position = Vector2(20, 302)
+	details.size = Vector2(340, 34)
+	details.text = "내 장비 · 능력치   TAB"
+	main.pause_label.hide()
+
 
 static func toggle_details(main: Node) -> void:
 	if not (main.level_up_active or main.pause_active) or main.resonance_vote_active: return
@@ -261,7 +248,7 @@ static func toggle_details(main: Node) -> void:
 		var header: Panel = main.details_overlay.get_node("DetailHeader%d" % slot)
 		header.get_node("Portrait").texture = Icons.survivor(String(main.selected_characters[slot]["id"]))
 		header.get_node("Weapon").texture = Icons.weapon(String(main.weapon_loadouts[slot][0]["weapon_id"]))
-		header.get_node("Name").text = "P%d  %s" % [slot + 1, p.character_name]
+		header.get_node("Name").text = "%s  %s" % [main.player_label(slot), p.character_name]
 		header.get_node("WeaponName").text = "%d 무기 · %d 보물" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
 		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%% · 치명 %d%% · 발동 %d%%\n추가 +%d · 관통 +%d · 탄속 %d%% · 지속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)]
 		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f · 방어 %.0f · 재생 %.1f/s\n회피 %d%% · 반사 %d%% · 목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
@@ -287,3 +274,5 @@ static func toggle_details(main: Node) -> void:
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]
 			build_lines.append("선택  %s · ★ %s" % [String(choice["title"]).replace("\n", " "), String(choice.get("recommendation_reason", "균형 성장")).split("   ")[0]])
 		main.details_overlay.get_node("Build%d/Value" % slot).text = "\n".join(build_lines)
+
+	preload("res://scripts/ui/player_perspective.gd").details(main)

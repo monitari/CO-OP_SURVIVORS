@@ -78,10 +78,10 @@ func _test_starts_empty(main: Node) -> void:
 
 
 func _test_cap(main: Node) -> void:
-	for treasure_id in ["might", "armor", "recovery", "area"]:
+	for treasure_id in ["might", "armor", "recovery", "area", "haste", "move"]:
 		_unlock(main, 0, treasure_id)
 	_check(main.treasure_loadouts[0].size() == main.TREASURE_LOADOUT_CAP,
-		"four unlocks fill the inventory (%d)" % main.treasure_loadouts[0].size())
+		"six unlocks fill the inventory (%d)" % main.treasure_loadouts[0].size())
 
 	# Sampled rather than drawn once: a single draw missing an unlock card
 	# proves nothing about whether the cap is enforced.

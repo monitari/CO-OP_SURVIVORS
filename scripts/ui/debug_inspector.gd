@@ -306,8 +306,8 @@ func _player_report(slot: int) -> String:
 	var player = game.players[slot]
 	var lines: Array[String] = []
 	var color := "#43d9ff" if slot == 0 else "#d89cff"
-	lines.append("[color=%s][b]P%d  %s[/b][/color]  HP %.0f/%.0f%s" % [
-		color, slot + 1, player.character_name, player.health, player.max_health,
+	lines.append("[color=%s][b]%s  %s[/b][/color]  HP %.0f/%.0f%s" % [
+		color, game.player_label(slot), player.character_name, player.health, player.max_health,
 		"  [다운]" if player.downed else "",
 	])
 	lines.append("공격 %.0f%%  ·  공속 %.0f%%  ·  범위 %.0f%%  ·  방어 %.1f  ·  재생 %.1f/s" % [
@@ -438,19 +438,19 @@ func _prepare_fusions() -> void:
 				target_slot = weapon_slot
 				break
 		if target_slot < 0:
-			blocked.append("P%d 보물 강화 가능한 기본 무기 없음" % (slot + 1))
+			blocked.append("%s 보물 강화 가능한 기본 무기 없음" % game.player_label(slot))
 			continue
 		var treasure_id := String(evolution["treasure_id"])
 		var treasure_slot := _treasure_slot(slot, treasure_id)
 		if treasure_slot < 0 and game.treasure_loadouts[slot].size() >= int(game.TREASURE_LOADOUT_CAP):
-			blocked.append("P%d 보물 슬롯 가득 참" % (slot + 1))
+			blocked.append("%s 보물 슬롯 가득 참" % game.player_label(slot))
 			continue
 		while int(game.weapon_loadouts[slot][target_slot].get("tier", 1)) < Evolutions.EVOLUTION_TIER:
 			game._apply_upgrade(slot, {"id": "weapon_power", "weapon_slot": target_slot})
 		if treasure_slot < 0:
 			var treasure := Treasures.by_id(treasure_id)
 			if treasure.is_empty():
-				blocked.append("P%d 레시피 보물 누락" % (slot + 1))
+				blocked.append("%s 레시피 보물 누락" % game.player_label(slot))
 				continue
 			game.treasure_loadouts[slot].append(Treasures.build_state(treasure))
 			treasure_slot = game.treasure_loadouts[slot].size() - 1
@@ -458,7 +458,7 @@ func _prepare_fusions() -> void:
 		while int(game.treasure_loadouts[slot][treasure_slot]["tier"]) < Evolutions.REQUIRED_TREASURE_TIER:
 			game.treasure_loadouts[slot][treasure_slot]["tier"] = int(game.treasure_loadouts[slot][treasure_slot]["tier"]) + 1
 			game._apply_attribute(slot, treasure_id)
-		prepared.append("P%d %s" % [slot + 1, String(evolution["weapon_name"])])
+		prepared.append("%s %s" % [game.player_label(slot), String(evolution["weapon_name"])])
 	if prepared.is_empty():
 		notice = "보물 강화 준비 실패: %s" % ", ".join(blocked)
 		_refresh()

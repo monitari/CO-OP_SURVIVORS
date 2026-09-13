@@ -20,7 +20,7 @@ const EnemyScript := preload("res://scripts/entities/enemy.gd")
 ## in theory. Twenty-five minutes is five boss fights with four full escalation
 ## stretches between them, which is what the build actually needs to finish.
 const WAVE_DURATION := 30.0
-const WAVE_CALM := 9.0 ## Trailing quiet stretch of each wave, for regrouping and picking up drops.
+const WAVE_CALM := 6.0 ## Trailing quiet stretch of each wave, for regrouping and picking up drops.
 const SURGE_EVERY := 3 ## Every third wave opens with a much larger surge.
 const BOSS_INTERVAL := 300.0
 const BOSS_COUNT := 5
@@ -31,9 +31,9 @@ const DIFFICULTY_SECONDS := 62.0
 ## The learning window. Eased alongside the weapon rebalance: a starting weapon
 ## is now about three quarters of what it used to be, and against the old opening
 ## stream a normal-health pair was going down inside ninety seconds.
-const OPENING_SPAWN_INTERVAL := 1.45
-const SECOND_WAVE_SPAWN_INTERVAL := 1.20
-const THIRD_WAVE_SPAWN_INTERVAL := 1.00
+const OPENING_SPAWN_INTERVAL := 1.20
+const SECOND_WAVE_SPAWN_INTERVAL := 1.00
+const THIRD_WAVE_SPAWN_INTERVAL := 0.85
 const FIRST_REINFORCEMENT_COUNT := 3
 ## Reached around wave forty rather than wave nine. Everything past that point
 ## is held at the floor, which is what the last few minutes of a run are for.
@@ -48,18 +48,18 @@ const EXOTIC_UNLOCK_TIME := 360.0
 const EXOTIC_UNLOCK_STEP := 150.0
 const SWARM_UNLOCK_TIME := 110.0
 const SWARM_INTERVAL := 55.0
-## Breakable scenery grows in small rooftop-garden patches. A cell seed keeps
-## each patch stable, while a live cap prevents abandoned pots from consuming
-## the enemy budget forever as the pair explores the endless roof.
+## One supply planter per seeded cell. Insets guarantee at least 480px
+## between neighboring cells, so a single area attack cannot harvest a cluster.
+## The live cap preserves the combat budget as the pair explores.
 const PLANTER_CELL := 720
 const PLANTER_SCAN_RADIUS := 2
-const PLANTER_PATCH_CHANCE := 0.46
-const PLANTER_PATCH_MIN := 2
-const PLANTER_PATCH_MAX := 3
+const PLANTER_PATCH_CHANCE := 0.36
+const PLANTER_PATCH_MIN := 1
+const PLANTER_PATCH_MAX := 1
 const PLANTER_PATCH_SPREAD := 125.0
-const PLANTER_CELL_MARGIN := 110.0
+const PLANTER_CELL_MARGIN := 240.0
 const PLANTER_PLAYER_CLEARANCE := 430.0
-const PLANTER_MAX_ALIVE := 12
+const PLANTER_MAX_ALIVE := 5
 
 ## Named encounters, on their own clock, so a long run has events in it rather
 ## than a single rising slope. Each one poses a different question: a tide is
@@ -85,7 +85,7 @@ const DELUGE_UNLOCK_TIME := 420.0
 const DELUGE_BASE_COUNT := 46
 const DELUGE_PER_MINUTE := 5.0
 const BOSS_CORDON_COUNT := 12
-const BOSS_CORDON_RADIUS := 610.0
+const BOSS_CORDON_RADIUS := 900.0
 
 var enemy_pool: Array[ChaserEnemy] = []
 var spawn_timer := 0.0
@@ -127,7 +127,11 @@ func spawn_interval() -> float:
 	# where the third wave leaves off and reaches the same floor around wave
 	# forty-three, a little under twenty-two minutes, so the pressure a player
 	# feels tracks how far into the run they actually are.
-	return maxf(SPAWN_INTERVAL_FLOOR, 0.86 - float(wave_index) * 0.0175)
+	return maxf(SPAWN_INTERVAL_FLOOR, 0.78 - float(wave_index) * 0.018)
+
+
+func spawn_batch_size() -> int:
+	return 2 + int(float(wave_index) / 3.0)
 
 
 func is_surge_wave(index: int) -> bool:
@@ -244,14 +248,19 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 
 	if spawn_timer <= 0.0:
 		spawn_timer = spawn_interval()
-		var count := 1 + int(float(wave_index) / 4.0)
+		var count := spawn_batch_size()
 		if wave_index >= 2 and randf() < 0.4:
 			count += 1
 		var batch_archetype := _pick_archetype(elapsed)
+		var bearing := randf() * TAU
+		var spacing := lerpf(64.0, 36.0, clampf(float(wave_index) / 40.0, 0.0, 1.0))
 		for index in count:
 			if active_count + spawned.size() >= enemy_cap:
 				break
-			spawned.append(_acquire_enemy(batch_archetype, difficulty, center, false, false))
+			var enemy := _acquire_enemy(batch_archetype, difficulty, center, false, false)
+			var lateral := (float(index) - float(count - 1) * 0.5) * spacing
+			enemy.position = center + Vector2.from_angle(bearing) * randf_range(940.0, 1020.0) + Vector2.from_angle(bearing + PI * 0.5) * lateral
+			spawned.append(enemy)
 	return spawned
 
 
@@ -353,7 +362,7 @@ func _run_encounter(
 					return
 				var enemy := _acquire_enemy("charger", difficulty, center, false, false)
 				var lateral := float(index - 6) * 62.0
-				enemy.position = (center + Vector2.from_angle(bearing) * 780.0
+				enemy.position = (center + Vector2.from_angle(bearing) * 980.0
 					+ Vector2.from_angle(bearing + PI * 0.5) * lateral)
 				spawned.append(enemy)
 		"ring_siege":
@@ -366,7 +375,7 @@ func _run_encounter(
 					return
 				var enemy := _acquire_enemy("bulwark", difficulty, center, false, false)
 				_fortify_wall(enemy, 1.25)
-				enemy.position = center + Vector2.from_angle(TAU * float(index) / float(count)) * 640.0
+				enemy.position = center + Vector2.from_angle(TAU * float(index) / float(count)) * 920.0
 				spawned.append(enemy)
 		"boss_cordon":
 			var wall_scale := 1.35 + float(maxi(1, bosses_spawned)) * 0.15
@@ -396,7 +405,7 @@ func _run_encounter(
 				var enemy := _acquire_enemy(_pick_archetype(elapsed_now), difficulty, center, false, false)
 				var ring := index % 4
 				var angle := TAU * float(index) / float(total) + float(ring) * 0.31
-				enemy.position = center + Vector2.from_angle(angle) * (560.0 + float(ring) * 175.0)
+				enemy.position = center + Vector2.from_angle(angle) * (900.0 + float(ring) * 125.0)
 				spawned.append(enemy)
 
 
@@ -424,7 +433,7 @@ func _acquire_enemy(
 		enemy = enemy_pool.pop_back()
 	enemy.setup(difficulty, archetype, elite, boss, boss_rank)
 	var angle := randf() * TAU
-	var distance := randf_range(610.0, 760.0) if not boss else 820.0
+	var distance := randf_range(900.0, 1080.0) if not boss else 1050.0
 	enemy.position = center + Vector2.from_angle(angle) * distance
 	return enemy
 

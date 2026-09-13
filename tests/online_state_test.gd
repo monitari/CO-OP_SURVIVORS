@@ -54,11 +54,11 @@ func _run() -> void:
 	main.level_up_input_delay = 0.0
 	main.selected_upgrade_indices.assign([0, -1])
 	main._refresh_level_up_ui()
-	_check(not main.level_overlay.get_node("ReturnToFirst").visible,
-		"online client cannot expose the local P1 revision action")
+	_check(not main.level_overlay.has_node("ReturnToFirst"),
+		"the immersive hand exposes no separate revision box")
 	main.selected_upgrade_indices.assign([-1, -1])
 	main._refresh_level_up_ui()
-	main.level_overlay.get_node("Confirm1").pressed.emit()
+	main._confirm_growth_choice(1, main.upgrade_cursors[1])
 	_check(recording.controls.back().get("type") == "growth_select",
 		"client growth mouse confirmation is sent to the host")
 	main.level_up_active = false

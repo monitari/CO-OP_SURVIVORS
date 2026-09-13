@@ -10,7 +10,9 @@ const GOLD := Color("edc77e")
 const MUTED := Color("a6b9cf")
 const OUTLINE := Color("7596bd55")
 const P1 := Color("63dce6")
-const P2 := Color("c39afa")
+## Cyan and violet sat too close perceptually on the blue rooftop. The partner
+## now owns a warm amber-orange family throughout selection, HUD and cards.
+const P2 := Color("ff9f43")
 const CARD := Color("192a42f2")
 # Combat can put hundreds of bright silhouettes behind these panels. At 60%
 # opacity the crowd became part of the typography; 90% keeps the rooftop tone
@@ -48,6 +50,9 @@ static func player_surface(slot: int, active := false, confirmed := false, dark 
 	var style := surface(tint)
 	style.border_color = accent if active or confirmed else OUTLINE
 	style.set_border_width_all(BORDER_ACTIVE if active or confirmed else BORDER)
+	style.border_width_top = 4 if confirmed else (3 if active else BORDER)
+	style.shadow_color = Color(0.015, 0.025, 0.05, 0.24)
+	style.shadow_size = 4 if active or confirmed else 0
 	return style
 
 

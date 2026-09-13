@@ -24,8 +24,8 @@ func _run() -> void:
 	await process_frame
 
 	main._update_hud()
-	_check(main.p1_status_label.text.contains("P1"), "split HUD identifies P1")
-	_check(main.p2_status_label.text.contains("P2"), "split HUD identifies P2")
+	_check(main.p1_status_label.text.contains("나"), "split HUD identifies P1")
+	_check(main.p2_status_label.text.contains("동료"), "split HUD identifies P2")
 	_check(main.p1_health_text_label.text.contains("/"), "P1 health value is written inside its bar")
 	_check(main.p2_health_text_label.text.contains("/"), "P2 health value is written inside its bar")
 	_check(not main.help_label.visible, "the permanent controls strip stays off the play field")
@@ -37,10 +37,10 @@ func _run() -> void:
 	for slot in 2:
 		var frame: Panel = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		var surface := frame.get_theme_stylebox("panel") as StyleBoxFlat
-		_check(surface.bg_color.a <= 0.65 and frame.size.y <= 116,
-			"player HUD uses a compact translucent background")
-		_check(main.combat_hud.get_node("PlayerIdentity%d" % slot).text.contains("개인 Lv."),
-			"each player can see their personal level during play")
+		_check(is_equal_approx(surface.bg_color.a, main.CatTheme.HUD.a) and frame.size.y <= 152,
+			"player HUD uses the current theme with compact geometry")
+		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).text.contains("개인 Lv."),
+			"player identity omits the redundant personal level")
 	_check(main.chain_distance_text_label.text.contains("사슬 거리"), "the distance bar names what it measures")
 	_check(main.chain_integrity_text_label.text.contains("내구도"), "the integrity bar names what it measures")
 

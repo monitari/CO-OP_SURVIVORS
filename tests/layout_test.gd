@@ -172,7 +172,8 @@ func _test_the_growth_screen_shows_the_run(main: Node) -> void:
 	_check(main.modal_dim.visible, "something dims the field behind the cards")
 	_check(main.modal_dim.veil_only,
 		"but it veils the run rather than replacing it with a backdrop")
-	_check(main.level_overlay.translucent, "and the panel itself lets the run through")
+	_check(main.level_overlay.translucent and main.level_overlay.chromeless,
+		"and the growth overlay adds no enclosing box")
 	_check(not main.boss_bar.visible and not main.boss_health_text_label.visible,
 		"the boss readout is not drawn across the panel")
 
@@ -185,7 +186,7 @@ func _test_the_growth_screen_shows_the_run(main: Node) -> void:
 	for frame in 4:
 		await physics_frame
 	main.set_physics_process(false)
-	_check(not main.modal_dim.veil_only, "the pause screen keeps its own backdrop")
+	_check(main.modal_dim.veil_only, "pause veils the frozen gameplay")
 	main._set_pause(false)
 	main.level_up_active = was_level
 	main.level_overlay.visible = true
@@ -236,7 +237,7 @@ func _test_the_growth_screen_arrives_and_leaves(main: Node) -> void:
 func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
-		_check(holder.visible, "P%d's build readout is on screen during play" % (slot + 1))
+		_check(holder.visible == (slot == main.local_view_slot()), "P%d's build readout is on screen during play" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
 			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)
@@ -252,8 +253,8 @@ func _test_the_play_field_shows_the_whole_build(main: Node) -> void:
 				# list rather than as something that grew, and eight little boxes
 				# over the play field are chrome the field does not need.
 				var tier: Label = art.get_node("Tier")
-				_check(tier.text == "Lv.%d" % int((carried[index] as Dictionary).get("tier", 1)),
-					"P%d %s %d states its level with an explicit Lv. prefix (%s)" % [slot + 1, row, index, tier.text])
+				_check(tier.text == str(int((carried[index] as Dictionary).get("tier", 1))),
+					"P%d %s %d states its level as a number (%s)" % [slot + 1, row, index, tier.text])
 				# has_theme_stylebox_override, not get_theme_stylebox: the getter
 				# falls back to the theme default and never returns null, so the
 				# obvious version of this check passes with a plate still on.
@@ -308,12 +309,19 @@ func _walk(screen_name: String, node: Control) -> void:
 		var control := child as Control
 		if control == null:
 			continue
+		if not control.visible:
+			continue
 		checked += 1
 		if control is Label:
 			_check_label(screen_name, control as Label)
 		# The tier badge deliberately hangs off the corner of the icon it labels.
 		if node.size.x > 0.0 and control.name != "Tier":
 			var own := Rect2(control.position, control.size)
+			if control.name == "PartnerChoice":
+				var global_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))
+				_check(global_bounds.encloses(control.get_global_rect()), "partner summary stays in the viewport above the growth band")
+				_walk(screen_name, control)
+				continue
 			_check(bounds.grow(1.0).encloses(own),
 				"%s · %s stays inside %s (%s in %s)" % [
 					screen_name, control.name, node.name, str(own), str(bounds)])

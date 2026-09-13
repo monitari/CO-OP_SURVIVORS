@@ -146,6 +146,11 @@ const CHAIN_OVERLOAD_CLEAR := 45.0
 const BOSS_SLAM_INTEGRITY_DRAIN := 28.0
 
 var ai_companion := false
+var ai_think_remaining := 0.0
+var ai_considered_human := -1
+## One stable personality roll per AI lobby. It keeps the choice stable while
+## the selection UI refreshes, but a new AI partner can pick a different cat.
+var ai_character_preference := randi()
 var online: OnlineCoop
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
@@ -261,6 +266,7 @@ var character_select_active := true
 var resonance_vote_active := false
 var pause_active := false
 var pause_cursor := 0
+var pause_settings := false
 ## The pause menu holds one confirmation at a time. Both destructive entries —
 ## starting over and leaving the game — go through it, so `pending_quits` is
 ## what the confirmation will actually do if it is accepted.
@@ -280,6 +286,8 @@ var run_reward := 0
 ## unlocks would make a test tool part of the metagame.
 var debug_run_tainted := false
 var meta_cursor := 0
+var meta_page := 0
+var meta_reset_pending := false
 var boss_enemy: ChaserEnemy
 var camera_shake := 0.0
 var screen_shake_enabled := true
@@ -517,6 +525,10 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 
 func _input(event: InputEvent) -> void:
 	if is_instance_valid(details_overlay) and event.is_pressed() and not event.is_echo():
+		if event.is_action_pressed("build_details") and character_select_active:
+			ReviewUI.toggle_character_details(self)
+			get_viewport().set_input_as_handled()
+			return
 		if event.is_action_pressed("build_details") and (level_up_active or pause_active):
 			ReviewUI.toggle_details(self)
 			get_viewport().set_input_as_handled()
@@ -587,7 +599,7 @@ func _physics_process(delta: float) -> void:
 	modal_dim.visible = modal
 	# Only the growth screen shows the run through; every other overlay replaces
 	# a screen there is nothing behind.
-	var veil := level_up_active and not (lobby_active or character_select_active or game_over)
+	var veil := (level_up_active or pause_active) and not (lobby_active or character_select_active or game_over)
 	if modal_dim.veil_only != veil:
 		modal_dim.veil_only = veil
 		modal_dim.queue_redraw()
@@ -635,6 +647,7 @@ func _physics_process(delta: float) -> void:
 		_handle_pause_input()
 		return
 	if character_select_active:
+		_step_ai_character(delta)
 		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
 		if lobby_input_cooldown > 0.0:
 			return
@@ -658,7 +671,7 @@ func _physics_process(delta: float) -> void:
 	weapon_controller.elapsed = elapsed
 	for player in players:
 		if player.input_source == ChainPlayer.InputSource.AI:
-			var command := CompanionController.command(player, players[0], spatial_grid, enemy_shots, chain_max_length)
+			var command := CompanionController.command(player, players[0], spatial_grid, enemy_shots, chain_max_length, self)
 			player.set_command(command["movement"], command["dash"])
 		player.step_movement(delta)
 		player.step_recovery(delta)
@@ -902,7 +915,7 @@ func _create_players() -> void:
 	players.append(player_one)
 
 	var player_two := PlayerScene.new() as ChainPlayer
-	player_two.setup(2, Color("b892ff"))
+	player_two.setup(2, CatTheme.P2)
 	player_two.position = Vector2(105.0, 0.0)
 	add_child(player_two)
 	player_two.damaged.connect(_on_player_damaged)
@@ -994,10 +1007,10 @@ func _create_hud() -> void:
 	p2_status_label.size = Vector2(298.0, 26.0)
 	p2_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	p2_status_label.add_theme_font_size_override("font_size", 20)
-	p2_status_label.add_theme_color_override("font_color", Color("b892ff"))
+	p2_status_label.add_theme_color_override("font_color", CatTheme.P2)
 	_confine_label(p2_status_label)
 	layer.add_child(p2_status_label)
-	p2_health_bar = _create_bar(layer, Vector2(913.0, 56.0), Vector2(330.0, 28.0), Color("b892ff"))
+	p2_health_bar = _create_bar(layer, Vector2(913.0, 56.0), Vector2(330.0, 28.0), CatTheme.P2)
 	p2_health_text_label = _create_bar_text(layer, Vector2(913.0, 56.0), Vector2(330.0, 28.0), 15)
 	p2_health_text_label.size = p2_health_bar.size
 
@@ -1085,15 +1098,14 @@ func _create_hud() -> void:
 
 	layer = screen_host
 	level_overlay = CatPanel.new()
-	# The growth screen interrupts a fight rather than replacing it, so the run
-	# stays visible behind both the veil and the panel itself.
+	# Growth is presented directly over the paused fight.
 	level_overlay.translucent = true
 	# Its own clock: the tree is paused while it is open, so the entrance and
 	# exit have to run on a node that ignores that.
 	level_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
 	level_overlay.position = Vector2(0.0, LEVEL_OVERLAY_Y)
 	level_overlay.size = Vector2(1280.0, LEVEL_OVERLAY_HEIGHT)
-	# No plate of its own: the band is a place to put cards, not a box to look at.
+	# Cards provide their own reading surface; the overlay adds no window frame.
 	level_overlay.chromeless = true
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
@@ -1108,7 +1120,7 @@ func _create_hud() -> void:
 	level_overlay.add_child(level_title)
 
 	level_card_labels[0] = _create_level_cards(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
-	level_card_labels[1] = _create_level_cards(level_overlay, LEVEL_HALF_X[1], Color("b892ff"))
+	level_card_labels[1] = _create_level_cards(level_overlay, LEVEL_HALF_X[1], CatTheme.P2)
 	level_portrait_icons = [
 		_create_icon_rect(level_overlay, Vector2(20.0, 376.0), Vector2(60.0, 60.0)),
 		_create_icon_rect(level_overlay, Vector2(636.0, 376.0), Vector2(60.0, 60.0)),
@@ -1118,7 +1130,7 @@ func _create_hud() -> void:
 	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 54.0, 84.0, TREASURE_LOADOUT_CAP)
 	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 694.0, 84.0, TREASURE_LOADOUT_CAP)
 	p1_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
-	p2_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[1], Color("b892ff"))
+	p2_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[1], CatTheme.P2)
 
 	resonance_overlay = CatPanel.new()
 	resonance_overlay.position = Vector2(180.0, 132.0)
@@ -1219,14 +1231,14 @@ func _create_hud() -> void:
 		bed.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bed.add_theme_stylebox_override("panel", CatTheme.surface(CatTheme.NIGHT_PANEL))
 		character_overlay.add_child(bed)
-		_add_cat_caption(character_overlay, "P%d" % (slot + 1), Vector2(46 + slot * 564, 108), Vector2(50, 30), 18)
+		_add_cat_caption(character_overlay, "%s" % player_label(slot), Vector2(46 + slot * 564, 108), Vector2(50, 30), 18)
 
 	character_portrait_icons = [
 		_create_icon_rect(character_overlay, Vector2(258.0, 92.0), Vector2(84.0, 84.0)),
 		_create_icon_rect(character_overlay, Vector2(798.0, 92.0), Vector2(84.0, 84.0)),
 	]
 	character_p1_label = _create_character_label(Vector2(38.0, 184.0), Color("43d9ff"))
-	character_p2_label = _create_character_label(Vector2(578.0, 184.0), Color("b892ff"))
+	character_p2_label = _create_character_label(Vector2(578.0, 184.0), CatTheme.P2)
 	character_overlay.add_child(character_p1_label)
 	character_overlay.add_child(character_p2_label)
 	character_synergy_label = Label.new()
@@ -1247,7 +1259,7 @@ func _create_hud() -> void:
 	title_overlay.visible = false
 	layer.add_child(title_overlay)
 	title_rows = []
-	for index in maxi(TITLE_MENU.size(), TITLE_SETTINGS.size()):
+	for index in maxi(8, maxi(TITLE_MENU.size(), TITLE_SETTINGS.size())):
 		var row := Label.new()
 		row.name = "TitleRow%d" % index
 		row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1281,7 +1293,7 @@ func _create_hud() -> void:
 	_add_cat_caption(lobby_overlay, "CO-OP SURVIVORS   /   사슬 하나, 고양이 둘", Vector2(100, 110), Vector2(900, 32), 18)
 	_add_cat_caption(lobby_overlay, "친구와 발맞춰 옥상을 지켜요. 두 사람이 참가하면 출발!", Vector2(100, 153), Vector2(900, 32), 19)
 	lobby_p1_label = _create_lobby_slot(Vector2(75.0, 318.0), Color("43d9ff"))
-	lobby_p2_label = _create_lobby_slot(Vector2(575.0, 318.0), Color("b892ff"))
+	lobby_p2_label = _create_lobby_slot(Vector2(575.0, 318.0), CatTheme.P2)
 	for slot in 2:
 		var portrait := _create_icon_rect(lobby_overlay, Vector2(241 + slot * 500, 200), Vector2(118, 118))
 		portrait.texture = IconCatalog.survivor("lyra" if slot == 0 else "volta")
@@ -1516,12 +1528,12 @@ func _slot_placeholder_style() -> StyleBoxFlat:
 ## in on the pair while the tree is paused (see _pull_camera_for_growth), and the
 ## choices sit under the action as two fans of cards — P1's on the left, P2's on
 ## the right — the way a hand of cards actually sits in front of a player.
-const LEVEL_OVERLAY_Y := 286.0
-const LEVEL_OVERLAY_HEIGHT := 434.0
-const LEVEL_CARD_WIDTH := 184.0
-const LEVEL_CARD_HEIGHT := 276.0
+const LEVEL_OVERLAY_Y := 176.0
+const LEVEL_OVERLAY_HEIGHT := 544.0
+const LEVEL_CARD_WIDTH := 190.0
+const LEVEL_CARD_HEIGHT := 306.0
 const LEVEL_CARD_GAP := 16.0
-const LEVEL_CARD_SLOTS := 4
+const LEVEL_CARD_SLOTS := 6
 ## Half the viewport each: both hands are on screen at once, so a survivor can
 ## see what their partner is about to take while they are still deciding.
 const LEVEL_HALF_WIDTH := 640.0
@@ -1530,18 +1542,15 @@ const LEVEL_CARD_Y := 142.0
 ## The fan. `SPREAD` is the horizontal step between neighbours, `ANGLE` the tilt
 ## each step adds, and `DROP` how far an outer card sinks — together they are
 ## what makes three cards read as one hand rather than as three boxes. A lucky
-## fourth card narrows the cards instead of re-flowing them into a grid, so the
-## shape of the hand never changes between one level-up and the next.
+## fourth card reduces the spread, preserving both font size and the hand shape.
 const LEVEL_FAN_CENTER_X := 320.0
-const LEVEL_FAN_SPREAD := 152.0
-const LEVEL_FAN_ANGLE := 0.085
-const LEVEL_FAN_DROP := 10.0
-const LEVEL_FAN_WIDE_CARD_WIDTH := 158.0
-const LEVEL_FAN_WIDE_SPREAD := 112.0
+const LEVEL_FAN_MAX_SPREAD := 176.0
+const LEVEL_FAN_SPAN := 360.0
+const LEVEL_FAN_MAX_ANGLE := 0.085
 ## How far below a card its rotation centre sits. A card tilted about its own
 ## middle shears out of the row; one tilted about a point under the hand swings,
 ## which is the difference between a fan and four rotated rectangles.
-const LEVEL_FAN_PIVOT_DROP := 240.0
+const LEVEL_FAN_PIVOT_Y := 286.0
 
 const RESONANCE_CARD_SLOTS := 3
 const RESONANCE_CARD_WIDTH := 236.0
@@ -1675,17 +1684,27 @@ func _begin_title() -> void:
 
 func _title_rows() -> Array:
 	match title_mode:
+		"modes": return ["AI 모드 · 혼자 출발", "로컬 멀티 · 함께 출발", "LAN 멀티 · 방 만들기 / 연결", "뒤로"]
 		"settings": return TITLE_SETTINGS
 		"meta":
 			var rows: Array = []
-			for entry in MetaProgression.UPGRADES:
+			if meta_reset_pending:
+				return ["취소", "성장 초기화 · 사용한 생선 전액 환급"]
+			for entry in MetaProgression.UPGRADES.slice(meta_page * 6, meta_page * 6 + 6):
 				rows.append(String(entry["name"]))
+			rows.append("다음 성장 분야  %d / %d" % [meta_page + 1, ceili(MetaProgression.UPGRADES.size() / 6.0)])
+			rows.append("성장 초기화 · 전액 환급")
 			return rows
 		"credits": return TITLE_CREDITS
 	return TITLE_MENU
 
 
 func _leave_title_subpage() -> void:
+	if title_mode == "meta" and meta_reset_pending:
+		meta_reset_pending = false
+		title_cursor = 0
+		_refresh_title_ui()
+		return
 	if title_mode == "menu":
 		return
 	var previous_mode := title_mode
@@ -1721,8 +1740,39 @@ func _activate_title_item(index: int) -> void:
 		return
 	title_cursor = index
 	feedback.play_cue("select")
+	if title_mode == "modes":
+		if index == 3:
+			title_mode = "menu"
+			title_cursor = 0
+			_refresh_title_ui()
+			return
+		_begin_lobby()
+		lobby_input_cooldown = 0.0
+		if index == 0:
+			_join_ai_companion()
+		elif index == 1:
+			_join_lobby_slot(0, -1, "키보드 WASD")
+			_join_lobby_slot(1, -1, "키보드 방향키")
+		return
 	if title_mode == "meta":
-		var entry: Dictionary = MetaProgression.UPGRADES[index]
+		if meta_reset_pending:
+			if index == 1:
+				meta_progression.reset_upgrades()
+			meta_reset_pending = false
+			title_cursor = 0
+			_refresh_title_ui()
+			return
+		if index == 6:
+			meta_page = wrapi(meta_page + 1, 0, ceili(MetaProgression.UPGRADES.size() / 6.0))
+			title_cursor = 0
+			_refresh_title_ui()
+			return
+		if index == 7:
+			meta_reset_pending = true
+			title_cursor = 0
+			_refresh_title_ui()
+			return
+		var entry: Dictionary = MetaProgression.UPGRADES[meta_page * 6 + index]
 		if meta_progression.purchase(String(entry["id"])):
 			feedback.play_cue("fusion")
 		_refresh_title_ui()
@@ -1753,7 +1803,10 @@ func _activate_title_item(index: int) -> void:
 		_refresh_title_ui()
 		return
 	match index:
-		0: _begin_lobby()
+		0:
+			title_mode = "modes"
+			title_cursor = 0
+			_refresh_title_ui()
 		1:
 			title_mode = "meta"
 			title_cursor = 0
@@ -1797,9 +1850,40 @@ func _join_ai_companion() -> void:
 	if not lobby_active or lobby_input_cooldown > 0.0 or lobby_joined[1]:
 		return
 	ai_companion = true
+	# Rotate through the credible shortlist between AI runs. A random starting
+	# offset varies a fresh launch; incrementing prevents unlucky repeat rolls.
+	ai_character_preference = posmod(ai_character_preference + 1, 5)
 	if not lobby_joined[0]:
 		_join_lobby_slot(0, -1, "키보드 WASD")
 	_join_lobby_slot(1, -2, "AI 동료 · 자동 이동 / 구조 / 성장")
+
+
+func local_view_slot() -> int:
+	return 1 if online != null and online.is_client() else 0
+
+
+func display_player_number(slot: int) -> int:
+	return 1 if slot == local_view_slot() else 2
+
+
+func player_label(slot: int) -> String:
+	return "나" if slot == local_view_slot() else "동료"
+
+
+func _step_ai_character(delta: float) -> void:
+	if not ai_companion or character_confirmed[1]:
+		return
+	var previous := ai_think_remaining
+	ai_think_remaining = maxf(0.0, ai_think_remaining - delta)
+	if ai_think_remaining <= 0.0:
+		selected_character_indices[1] = CompanionController.choose_character(self, 0)
+		character_confirmed[1] = true
+		_refresh_character_select_ui()
+		if character_confirmed[0]:
+			_start_selected_run()
+	elif int(previous * 3.0) != int(ai_think_remaining * 3.0):
+		selected_character_indices[1] = wrapi(selected_character_indices[1] + 1, 0, character_catalog.size())
+		_refresh_character_select_ui()
 
 
 func _can_control_player_slot(slot: int) -> bool:
@@ -1890,7 +1974,7 @@ func _refresh_lobby_ui() -> void:
 
 
 func _format_lobby_slot(slot: int) -> String:
-	var heading := "P%d" % (slot + 1)
+	var heading := "%s" % player_label(slot)
 	if lobby_joined[slot]:
 		return "%s  ✓ 참가 완료\n%s" % [heading, lobby_device_names[slot]]
 	var hint := "WASD  /  패드 1 아무 버튼" if slot == 0 else "방향키  /  패드 2 아무 버튼"
@@ -1899,7 +1983,8 @@ func _format_lobby_slot(slot: int) -> String:
 
 func _begin_character_select() -> void:
 	character_select_active = true
-	character_confirmed = [false, ai_companion]
+	character_confirmed = [false, false]
+	ai_considered_human = -1
 	character_overlay.visible = true
 	_refresh_character_select_ui()
 	get_tree().paused = true
@@ -1937,9 +2022,10 @@ func _handle_character_select_input() -> void:
 
 
 func _refresh_character_select_ui() -> void:
-	if ai_companion:
-		selected_character_indices[1] = CompanionController.choose_character(self, 0)
-		character_confirmed[1] = true
+	if ai_companion and ai_considered_human != selected_character_indices[0]:
+		ai_considered_human = selected_character_indices[0]
+		ai_think_remaining = 1.4
+		character_confirmed[1] = false
 	character_p1_label.text = _format_character_card(0)
 	character_p2_label.text = _format_character_card(1)
 	for player_index in 2:
@@ -1954,7 +2040,7 @@ func _refresh_character_select_ui() -> void:
 	if online != null:
 		online.send_character_state()
 	if ai_companion:
-		character_overlay.get_node("CharacterConfirm1").text = "AI 동료 · 자동 준비"
+		character_overlay.get_node("CharacterConfirm1").text = "AI · 준비 완료" if character_confirmed[1] else "AI · 조합 고민 중…"
 
 
 ## The select screen used to show a name, two bars and a sentence, which is not
@@ -2620,11 +2706,12 @@ func _set_pause(enabled: bool, replicate := true) -> void:
 	restart_pending = false
 	pending_quits = false
 	pause_cursor = 0
+	pause_settings = false
 	pause_overlay.visible = enabled
 	if enabled:
 		modal_dim.visible = true
-		if modal_dim.veil_only:
-			modal_dim.veil_only = false
+		if not modal_dim.veil_only:
+			modal_dim.veil_only = true
 			modal_dim.queue_redraw()
 	elif not (title_active or lobby_active or character_select_active or level_up_active or game_over or cinematic_active):
 		modal_dim.visible = false
@@ -2655,11 +2742,11 @@ func _handle_pause_input() -> void:
 		_set_pause(false)
 	elif Input.is_action_just_pressed("menu_left") or Input.is_action_just_pressed("menu_right"):
 		pause_cursor = ReviewUI.pause_neighbor(
-			pause_cursor, "left" if Input.is_action_just_pressed("menu_left") else "right")
+			pause_cursor, "left" if Input.is_action_just_pressed("menu_left") else "right", pause_settings)
 		_update_pause_text()
 	elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
 		pause_cursor = ReviewUI.pause_neighbor(
-			pause_cursor, "down" if Input.is_action_just_pressed("menu_next") else "up")
+			pause_cursor, "down" if Input.is_action_just_pressed("menu_next") else "up", pause_settings)
 		_update_pause_text()
 	elif Input.is_action_just_pressed("menu_confirm"):
 		_activate_pause_item(pause_cursor)
@@ -2741,6 +2828,9 @@ func _activate_pause_item(index: int) -> void:
 		4:
 			feedback.music_enabled = not feedback.music_enabled
 			feedback.refresh_music()
+		7:
+			pause_settings = not pause_settings
+			pause_cursor = 7
 		5, 6:
 			# Both of these throw the run away, so both ask first, and both open on
 			# cancel. The arming delay is what stops a double click on the entry
@@ -3011,13 +3101,8 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	# so rolling before it would hand out a guaranteed drop at the exact moment
 	# the run ends and nobody can walk to it.
 	_try_drop_field_item(death_position, was_elite)
-	if kills % 18 == 0:
-		var restored := 0.0
-		for player in players:
-			var before := player.health
-			player.heal(8.0)
-			restored += player.health - before
-		_show_message("함께 버틴 보상 · 둘의 체력 +%d" % roundi(restored), Color("80ed99"))
+	# Ordinary kills reward experience, never automatic healing.
+
 
 
 ## What a kill leaves on the floor: its own gem, every time.
@@ -3051,7 +3136,7 @@ func _on_planter_broken(enemy: ChaserEnemy, at: Vector2) -> void:
 	bursts.spawn(at, Color("80ed99"), 1.2)
 	particles.emit_motes(at, Color("b7e4c7"), 10)
 	feedback.play_cue("kill")
-	field_items.spawn_item(at, field_items.roll_item_id())
+	field_items.spawn_item(at, field_items.roll_item_id(team_luck))
 	run_stats["planters"] = int(run_stats.get("planters", 0)) + 1
 
 
@@ -3080,7 +3165,7 @@ func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
 	if randf() < chest_chance:
 		field_items.spawn_item(drop_position, "chest")
 		return
-	field_items.spawn_item(drop_position, field_items.roll_item_id())
+	field_items.spawn_item(drop_position, field_items.roll_item_id(team_luck))
 
 
 ## Field pickups act on the pair, not the survivor who walked over them — the
@@ -3096,10 +3181,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(centre, 260.0, color, 0.48, false)
 			particles.emit_motes(centre, color, 22)
 			camera_shake = maxf(camera_shake, 12.0)
-			var names: Array[String] = []
-			for reward: Dictionary in rewards:
-				names.append(String(reward["label"]))
-			label += " · 보상 %d개\n%s" % [rewards.size(), " · ".join(names)]
+			label += " · 카드 %d장 획득" % rewards.size()
 			# Pushed to the front so the box is seen opening before anything it
 			# contained gets its own showcase (a chest can hand out a fusion).
 			_queue_showcase({"kind": "chest", "rewards": rewards}, true)
@@ -3110,7 +3192,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 				var before := players[slot].health
 				players[slot].heal(players[slot].max_health * FIELD_ITEM_HEAL_RATIO)
 				restored[slot] = roundi(players[slot].health - before)
-			label += " · P1 +%d HP · P2 +%d HP" % restored
+			label += " · 나 +%d HP · 동료 +%d HP" % [restored[local_view_slot()], restored[1 - local_view_slot()]]
 		"magnet":
 			var pulled := experience_system.magnetize_all()
 			# Two rings from the pair's midpoint so the pull has a visible source
@@ -3257,7 +3339,7 @@ func _open_chest() -> Array[Dictionary]:
 			advice_reason = _discouragement_reason(slot, option, score)
 		_apply_upgrade(slot, option)
 		results.append({
-			"label": "P%d %s" % [slot + 1, String(chosen["label"])],
+			"label": "%s %s" % [player_label(slot), String(chosen["label"])],
 			"detail": detail,
 			"advice": advice,
 			"advice_reason": advice_reason,
@@ -3287,7 +3369,7 @@ const CHEST_REWARD_LADDER := [
 
 
 func _roll_chest_reward_count() -> int:
-	var roll := maxf(0.0, randf() - minf(0.06, float(team_luck) * 0.003))
+	var roll := pow(randf(), 1.0 + maxf(0.0, float(team_luck)) * 0.10)
 	for rung in CHEST_REWARD_LADDER:
 		if roll < float(rung[0]):
 			return int(rung[1])
@@ -3427,6 +3509,7 @@ func _advance_showcase_queue() -> void:
 	cinematic_active = true
 	get_tree().paused = true
 	var node := ShowcaseScript.new() as Showcase
+	node.player_labels = [player_label(0), player_label(1)]
 	match String(entry["kind"]):
 		"fusion":
 			var second_icon := IconCatalog.weapon(String(entry["material_weapon_id"])) if entry.has("material_weapon_id") else IconCatalog.upgrade(String(entry["treasure_id"]))
@@ -3778,9 +3861,12 @@ func _pick_unowned_treasures(slot: int, count: int) -> Array[Dictionary]:
 
 
 func _growth_choice_count() -> int:
-	var fourth_chance := minf(LUCK_FOURTH_CARD_MAX_CHANCE,
-		float(team_luck) * LUCK_FOURTH_CARD_CHANCE_PER_POINT)
-	return 4 if randf() < fourth_chance else 3
+	var count := 3
+	for extra in 3:
+		var chance := minf(0.85, maxf(0.0, float(team_luck)) * 0.075 / float(extra + 1))
+		if randf() < chance:
+			count += 1
+	return count
 
 
 ## Builds the pool of everything this level-up could offer: two generic
@@ -4782,12 +4868,15 @@ func _refresh_player_cards(player_index: int) -> void:
 				tech_tint if tech_tint.a > 0.0 else CatTheme.OUTLINE,
 				0.45 if locked else 0.72 if tech_tint.a > 0.0 else 1.0)
 			style.set_border_width_all(CatTheme.BORDER)
-		card.modulate.a = 0.48 if locked and not is_chosen else 1.0
+		# Opaque cards are essential in an overlapping hand: dim RGB, not alpha.
+		style.bg_color.a = 1.0
+		card.modulate = Color(0.94, 0.94, 0.94, 1.0) if locked and not is_chosen else Color.WHITE
+		style.border_width_top = 4 if is_chosen or is_focused else CatTheme.BORDER
 	_refresh_level_build_icons(slot)
 	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
 	var character := selected_characters[slot]
 	var lines: Array[String] = [
-		"P%d %s" % [player_index, String(character["name"])],
+		"%s %s" % [player_label(player_index - 1), String(character["name"])],
 		"무기 %d/%d    보물 %d/%d" % [
 			weapon_loadouts[slot].size(), WEAPON_LOADOUT_CAP,
 			treasure_loadouts[slot].size(), TREASURE_LOADOUT_CAP,
@@ -4817,18 +4906,21 @@ func _refresh_player_cards(player_index: int) -> void:
 ## hand into a two-by-two grid — so the shape of the screen changed depending on
 ## a luck roll, and a player's eye had to find the cards again. A fan holds its
 ## shape: the middle card is upright and centred, its neighbours step out,
-## tilt away and sink, and a fourth card narrows all four rather than
-## rearranging them. The card under the cursor lifts clear of its neighbours and
+## tilt away and sink, and a fourth card tightens the spacing without shrinking
+## the artwork or text. The card under the cursor lifts clear of its neighbours and
 ## comes upright, which is what makes an overlapping hand readable.
 func _layout_level_cards(slot: int) -> void:
+	# Once the full-screen neon hand is installed it owns card motion. Reapplying
+	# the legacy half-screen fan before every hover caused visible snapping.
+	if level_overlay.has_node("NeonHint"):
+		return
 	var choices: Array = p1_choices if slot == 0 else p2_choices
 	var cards: Array = level_card_labels[slot]
 	var count := choices.size()
 	if count <= 0:
 		return
-	var wide := count >= 4
-	var card_width: float = LEVEL_FAN_WIDE_CARD_WIDTH if wide else LEVEL_CARD_WIDTH
-	var spread: float = LEVEL_FAN_WIDE_SPREAD if wide else LEVEL_FAN_SPREAD
+	var card_width: float = LEVEL_CARD_WIDTH
+	var spread := minf(LEVEL_FAN_MAX_SPREAD, LEVEL_FAN_SPAN / maxf(1.0, float(count - 1)))
 	var centre: float = LEVEL_HALF_X[slot] + LEVEL_FAN_CENTER_X
 	var middle := float(count - 1) * 0.5
 	var focused := selected_upgrade_indices[slot] if selected_upgrade_indices[slot] >= 0 else upgrade_cursors[slot]
@@ -4836,22 +4928,22 @@ func _layout_level_cards(slot: int) -> void:
 		var card := cards[index] as Label
 		if not card.visible:
 			continue
-		_layout_level_card_contents(card, wide)
+		_layout_level_card_contents(card)
 		card.size = Vector2(card_width, LEVEL_CARD_HEIGHT)
 		# The pivot sits below the card, so the tilt reads as a card held in a
 		# hand rather than as a sheared rectangle.
-		card.pivot_offset = Vector2(card_width * 0.5, LEVEL_FAN_PIVOT_DROP)
+		card.pivot_offset = Vector2(card_width * 0.5, LEVEL_FAN_PIVOT_Y)
 		var offset := float(index) - middle
 		var raised := index == focused
-		card.rotation = 0.0 if raised else offset * LEVEL_FAN_ANGLE
+		card.rotation = 0.0 if raised else offset / maxf(middle, 1.0) * LEVEL_FAN_MAX_ANGLE
 		card.scale = Vector2.ONE
 		card.z_index = 4 if raised else 1
 		card.position = Vector2(
 			centre + offset * spread - card_width * 0.5,
-			LEVEL_CARD_Y + (0.0 if raised else absf(offset) * LEVEL_FAN_DROP))
+			LEVEL_CARD_Y + (0.0 if raised else 8.0 + absf(offset) * 6.0))
 
 
-func _layout_level_card_contents(card: Label, wide: bool) -> void:
+func _layout_level_card_contents(card: Label) -> void:
 	var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 	var icon := card.get_node("Icon") as TextureRect
 	var fusion_mark := card.get_node("FusionMark") as TextureRect
@@ -4859,27 +4951,29 @@ func _layout_level_card_contents(card: Label, wide: bool) -> void:
 	var category := card.get_node("Category") as Label
 	var title := card.get_node("CardTitle") as Label
 	var recommendation := card.get_node("Recommendation") as Label
-	# One shape at two widths. A four-card hand narrows the card and everything
-	# on it rather than switching to a second layout.
-	var width: float = LEVEL_FAN_WIDE_CARD_WIDTH if wide else LEVEL_CARD_WIDTH
-	var art: float = 54.0 if wide else 64.0
-	style.content_margin_left = 13.0 if wide else 16.0
-	style.content_margin_right = 13.0 if wide else 16.0
-	style.content_margin_top = 128.0 if wide else 138.0
+	# Keep identical content geometry at every hand size; focus exposes the card.
+	var width: float = LEVEL_CARD_WIDTH
+	var art: float = 64.0
+	style.content_margin_left = 16.0
+	style.content_margin_right = 16.0
+	style.content_margin_top = 152.0
 	style.content_margin_bottom = 12.0 if bool(card.get_meta("tech_card", false)) else 44.0
 	icon.position = Vector2(12.0, 14.0)
 	icon.size = Vector2(art, art)
 	fusion_mark.position = Vector2(width - 42.0, 9.0)
 	fusion_mark.size = Vector2(32.0, 32.0)
-	scope.position = Vector2(art + 20.0, 14.0)
-	scope.size = Vector2(width - art - 32.0, 26.0)
-	category.position = Vector2(art + 22.0, 46.0)
-	category.size = Vector2(width - art - 34.0, 28.0)
-	title.position = Vector2(14.0, 78.0)
-	title.size = Vector2(width - 28.0, 46.0)
-	recommendation.position = Vector2(9.0, LEVEL_CARD_HEIGHT - 37.0)
+	scope.position = Vector2(12.0, 82.0)
+	scope.size = Vector2(width - 24.0, 20.0)
+	scope.add_theme_font_size_override("font_size", 12)
+	category.position = Vector2(86.0, 42.0)
+	category.size = Vector2(width - 98.0, 28.0)
+	category.visible = true
+	title.position = Vector2(14.0, 106.0)
+	title.size = Vector2(width - 28.0, 38.0)
+	title.add_theme_font_size_override("font_size", 20)
+	recommendation.position = Vector2(9.0, LEVEL_CARD_HEIGHT - 35.0)
 	recommendation.size = Vector2(width - 18.0, 28.0)
-	card.add_theme_font_size_override("font_size", 13 if wide else 16)
+	card.add_theme_font_size_override("font_size", 16)
 
 
 ## Which atlas entry a card should show. Treasure ids are deliberately the same
@@ -5189,9 +5283,9 @@ func _refresh_resonance_vote_ui() -> void:
 		if locked_by.size() == 2:
 			accent = Color("fff275")
 		elif not locked_by.is_empty():
-			accent = Color("43d9ff") if locked_by[0] == 0 else Color("b892ff")
+			accent = CatTheme.P1 if locked_by[0] == 0 else CatTheme.P2
 		elif not pointed_by.is_empty():
-			accent = Color("43d9ff") if pointed_by[0] == 0 else Color("b892ff")
+			accent = CatTheme.P1 if pointed_by[0] == 0 else CatTheme.P2
 		if locked_by.size() == 2:
 			style.bg_color = CatTheme.CARD.lerp(CatTheme.GOLD, 0.12)
 		elif not locked_by.is_empty() or not pointed_by.is_empty():
@@ -5205,7 +5299,7 @@ func _refresh_resonance_vote_ui() -> void:
 	var waiting: Array[String] = []
 	for slot in 2:
 		if resonance_votes[slot] < 0:
-			waiting.append("P%d" % (slot + 1))
+			waiting.append("%s" % player_label(slot))
 	var lines: Array[String] = []
 	if waiting.size() == 1:
 		lines.append("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다" % waiting[0])
@@ -5222,9 +5316,9 @@ func _resonance_pip_text(pointed_by: Array[int], locked_by: Array[int]) -> Strin
 	var parts: Array[String] = []
 	for slot in 2:
 		if slot in locked_by:
-			parts.append("● P%d 확정" % (slot + 1))
+			parts.append("● %s 확정" % player_label(slot))
 		elif slot in pointed_by:
-			parts.append("○ P%d" % (slot + 1))
+			parts.append("○ %s" % player_label(slot))
 	return "   ".join(parts)
 
 
@@ -5381,7 +5475,7 @@ func _update_hud() -> void:
 
 func _player_status_text(player_index: int) -> String:
 	var player := players[player_index]
-	return "P%d  %s" % [player_index + 1, player.character_name]
+	return "%s  %s" % [player_label(player_index), player.character_name]
 
 
 func _player_health_text(player_index: int) -> String:
@@ -5525,8 +5619,9 @@ func _refresh_meta_result_ui() -> void:
 	title.text = "클리어 보상 +%d 달빛 생선  ·  보유 %d  ·  다음 원정부터 적용" % [run_reward, meta_progression.points]
 	if meta_progression.last_save_error != OK:
 		title.text = "저장할 수 없습니다 · 진행 상황은 변경되지 않았어요"
-	for index in MetaProgression.UPGRADES.size():
-		var card := result_overlay.get_node("MetaUpgrade%d" % index) as Label
+	for visible_index in 6:
+		var index := (meta_cursor / 6) * 6 + visible_index
+		var card := result_overlay.get_node("MetaUpgrade%d" % visible_index) as Label
 		card.visible = run_won
 		if not run_won:
 			continue

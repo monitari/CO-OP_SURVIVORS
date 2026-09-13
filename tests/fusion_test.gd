@@ -264,7 +264,7 @@ func _test_completed_build_stops_growth(main: Node) -> void:
 	# Experience has no ceiling: the level still lands, it just pays a flat
 	# 초월 step to both survivors instead of opening a screen with nothing on it.
 	_check(main.overflow_levels >= 1, "the level past a finished build is still taken")
-	var might_before := main.players[0].might
+	var might_before: float = float(main.players[0].might)
 	var level_before := int(main.progression.level)
 	main.progression.experience = main.progression.required_experience
 	main._begin_level_up()

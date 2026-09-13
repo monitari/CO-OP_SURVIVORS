@@ -42,12 +42,32 @@ func _run() -> void:
 	await process_frame
 	_fit(main.lobby_p1_label, "joined lobby slot")
 	main._finish_lobby()
+	var animated_panel: Panel = main.character_overlay.get_node("CharacterPanel0")
+	var next_character: int = (main.selected_character_indices[0] + 1) % main.character_catalog.size()
+	main.selected_character_indices[0] = next_character
+	main._refresh_character_select_ui()
+	_check(main.character_portrait_icons[0].scale.x < 1.0,
+		"character portrait begins a soft selection transition")
+	_check((animated_panel.get_node("NeonTrim") as Control).accent == main.CatTheme.P1
+		and (main.character_overlay.get_node("CharacterPanel1/NeonTrim") as Control).accent == main.CatTheme.P2,
+		"character dossiers use distinct cyan and orange ownership colours")
+	await main.get_tree().create_timer(0.3, true).timeout
+	_check(main.character_portrait_icons[0].scale.is_equal_approx(Vector2.ONE),
+		"character selection transition settles cleanly")
 	for index in main.character_catalog.size():
 		main.selected_character_indices[0] = index
 		main.selected_character_indices[1] = index
 		main._refresh_character_select_ui()
 		await process_frame
 		_fit(main.character_p1_label, "character %d" % index)
+		_check(not main.character_overlay.get_node("CatStat0_7").visible,
+			"simple character view hides secondary statistics")
+		main.ReviewUI.toggle_character_details(main)
+		await process_frame
+		_fit(main.character_p1_label, "detailed character %d" % index)
+		_check(main.character_overlay.get_node("CatStat0_7").visible,
+			"detailed character view restores every statistic")
+		main.ReviewUI.toggle_character_details(main)
 	_check_icon_bounds(main.character_overlay)
 	main.character_confirmed[0] = true
 	main.character_confirmed[1] = true
@@ -55,6 +75,20 @@ func _run() -> void:
 	await physics_frame
 	await physics_frame
 	_check(main.combat_hud.visible, "combat HUD returns on start")
+	var saved_health: float = main.players[0].health
+	main.players[0].health = 1.0
+	main._update_hud()
+	var alert: Panel = main.combat_hud.get_node("TacticalAlert")
+	_check(alert.visible and String(alert.get_node("Action").text).contains("나 체력 위험"),
+		"critical health names the player and an escape action")
+	main.players[1].downed = true
+	main._update_hud()
+	_check(String(alert.get_node("Action").text).contains("동료 구조 필요"),
+		"rescuing a downed partner takes priority over low health")
+	main.players[0].health = saved_health
+	main.players[1].downed = false
+	main._update_hud()
+	_check(not alert.visible, "the action banner disappears when danger clears")
 	main.progression.experience = main.progression.required_experience
 	main._begin_level_up()
 	main.level_up_input_delay = 0

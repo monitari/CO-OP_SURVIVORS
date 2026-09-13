@@ -22,11 +22,32 @@ func _run() -> void:
 	main._begin_lobby()
 	main.lobby_input_cooldown = 0.0
 	main._join_ai_companion()
-	check(main.ai_companion and main.character_select_active and main.character_confirmed[1], "AI lobby joins and readies P2")
+	check(main.ai_companion and main.character_select_active and not main.character_confirmed[1], "AI considers its character before readying")
+	main._step_ai_character(1.5)
 	check(main.selected_character_indices[1] == Bot.choose_character(main, 0)
 		and main.selected_character_indices[1] != main.selected_character_indices[0],
 		"AI automatically chooses a complementary character")
+	var varied_choices: Dictionary = {}
+	for preference in 24:
+		main.ai_character_preference = preference
+		varied_choices[Bot.choose_character(main, 0)] = true
+	check(varied_choices.size() >= 2, "AI personality produces more than one credible partner")
+	check(not (varied_choices.size() == 1 and varied_choices.has(11)), "AI is not locked to Latte")
+	for human_index in main.character_catalog.size():
+		main.selected_character_indices[0] = human_index
+		var choices_for_human: Dictionary = {}
+		for preference in 12:
+			main.ai_character_preference = preference
+			var choice := Bot.choose_character(main, 0)
+			check(choice != human_index, "AI never duplicates the human character")
+			choices_for_human[choice] = true
+		check(choices_for_human.size() >= 2, "every human character has multiple AI partners")
+	main.selected_character_indices[0] = 0
+	main.ai_character_preference = 0
+	main.selected_character_indices[1] = Bot.choose_character(main, 0)
 	main._set_character_choice(0, 1, false)
+	check(not main.character_confirmed[1], "AI reconsiders a changed human selection")
+	main._step_ai_character(1.5)
 	check(main.selected_character_indices[1] == Bot.choose_character(main, 0)
 		and main.character_confirmed[1],
 		"AI updates its character when P1 changes")
@@ -115,9 +136,10 @@ func _run() -> void:
 	check(main.selected_upgrade_indices[1] >= 0, "AI automatically locks a growth choice")
 	# Both hands stay on screen — the waiting side is dimmed, not removed, so a
 	# survivor can see what their partner is about to take while they decide.
-	check(main.level_card_labels[1][0].visible and main.level_card_labels[0][0].visible,
-		"both fans of cards stay on screen")
-	check(main.level_card_labels[1][0].modulate.a < main.level_card_labels[0][0].modulate.a,
+	var picked: int = main.selected_upgrade_indices[1]
+	check(main.level_overlay.get_node("PartnerChoice/Title").text == main.level_card_labels[1][picked].get_node("CardTitle").text and main.level_card_labels[0][0].visible,
+		"my hand and the partner's chosen card stay on screen")
+	check(main.level_card_labels[1][picked].modulate.r < main.level_card_labels[0][0].modulate.r,
 		"the side whose turn it is not is dimmed")
 	main._select_upgrade(1, 0)
 	check(not main.level_up_active or main.cinematic_active, "AI growth cannot block the run")
@@ -127,11 +149,11 @@ func _run() -> void:
 	main._begin_level_up()
 	main._select_upgrade(1, 0)
 	check(main.focused_growth_slot() == 1
-		and main.level_card_labels[1][0].modulate.a > main.level_card_labels[0][0].modulate.a,
+		and main.level_card_labels[1][0].modulate.r > main.level_card_labels[0][0].modulate.r,
 		"local focus passes to P2")
-	main.level_overlay.get_node("ReturnToFirst").pressed.emit()
+	main._cancel_growth_choice(0)
 	check(main.focused_growth_slot() == 0
-		and main.level_card_labels[0][0].modulate.a > main.level_card_labels[1][0].modulate.a,
+		and main.level_card_labels[0][0].modulate.r > main.level_card_labels[1][0].modulate.r,
 		"local P1 can revise before P2 confirms")
 	main._begin_lobby()
 	check(not main.ai_companion, "lobby reset releases AI mode")

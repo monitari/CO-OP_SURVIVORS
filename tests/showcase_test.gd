@@ -128,7 +128,9 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	_check(resonance.result_icon == null, "a resonance does not — both weapons stay")
 	_check(fusion.sources.size() == 2 and resonance.sources.size() == 2, "both start from two")
 	_check(chest.reward_icons.size() == 1, "a chest shows one icon per reward")
-	_check(chest.reward_icons[0].get_child_count() > 0, "a rated chest reward carries an advice badge")
+	_check(chest.reward_cards.size() == 1 and chest.reward_cards[0].get_children().any(
+		func(child: Node) -> bool: return child is Label and child.text.begins_with("👍")),
+		"a rated chest card carries a thumbs-up recommendation")
 
 	# A chest with more in it takes longer, because each reward is revealed
 	# separately; a chest that dumped everything at once would be a list.

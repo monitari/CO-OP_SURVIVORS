@@ -64,7 +64,7 @@ func join_game(address: String) -> void:
 	game.ai_companion = false
 	game.lobby_joined.assign([false, true])
 	game.lobby_devices.assign([-3, -1])
-	game.lobby_device_names.assign(["호스트 연결 중", "이 PC · P2"])
+	game.lobby_device_names.assign(["호스트 연결 중", "이 PC · 나"])
 	game._refresh_lobby_ui()
 
 
@@ -92,7 +92,7 @@ func _peer_joined(_peer_id: int) -> void:
 
 func _connected() -> void:
 	game.lobby_joined.assign([true, true])
-	game.lobby_device_names.assign(["온라인 호스트", "이 PC · P2"])
+	game.lobby_device_names.assign(["온라인 호스트", "이 PC · 나"])
 	game._refresh_lobby_ui()
 
 
@@ -414,6 +414,8 @@ func _snapshot() -> Dictionary:
 		"players": player_states, "enemies": enemy_states, "items": item_states,
 		"elapsed": game.elapsed, "kills": game.kills,
 		"chain_integrity": game.chain_integrity,
+		"attack_timers": game.attack_timers.duplicate(true),
+		"resonances": game.resonance_system.active_resonances.duplicate(true),
 		"level": game.progression.level, "xp": game.progression.experience,
 		"required_xp": game.progression.required_experience,
 	}
@@ -439,6 +441,10 @@ func _apply_snapshot(payload: Dictionary) -> void:
 	game.progression.experience = int(payload.get("xp", game.progression.experience))
 	game.progression.required_experience = int(payload.get("required_xp", game.progression.required_experience))
 	_sync_attack_timers()
+	if payload.has("attack_timers"):
+		game.attack_timers = payload["attack_timers"].duplicate(true)
+	if payload.has("resonances"):
+		game.resonance_system.active_resonances.assign(payload["resonances"])
 	_sync_enemies(payload.get("enemies", []))
 	_sync_items(payload.get("items", []))
 

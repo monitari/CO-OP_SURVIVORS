@@ -32,14 +32,14 @@ func _run() -> void:
 
 	await _test_input_delay(main)
 	_test_recommendation_and_build_readout(main)
-	_test_luck_and_grid_hand(main)
+	_test_luck_and_fan_hand(main)
 	await _test_cursor_and_deferred_apply(main)
 	await _test_reroll(main)
 	_test_reroll_refill(main)
 	await _test_no_immediate_repeat(main)
 
 	if failures.is_empty():
-		print("LEVEL_UP_CARD_PASS: recommendations, stable fourth-choice grid, equipment preview, explicit confirm, cursor and reroll flow")
+		print("LEVEL_UP_CARD_PASS: recommendations, four-card fan, direct selection, cursor and reroll flow")
 		quit(0)
 	else:
 		for failure in failures:
@@ -223,13 +223,13 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 		var starred := bool(option.get("recommended", false))
 		var against := bool(option.get("discouraged", false))
 		_check(not (starred and against), "no card is both recommended and discouraged")
-		_check(badge.visible == (starred or against), "the badge shows exactly when there is advice")
+		_check(badge.visible, "every card shows recommended, discouraged or neutral advice")
 		if starred:
-			_check(String(badge.text).begins_with("★"), "a recommendation reads as one")
+			_check(String(badge.text).begins_with("👍"), "a recommendation reads as one")
 			_check(float(option["recommendation_score"]) >= main.RECOMMEND_MIN_SCORE,
 				"a starred card clears the absolute bar (%.0f)" % float(option["recommendation_score"]))
 		if against:
-			_check(String(badge.text).begins_with("▽"), "a warning reads as one")
+			_check(String(badge.text).begins_with("👎"), "a warning reads as one")
 			_check(not String(option.get("discouragement_reason", "")).is_empty(),
 				"a warning says why")
 		recommended_cards += 1 if starred else 0
@@ -238,11 +238,10 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 		"the whole hand is never marked against (%d of %d)" % [discouraged_cards, main.p1_choices.size()])
 	_check(recommended_cards + discouraged_cards <= main.p1_choices.size(), "advice does not double up")
 	_test_advice_bands(main)
-	# The build readout used to be two lines of attribute numbers. It is now two
-	# rows of icons with empty slots left visible, because "무기 2/4 · 보물 1/4"
-	# and four empty sockets say more mid-decision than eight numbers do.
-	_check(main.p1_level_footer.text.contains("무기") and main.p1_level_footer.text.contains("보물"),
-		"the build readout names both slot kinds")
+	# Loadout data still refreshes for details and previews, but the in-world
+	# growth moment draws only cards and its contextual reroll action.
+	_check(not main.p1_level_footer.visible and not main.level_title.visible,
+		"growth removes the surrounding title and build readout")
 	_check(main.level_weapon_icons[0].size() == main.WEAPON_LOADOUT_CAP,
 		"the weapon row draws one slot per weapon the cap allows")
 	_check(main.level_treasure_icons[0].size() == main.TREASURE_LOADOUT_CAP,
@@ -255,8 +254,8 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 		var preview_slot: bool = preview_is_new_weapon and index == carried_weapons
 		_check(filled == (index < carried_weapons or preview_slot),
 			"weapon slot %d is %s" % [index, "filled" if index < carried_weapons else "an empty socket"])
-	_check(main.level_weapon_icons[0][0].visible and main.level_weapon_icons[0][0].texture != null,
-		"owned weapons render as tiered icons")
+	_check(not main.level_weapon_icons[0][0].get_parent().visible,
+		"equipment sockets stay out of the immersive growth view")
 	var preview_choices: Array[Dictionary] = [{
 		"id": "weapon_power", "weapon_slot": 0, "title": "마력 증폭",
 		"description": main._upgrade_preview(0, {"id": "weapon_power", "weapon_slot": 0}),
@@ -267,8 +266,6 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	main._refresh_player_cards(1)
 	_check(String(main.level_weapon_icons[0][0].get_node("Tier").text).contains("→"),
 		"the focused upgrade previews the affected weapon's next level")
-	_check(String(main.level_overlay.get_node("GrowthName0").text).contains("P1 선택 중"),
-		"the player header always exposes the choosing state")
 
 func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_open_level_up(main)
@@ -289,21 +286,16 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_check(main.selected_upgrade_indices[0] == 2, "confirm locks the card under the cursor")
 	_check(_stat_snapshot(main) == before, "confirming alone changes nothing yet — the upgrade is deferred")
 	_check(main.level_up_active, "the screen stays open while one player is still choosing")
-	_check(String(main.level_overlay.get_node("GrowthName0").text).contains("P1 확정"),
-		"the player header exposes the confirmed state")
-	_check(main.level_overlay.get_node("Confirm0").disabled and not main.level_overlay.get_node("Cancel0").disabled,
-		"confirmation disables the primary action and enables cancellation")
+	_check(not main.level_overlay.get_node("Reroll0").visible and main.level_overlay.get_node("Reroll1").visible,
+		"only the active player's reroll remains after focus passes")
 	# A confirmed hand stays on screen, dimmed apart from the card that was
 	# taken: the pair reads each other's fans now instead of taking turns with
 	# the screen, so removing the locked hand would hide half the negotiation.
 	for index in main.p1_choices.size():
 		var locked_card: Label = main.level_card_labels[0][index]
-		_check(locked_card.visible, "the confirmed hand stays on screen")
+		_check(not locked_card.visible and main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료", "the confirmed choice moves to the partner summary")
 		if index != main.selected_upgrade_indices[0]:
-			_check(locked_card.modulate.a < 1.0, "everything but the taken card fades back")
-	_check(String(main.level_overlay.get_node("CompanionSummary/Detail").text).contains(
-		String(main.p1_choices[main.selected_upgrade_indices[0]]["title"]).replace("\n", " ")),
-		"the teammate readout preserves the confirmed choice")
+			_check(locked_card.modulate.r < 1.0, "everything but the taken card dims without transparency")
 
 	await _tap(main, "p1_select_cancel")
 	_check(main.selected_upgrade_indices[0] == -1, "a locked player can back out while the partner is still choosing")
@@ -320,7 +312,7 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	await process_frame
 
 
-func _test_luck_and_grid_hand(main: Node) -> void:
+func _test_luck_and_fan_hand(main: Node) -> void:
 	seed(88021)
 	main.team_luck = 0
 	var ordinary_fourths := 0
@@ -342,25 +334,25 @@ func _test_luck_and_grid_hand(main: Node) -> void:
 		if main.p1_choices.size() == 4:
 			break
 	main._refresh_level_up_ui()
-	_check(main.level_card_labels[0].size() == 4 and main.p1_choices.size() == 4,
+	_check(main.level_card_labels[0].size() == 6 and main.p1_choices.size() == 4,
 		"the UI has a real fourth card slot when luck grants it")
-	var cards: Array = main.level_card_labels[0]
+	var cards: Array = main.level_card_labels[0].filter(func(card: Control) -> bool: return card.visible)
 	# A fan overlaps on purpose. What has to hold is that each card steps clear
 	# of the one before it, so all four titles stay readable, and that a lucky
 	# fourth card keeps the shape a three-card hand has instead of re-flowing
 	# the screen into a grid.
 	for index in range(1, cards.size()):
 		var step: float = cards[index].position.x - cards[index - 1].position.x
-		_check(step >= 90.0, "card %d steps clear of the one before it (%.0fpx)" % [index, step])
+		_check(step >= 100.0 and step <= cards[index].size.x + 24,
+			"four cards leave each candidate reachable")
 	var focused: int = main.upgrade_cursors[0]
-	var middle: float = float(cards.size() - 1) * 0.5
 	for index in cards.size():
 		var card: Label = cards[index]
 		_check(card.scale.is_equal_approx(Vector2.ONE), "focus does not enlarge a growth card")
 		if index == focused:
 			_check(is_zero_approx(card.rotation), "the card under the cursor comes upright")
-		elif absf(float(index) - middle) > 0.01:
-			_check(not is_zero_approx(card.rotation), "the rest of the hand stays fanned out")
+		else:
+			_check(not is_zero_approx(card.rotation), "unfocused cards preserve the fan")
 	_check(int(cards[focused].z_index) > int(cards[(focused + 1) % cards.size()].z_index),
 		"the focused card lifts clear of its neighbours")
 	# Outer cards sit lower than the middle of the fan, which is what makes it
@@ -369,16 +361,33 @@ func _test_luck_and_grid_hand(main: Node) -> void:
 		_check(card.position.y + card.size.y <= main.level_overlay.size.y,
 			"the fan stays inside the growth band (%.0f of %.0f)" % [
 				card.position.y + card.size.y, main.level_overlay.size.y])
+		_check(not card.get_rect().intersects(main.level_overlay.get_node("Reroll0").get_rect()),
+			"fan cards never cover the reroll button")
+		_check(card.position.x >= 0.0 and card.position.x + card.size.x <= 1280,
+			"all four cards stay inside the viewport")
 	var equipment_y: float = main.level_weapon_icons[0][0].get_parent().position.y
-	print("GRID_METRICS: cards=%s equipment_y=%.0f" % [
+	print("FAN_METRICS: cards=%s equipment_y=%.0f" % [
 		str(cards.map(func(card: Label) -> String: return "%s/%s" % [card.position, card.size])), equipment_y])
-	_check(equipment_y + 28.0 <= float(cards[0].position.y),
-		"the equipment strip sits above the cards rather than under them")
+	_check(not main.level_weapon_icons[0][0].get_parent().visible,
+		"the equipment strip stays hidden during growth")
 	main.level_card_labels[0][3].mouse_entered.emit()
 	_check(main.upgrade_cursors[0] == 3 and main.level_card_labels[0][3].scale.is_equal_approx(Vector2.ONE),
 		"mouse hover moves the cursor without resizing the card")
-	_check(main.level_overlay.has_node("Confirm0") and String(main.level_overlay.get_node("Confirm0").text).contains("선택 확정"),
-		"each player has a visible, explicit confirmation action")
+	# Check rotated corners, not just unrotated rectangles, at every focus.
+	for cursor in cards.size():
+		main.upgrade_cursors[0] = cursor
+		main._refresh_level_up_ui()
+		for card: Label in cards:
+			var style := card.get_theme_stylebox("normal") as StyleBoxFlat
+			_check(is_equal_approx(card.modulate.a * style.bg_color.a, 1.0),
+				"overlapping cards never show the text behind them")
+			for corner: Vector2 in [Vector2.ZERO, Vector2(card.size.x, 0), card.size, Vector2(0, card.size.y)]:
+				var point := card.get_transform() * corner
+				_check(point.x >= 0.0 and point.x <= 1280 and point.y >= 30.0 and point.y < 444.0,
+					"rotated card corners stay inside the viewport above the action buttons")
+	_check(main.level_overlay.has_node("Reroll0") and not main.level_overlay.has_node("Confirm0")
+		and not main.level_overlay.has_node("Cancel0"),
+		"the fan keeps only its reroll action")
 	main.team_luck = 0
 	main.p1_choices = main._get_upgrade_choices(1)
 	main.p2_choices = main._get_upgrade_choices(2)

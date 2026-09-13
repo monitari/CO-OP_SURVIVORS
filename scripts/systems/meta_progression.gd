@@ -33,6 +33,12 @@ const UPGRADES := [
 	{"id": "move", "name": "가벼운 발걸음", "max_rank": 8, "base_cost": 3, "cost_step": 3, "summary": "이동 속도 +1.5%"},
 	{"id": "magnet", "name": "별빛 주머니", "max_rank": 6, "base_cost": 6, "cost_step": 4, "summary": "자력 +4%"},
 	{"id": "luck", "name": "행운의 꼬리", "max_rank": 4, "base_cost": 10, "cost_step": 8, "summary": "행운 +1"},
+	{"id": "armor", "name": "단단한 털", "max_rank": 6, "base_cost": 5, "cost_step": 4, "summary": "방어 +0.3"},
+	{"id": "recovery", "name": "느긋한 숨", "max_rank": 6, "base_cost": 6, "cost_step": 5, "summary": "초당 재생 +0.05"},
+	{"id": "crit", "name": "사냥꾼의 눈", "max_rank": 6, "base_cost": 5, "cost_step": 4, "summary": "치명타 확률 +1%"},
+	{"id": "area", "name": "커다란 발자국", "max_rank": 6, "base_cost": 4, "cost_step": 4, "summary": "공격 범위 +2%"},
+	{"id": "duration", "name": "오래가는 마법", "max_rank": 6, "base_cost": 4, "cost_step": 4, "summary": "지속 시간 +2%"},
+	{"id": "resolve", "name": "든든한 동료", "max_rank": 6, "base_cost": 4, "cost_step": 3, "summary": "구조 능력 +0.5"},
 ]
 
 var save_path := SAVE_PATH
@@ -119,6 +125,27 @@ func purchase(id: String) -> bool:
 	return true
 
 
+func refund_value() -> int:
+	var total := 0
+	for entry in UPGRADES:
+		var count := rank(String(entry["id"]))
+		total += count * int(entry["base_cost"]) + count * (count - 1) / 2 * int(entry.get("cost_step", 1))
+	return total
+
+
+func reset_upgrades() -> bool:
+	var previous := ranks.duplicate()
+	var refund := refund_value()
+	for id in ranks:
+		ranks[id] = 0
+	points += refund
+	if save_progress() != OK:
+		ranks = previous
+		points -= refund
+		return false
+	return true
+
+
 func mark_discovered(fusion_id: String) -> void:
 	if fusion_id.is_empty() or discoveries.has(fusion_id):
 		return
@@ -138,6 +165,12 @@ func apply_to_player(player: ChainPlayer) -> void:
 	player.might *= 1.0 + float(rank("might")) * 0.02
 	player.haste *= 1.0 - float(rank("haste")) * 0.015
 	player.move_speed *= 1.0 + float(rank("move")) * 0.015
+	player.armor += rank("armor") * 0.3
+	player.recovery += rank("recovery") * 0.05
+	player.crit_chance += rank("crit") * 0.01
+	player.area *= 1.0 + rank("area") * 0.02
+	player.duration *= 1.0 + rank("duration") * 0.02
+	player.resolve += rank("resolve") * 0.5
 
 
 func team_magnet_bonus() -> float:

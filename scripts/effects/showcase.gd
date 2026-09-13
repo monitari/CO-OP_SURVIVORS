@@ -1,5 +1,6 @@
 class_name Showcase
 extends Control
+var player_labels: Array = ["나", "동료"]
 
 ## The three moments a run is actually about, given the screen for a few seconds.
 ##
@@ -47,6 +48,7 @@ var sources: Array[TextureRect] = []
 var result_icon: TextureRect
 var rewards: Array = [] ## For CHEST: [{icon, label, color}]
 var reward_icons: Array[TextureRect] = []
+var reward_cards: Array[Control] = []
 var caption: Label
 var sub_caption: Label
 var reward_summary: Label
@@ -97,16 +99,44 @@ func play_chest(entries: Array) -> void:
 	accent = Color("ffd166")
 	headline = "수염 상자"
 	subtitle = "%d개 획득" % entries.size()
-	for entry in entries:
-		var art := _add_icon(entry.get("icon"), 84.0)
-		art.modulate.a = 0.0
-		# Whose it is, parented to the reward so it rides the same arc out of the
-		# box. Eight things can come out at once and each one belongs to one of
-		# two survivors — without this the showcase is a pile of icons and the
-		# only way to find out who got what is to go and read both build rows.
-		_add_owner_badge(art, entry)
-		_add_advice_badge(art, entry)
+	for entry: Dictionary in entries:
+		var card := Panel.new()
+		card.size = Vector2(208, 244)
+		card.tooltip_text = String(entry.get("label", "보상")) + "\n" + String(entry.get("detail", "")) + "\n" + String(entry.get("advice_reason", ""))
+		card.pivot_offset = card.size * 0.5
+		var frame := StyleBoxFlat.new()
+		frame.bg_color = Color("182333")
+		frame.border_color = Color("d8bd7d")
+		frame.set_border_width_all(2)
+		frame.set_corner_radius_all(12)
+		card.add_theme_stylebox_override("panel", frame)
+		add_child(card)
+		card.modulate.a = 0.0
+		var art := _add_icon(entry.get("icon"), 62.0)
+		remove_child(art)
+		card.add_child(art)
+		art.position = Vector2(73, 16)
 		reward_icons.append(art)
+		reward_cards.append(card)
+		var advice := String(entry.get("advice", "neutral"))
+		_card_text(card, String(entry.get("label", "보상")), 84, 46, 16, Color("fff0ce"))
+		_card_text(card, String(entry.get("detail", "획득")), 132, 62, 14, Color("f4efe2"))
+		_card_text(card, "👍" if advice == "recommended" else ("👎" if advice == "discouraged" else "—"), 196, 24, 15, Color("9bf6ff"))
+		_card_text(card, String(entry.get("advice_reason", "")), 219, 22, 11, Color("c6ccdc"))
+
+
+func _card_text(card: Control, text: String, y: float, height: float, font_size: int, ink: Color) -> void:
+	var label := Label.new()
+	label.text = text
+	label.position = Vector2(10, y)
+	label.size = Vector2(188, height)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.clip_text = true
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", ink)
+	card.add_child(label)
 
 
 func _ready() -> void:
@@ -116,18 +146,6 @@ func _ready() -> void:
 	sub_caption = _make_label(18, Color("f4efe2"))
 	caption.text = headline
 	sub_caption.text = subtitle
-	if mode == Mode.CHEST:
-		reward_summary = _make_label(15, Color("f4efe2"))
-		reward_summary.size = Vector2(1120.0, 190.0)
-		reward_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		reward_summary.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		var lines: Array[String] = []
-		for entry: Dictionary in rewards:
-			var mark := "★" if String(entry.get("advice", "neutral")) == "recommended" else (
-				"▽" if String(entry.get("advice", "neutral")) == "discouraged" else "•"
-			)
-			lines.append("%s %s — %s" % [mark, String(entry.get("label", "보상")), String(entry.get("detail", "획득"))])
-		reward_summary.text = "\n".join(lines)
 
 
 func _make_label(font_size: int, ink: Color) -> Label:
@@ -161,7 +179,7 @@ func _add_owner_badge(art: TextureRect, entry: Dictionary) -> void:
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		art.add_child(face)
 	var tag := Label.new()
-	tag.text = "P%d" % (slot + 1)
+	tag.text = String(player_labels[slot])
 	tag.size = Vector2(art.size.x, 20.0)
 	tag.position = Vector2(0.0, art.size.y + 30.0)
 	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -281,30 +299,19 @@ func _reward_beat(index: int) -> float:
 
 func _step_chest() -> void:
 	var centre := _centre()
-	var spacing: float = minf(120.0, 470.0 / maxf(1.0, float(reward_icons.size())))
-	for index in reward_icons.size():
-		var art := reward_icons[index]
-		var at := _reward_beat(index)
-		var pop := smoothstep(at, at + 0.34, age)
-		var spread := float(index) - float(reward_icons.size() - 1) * 0.5
-		var target := centre + Vector2(spread * spacing, 78.0)
-		# Thrown up out of the box and caught, rather than sliding into place:
-		# the arc is what makes each one land rather than appear.
-		var lift := sin(pop * PI) * 62.0
-		art.position = centre.lerp(target, ease(pop, -2.4)) - Vector2(0.0, lift) - art.size * 0.5
-		art.scale = Vector2.ONE * lerpf(0.15, 1.0, ease(pop, -3.0))
-		art.rotation = (1.0 - pop) * signf(spread if spread != 0.0 else 1.0) * 1.1
-		art.modulate.a = pop * minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
-	# Clear of where the rewards land, which is the whole point of throwing them
-	# downward: the subtitle used to sit exactly on the first icon.
-	_place_captions(centre - Vector2(0.0, 216.0), smoothstep(0.5, 0.85, age))
-	if reward_summary != null:
-		var final_beat := _reward_beat(maxi(0, reward_icons.size() - 1)) + 0.38
-		var reveal := smoothstep(final_beat, final_beat + 0.32, age)
-		var tail := minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
-		# Below the owner portraits and P-tags attached to the reward icons.
-		reward_summary.position = Vector2(centre.x - reward_summary.size.x * 0.5, centre.y + 180.0)
-		reward_summary.modulate.a = reveal * tail
+	for index in reward_cards.size():
+		var card := reward_cards[index]
+		var pop := smoothstep(_reward_beat(index), _reward_beat(index) + 0.34, age)
+		var columns := mini(4, reward_cards.size())
+		var row_count := mini(columns, reward_cards.size() - (index / 4) * 4)
+		var x := centre.x + (index % 4 - (row_count - 1) * 0.5) * 226.0
+		var y := 250.0 + (index / 4) * 260.0 if reward_cards.size() > 4 else 370.0
+		var target := Vector2(x, y)
+		card.position = centre.lerp(target, pop) - card.size * 0.5
+		card.scale = Vector2.ONE * lerpf(0.1, 1.0, pop)
+		card.rotation = (1.0 - pop) * 0.3
+		card.modulate.a = pop * minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
+	_place_captions(Vector2(centre.x, -78), smoothstep(0.5, 0.85, age))
 
 
 func _place_captions(centre: Vector2, reveal: float) -> void:

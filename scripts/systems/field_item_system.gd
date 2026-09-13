@@ -38,13 +38,19 @@ var pickup_radius := 30.0
 
 ## Picks a drop type by weight. Kept separate from spawning so tests can check
 ## the table without needing a live scene.
-func roll_item_id() -> String:
-	var total := 0
+func roll_item_id(luck: float = 0.0) -> String:
+	var total := 0.0
+	var weights: Array[float] = []
 	for entry in ITEM_TABLE:
-		total += int(entry["weight"])
-	var roll := randi() % total
-	for entry in ITEM_TABLE:
-		roll -= int(entry["weight"])
+		var weight := float(entry["weight"])
+		if String(entry["id"]) in ["guard", "frenzy", "time_stop", "purge"]:
+			weight *= 1.0 + minf(2.0, maxf(0.0, luck) * 0.06)
+		weights.append(weight)
+		total += weight
+	var roll := randf() * total
+	for index in ITEM_TABLE.size():
+		var entry: Dictionary = ITEM_TABLE[index]
+		roll -= weights[index]
 		if roll < 0:
 			return String(entry["id"])
 	return String(ITEM_TABLE[0]["id"])

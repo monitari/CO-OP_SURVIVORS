@@ -74,12 +74,13 @@ func _run() -> void:
 	root.add_child(main)
 	await process_frame
 	main.meta_progression.save_path = SAVE
+	main.meta_progression.ranks.clear()
 	main.meta_progression.points = 8
 	main.title_mode = "meta"
 	main.title_cursor = 0
 	main._refresh_title_ui()
-	_check(main._title_rows().size() == MetaProgression.UPGRADES.size(),
-		"the title exposes every permanent upgrade")
+	_check(main._title_rows().size() == 8 and MetaProgression.UPGRADES.size() == 12,
+		"the title pages twelve upgrades with navigation and reset")
 	var title_rank_before: int = main.meta_progression.rank("vitality")
 	main._activate_title_item(0)
 	_check(main.meta_progression.rank("vitality") == title_rank_before + 1,

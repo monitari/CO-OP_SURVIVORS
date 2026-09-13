@@ -29,6 +29,8 @@ func _run() -> void:
 	_check(main.title_active and main.title_overlay.visible, "starts on the title screen")
 	_check(not main.lobby_overlay.visible, "the lobby waits behind it")
 	main._activate_title_item(0)
+	_check(main.title_mode == "modes" and main.title_active, "start offers explicit play modes")
+	main._activate_title_item(2) # LAN opens connection controls.
 	await process_frame
 	_check(not main.title_active and not main.title_overlay.visible, "starting a game leaves the title")
 	_check(main.lobby_active, "and opens the lobby")

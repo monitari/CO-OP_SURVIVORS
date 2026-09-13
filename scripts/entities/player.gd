@@ -52,6 +52,8 @@ func set_command(movement: Vector2, dash := false) -> void:
 
 
 var player_index := 0
+var display_index := 0
+var display_name := ""
 var move_speed := 230.0
 ## Temporary world-effect multiplier. Kept separate from move_speed so a timed
 ## pickup can end without undoing permanent speed upgrades earned meanwhile.
@@ -319,9 +321,10 @@ func _draw() -> void:
 	else:
 		draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	var badge_color := Color("43d9ff") if player_index == 1 else Color("b892ff")
+	var shown_index := display_index if display_index > 0 else player_index
+	var badge_color := Color("43d9ff") if shown_index == 1 else Color("b892ff")
 	draw_circle(Vector2(0.0, radius + 13.0), 10.0, Color("07111f"))
-	draw_string(ThemeDB.fallback_font, Vector2(-7.0, radius + 19.0), str(player_index), HORIZONTAL_ALIGNMENT_CENTER, 14.0, 15, badge_color)
+	draw_string(ThemeDB.fallback_font, Vector2(-22.0, radius + 19.0), display_name, HORIZONTAL_ALIGNMENT_CENTER, 44.0, 13, badge_color)
 	if downed:
 		draw_line(Vector2(-10, -10), Vector2(10, 10), Color("ff5d8f"), 5.0, true)
 		draw_line(Vector2(10, -10), Vector2(-10, 10), Color("ff5d8f"), 5.0, true)
