@@ -99,6 +99,18 @@ var tail_phase := 0.0 ## Drives the tail sway; advanced by step_movement.
 var facing := Vector2.RIGHT ## Smoothed heading; drawing reads this, movement does not.
 var lean := 0.0 ## Signed turn rate, smoothed. Drives the body tilt.
 var footfall_timer := 0.0
+## How far off the roof this cat's body is drawn, with the contact shadow left
+## behind on the floor. Zero everywhere the roof is flat, which is every screen
+## the run currently has — the survivor then draws exactly as it always did, at
+## its own position, with the same shadow Moonlight puts under every actor.
+##
+## Above zero it separates two things that used to be the same point: where the
+## cat *is*, which nothing about this changes, and where the cat is *drawn*,
+## which moves up the screen. That is the whole of standing on a floor rather
+## than lying on it, and the price of it is that the shadow underneath becomes
+## the only statement of where the cat actually stands — so the shadow is never
+## optional once this is set. See RooftopSpace.
+var stand_height := 0.0
 
 
 func setup(index: int, color: Color) -> void:
@@ -297,7 +309,19 @@ func _draw() -> void:
 	var color := Color.WHITE if flash else body_color
 	# Drawn before anything else, so the cat stands on the roof rather than
 	# floating over it. Same rule the enemies and the props use.
-	Moonlight.ground_shadow(self, Vector2.ZERO, radius, 1.0)
+	var lift := RooftopSpace.lift(stand_height)
+	var lunge := Vector2.ZERO
+	if stand_height > 0.0:
+		# A dash throws the body forward and drags the shadow out behind it.
+		# Both come off the same clock, so the cat gathers back over its own
+		# feet as the burst ends rather than snapping upright.
+		var burst := dash_timer / DASH_DURATION if dash_timer > 0.0 else 0.0
+		var along := dash_direction if dash_timer > 0.0 else facing
+		lunge = along * radius * 0.26 * burst
+		RooftopSpace.footing(self, Vector2.ZERO, radius, stand_height, 1.0, burst * 0.7, along)
+	else:
+		Moonlight.ground_shadow(self, Vector2.ZERO, radius, 1.0)
+	draw_set_transform(lift)
 	draw_circle(Vector2.ZERO, radius + 7.0, Color(color, 0.13))
 	_draw_tail(color)
 	# The body tilts into a turn and stretches slightly along the direction of
@@ -307,7 +331,7 @@ func _draw() -> void:
 	# A running bob rather than a constant squash: tail_phase already speeds up
 	# with movement, so reusing it keeps the body and the tail on one rhythm.
 	var bob := sin(tail_phase * 2.0) * 0.05 * minf(1.0, current_input.length())
-	draw_set_transform(Vector2.ZERO, tilt, Vector2(1.0 + bob, 1.0 - bob))
+	draw_set_transform(lift + lunge, tilt, Vector2(1.0 + bob, 1.0 - bob))
 	if portrait == null:
 		draw_circle(Vector2.ZERO, radius, color)
 		_draw_ears(color)
@@ -320,11 +344,16 @@ func _draw() -> void:
 		draw_texture_rect(portrait, Rect2(-34, -37, 68, 68), false, Color(1.8, 1.8, 1.8) if flash else Color.WHITE)
 	else:
 		draw_circle(Vector2.ZERO, radius - 6.0, color.darkened(0.12))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	draw_set_transform(lift, 0.0, Vector2.ONE)
 	var shown_index := display_index if display_index > 0 else player_index
-	var badge_color := Color("43d9ff") if shown_index == 1 else Color("b892ff")
-	draw_circle(Vector2(0.0, radius + 13.0), 10.0, Color("07111f"))
-	draw_string(ThemeDB.fallback_font, Vector2(-22.0, radius + 19.0), display_name, HORIZONTAL_ALIGNMENT_CENTER, 44.0, 13, badge_color)
+	var badge_color := Color("43d9ff") if shown_index == 1 else Color("ff9f43")
+	# The name rides above the head once the cat is standing off the roof. Below
+	# is where it has always gone and where it can stay on a flat floor, but on a
+	# floor with height that is exactly where the contact shadow lands — and the
+	# shadow is the only thing saying where the cat is, so the label moves.
+	var badge_y := -radius - 22.0 if stand_height > 0.0 else radius + 13.0
+	draw_circle(Vector2(0.0, badge_y), 10.0, Color("07111f"))
+	draw_string(ThemeDB.fallback_font, Vector2(-22.0, badge_y + 6.0), display_name, HORIZONTAL_ALIGNMENT_CENTER, 44.0, 13, badge_color)
 	if downed:
 		draw_line(Vector2(-10, -10), Vector2(10, 10), Color("ff5d8f"), 5.0, true)
 		draw_line(Vector2(10, -10), Vector2(-10, 10), Color("ff5d8f"), 5.0, true)

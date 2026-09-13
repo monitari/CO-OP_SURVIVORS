@@ -30,6 +30,18 @@ var source_weapon := ""
 ## per pooled projectile and reused with it, so a nova of nine embers costs
 ## nine extra canvas items at most and never allocates mid-wave.
 var glow: GlowLayer
+## How far off the roof this shot flies, and the point on the roof it flies
+## over. Zero everywhere the roof is flat, which is every screen the run
+## currently has, and at zero `ground_position` simply tracks `position` and
+## nothing below behaves differently from before this existed.
+##
+## Above zero the two separate: the shot is *drawn* higher up the screen while
+## everything that decides anything — what it steers at, what it can hit, where
+## its shadow falls — keeps using the floor point. A star that damages what it
+## looks like it is passing over, rather than what is a few pixels below it, is
+## the whole reason the height is kept out of the hit test.
+var flight_height := 0.0
+var ground_position := Vector2.ZERO
 
 
 func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
@@ -49,6 +61,8 @@ func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
 	hit_enemy_ids.clear()
 	direction = start_direction.normalized()
 	target = initial_target
+	flight_height = 0.0
+	ground_position = position
 	active = true
 	source_player = -1
 	source_weapon = ""
@@ -79,9 +93,13 @@ func _physics_process(delta: float) -> void:
 	if homing_enabled and (not is_instance_valid(target) or target.dead):
 		target = _find_nearest_enemy()
 	if homing_enabled and is_instance_valid(target):
-		var desired := global_position.direction_to(target.global_position)
+		var desired := ground_position.direction_to(target.global_position)
 		direction = direction.lerp(desired, minf(1.0, turn_speed * delta)).normalized()
-	position += direction * speed * delta
+	ground_position += direction * speed * delta
+	# The node carries the drawing, so it is the one that gets lifted. Applied to
+	# the position rather than inside _draw because the node spins to face its
+	# heading, and a lift baked into a rotated canvas would tip over with it.
+	position = ground_position + RooftopSpace.lift(flight_height)
 	rotation = direction.angle()
 	# Node scale and modulate rather than a redraw: an ember that burns down and
 	# a star that steadies as it flies, for free at three hundred projectiles.
@@ -94,14 +112,14 @@ func _physics_process(delta: float) -> void:
 
 	var candidates: Array
 	if spatial_grid != null:
-		candidates = spatial_grid.query_radius(global_position, radius + 32.0)
+		candidates = spatial_grid.query_radius(ground_position, radius + 32.0)
 	else:
 		candidates = get_tree().get_nodes_in_group("enemies")
 	for candidate in candidates:
 		var enemy := candidate as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead or hit_enemy_ids.has(enemy.get_instance_id()):
 			continue
-		if global_position.distance_to(enemy.global_position) <= radius + enemy.radius:
+		if ground_position.distance_to(enemy.global_position) <= radius + enemy.radius:
 			hit_enemy_ids[enemy.get_instance_id()] = true
 			enemy.take_damage(damage, source_player, source_weapon)
 			remaining_hits -= 1
@@ -121,14 +139,14 @@ func release() -> void:
 
 func _find_nearest_enemy() -> ChaserEnemy:
 	if spatial_grid != null:
-		return spatial_grid.nearest(global_position, 900.0)
+		return spatial_grid.nearest(ground_position, 900.0)
 	var nearest: ChaserEnemy
 	var nearest_distance := INF
 	for candidate in get_tree().get_nodes_in_group("enemies"):
 		var enemy := candidate as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
-		var distance := global_position.distance_squared_to(enemy.global_position)
+		var distance := ground_position.distance_squared_to(enemy.global_position)
 		if distance < nearest_distance:
 			nearest_distance = distance
 			nearest = enemy

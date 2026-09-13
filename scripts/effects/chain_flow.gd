@@ -43,6 +43,13 @@ var warded := false
 var overloaded := false
 var phase := 0.0
 var surge_age := SURGE_LIFE
+## The path the light runs along, when the chain is not a straight segment.
+## Empty in the run, where the chain is a Line2D between two points and this
+## layer has nothing to follow but that line. A caller that hangs the chain —
+## see ChainArc — hands over the sampled rope instead, and the beads then ride
+## the sag rather than cutting the corner across it, which is the difference
+## between light travelling *through* a rope and light drawn near one.
+var curve := PackedVector2Array()
 
 
 func _ready() -> void:
@@ -68,6 +75,28 @@ func surge() -> void:
 	surge_age = 0.0
 
 
+## Where the chain is, a given fraction of the way along it. Falls back to the
+## straight span whenever no curve has been handed over, so the run's chain is
+## sampled exactly as it was before this existed.
+func point_at(ratio: float) -> Vector2:
+	if curve.size() < 2:
+		return head_a.lerp(head_b, ratio)
+	var step := clampf(ratio, 0.0, 1.0) * float(curve.size() - 1)
+	var index := clampi(int(step), 0, curve.size() - 2)
+	return curve[index].lerp(curve[index + 1], step - float(index))
+
+
+## Which way the chain is running at that point, so a bead's trail and its
+## sideways wave stay square to the rope through a bend.
+func heading_at(ratio: float) -> Vector2:
+	if curve.size() < 2:
+		return (head_b - head_a).normalized()
+	var ahead := point_at(minf(1.0, ratio + 0.04))
+	var behind := point_at(maxf(0.0, ratio - 0.04))
+	var run := ahead - behind
+	return run.normalized() if run.length_squared() > 0.0001 else (head_b - head_a).normalized()
+
+
 func _process(delta: float) -> void:
 	# Nothing to advance before a run has placed the pair, and the node lives
 	# for the whole session — the title screen should not be queueing a redraw
@@ -81,12 +110,8 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	var span := head_b - head_a
-	var length := span.length()
-	if length <= 1.0:
+	if head_a.distance_squared_to(head_b) <= 1.0:
 		return
-	var along := span / length
-	var normal := along.orthogonal()
 	var drive := DRIVE[stage]
 	if overloaded:
 		# A blown chain is dark. The light coming back is how the pair knows
@@ -98,17 +123,17 @@ func _draw() -> void:
 	# waving and starts vibrating, at a frequency nothing else on screen uses.
 	var shiver := 0.0 if stage < 2 else float(stage - 1) * 1.7
 
-	_draw_streams(span, along, normal, drive, shiver)
+	_draw_streams(drive, shiver)
 	if stage >= 3 and not overloaded:
 		_draw_anchor_sparks()
 	if surge_age < SURGE_LIFE:
-		_draw_surge(span, along, length)
+		_draw_surge()
 
 
 ## Two counter-running streams of light. The reverse one only exists once the
 ## pair is actually pulling, so "light going both ways" is itself the signal
 ## that the chain has started to load.
-func _draw_streams(span: Vector2, along: Vector2, normal: Vector2, drive: float, shiver: float) -> void:
+func _draw_streams(drive: float, shiver: float) -> void:
 	var core := tint.lightened(0.45)
 	var directions := [1.0] if stage < 1 and not warded else [1.0, -1.0]
 	var offsets: Array = STREAM_OFFSETS[stage]
@@ -120,13 +145,14 @@ func _draw_streams(span: Vector2, along: Vector2, normal: Vector2, drive: float,
 			var ratio := fposmod(phase * direction + offset + (0.11 if direction < 0.0 else 0.0), 1.0)
 			var wave := sin(ratio * TAU * 2.0 + phase * 6.0) * 3.0
 			var vibration := sin(phase * 44.0 + float(index)) * shiver
-			var at := head_a + span * ratio + normal * (wave + vibration)
+			var run := heading_at(ratio)
+			var at := point_at(ratio) + run.orthogonal() * (wave + vibration)
 			# Beads fade in and out of the anchors instead of popping at the
 			# cats' feet, which is what made an earlier version look like a
 			# string of lights switching on.
 			var taper := sin(ratio * PI)
 			var pulse := 0.82 + 0.18 * sin(phase * 13.0 + float(index) * 2.3)
-			var trail := along * direction * (7.0 + drive * 8.0)
+			var trail := run * direction * (7.0 + drive * 8.0)
 			draw_line(at - trail, at, Moonlight.glow(tint, 0.075 * drive * taper), 5.0 + drive * 3.0, true)
 			draw_circle(at, (4.5 + drive * 4.0) * pulse, Moonlight.glow(tint, 0.08 * drive * taper))
 			draw_circle(at, (1.8 + drive * 1.25) * pulse, Moonlight.glow(core, 0.28 * drive * taper))
@@ -148,20 +174,25 @@ func _draw_anchor_sparks() -> void:
 ## it back down the whole chain. A resonance is the one moment the pair being
 ## tied together pays off, so it is the one moment the chain is the brightest
 ## thing on the roof.
-func _draw_surge(span: Vector2, along: Vector2, length: float) -> void:
+func _draw_surge() -> void:
 	var progress := surge_age / SURGE_LIFE
 	if progress < SURGE_GATHER:
 		var gather := ease(progress / SURGE_GATHER, 0.6)
 		for end_index in 2:
-			var from := head_a if end_index == 0 else head_b
-			var to := head_b if end_index == 0 else head_a
-			var at := from.lerp(to, gather * 0.5)
+			var from_ratio := 0.0 if end_index == 0 else 1.0
+			var at := point_at(lerpf(from_ratio, 0.5, gather))
 			draw_circle(at, 9.0 + gather * 8.0, Moonlight.glow(Color.WHITE, 0.40 * (0.35 + gather * 0.65)))
 			draw_circle(at, 20.0 + gather * 16.0, Moonlight.glow(tint, 0.12 * gather))
 		return
 	var spread := (progress - SURGE_GATHER) / (1.0 - SURGE_GATHER)
 	var fade := 1.0 - spread
-	var mid := head_a + span * 0.5
-	var half := along * length * 0.5 * ease(spread, 0.4)
-	draw_line(mid - half, mid + half, Moonlight.glow(tint.lightened(0.4), 0.36 * fade), 6.0 + spread * 11.0, true)
+	var mid := point_at(0.5)
+	# The flood is sampled along the chain rather than drawn as one straight
+	# segment through it, so on a hung rope the light follows the belly out to
+	# both cats instead of cutting the chord.
+	var reach := 0.5 * ease(spread, 0.4)
+	var flood := PackedVector2Array()
+	for step in 13:
+		flood.append(point_at(0.5 + (float(step) / 6.0 - 1.0) * reach))
+	draw_polyline(flood, Moonlight.glow(tint.lightened(0.4), 0.36 * fade), 6.0 + spread * 11.0, true)
 	draw_circle(mid, 14.0 + spread * 42.0, Moonlight.glow(tint, 0.15 * fade))
