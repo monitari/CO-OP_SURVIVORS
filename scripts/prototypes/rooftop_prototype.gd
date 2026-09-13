@@ -54,18 +54,21 @@ const SPAWN_INTERVAL := 1.5
 const AIR_WEAPON := "homing"
 const GROUND_WEAPON := "milk"
 const SHOT_INTERVAL := 0.62
+## Names for the three views, in the order F1 walks through them.
+const VIEW_NAMES := ["평면", "높이", "원근"]
 const GROUND_INTERVAL := 3.4
 ## Where P1 and P2 start, either side of the plate's middle.
 const START_GAP := 150.0
 ## How much of a cat has to be behind something before it is drawn through it.
 const HIDDEN_SHARE := 0.34
-const CAMERA_ZOOM := 0.82
+const CAMERA_ZOOM := 0.7
 ## How much of the drop past the far parapet, and of the wall below the near
 ## one, the camera is allowed to travel far enough to show.
-const SKY_HEADROOM := 200.0
-const WALL_HEADROOM := 260.0
+const SKY_HEADROOM := 170.0
+const WALL_HEADROOM := 120.0
 
 var section: RooftopSection
+var night: DrawProxy
 var backdrop: DrawProxy
 var near_city: DrawProxy
 var walls: DrawProxy
@@ -82,12 +85,27 @@ var legend: Label
 
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
+## Every actor's point on the flat floor, which is the only position any rule in
+## this scene reads. Node positions hold the *projected* point between frames so
+## the scene draws itself in perspective, and gameplay never sees them: the
+## physics step puts the grounds back on the nodes, runs, takes the new grounds
+## off again, and only then projects. That swap is what keeps a cat's walking
+## speed the same at the far edge of the roof as at the near one, which a scene
+## played directly in projected coordinates could not manage.
+var grounds: Array[Vector2] = []
+var enemy_grounds: Array[Vector2] = []
 var props: Array[RooftopProp] = []
 var chain_length := 360.0
 var spawn_timer := 0.0
 var shot_timer := 0.0
 var ground_timer := 1.0
 var shots: Array[HomingProjectile] = []
+## Floor weapons, kept so the view can place them. A puddle is a decal lying on
+## the roof, so it belongs at its floor point scaled by the depth there — left
+## alone it would be a circle painted flat over a receding surface, which is
+## exactly the thing a projected floor makes obvious.
+var pools: Array[MilkPool] = []
+var pool_grounds: Array[Vector2] = []
 var elapsed := 0.0
 ## P2 tags along until someone actually presses its keys, so one person can
 ## walk the pair around the plate and still see the chain do its work.
@@ -110,6 +128,18 @@ func _build_world() -> void:
 	# the gap between them. The order is the roof's own section drawing, and the
 	# reason it is three nodes rather than one is that the floor's trim has to
 	# be under the city while the walls have to be over it.
+	# A trapezoid does not fill a rectangular screen, and what is left over at
+	# its corners is the night the building stands in. Painting it deliberately
+	# is the difference between a roof floating in a void and a roof the view
+	# happens not to reach the far side of.
+	night = ProxyScript.new() as DrawProxy
+	night.z_index = -40
+	night.live = true
+	night.painter = func(canvas: CanvasItem) -> void:
+		canvas.draw_rect(Rect2(RooftopSpace.focus - Vector2(2400.0, 1600.0), Vector2(4800.0, 3200.0)),
+			RooftopSection.SKY)
+	add_child(night)
+
 	section = SectionScript.new() as RooftopSection
 	add_child(section)
 	backdrop = ProxyScript.new() as DrawProxy
@@ -204,6 +234,7 @@ func _place_props() -> void:
 func _spawn_pair() -> void:
 	var roster := CharacterCatalog.all_characters()
 	var picks := [roster[0], roster[min(3, roster.size() - 1)]]
+	grounds.clear()
 	for index in 2:
 		var cat := ChainPlayer.new()
 		cat.setup(index + 1, Color(picks[index]["color"]))
@@ -219,6 +250,7 @@ func _spawn_pair() -> void:
 		cat.footfall.connect(_on_footfall)
 		stage.add_child(cat)
 		players.append(cat)
+		grounds.append(cat.position)
 	chain_length = CharacterCatalog.chain_length_for(picks[0], picks[1])
 
 
@@ -257,8 +289,8 @@ func _refresh_legend() -> void:
 	legend.text = "\n".join([
 		"옥상 2.5D 시제품 · WASD 이동 / Space 대시 · 방향키로 동료 조작",
 		"별은 몸 높이 · 우유는 바닥 — 그림자와 착탄 빛으로 구분",
-		"F1 높이 %s · F2 실루엣 비침 %s · F3 사슬 처짐 %s · F12 달빛 %s" % [
-			_state(RooftopSpace.depth_scale > 0.5), _state(show_silhouettes),
+		"F1 시점 %s · F2 실루엣 비침 %s · F3 사슬 처짐 %s · F12 달빛 %s" % [
+			VIEW_NAMES[RooftopSpace.view_mode], _state(show_silhouettes),
 			_state(hang_chain), _state(Moonlight.enabled),
 		],
 	])
@@ -273,9 +305,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match (event as InputEventKey).physical_keycode:
 		KEY_F1:
-			# Collapsing the projection rather than hiding the props: the same
-			# roof, the same furniture, seen straight down. Only the lift goes.
-			RooftopSpace.depth_scale = 0.0 if RooftopSpace.depth_scale > 0.5 else 1.0
+			# Cycles the same roof through all three views rather than switching
+			# one off. Nothing about the scene changes except how it is being
+			# looked at, which is the only way to tell whether the trapezoid is
+			# paying for itself against the plan view it replaced.
+			RooftopSpace.view_mode = (RooftopSpace.view_mode + 1) % VIEW_NAMES.size()
+			_to_view()
 			_redraw_world()
 		KEY_F2:
 			show_silhouettes = not show_silhouettes
@@ -306,6 +341,11 @@ func _redraw_world() -> void:
 
 func _physics_process(delta: float) -> void:
 	elapsed += delta
+	# The projection is measured from wherever the camera actually is, not from
+	# where it is heading, so that the floor does not slide under the pair while
+	# the view is still catching up to them.
+	RooftopSpace.focus = world_camera.position
+	_to_ground()
 	_drive_companion()
 	for cat in players:
 		cat.step_movement(delta)
@@ -313,13 +353,72 @@ func _physics_process(delta: float) -> void:
 		cat.step_bleedout(delta)
 	_apply_chain_constraint()
 	_clamp_to_plate()
-	_update_chain()
 	grid.rebuild(enemies)
 	_step_enemies(delta)
 	_fire_weapons(delta)
+	_update_chain()
 	flight.step(delta)
 	particles.step(delta)
+	_to_view()
 	_update_camera(delta)
+	if RooftopSpace.view_mode == RooftopSpace.View.PERSPECTIVE:
+		# Every piece of architecture is measured from the focus, so all of it is
+		# stale the moment the camera moves. Only the floor layers pay this — the
+		# props and the actors are billboards whose drawings never change, just
+		# where they are placed and how big they are.
+		_redraw_world()
+
+
+## Puts the flat floor back under the actors for the length of one step. Between
+## calls their nodes hold projected positions, which are for looking at and for
+## nothing else.
+func _to_ground() -> void:
+	for index in players.size():
+		players[index].position = grounds[index]
+	for index in enemies.size():
+		if is_instance_valid(enemies[index]):
+			enemies[index].position = enemy_grounds[index]
+
+
+## And takes them off again, placing and sizing every body by the view. A body
+## is a billboard: it moves to where its floor point projects to and is scaled by
+## how far away that is, and it is never sheared — a cat leaning with the
+## perspective reads as a cat falling over.
+func _to_view() -> void:
+	for index in players.size():
+		grounds[index] = players[index].position
+		players[index].position = RooftopSpace.project(grounds[index])
+		players[index].scale = Vector2.ONE * RooftopSpace.view_scale(grounds[index].y)
+	for index in enemies.size():
+		var enemy := enemies[index]
+		if not is_instance_valid(enemy):
+			continue
+		enemy_grounds[index] = enemy.position
+		enemy.position = RooftopSpace.project(enemy_grounds[index])
+		# Rebuilt from the two things that decide it rather than multiplied into
+		# what is already there. An enemy spends its own scale on the hit flash,
+		# so scaling the node in place compounded the view into itself every
+		# frame and grew a chaser to the size of the roof in about a second.
+		enemy.scale = Vector2.ONE * RooftopSpace.view_scale(enemy_grounds[index].y) 			* (1.0 + enemy.hit_flash * 0.22)
+	for prop in props:
+		prop.position = RooftopSpace.project(prop.ground)
+		prop.scale = Vector2.ONE * RooftopSpace.view_scale(prop.ground.y)
+	var living_pools: Array[MilkPool] = []
+	var living_pool_grounds: Array[Vector2] = []
+	for index in pools.size():
+		var pool := pools[index]
+		if not is_instance_valid(pool):
+			continue
+		var ground: Vector2 = pool_grounds[index]
+		var scale := RooftopSpace.view_scale(ground.y)
+		pool.position = RooftopSpace.project(ground)
+		# Squashed as well as scaled: a puddle lies in the floor plane rather
+		# than facing the camera, so a round one is an ellipse from here.
+		pool.scale = Vector2(scale, scale * RooftopSpace.floor_squash(ground.y))
+		living_pools.append(pool)
+		living_pool_grounds.append(pool_grounds[index])
+	pools = living_pools
+	pool_grounds = living_pool_grounds
 
 
 ## The leash, reduced to the part this scene needs: neither cat may end a frame
@@ -365,17 +464,13 @@ func _drive_companion() -> void:
 	companion.set_command(offset / 60.0 if offset.length() > 26.0 else Vector2.ZERO)
 
 
-## Where the chain actually lies on the roof, in world coordinates.
-##
-## The two chain nodes are anchored at the pair's midpoint so the sorted layer
-## can order them, which means everything they hand back is measured from that
-## anchor. Damage and the see-through pass both want the floor, so the
-## conversion lives here rather than in either of their callers.
+## Where the chain actually lies on the roof: its path across the flat floor, in
+## the same world coordinates every rule in this scene uses. What the chain
+## damages is read from here and what it is drawn as is the projection of the
+## very same samples, which is the one place this scene cannot afford the two to
+## drift apart.
 func chain_path() -> PackedVector2Array:
-	var path := PackedVector2Array()
-	for point in chain_arc.ground_points():
-		path.append(point + chain_arc.position)
-	return path
+	return chain_arc.ground_points()
 
 
 func _update_chain() -> void:
@@ -394,13 +489,17 @@ func _update_chain() -> void:
 	# Turning the hang off feeds the arc a leash it can never be slack against,
 	# which is the straight segment the run draws today — same code path, so the
 	# comparison is of the shape alone and not of two different renderers.
-	var anchor := (players[0].position + players[1].position) * 0.5
-	chain_arc.position = anchor
-	chain_flow.position = anchor
-	chain_arc.set_state(players[0].position - anchor, players[1].position - anchor, tint,
+	# The arc takes floor points and moves itself to where the middle of the rope
+	# projects to; the light is pinned to the same anchor and handed the rope in
+	# that frame, so the two can never disagree about where the chain is.
+	chain_arc.set_state(players[0].position, players[1].position, tint,
 		chain_length if hang_chain else 0.001)
-	chain_flow.set_state(players[0].position - anchor, players[1].position - anchor, tint, band, false, false)
-	chain_flow.curve = chain_arc.drawn_points()
+	chain_flow.position = chain_arc.position
+	chain_flow.set_state(
+		RooftopSpace.raised(players[0].position, RooftopSpace.CHAIN_ANCHOR) - chain_arc.position,
+		RooftopSpace.raised(players[1].position, RooftopSpace.CHAIN_ANCHOR) - chain_arc.position,
+		tint, band, false, false)
+	chain_flow.curve = chain_arc.local_points()
 
 
 func _step_enemies(delta: float) -> void:
@@ -410,7 +509,13 @@ func _step_enemies(delta: float) -> void:
 		_spawn_enemy()
 	var path := chain_path()
 	var living: Array[ChaserEnemy] = []
-	for enemy in enemies:
+	# Grounds are rebuilt alongside the list they belong to. Two arrays kept in
+	# step by index is the cheapest way to give a body a second position, and it
+	# only works if every place that drops an enemy drops its floor point in the
+	# same breath.
+	var living_grounds: Array[Vector2] = []
+	for index in enemies.size():
+		var enemy := enemies[index]
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
 		enemy.step(players, delta)
@@ -424,7 +529,9 @@ func _step_enemies(delta: float) -> void:
 				particles.emit_sparks(enemy.global_position, Color("ffd6e8"), 7)
 				continue
 		living.append(enemy)
+		living_grounds.append(enemy.position)
 	enemies = living
+	enemy_grounds = living_grounds
 
 
 func _spawn_enemy() -> void:
@@ -444,6 +551,7 @@ func _spawn_enemy() -> void:
 	enemy.position = at
 	stage.add_child(enemy)
 	enemies.append(enemy)
+	enemy_grounds.append(at)
 
 
 ## The two halves of the roster, fired side by side.
@@ -483,7 +591,7 @@ func _fire_star() -> void:
 	shot.damage = 26.0
 	shot.flight_height = RooftopSpace.weapon_height(AIR_WEAPON)
 	shot.released.connect(_on_shot_landed.bind(shot))
-	flight.track(shot, shot.flight_height, shot.radius)
+	flight.track(shot)
 	shots.append(shot)
 
 
@@ -502,8 +610,10 @@ func _pour_milk() -> void:
 	# overlap into one pale sheet across the middle of the plate, and a floor
 	# weapon that covers the floor is no longer a demonstration of what a floor
 	# weapon looks like against the roof it is lying on.
-	pool.configure(players[1].position + players[1].facing * 90.0, grid,
-		9.0, 58.0, 0.55, Color("f2e2c4"), 3.6, 1, GROUND_WEAPON)
+	var at := players[1].position + players[1].facing * 90.0
+	pool.configure(at, grid, 9.0, 58.0, 0.55, Color("f2e2c4"), 3.6, 1, GROUND_WEAPON)
+	pools.append(pool)
+	pool_grounds.append(at)
 
 
 func _touches_path(path: PackedVector2Array, at: Vector2, reach: float) -> bool:
@@ -550,21 +660,22 @@ func _draw_silhouettes(canvas: CanvasItem) -> void:
 		return
 	var covers := _occluders()
 	var hidden := false
-	for cat in players:
+	for index in players.size():
+		var cat := players[index]
 		if not _is_hidden(cat, covers):
 			continue
 		hidden = true
-		var at := RooftopSpace.raised(cat.position, cat.stand_height)
-		canvas.draw_circle(at, cat.radius, Color(cat.body_color, 0.22))
-		canvas.draw_arc(at, cat.radius, 0.0, TAU, 26, Color(cat.body_color, 0.75), 2.0, true)
+		var ground: Vector2 = grounds[index]
+		var scale := RooftopSpace.view_scale(ground.y)
+		var at := RooftopSpace.raised(ground, cat.stand_height)
+		canvas.draw_circle(at, cat.radius * scale, Color(cat.body_color, 0.22))
+		canvas.draw_arc(at, cat.radius * scale, 0.0, TAU, 26, Color(cat.body_color, 0.75), 2.0, true)
 		# The contact mark is the part that actually answers "where is it": the
 		# silhouette says which cat, the ring on the floor says where it stands.
-		canvas.draw_arc(cat.position, cat.radius * 0.55, 0.0, TAU, 18, Color(cat.body_color, 0.5), 1.6, true)
+		canvas.draw_arc(RooftopSpace.project(ground), cat.radius * 0.55 * scale, 0.0, TAU, 18,
+			Color(cat.body_color, 0.5), 1.6, true)
 	if hidden:
-		var rope := PackedVector2Array()
-		for point in chain_arc.drawn_points():
-			rope.append(point + chain_arc.position)
-		canvas.draw_polyline(rope, Color(chain_arc.tint, 0.3), 2.0, true)
+		canvas.draw_polyline(chain_arc.drawn_points(), Color(chain_arc.tint, 0.3), 2.0, true)
 
 
 ## Whether enough of this cat is behind something to be worth showing through.
@@ -580,6 +691,9 @@ func _is_hidden(cat: ChainPlayer, covers: Array) -> bool:
 	if area <= 0.0:
 		return false
 	for cover: Array in covers:
+		# Both sides of this comparison are projected rows. The projection keeps
+		# the order of the floor, so front-to-back means the same thing here as
+		# it does on the flat plane.
 		if float(cover[1]) <= cat.position.y:
 			continue
 		var shared := (cover[0] as Rect2).intersection(body)
@@ -595,15 +709,27 @@ func _occluders() -> Array:
 	for prop in props:
 		if prop.bulky():
 			covers.append([prop.screen_rect(), prop.position.y])
-	var wall_top := section.bounds.end.y - RooftopSection.PARAPET_HEIGHT * RooftopSpace.tilt()
+	# The near parapet, as the band of screen it actually covers: from the top of
+	# its lid down to where its face meets the wall below.
+	var outer := section.bounds.grow(RooftopSection.PARAPET_DEPTH)
+	var lid := RooftopSpace.raised(Vector2(outer.position.x, section.bounds.end.y), RooftopSection.PARAPET_HEIGHT)
+	var foot := RooftopSpace.project(Vector2(outer.end.x, outer.end.y))
 	covers.append([
-		Rect2(section.bounds.position.x, wall_top, section.bounds.size.x,
-			section.bounds.end.y + RooftopSection.PARAPET_DEPTH - wall_top),
-		section.bounds.end.y + RooftopSection.PARAPET_DEPTH,
+		Rect2(lid.x, lid.y, foot.x - lid.x, foot.y - lid.y), foot.y,
 	])
 	return covers
 
 
+## What the cat covers on screen. Built from the projected body rather than from
+## the floor point, since that is the thing a prop can actually hide.
 func _body_rect(cat: ChainPlayer) -> Rect2:
-	var at := RooftopSpace.raised(cat.position, cat.stand_height)
-	return Rect2(at.x - cat.radius, at.y - cat.radius * 1.6, cat.radius * 2.0, cat.radius * 1.6 + (cat.position.y - at.y))
+	var scale := cat.scale.x
+	var at := cat.position + RooftopSpace.lift(cat.stand_height) * scale
+	var reach := cat.radius * scale
+	# The drawing hangs well below the point the cat stands on — the portrait is
+	# nearly three times the collision radius and is centred on it — so the rect
+	# has to reach past the floor point as well as above it. Measuring only down
+	# to the floor line let a cat stand with its whole lower half behind the near
+	# parapet and count as unhidden.
+	var top := at.y - reach * 1.6
+	return Rect2(at.x - reach, top, reach * 2.0, (cat.position.y + reach * 1.3) - top)

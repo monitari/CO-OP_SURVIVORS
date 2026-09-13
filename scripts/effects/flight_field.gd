@@ -37,13 +37,17 @@ func _ready() -> void:
 	glow = GlowLayer.attach(self, _draw_flashes, 1)
 
 
-## Starts drawing a shadow under `node` until it stops being visible. `height`
-## is the same figure the node is lifted by, so the shadow can recover the point
-## on the roof the node is flying over without the caller passing it twice.
-func track(node: Node2D, height: float, radius: float) -> void:
-	if height <= 0.0 or not is_instance_valid(node):
+## Starts drawing a shadow under `shot` until it stops being visible.
+##
+## Typed to the projectile rather than to any Node2D on purpose: what this needs
+## is the point on the *roof* the thing is flying over, and a projectile is the
+## one kind of node that carries that separately from where it is drawn. Working
+## it back out of a drawn position stopped being possible the moment the floor
+## gained a perspective.
+func track(shot: HomingProjectile) -> void:
+	if shot == null or shot.flight_height <= 0.0 or not is_instance_valid(shot):
 		return
-	flyers.append({"node": node, "height": height, "radius": radius})
+	flyers.append({"shot": shot, "radius": shot.radius})
 
 
 ## A shot landed here. The mark goes on the roof at the floor point, never at
@@ -62,7 +66,7 @@ func step(delta: float) -> void:
 		# (retired by being hidden) or freed outright, and assigning a freed
 		# instance to a typed local is an error rather than a null — so the
 		# validity check has to come before the type does.
-		var node = flyer["node"]
+		var node = flyer["shot"]
 		if is_instance_valid(node) and (node as Node2D).visible:
 			living.append(flyer)
 	flyers = living
@@ -87,26 +91,29 @@ func clear_all() -> void:
 
 func _draw() -> void:
 	for flyer in flyers:
-		var node = flyer["node"]
+		var node = flyer["shot"]
 		if not is_instance_valid(node):
 			continue
-		var height := float(flyer["height"])
-		# The node was lifted off its floor point to be drawn, so taking the
-		# lift back off is what recovers the piece of roof it is over.
-		var ground := (node as Node2D).global_position - RooftopSpace.lift(height)
-		RooftopSpace.footing(self, ground, float(flyer["radius"]), height, 0.85)
+		var shot := node as HomingProjectile
+		# The shadow is a mark on the floor, so it goes where the floor point
+		# projects to and is sized by how far away that is — the same treatment
+		# every other footprint on this roof gets.
+		var scale := RooftopSpace.view_scale(shot.ground_position.y)
+		RooftopSpace.footing(self, RooftopSpace.project(shot.ground_position),
+			float(flyer["radius"]) * scale, shot.flight_height * scale, 0.85)
 
 
 func _draw_flashes(canvas: CanvasItem) -> void:
 	for mark in flashes:
 		var progress := clampf(float(mark["age"]) / FLASH_LIFE, 0.0, 1.0)
 		var fade := 1.0 - progress
-		var at: Vector2 = mark["at"]
+		var ground: Vector2 = mark["at"]
+		var at := RooftopSpace.project(ground)
 		# Flattened along the light the same way every other footprint on this
 		# roof is, so a landing reads as light thrown across the floor rather
 		# than as a ball of light hanging over it.
 		canvas.draw_set_transform(at, 0.0, Vector2(1.0, Moonlight.SHADOW_SQUASH))
-		var reach := float(mark["radius"]) * (0.45 + progress * 0.85)
+		var reach := float(mark["radius"]) * (0.45 + progress * 0.85) * RooftopSpace.view_scale(ground.y)
 		canvas.draw_circle(Vector2.ZERO, reach, Moonlight.glow(mark["color"] as Color, 0.22 * fade))
 		canvas.draw_circle(Vector2.ZERO, reach * 0.45, Moonlight.glow(Color.WHITE, 0.2 * fade))
 		canvas.draw_set_transform(Vector2.ZERO)

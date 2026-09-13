@@ -14,12 +14,10 @@ extends Node2D
 ## The plate is drawn across four depths, because a wall around a play field is
 ## never at one depth:
 ##
-##   floor        this node: the paving and its gutters, and the mask that
-##                trims the paving back to the plate. The slate tile is over a
-##                thousand pixels square, so a plate is only two or three tiles
-##                and the last of them overruns the edge by most of a tile —
-##                which is why the trim exists and why it has to be under the
-##                city rather than over it.
+##   floor        this node: the paving and its gutters, cut into a grid and
+##                projected quad by quad so the plate comes out as a trapezoid.
+##                Cells are clipped to the plate before they are projected, so
+##                nothing is ever drawn past the edge.
 ##   backdrop     the drop past the far parapet, the low buildings below and
 ##                their signs. Above the trim and below everything else, and the
 ##                only layer that moves at a different rate from the world.
@@ -35,15 +33,21 @@ extends Node2D
 ## The parapet is the one piece of scenery on this roof that a cat genuinely
 ## cannot walk through. Everything else up here is decoration, and the prototype
 ## stage clamps the pair to `bounds` so the wall never lies about that.
+##
+## Every measurement in this file is in world coordinates on the flat ground
+## plane. The trapezoid is entirely the projection's doing — nothing here knows
+## how wide its own far edge ends up.
 
 const SLATE := preload("res://assets/environment/moonroof_slate_tile.png")
 ## How thick the parapet is on the ground, and how far it rises off the floor.
 const PARAPET_DEPTH := 34.0
 const PARAPET_HEIGHT := 54.0
 const GUTTER_SPACING := 640.0
-## How far the mirrored paving is allowed to reach past its own cell, to hide
-## the doubled dark edge where two opposite copies meet.
-const TILE_OVERDRAW := 2.0
+## How many times each slate tile is cut up before it is laid down. The grid
+## has to be fine enough that one cell drawn at a flat texture rate is not
+## visibly wrong under the perspective, and coarse enough that a plate is a few
+## hundred quads rather than a few thousand.
+const TILE_SUBDIVISIONS := 8
 ## How much of the camera's travel the distant city keeps, so it lags the roof
 ## instead of sliding with it. Horizontal only: the skyline has to stay tucked
 ## behind the far parapet, and a vertical lag is what breaks that seam.
@@ -59,8 +63,13 @@ const SKYLINE_PERIOD := 2600.0
 const SKY := Color("070c16")
 const PARAPET_COLOR := Color("36444a")
 const WALL_COLOR := Color("1b2129")
+## How far the building's own face drops below the near parapet, and how much
+## wider it is at the bottom than at the top. The splay is the perspective of a
+## wall seen from above its own top edge.
+const WALL_DROP := 300.0
+const WALL_SPLAY := 1.22
 
-var bounds := Rect2(-880.0, -600.0, 1760.0, 1200.0)
+var bounds := Rect2(-750.0, -700.0, 1500.0, 1400.0)
 
 
 func _ready() -> void:
@@ -70,8 +79,13 @@ func _ready() -> void:
 ## Where the far parapet's own top edge sits on screen. The stage keeps the
 ## camera from climbing past it, so the view never shows the plate floating in
 ## the middle of nothing.
+## Where the far parapet's own top-back corner lands on screen. Everything the
+## roof looks out over is drawn above this line, and the stage keeps the camera
+## from climbing past it — so the view never shows the plate floating in the
+## middle of nothing.
 func far_limit() -> float:
-	return bounds.position.y - PARAPET_DEPTH - PARAPET_HEIGHT * RooftopSpace.tilt()
+	var back := Vector2(bounds.get_center().x, bounds.position.y - PARAPET_DEPTH)
+	return RooftopSpace.raised(back, PARAPET_HEIGHT).y
 
 
 func _draw() -> void:
@@ -79,52 +93,107 @@ func _draw() -> void:
 	_draw_gutters()
 
 
-## Far and side walls. Each is a box in RooftopSpace, so the same top/front
-## split the props use is what draws the architecture — there is only one rule
-## on this roof for what a lifted surface looks like.
+## Far and side walls, drawn from their own footprints on the roof rather than
+## from screen rectangles. The far parapet is the piece of architecture the
+## perspective is easiest to read on: its two long edges are at different depths,
+## so the wall is a trapezoid and its lid is a shallower trapezoid above it.
 func draw_walls(canvas: CanvasItem) -> void:
-	RooftopSpace.draw_box(canvas, Vector2(bounds.get_center().x, bounds.position.y),
-		bounds.size.x + PARAPET_DEPTH * 2.0, PARAPET_DEPTH, PARAPET_HEIGHT, PARAPET_COLOR)
+	var outer := bounds.grow(PARAPET_DEPTH)
+	var near_left := Vector2(outer.position.x, bounds.position.y)
+	var near_right := Vector2(outer.end.x, bounds.position.y)
+	var back_left := Vector2(outer.position.x, outer.position.y)
+	var back_right := Vector2(outer.end.x, outer.position.y)
+	# The face turned toward the play field, then the lid over it. Drawn in that
+	# order so the lit top sits on the shaded front the way it does on a box.
+	canvas.draw_colored_polygon(PackedVector2Array([
+		RooftopSpace.project(near_left), RooftopSpace.project(near_right),
+		RooftopSpace.raised(near_right, PARAPET_HEIGHT), RooftopSpace.raised(near_left, PARAPET_HEIGHT),
+	]), RooftopSpace.front_face(PARAPET_COLOR))
+	canvas.draw_colored_polygon(PackedVector2Array([
+		RooftopSpace.raised(back_left, PARAPET_HEIGHT), RooftopSpace.raised(back_right, PARAPET_HEIGHT),
+		RooftopSpace.raised(near_right, PARAPET_HEIGHT), RooftopSpace.raised(near_left, PARAPET_HEIGHT),
+	]), RooftopSpace.top_face(PARAPET_COLOR))
+	if Moonlight.enabled:
+		canvas.draw_line(RooftopSpace.raised(near_left, PARAPET_HEIGHT),
+			RooftopSpace.raised(near_right, PARAPET_HEIGHT), RooftopSpace.lip(PARAPET_COLOR), 2.0)
 	for side: float in [-1.0, 1.0]:
-		var x := bounds.get_center().x + side * (bounds.size.x * 0.5 + PARAPET_DEPTH * 0.5)
-		# Seen from almost above, a side wall is its lid plus the thin dark seam
-		# where it meets the floor. There is no face turned toward the camera,
-		# so drawing one would be inventing an angle this view does not have.
-		var lid := Rect2(x - PARAPET_DEPTH * 0.5, bounds.position.y, PARAPET_DEPTH, bounds.size.y)
-		canvas.draw_rect(lid.grow_individual(0.0, 0.0, 0.0, PARAPET_DEPTH), RooftopSpace.top_face(PARAPET_COLOR))
-		canvas.draw_line(Vector2(x - side * PARAPET_DEPTH * 0.5, bounds.position.y),
-			Vector2(x - side * PARAPET_DEPTH * 0.5, bounds.end.y + PARAPET_DEPTH),
-			RooftopSpace.front_face(PARAPET_COLOR).darkened(0.3), 3.0)
+		# Seen from a camera with no yaw, a side wall has no face turned toward
+		# the viewer — only its lid, which is a long thin trapezoid running from
+		# the far end of the plate to the near one, and a dark seam where it
+		# meets the floor.
+		var inner_x := bounds.position.x if side < 0.0 else bounds.end.x
+		var outer_x := outer.position.x if side < 0.0 else outer.end.x
+		canvas.draw_colored_polygon(PackedVector2Array([
+			RooftopSpace.raised(Vector2(outer_x, outer.position.y), PARAPET_HEIGHT),
+			RooftopSpace.raised(Vector2(inner_x, outer.position.y), PARAPET_HEIGHT),
+			RooftopSpace.raised(Vector2(inner_x, outer.end.y), PARAPET_HEIGHT),
+			RooftopSpace.raised(Vector2(outer_x, outer.end.y), PARAPET_HEIGHT),
+		]), RooftopSpace.top_face(PARAPET_COLOR))
+		canvas.draw_polyline(RooftopSpace.project_all(PackedVector2Array([
+			Vector2(inner_x, bounds.position.y), Vector2(inner_x, outer.end.y),
+		])), RooftopSpace.front_face(PARAPET_COLOR).darkened(0.3), 3.0)
 
 
-## The slate the run already uses, mirrored in alternating cells so opposite
-## copies meet on the same source edge and the seams disappear. Clipped to the
-## plate rather than windowed around a camera: this floor has an end.
+## The slate the run already uses, laid down one quad at a time.
+##
+## A projected floor cannot be a stretched texture rectangle: the four corners
+## of a patch of roof do not make a rectangle on screen any more, and the rate
+## the texture runs at has to change across the patch. So the plate is cut into
+## a grid, every corner is projected, and each cell is drawn as its own quad
+## with the slice of slate that belongs to it.
+##
+## The grid is aligned to the tile and subdivided a fixed number of times, which
+## matters for two reasons: no cell ever straddles a tile boundary, so the
+## alternating mirror stays exact; and the cells are small enough that drawing
+## each one with a flat texture rate is not visibly wrong. Cells are clipped to
+## the plate in world coordinates before projecting, which is also what retired
+## the mask this used to need — nothing is drawn past the edge in the first
+## place.
 func _draw_paving() -> void:
-	draw_rect(bounds, Moonlight.ground(Color("23383e")))
 	var tile := SLATE.get_size()
-	var first := Vector2i(int(floor(bounds.position.x / tile.x)), int(floor(bounds.position.y / tile.y)))
-	var last := Vector2i(int(ceil(bounds.end.x / tile.x)), int(ceil(bounds.end.y / tile.y)))
-	for tile_y in range(first.y, last.y):
-		for tile_x in range(first.x, last.x):
-			var flip_x := posmod(tile_x, 2) != 0
-			var flip_y := posmod(tile_y, 2) != 0
-			var corner := Vector2(tile_x * tile.x, tile_y * tile.y)
-			var pivot := corner + Vector2(tile.x if flip_x else 0.0, tile.y if flip_y else 0.0)
-			draw_set_transform(pivot, 0.0, Vector2(-1.0 if flip_x else 1.0, -1.0 if flip_y else 1.0))
-			draw_texture_rect(SLATE, Rect2(Vector2.ONE * -TILE_OVERDRAW, tile + Vector2.ONE * TILE_OVERDRAW * 2.0), false,
-				Moonlight.ground(Color("d1dcda")))
-	draw_set_transform(Vector2.ZERO)
-	# Trim the paving back to the plate. The mask has to be a full tile deep,
-	# because that is how far the last row of a tile this size can hang past the
-	# edge, and the city is drawn in a layer *above* this one precisely so that
-	# a mask this wide cannot paint over it.
-	var trim := SLATE.get_size()
-	draw_rect(Rect2(bounds.position - trim, Vector2(bounds.size.x + trim.x * 2.0, trim.y)), SKY)
-	draw_rect(Rect2(Vector2(bounds.position.x - trim.x, bounds.end.y), Vector2(bounds.size.x + trim.x * 2.0, trim.y)), SKY)
-	for side: float in [-1.0, 1.0]:
-		var x := bounds.position.x - trim.x if side < 0.0 else bounds.end.x
-		draw_rect(Rect2(Vector2(x, bounds.position.y - trim.y), Vector2(trim.x, bounds.size.y + trim.y * 2.0)), SKY)
+	var step := tile / float(TILE_SUBDIVISIONS)
+	_draw_plate_fill()
+	var first := Vector2i(int(floor(bounds.position.x / step.x)), int(floor(bounds.position.y / step.y)))
+	var last := Vector2i(int(ceil(bounds.end.x / step.x)), int(ceil(bounds.end.y / step.y)))
+	for cell_y in range(first.y, last.y):
+		for cell_x in range(first.x, last.x):
+			var cell := Rect2(Vector2(cell_x, cell_y) * step, step)
+			var clipped := cell.intersection(bounds)
+			if clipped.size.x <= 0.01 or clipped.size.y <= 0.01:
+				continue
+			draw_colored_polygon(RooftopSpace.floor_quad(clipped),
+				Moonlight.ground(Color("d1dcda")), _slate_uvs(clipped, tile), SLATE)
+
+
+## The plate's own silhouette, under the paving, so a seam between two quads can
+## never show the sky through the floor.
+func _draw_plate_fill() -> void:
+	draw_colored_polygon(RooftopSpace.floor_quad(bounds), Moonlight.ground(Color("23383e")))
+
+
+## Where a patch of roof sits inside the slate, with the alternating mirror
+## folded into the coordinates rather than into a transform — a projected quad
+## has no transform left to spend on flipping.
+func _slate_uvs(patch: Rect2, tile: Vector2) -> PackedVector2Array:
+	var tile_x := int(floor(patch.get_center().x / tile.x))
+	var tile_y := int(floor(patch.get_center().y / tile.y))
+	var flip_x := posmod(tile_x, 2) != 0
+	var flip_y := posmod(tile_y, 2) != 0
+	var low := Vector2(
+		(patch.position.x - float(tile_x) * tile.x) / tile.x,
+		(patch.position.y - float(tile_y) * tile.y) / tile.y)
+	var high := Vector2(
+		(patch.end.x - float(tile_x) * tile.x) / tile.x,
+		(patch.end.y - float(tile_y) * tile.y) / tile.y)
+	if flip_x:
+		var swap_x := low.x
+		low.x = 1.0 - high.x
+		high.x = 1.0 - swap_x
+	if flip_y:
+		var swap_y := low.y
+		low.y = 1.0 - high.y
+		high.y = 1.0 - swap_y
+	return PackedVector2Array([low, Vector2(high.x, low.y), high, Vector2(low.x, high.y)])
 
 
 ## Gutters fall on half-spacings rather than on multiples, which keeps one of
@@ -134,15 +203,23 @@ func _draw_paving() -> void:
 func _draw_gutters() -> void:
 	var at := (floorf(bounds.position.x / GUTTER_SPACING) + 0.5) * GUTTER_SPACING
 	while at < bounds.end.x:
-		draw_rect(Rect2(at - 7.0, bounds.position.y, 14.0, bounds.size.y), Moonlight.ground(Color("1e333a")))
-		# A gutter is a channel, so its far wall is the one the moon reaches and
-		# its near wall is the one in shade — the same two-face rule as a box,
-		# on a surface that goes down instead of up.
-		draw_line(Vector2(at - 7.0, bounds.position.y), Vector2(at - 7.0, bounds.end.y),
-			Moonlight.ground(Color("53625d"), 0.26), 2.0)
-		draw_line(Vector2(at + 7.0, bounds.position.y), Vector2(at + 7.0, bounds.end.y),
-			Moonlight.ground(Color("53625d")).darkened(0.35), 2.0)
+		if at > bounds.position.x:
+			var channel := Rect2(at - 7.0, bounds.position.y, 14.0, bounds.size.y)
+			draw_colored_polygon(RooftopSpace.floor_quad(channel), Moonlight.ground(Color("1e333a")))
+			# A gutter is a channel, so its far wall is the one the moon reaches
+			# and its near wall is the one in shade — the same two-face rule as a
+			# box, on a surface that goes down instead of up. In perspective both
+			# walls converge toward the vanishing point, which is the clearest
+			# single statement of depth anywhere on the plate.
+			_drain_edge(channel.position.x, Moonlight.ground(Color("53625d"), 0.26))
+			_drain_edge(channel.end.x, Moonlight.ground(Color("53625d")).darkened(0.35))
 		at += GUTTER_SPACING
+
+
+func _drain_edge(x: float, tint: Color) -> void:
+	draw_polyline(RooftopSpace.project_all(PackedVector2Array([
+		Vector2(x, bounds.position.y), Vector2(x, bounds.end.y),
+	])), tint, 2.0)
 
 
 ## Everything past the far parapet: the night, the drop, the low buildings this
@@ -259,36 +336,82 @@ func _draw_sign(canvas: CanvasItem, rng: RandomNumberGenerator, at: Vector2) -> 
 
 
 ## The near wall: the parapet along the bottom of the plate, the outside of this
-## building dropping away under it, and the street it drops toward. Drawn in
+## building dropping away under it, and the dark the street is in. Drawn in
 ## front of the actors, so walking down to the edge puts a cat behind it.
+##
+## This is the one surface the camera sees face-on, and it is where the whole
+## plate is finally told on: it is the only place the viewer is shown, in one
+## unambiguous picture, how thick the roof is and how far off the ground it
+## sits. In perspective it is also the widest thing on screen — the near edge is
+## the closest row of the world — so it splays outward as it drops rather than
+## dropping straight, the way the sides of a box do when you look down into it.
 func draw_near_edge(canvas: CanvasItem) -> void:
-	var base := Vector2(bounds.get_center().x, bounds.end.y + PARAPET_DEPTH)
-	var width := bounds.size.x + PARAPET_DEPTH * 2.0
-	RooftopSpace.draw_box(canvas, base, width, PARAPET_DEPTH, PARAPET_HEIGHT, PARAPET_COLOR)
-	# Below the parapet the camera finally sees an outside wall face-on. This is
-	# the single most useful surface on the whole plate: it is the only place the
-	# viewer is told, in one unambiguous picture, how thick the roof is and how
-	# far off the ground it sits.
-	var wall := Rect2(base.x - width * 0.5, base.y, width, 460.0)
-	canvas.draw_rect(wall, Moonlight.ground(WALL_COLOR))
-	canvas.draw_line(Vector2(wall.position.x, wall.position.y), Vector2(wall.end.x, wall.position.y),
-		RooftopSpace.lip(WALL_COLOR).darkened(0.4), 2.0)
-	# Windows on our own wall are the one piece of this scene that sits directly
-	# under the fight, so they are kept nearly as dark as the wall and only a
-	# few of them are lit. An evenly lit grid here pulled the eye straight off
-	# the roof and read as a spreadsheet parked below the play field.
+	var outer := bounds.grow(PARAPET_DEPTH)
+	var near_left := Vector2(outer.position.x, outer.end.y)
+	var near_right := Vector2(outer.end.x, outer.end.y)
+	var back_left := Vector2(outer.position.x, bounds.end.y)
+	var back_right := Vector2(outer.end.x, bounds.end.y)
+	# The lid first, then the face under it: on the near side the front band is
+	# what the cat stands behind, so it is drawn last and wins the overlap.
+	canvas.draw_colored_polygon(PackedVector2Array([
+		RooftopSpace.raised(back_left, PARAPET_HEIGHT), RooftopSpace.raised(back_right, PARAPET_HEIGHT),
+		RooftopSpace.raised(near_right, PARAPET_HEIGHT), RooftopSpace.raised(near_left, PARAPET_HEIGHT),
+	]), RooftopSpace.top_face(PARAPET_COLOR))
+	var foot_left := RooftopSpace.project(near_left)
+	var foot_right := RooftopSpace.project(near_right)
+	canvas.draw_colored_polygon(PackedVector2Array([
+		foot_left, foot_right,
+		RooftopSpace.raised(near_right, PARAPET_HEIGHT), RooftopSpace.raised(near_left, PARAPET_HEIGHT),
+	]), RooftopSpace.front_face(PARAPET_COLOR))
+	if Moonlight.enabled:
+		canvas.draw_line(RooftopSpace.raised(near_left, PARAPET_HEIGHT),
+			RooftopSpace.raised(near_right, PARAPET_HEIGHT), RooftopSpace.lip(PARAPET_COLOR), 2.0)
+
+	var scale := RooftopSpace.view_scale(near_left.y)
+	var drop := WALL_DROP * scale
+	var splay := (foot_right.x - foot_left.x) * (WALL_SPLAY - 1.0) * 0.5
+	var bottom_left := Vector2(foot_left.x - splay, foot_left.y + drop)
+	var bottom_right := Vector2(foot_right.x + splay, foot_right.y + drop)
+	canvas.draw_colored_polygon(PackedVector2Array([foot_left, foot_right, bottom_right, bottom_left]),
+		Moonlight.ground(WALL_COLOR))
+	canvas.draw_line(foot_left, foot_right, RooftopSpace.lip(WALL_COLOR).darkened(0.4), 2.0)
+	_draw_wall_windows(canvas, foot_left, foot_right, bottom_left, bottom_right)
+	# The wall does not end, it falls away. Stepping the shade down the face is
+	# what turns a flat band under the roof into a drop the roof is standing
+	# over, and it starts almost immediately — the moon is up here, and nothing
+	# four floors down is catching any of it.
+	for step in 6:
+		var low := float(step) / 6.0
+		var high := float(step + 1) / 6.0
+		canvas.draw_colored_polygon(PackedVector2Array([
+			foot_left.lerp(bottom_left, low), foot_right.lerp(bottom_right, low),
+			foot_right.lerp(bottom_right, high), foot_left.lerp(bottom_left, high),
+		]), Color(Color("07060d"), 0.1 + float(step) * 0.15))
+
+
+## Windows on our own wall are the one piece of this scene sitting directly
+## under the fight, so they are kept nearly as dark as the wall and only a few
+## of them are lit. An evenly lit grid here pulled the eye straight off the roof
+## and read as a spreadsheet parked below the play field.
+##
+## Each one is placed by how far across and how far down the wall it is rather
+## than in pixels, so they splay with the wall instead of sliding off it.
+func _draw_wall_windows(canvas: CanvasItem, top_left: Vector2, top_right: Vector2,
+		bottom_left: Vector2, bottom_right: Vector2) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20260913
+	var columns := maxi(4, int((top_right.x - top_left.x) / 108.0))
 	for row in 3:
-		for column in int(width / 108.0):
-			var at := Vector2(wall.position.x + 34.0 + float(column) * 108.0, wall.position.y + 62.0 + float(row) * 124.0)
-			canvas.draw_rect(Rect2(at, Vector2(42.0, 56.0)), Moonlight.ground(WALL_COLOR).darkened(0.5))
+		var near := 0.14 + float(row) * 0.26
+		var far := near + 0.13
+		for column in columns:
+			var across := (float(column) + 0.5) / float(columns)
+			var pane := PackedVector2Array()
+			for corner: Vector2 in [Vector2(-0.02, 0.0), Vector2(0.02, 0.0), Vector2(0.02, 1.0), Vector2(-0.02, 1.0)]:
+				var depth := near if corner.y < 0.5 else far
+				var left := top_left.lerp(bottom_left, depth)
+				var right := top_right.lerp(bottom_right, depth)
+				pane.append(left.lerp(right, clampf(across + corner.x, 0.0, 1.0)))
+			canvas.draw_colored_polygon(pane, Moonlight.ground(WALL_COLOR).darkened(0.5))
 			if rng.randf() < 0.24:
-				canvas.draw_rect(Rect2(at + Vector2(3.0, 3.0), Vector2(36.0, 50.0)), Color("ffd9a0", 0.09))
-	# The wall does not end, it falls away. Stepping the shade down the face is
-	# what turns a flat rectangle under the roof into a drop the roof is
-	# standing over, and it starts almost immediately — the moon is up here, and
-	# nothing four floors down is catching any of it.
-	for step in 6:
-		var band := Rect2(wall.position.x, wall.position.y + 60.0 + float(step) * 68.0, wall.size.x, 68.0)
-		canvas.draw_rect(band, Color(Color("07060d"), 0.12 + float(step) * 0.14))
+				canvas.draw_colored_polygon(pane, Color("ffd9a0", 0.09))

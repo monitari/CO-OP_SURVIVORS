@@ -39,7 +39,8 @@ func shot(name: String) -> void:
 
 
 func run() -> void:
-	RooftopSpace.depth_scale = 1.0
+	RooftopSpace.view_mode = RooftopSpace.View.PERSPECTIVE
+	RooftopSpace.focus = Vector2.ZERO
 	Moonlight.enabled = true
 	var stage := Scene.instantiate()
 	root.add_child(stage)
@@ -48,6 +49,7 @@ func run() -> void:
 		return
 
 	_check_projection()
+	_check_perspective(stage)
 	_check_props(stage)
 	await _check_chain(stage)
 	await _check_occlusion(stage)
@@ -57,19 +59,20 @@ func run() -> void:
 	await _check_footing(stage)
 	await _check_weapon_heights(stage)
 
-	# The dial the whole comparison hangs off. With it at zero the roof has to
-	# fall back to the flat plan view, props and all, or the before/after shot
-	# is not a before and after of one scene.
-	RooftopSpace.depth_scale = 0.0
-	stage._redraw_world()
-	stage._refresh_legend()
-	check(RooftopSpace.lift(80.0) == Vector2.ZERO, "Height off collapses every lift")
+	# The other two views, which the same scene has to be able to fall back to
+	# or there is nothing to compare the trapezoid against.
+	await _look_in(stage, RooftopSpace.View.LIFTED)
+	check(RooftopSpace.view_scale(9999.0) == 1.0, "Without perspective nothing is scaled by depth")
+	check(RooftopSpace.project(Vector2(500.0, -400.0)) == Vector2(500.0, -400.0),
+		"Without perspective the floor is left where it is")
+	await shot("lifted")
+
+	await _look_in(stage, RooftopSpace.View.FLAT)
+	check(RooftopSpace.lift(80.0) == Vector2.ZERO, "The flat view collapses every lift")
 	check(is_equal_approx(stage.props[0].screen_rect().size.y, stage.props[0].depth()),
-		"Height off also gives back the screen space the props were reserving")
+		"The flat view gives back the screen space the props were reserving")
 	await shot("flat")
-	RooftopSpace.depth_scale = 1.0
-	stage._redraw_world()
-	stage._refresh_legend()
+	await _look_in(stage, RooftopSpace.View.PERSPECTIVE)
 
 	await _check_run_untouched()
 
@@ -82,11 +85,53 @@ func run() -> void:
 	quit(1)
 
 
+## Switches the view the way F1 does and lets the scene settle into it, since
+## the floor layers are all measured from the focus and every body has to be
+## placed and scaled again.
+func _look_in(stage, mode) -> void:
+	RooftopSpace.view_mode = mode
+	for frame in 4:
+		stage._physics_process(1.0 / 60.0)
+	stage._redraw_world()
+	stage._refresh_legend()
+	await process_frame
+
+
+## The trapezoid itself: the claims that make this a perspective view rather
+## than a taller version of the plan view.
+func _check_perspective(stage) -> void:
+	RooftopSpace.focus = Vector2.ZERO
+	var near := RooftopSpace.view_scale(600.0)
+	var far := RooftopSpace.view_scale(-600.0)
+	check(near > 1.0 and far < 1.0, "Near ground is larger than far ground")
+	check(RooftopSpace.project(RooftopSpace.focus) == RooftopSpace.focus,
+		"The focus is the one point the view never moves")
+	# The plate has to come out narrower at the back than at the front, which is
+	# the whole of what "trapezoid" means here.
+	var plate: Rect2 = stage.section.bounds
+	var back_left := RooftopSpace.project(plate.position)
+	var back_right := RooftopSpace.project(Vector2(plate.end.x, plate.position.y))
+	var front_left := RooftopSpace.project(Vector2(plate.position.x, plate.end.y))
+	var front_right := RooftopSpace.project(plate.end)
+	check(back_right.x - back_left.x < front_right.x - front_left.x,
+		"The far edge of the plate is narrower than the near edge")
+	check(back_left.y < front_left.y, "The far edge is further up the screen")
+	# Straight down the middle, the two sides close in by the same amount: a
+	# trapezoid and not a wedge.
+	check(is_equal_approx(back_left.x + back_right.x, front_left.x + front_right.x),
+		"The plate tapers evenly toward the vanishing point")
+	# And the order of the floor survives it, which is what the whole depth
+	# sort and the see-through pass rest on.
+	check(RooftopSpace.project(Vector2(0.0, -100.0)).y < RooftopSpace.project(Vector2(0.0, 100.0)).y,
+		"Projection keeps front-to-back order")
+
+
 func _check_projection() -> void:
+	RooftopSpace.focus = Vector2.ZERO
 	check(RooftopSpace.lift(50.0).y < 0.0 and is_zero_approx(RooftopSpace.lift(50.0).x),
 		"Height only ever moves a drawing up the screen")
-	check(RooftopSpace.raised(Vector2(120.0, 40.0), 30.0).x == 120.0,
-		"Height never moves the point a thing is anchored to")
+	check(RooftopSpace.raised(Vector2(0.0, 0.0), 30.0).x == 0.0,
+		"Height never moves a thing sideways off the point it stands on")
 	check(RooftopSpace.in_front_of(200.0, 180.0) and not RooftopSpace.in_front_of(180.0, 200.0),
 		"Front to back is decided by the ground contact line")
 	# The two faces have to be far enough apart to read as a fold rather than as
@@ -114,12 +159,22 @@ func _check_props(stage) -> void:
 	check(duct != null and not duct.bulky(), "Low ducting never triggers the see-through pass")
 
 
+## Stands the pair on two exact points on the floor and lets the scene catch up
+## without running the simulation, which would move them again. The focus goes
+## with them: the perspective is measured from the camera, so a pose that did
+## not move it would be judged through the view of somewhere else.
+func _pose(stage, a: Vector2, b: Vector2) -> void:
+	RooftopSpace.focus = (a + b) * 0.5
+	stage.players[0].position = a
+	stage.players[1].position = b
+	stage._update_chain()
+	stage._to_view()
+
+
 func _check_chain(stage) -> void:
 	# Slack: the pair standing close. The chain has to bow toward the viewer and
 	# its middle has to come down toward the floor.
-	stage.players[0].position = Vector2(-60.0, 0.0)
-	stage.players[1].position = Vector2(60.0, 0.0)
-	stage._update_chain()
+	_pose(stage, Vector2(-60.0, 0.0), Vector2(60.0, 0.0))
 	var slack_ground: PackedVector2Array = stage.chain_path()
 	var belly: Vector2 = slack_ground[slack_ground.size() / 2]
 	check(belly.y > 20.0, "A slack chain bows toward the viewer")
@@ -135,16 +190,14 @@ func _check_chain(stage) -> void:
 
 	# Taut: the pair at the end of the leash. The rope straightens and leaves
 	# the floor, and the two readings converge again.
-	stage.players[0].position = Vector2(-stage.chain_length * 0.5, 0.0)
-	stage.players[1].position = Vector2(stage.chain_length * 0.5, 0.0)
-	stage._update_chain()
+	_pose(stage, Vector2(-stage.chain_length * 0.5, 0.0), Vector2(stage.chain_length * 0.5, 0.0))
 	var taut: PackedVector2Array = stage.chain_path()
 	check(absf(taut[taut.size() / 2].y) < 1.0, "A taut chain is straight")
 	check(is_equal_approx(stage.chain_arc.height_at(0.5), stage.chain_arc.height_at(0.0)),
 		"A taut chain hangs level")
 	check(stage.chain_flow.curve.size() == taut.size(), "The running light is given the hung rope to follow")
 	check(stage.chain_flow.point_at(0.5).distance_to(
-		RooftopSpace.raised(taut[taut.size() / 2] - stage.chain_arc.position, RooftopSpace.CHAIN_ANCHOR)) < 2.0,
+		RooftopSpace.raised(taut[taut.size() / 2], RooftopSpace.CHAIN_ANCHOR) - stage.chain_arc.position) < 2.0,
 		"The light samples the chain rather than the chord")
 	# The rope sorts against the furniture instead of living under all of it, so
 	# both halves have to be anchored where the sorting expects them.
@@ -155,9 +208,7 @@ func _check_chain(stage) -> void:
 		"The chain is anchored at the pair's midpoint")
 	await shot("chain-taut")
 
-	stage.players[0].position = Vector2(-60.0, 0.0)
-	stage.players[1].position = Vector2(60.0, 0.0)
-	stage._update_chain()
+	_pose(stage, Vector2(-60.0, 0.0), Vector2(60.0, 0.0))
 	await shot("chain-slack")
 
 
@@ -167,21 +218,22 @@ func _check_occlusion(stage) -> void:
 		if prop.kind == "pipe":
 			pipe = prop
 			break
+	# Placed against the pipe's floor point, not its drawn one — in perspective
+	# those are two different places.
+	var spot: Vector2 = pipe.ground
 	# Standing just behind the pipe: hidden, and therefore owed a silhouette.
-	stage.players[0].position = pipe.position - Vector2(0.0, 26.0)
-	stage.players[1].position = pipe.position - Vector2(150.0, 40.0)
+	_pose(stage, spot - Vector2(0.0, 26.0), spot - Vector2(150.0, 40.0))
 	check(_is_covered(stage, stage.players[0]), "A cat behind the tall prop is hidden by it")
 	check(not _is_covered(stage, stage.players[1]), "A cat clear of it is not")
 	# Grazing the corner of a prop is not being hidden by it. Without a share to
 	# clear, the silhouette fires on every near miss and stops meaning anything.
-	stage.players[1].position = pipe.position - Vector2(pipe.width() * 0.5 + 8.0, 30.0)
-	check(not _is_covered(stage, stage.players[1]), "Brushing past a prop does not raise a silhouette")
+	_pose(stage, spot - Vector2(pipe.width() + 30.0, 30.0), spot - Vector2(260.0, 40.0))
+	check(not _is_covered(stage, stage.players[0]), "Brushing past a prop does not raise a silhouette")
 	# And stepping out in front has to give the cat back without a silhouette,
 	# or the see-through pass is just a permanent outline on everything.
-	stage.players[0].position = pipe.position + Vector2(0.0, 40.0)
+	_pose(stage, spot + Vector2(0.0, 40.0), spot - Vector2(150.0, 40.0))
 	check(not _is_covered(stage, stage.players[0]), "Walking in front of a prop gives the cat back")
-	stage.players[0].position = pipe.position - Vector2(0.0, 26.0)
-	stage._update_chain()
+	_pose(stage, spot - Vector2(0.0, 26.0), spot - Vector2(150.0, 40.0))
 	await shot("occlusion")
 
 
@@ -212,9 +264,12 @@ func _check_weapon_heights(stage) -> void:
 	# spawn point with its lift not yet applied.
 	star._physics_process(1.0 / 60.0)
 	check(star.flight_height > 0.0, "The star flies at body height")
-	check(star.position.y < star.ground_position.y, "A flying shot is drawn above the roof it crosses")
-	check(is_equal_approx(star.position.x, star.ground_position.x),
-		"Height never moves a shot sideways")
+	# Measured against the piece of floor the shot is over *as it is drawn*, not
+	# against the raw floor coordinate: under a perspective the projection moves
+	# that point too, and height is only the difference between the two.
+	var under := RooftopSpace.project(star.ground_position)
+	check(star.position.y < under.y, "A flying shot is drawn above the roof it crosses")
+	check(is_equal_approx(star.position.x, under.x), "Height never moves a shot sideways")
 	check(stage.flight.flyers.size() > 0, "Something is drawing the shadow under it")
 	await shot("weapons")
 
@@ -229,7 +284,7 @@ func _check_footing(stage) -> void:
 	await _walk_to(stage, Vector2(0.0, 120.0))
 	var cat: ChainPlayer = stage.players[0]
 	check(cat.stand_height > 0.0, "The prototype's cats stand off the roof")
-	check(RooftopSpace.raised(cat.position, cat.stand_height).y < cat.position.y,
+	check(RooftopSpace.raised(stage.grounds[0], cat.stand_height).y < RooftopSpace.project(stage.grounds[0]).y,
 		"A standing cat is drawn above the point it stands on")
 	cat.last_input = Vector2.RIGHT
 	check(cat.try_dash(), "The dash is available to lean into")
@@ -237,7 +292,7 @@ func _check_footing(stage) -> void:
 	for frame in 3:
 		stage._physics_process(1.0 / 120.0)
 	check(cat.dash_timer > 0.0, "The shot catches the burst mid-flight")
-	stage.world_camera.position = cat.position
+	stage.world_camera.position = RooftopSpace.project(stage.grounds[0])
 	await shot("footing")
 	stage.world_camera.zoom = Vector2.ONE * stage.CAMERA_ZOOM
 
@@ -260,8 +315,7 @@ func _check_edges(stage) -> void:
 ## Puts the pair somewhere and lets the camera settle there, since the framing
 ## checks above are about where the camera ends up and not where it starts.
 func _walk_to(stage, at: Vector2) -> void:
-	stage.players[0].position = at - Vector2(70.0, 0.0)
-	stage.players[1].position = at + Vector2(70.0, 0.0)
+	_pose(stage, at - Vector2(70.0, 0.0), at + Vector2(70.0, 0.0))
 	for frame in 60:
 		stage._physics_process(1.0 / 60.0)
 	await process_frame
@@ -277,20 +331,44 @@ func _check_plate(stage) -> void:
 	stage.players[0].position = Vector2(9000.0, 9000.0)
 	stage._clamp_to_plate()
 	check(stage.section.bounds.has_point(stage.players[0].position), "The parapet holds the pair on the plate")
-	stage.players[0].position = Vector2(-120.0, 60.0)
-	stage.players[1].position = Vector2(120.0, 60.0)
+	_pose(stage, Vector2(-120.0, 60.0), Vector2(120.0, 60.0))
 	for frame in 30:
 		stage._physics_process(1.0 / 60.0)
-	check(stage.players[0].position.distance_to(stage.players[1].position) <= stage.chain_length + 1.0,
+	check(stage.grounds[0].distance_to(stage.grounds[1]) <= stage.chain_length + 1.0,
 		"The leash still holds while the roof has height")
 	check(stage.enemies.size() > 0, "Enemies walk the plate so movement can be judged against something")
+	# The point of the ground/view swap: a cat covers the same distance per
+	# second wherever it is standing. Walked at the back of the plate and at the
+	# front, the two runs have to match on the floor even though they cover very
+	# different amounts of screen.
+	check(is_equal_approx(_walk_distance(stage, -420.0), _walk_distance(stage, 420.0)),
+		"A cat walks the same distance at the back of the roof as at the front")
 	await process_frame
+
+
+## How far the leader actually travels across the floor in a fixed number of
+## steps, starting from a given row.
+func _walk_distance(stage, row: float) -> float:
+	stage.grounds[0] = Vector2(-200.0, row)
+	stage.grounds[1] = Vector2(-60.0, row)
+	stage.players[1].input_source = ChainPlayer.InputSource.AI
+	var start: Vector2 = stage.grounds[0]
+	for frame in 20:
+		stage.players[0].set_command(Vector2.RIGHT)
+		stage.players[0].input_source = ChainPlayer.InputSource.AI
+		stage._physics_process(1.0 / 60.0)
+	return snappedf(start.distance_to(stage.grounds[0]), 0.01)
 
 
 ## The live run must be exactly where it was. Height is opt-in per survivor and
 ## nothing in main.gd opts in yet, so a run's cats still draw at their own
 ## position with the shadow Moonlight has always put under them.
 func _check_run_untouched() -> void:
+	# The view is a global switch, so the run has to be handed back the one it
+	# expects. Nothing in main.gd projects anything, but leaving the prototype's
+	# view on would be a trap for the next thing that reads it.
+	RooftopSpace.view_mode = RooftopSpace.View.LIFTED
+	RooftopSpace.focus = Vector2.ZERO
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
@@ -306,5 +384,7 @@ func _check_run_untouched() -> void:
 	check(main.players[0].stand_height == 0.0 and main.players[1].stand_height == 0.0,
 		"The run's survivors are still drawn flat on the roof")
 	check(main.chain_flow.curve.is_empty(), "The run's chain light still follows the straight segment")
+	check(RooftopSpace.project(Vector2(700.0, 700.0)) == Vector2(700.0, 700.0),
+		"The run's floor is not projected")
 	main.queue_free()
 	await process_frame

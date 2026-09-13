@@ -56,9 +56,14 @@ func _ready() -> void:
 	z_index = -1
 
 
+## `a` and `b` are the cats' points on the floor, in world coordinates. The node
+## moves itself to the projected middle of the rope, because that is the ground
+## line the sorted layer has to order it by — everything it draws is then
+## measured back off that anchor.
 func set_state(a: Vector2, b: Vector2, color: Color, leash: float, is_overloaded := false) -> void:
 	head_a = a
 	head_b = b
+	position = RooftopSpace.project((a + b) * 0.5)
 	tint = color
 	max_length = maxf(1.0, leash)
 	overloaded = is_overloaded
@@ -88,7 +93,11 @@ func ground_points() -> PackedVector2Array:
 	return points
 
 
-## The same path seen at the height the chain actually hangs at: the drawn rope.
+## The same path seen at the height the chain actually hangs at, projected: the
+## drawn rope, in world coordinates. A hung chain is a curve in the air over a
+## curve on the floor, so both have to go through the view one point at a time —
+## a rope projected from its two ends alone would cut straight across its own
+## belly.
 func drawn_points() -> PackedVector2Array:
 	var ground := ground_points()
 	var points := PackedVector2Array()
@@ -98,11 +107,20 @@ func drawn_points() -> PackedVector2Array:
 	return points
 
 
+## The rope in this node's own frame, which is what actually gets drawn and what
+## the running light is handed.
+func local_points() -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for point in drawn_points():
+		points.append(point - position)
+	return points
+
+
 func _draw() -> void:
 	if head_a.distance_squared_to(head_b) <= 1.0:
 		return
 	var ground := ground_points()
-	var drawn := drawn_points()
+	var drawn := local_points()
 	_draw_shadow(ground)
 	# Body first as a dark backing, then the coloured rope inside it. The dark
 	# edge is what keeps the chain visible over a pale floor and inside a crowd,
@@ -122,7 +140,10 @@ func _draw_shadow(ground: PackedVector2Array) -> void:
 	var shadow := PackedVector2Array()
 	for step in ground.size():
 		var ratio := float(step) / float(SEGMENTS)
-		shadow.append(ground[step] + Moonlight.SHADOW_DIRECTION * height_at(ratio) * RooftopSpace.SHADOW_PER_HEIGHT)
+		# The shadow is a mark on the floor, so it is projected as floor rather
+		# than lifted like the rope that casts it.
+		var at := ground[step] + Moonlight.SHADOW_DIRECTION * height_at(ratio) * RooftopSpace.SHADOW_PER_HEIGHT
+		shadow.append(RooftopSpace.project(at) - position)
 	draw_polyline(shadow, Color(Moonlight.SHADOW_INK, 0.22), 6.0, true)
 
 

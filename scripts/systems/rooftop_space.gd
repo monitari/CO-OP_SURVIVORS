@@ -3,38 +3,74 @@ extends RefCounted
 ## Where "up" is, on a rooftop that is still played in two dimensions.
 ##
 ## Nothing here changes how the game is played. Every actor still lives at a
-## point on the ground plane, every hit is still resolved there, and the only
-## coordinate any system reads is still the one it always read. What this file
-## adds is a single agreed answer to "this thing is forty units tall — what does
-## that look like from here", so that a planter, a cat, a vent and the chain all
-## lean on one oblique view instead of each inventing its own fake height.
+## point on a flat ground plane, every hit is still resolved there in ordinary
+## world coordinates, and no system that decides anything ever reads this file.
+## What it adds is one agreed answer to "where on screen does this piece of
+## floor, and this thing standing on it, actually appear".
 ##
-## The view is deliberately shallow, and that is the whole design. A steeper
-## tilt reads as more three-dimensional and costs the thing this game cannot
-## afford to lose: the pair has to be able to see where its own feet are and
-## where the chain between them actually lies. So height only ever moves a
-## drawing *up the screen*. It never moves the point that drawing is anchored
-## to, and it never moves a hit box.
+## **The roof is drawn in one-point perspective, so the plate is a trapezoid.**
+## The far edge is narrower and sits closer to the middle of the screen; the
+## near edge is wider and further down. That is the whole difference from the
+## plan view the run draws, and it is what makes a floor read as a surface
+## receding away from the viewer rather than as a rectangle seen from overhead.
 ##
-## Two conventions come with it, and everything that draws in this space obeys
-## both.
+## The projection is a pinhole reduced to its two useful numbers. Both are
+## measured from `focus`, the ground point the camera is centred on:
+##
+##   scale  how much bigger a thing on this row is than one on the focus row.
+##          1 / (1 - toward * FORESHORTEN), where `toward` counts world units
+##          from the focus row down the screen toward the viewer.
+##   row    where that depth lands vertically. A ground point's screen row is
+##          its own scale measured down from the horizon, which is the pinhole
+##          result and is what draws the tile rows together as they recede.
+##
+## Both fall out of one number per point, so the whole view is `project` plus
+## `view_scale` and nothing else has to know how either of them works.
+##
+## Three conventions come with it, and everything drawn in this space obeys all
+## three.
 ##
 ## **A thing's origin is where it meets the floor.** For a prop that is the
 ## middle of the near edge of its footprint; for a cat it is the point under its
-## feet. That is what makes the contact shadow land in the right place, and it
-## is also the number that decides front from back — see `in_front_of`.
+## feet. That is what makes the contact shadow land in the right place, it is
+## the point that gets projected, and it is also the number that decides front
+## from back — see `in_front_of`.
 ##
-## **Only two faces are ever visible: the top and the front.** Height in this
-## projection is a pure vertical offset, so a side wall has no width on screen
-## and drawing one would be inventing an angle the camera does not have. A box
-## is its footprint lifted, plus the band between the lifted footprint and the
-## floor. Nothing else.
+## **Ground geometry is projected; things standing on the ground are not.** A
+## floor tile, a gutter, a prop's footprint and the chain's path are all shapes
+## lying on the plane, so every corner of them goes through `project` and they
+## come out as trapezoids. A cat, an enemy or a flying star is drawn upright at
+## its projected floor point and simply scaled — a body sheared along with the
+## perspective would read as the cat falling over, not as the cat standing
+## further away.
+##
+## **Only two faces of a solid are ever visible: the top and the front.** The
+## camera has no yaw, so a side wall has no width on screen, and drawing one
+## would be inventing an angle this view does not have.
 
-## How much of one unit of height becomes screen pixels of lift. This is the
-## camera angle, expressed as the only number that matters: at 0.0 the roof is
-## a flat plan view, at 1.0 it is a side-on platformer. 0.66 is the shallow
-## look-down the pair can still read their own position out of.
+## How much of one unit of height becomes screen pixels of lift at the focus
+## row. At 0.0 the roof is a flat plan view, at 1.0 it is a side-on platformer.
+## 0.66 is the shallow look-down the pair can still read their own position out
+## of. Away from the focus it is scaled along with everything else.
 const TILT := 0.66
+## How fast the world closes toward the vanishing point, per world unit measured
+## from the focus row toward the viewer.
+##
+## This is the strength of the perspective and the one number to turn when the
+## trapezoid is too much or too little. At this value a plate reaching six
+## hundred units either side of the focus is about a fifth narrower at its far
+## edge than at the middle and a quarter wider at its near edge — a taper that
+## is unmistakable while still leaving a survivor near enough the same size at
+## both ends of the roof to be judged by eye.
+const FORESHORTEN := 0.0003
+## Screen pixels from the focus row up to the horizon. Larger spreads the far
+## field out and flattens the taper; smaller crushes the distance together.
+const HORIZON_RISE := 2000.0
+## A ground point may not be scaled past these. The far clamp keeps anything at
+## or behind the vanishing point off the screen rather than inside out; the near
+## one stops a body that walks under the camera from filling it.
+const SCALE_MIN := 0.42
+const SCALE_MAX := 2.1
 ## How far a solid throws its shadow across the roof per unit of height. Shorter
 ## than the lift on purpose — the moon sits high as well as off to the side, and
 ## a shadow as long as the prop is tall reads as late-afternoon sun.
@@ -43,9 +79,6 @@ const SHADOW_PER_HEIGHT := 0.42
 ## what turns on the see-through silhouette rather than simply hiding the cat.
 const BULKY_HEIGHT := 34.0
 ## Standing height of a survivor's body: how far its drawing floats above the
-## point it stands on.
-##
-## Standing height of a survivor's body: how far its drawing floats above the
 ## point it stands on. Deliberately small — a cat is small, and a body lifted
 ## far enough to clear its own shadow entirely stops reading as standing and
 ## starts reading as hovering.
@@ -53,6 +86,18 @@ const CAT_STAND := 14.0
 ## Where the chain is tied on. A little above the body's own lift, so the rope
 ## leaves at the cat's shoulder rather than out of the floor at its feet.
 const CHAIN_ANCHOR := 20.0
+## How far below a round actor's centre its contact ellipse is drawn, as a share
+## of its radius.
+##
+## This is the one honest cheat in the file, and it is worth stating plainly. A
+## survivor is a ball, and the shadow of a ball resting on a floor is genuinely
+## underneath the ball — from this camera angle almost all of it is behind the
+## body and none of it can be seen. That is physically right and useless: the
+## contact shadow exists to be read. So it is pushed down to where the eye
+## already thinks the floor under the cat is, the bottom of the body, while the
+## point that actually decides collisions, sorting and chain anchoring stays at
+## the centre where every other system has always expected it.
+const CONTACT_DROP := 0.62
 ## How high off the roof each weapon works, and this is a design statement
 ## rather than a lookup table.
 ##
@@ -61,8 +106,8 @@ const CHAIN_ANCHOR := 20.0
 ## each half a different relationship with the floor and with the furniture on
 ## it: milk, frost and mines *are* the ground for as long as they last, so they
 ## are read by where the pair chose to stand; stars, lightning, the boomerang
-## and the flame nova pass over that ground, throw a shadow across it, and
-## flash it where they land.
+## and the flame nova pass over that ground, throw a shadow across it, and flash
+## it where they land.
 ##
 ## The scythe sits deliberately between them — swung at knee height, low enough
 ## to belong to the floor and high enough to clear what is lying on it.
@@ -77,6 +122,27 @@ const WEAPON_HEIGHT := {
 	"lightning": 30.0,
 }
 
+## The three ways this roof can be looked at, kept on one switch so that the
+## same scene can be compared in all of them rather than remembered between
+## builds.
+##
+##   FLAT         the plan view the run draws today. No lift, no taper. The
+##                furniture keeps its place and its shadow and stops standing up.
+##   LIFTED       height as a pure vertical offset. The floor is a rectangle.
+##   PERSPECTIVE  the floor is a trapezoid and everything on it is placed and
+##                sized by how far away it is.
+##
+## An instrument rather than a setting: nothing saves it, and the run leaves it
+## alone, which is why the default is the view the run already has.
+enum View { FLAT, LIFTED, PERSPECTIVE }
+static var view_mode := View.LIFTED
+## The ground point the camera is centred on, and therefore the point the whole
+## perspective is measured from: `project(focus) == focus`, always. Whoever owns
+## the camera sets this once a frame before anything draws — a projection
+## measured from a stale centre slides the floor out from under the actors
+## standing on it.
+static var focus := Vector2.ZERO
+
 
 ## The flying height of a weapon, or the floor for anything not listed — a new
 ## weapon is on the ground until someone decides otherwise, which is the safe
@@ -85,55 +151,83 @@ static func weapon_height(weapon_id: String) -> float:
 	return float(WEAPON_HEIGHT.get(weapon_id, 0.0))
 
 
-## How far below a round actor's centre its contact ellipse is drawn, as a share
-## of its radius.
-##
-## This is the one honest cheat in the file, and it is worth stating plainly. A
-## survivor is a ball, and the shadow of a ball resting on a floor is genuinely
-## underneath the ball — from this camera angle almost all of it is behind the
-## body and none of it can be seen. That is physically right and useless: the
-## contact shadow exists to be read. So it is pushed down to where the eye
-## already thinks the floor under the cat is, the bottom of the body, while the
-## point that actually decides collisions, sorting and chain anchoring stays at
-## the centre where every other system has always expected it.
-const CONTACT_DROP := 0.62
-
-## The whole projection on one dial, so the same scene can be looked at with the
-## height and without it. At 0 every lift collapses and the roof is the flat
-## plan view the run draws today — the furniture stays exactly where it is and
-## keeps its shadow, it simply stops standing up. That is the comparison the
-## tilt has to win to be worth having, and it is not a comparison anyone can
-## make from memory of an earlier build.
-##
-## An instrument rather than a setting: nothing saves it and nothing in the run
-## reads it.
-static var depth_scale := 1.0
-
-
-## The camera angle as it currently stands, with the comparison dial applied.
-## Anything measuring how tall a drawing ended up asks for this rather than
-## reading TILT, so that turning the height off turns it off everywhere — a
-## collapsed roof whose props still reserve their old screen space would hide
-## cats behind furniture that is no longer there.
+## The camera angle as it currently stands. Anything measuring how tall a
+## drawing ended up asks for this rather than reading TILT, so that flattening
+## the view flattens it everywhere — a collapsed roof whose props still reserved
+## their old screen space would hide cats behind furniture that is no longer
+## standing there.
 static func tilt() -> float:
-	return TILT * depth_scale
+	return 0.0 if view_mode == View.FLAT else TILT
 
 
-## The screen offset for something this far off the roof.
+## How much bigger something on this row is than something on the focus row.
+## Flat 1.0 in every view but the perspective one, which is what lets every
+## caller multiply by it without first asking which view is on.
+static func view_scale(ground_y: float) -> float:
+	if view_mode != View.PERSPECTIVE:
+		return 1.0
+	var toward := ground_y - focus.y
+	return clampf(1.0 / (1.0 - toward * FORESHORTEN), SCALE_MIN, SCALE_MAX)
+
+
+## Where a point on the floor appears. The one function that makes the plate a
+## trapezoid: a row closes toward the focus column as it recedes, and rides up
+## toward the horizon as its scale falls.
+static func project(ground: Vector2) -> Vector2:
+	if view_mode != View.PERSPECTIVE:
+		return ground
+	var scale := view_scale(ground.y)
+	return Vector2(focus.x + (ground.x - focus.x) * scale, focus.y + HORIZON_RISE * (scale - 1.0))
+
+
+## The screen offset for something this far off the roof, in the local frame of
+## a body that has already been placed and scaled by the view. Callers drawing
+## inside a billboard use this; callers placing world geometry want `raised`.
 static func lift(height: float) -> Vector2:
 	return Vector2(0.0, -height * tilt())
 
 
-## A ground point seen at a height. The pair of these is the entire projection.
+## A point at a height above the floor, projected. This pair of calls is the
+## entire view, and nearly everything that draws wants this one rather than
+## either half of it on its own.
 static func raised(at: Vector2, height: float) -> Vector2:
-	return at + lift(height)
+	return project(at) + lift(height) * view_scale(at.y)
+
+
+## How much a shape *lying on the floor* is squashed vertically compared with
+## how much it is stretched horizontally.
+##
+## A body standing on the roof is scaled evenly, because it faces the camera. A
+## puddle, a scorch mark or a pool of light does not — it lies in the plane, and
+## the plane is being looked at edge-on enough that a world circle comes out as
+## an ellipse. Anything that is a decal rather than a body multiplies its
+## vertical scale by this, which is the same foreshortening the floor tiles get
+## for free by having their corners projected one at a time.
+static func floor_squash(ground_y: float) -> float:
+	if view_mode != View.PERSPECTIVE:
+		return 1.0
+	return clampf(HORIZON_RISE * FORESHORTEN * view_scale(ground_y), 0.25, 1.0)
+
+
+## Sets the canvas transform a body standing on the floor is drawn under, and
+## returns the scale it was given so the caller can size anything it works out
+## for itself the same way.
+##
+## Bodies are billboards: placed and scaled by the view, never sheared by it.
+## `local` is an offset in the body's own frame — a lift, a dash lunge — applied
+## after the scale so that it means the same thing at every depth.
+static func billboard(canvas: CanvasItem, ground: Vector2, local := Vector2.ZERO, spin := 0.0) -> float:
+	var scale := view_scale(ground.y)
+	canvas.draw_set_transform(project(ground) - ground + local * scale, spin, Vector2.ONE * scale)
+	return scale
 
 
 ## Front-to-back order. `base` belongs to the thing being drawn and `other` to
 ## whatever might be behind it; both are the ground-contact Y described above.
 ## A prop is in front of an actor when its footprint reaches further down the
-## screen — that is the whole of the depth rule, and deliberately the whole of
-## it, because anything cleverer stops agreeing with what the shadows say.
+## roof — that is the whole of the depth rule, and deliberately the whole of it.
+## Projection preserves the order, so the answer is the same whichever of the
+## two spaces it is asked in.
 static func in_front_of(base: float, other: float) -> bool:
 	return base > other
 
@@ -198,7 +292,8 @@ static func footing(canvas: CanvasItem, at: Vector2, radius: float, height := 0.
 		return
 	var drop := Moonlight.SHADOW_DIRECTION * height * SHADOW_PER_HEIGHT
 	var spin := along.angle() if stretch > 0.001 else 0.0
-	var centre := at + Vector2(0.0, radius * CONTACT_DROP) 		+ Moonlight.SHADOW_DIRECTION * radius * Moonlight.SHADOW_REACH + drop
+	var centre := at + Vector2(0.0, radius * CONTACT_DROP) \
+		+ Moonlight.SHADOW_DIRECTION * radius * Moonlight.SHADOW_REACH + drop
 	# A body up in the air throws a shadow that is both wider and weaker; a body
 	# on the floor throws a tight dark one. That difference is most of what lets
 	# a hop read as leaving the ground at all.
@@ -217,10 +312,13 @@ static func footing(canvas: CanvasItem, at: Vector2, radius: float, height := 0.
 	canvas.draw_set_transform(Vector2.ZERO)
 
 
-## A box standing on the roof, drawn from its floor footprint upward.
+## A box standing on the roof, drawn from its floor footprint upward in a body's
+## own frame — so this is for props, which are billboards, and not for the
+## architecture, whose footprints are large enough to need projecting corner by
+## corner.
 ##
-## `origin` is the middle of the footprint's near edge — the convention every
-## prop in this space uses — so a caller never has to work out where the bottom
+## `origin` is the middle of the footprint's near edge, the convention every
+## prop in this space uses, so a caller never has to work out where the bottom
 ## of the drawing ended up.
 static func draw_box(canvas: CanvasItem, origin: Vector2, width: float, depth: float,
 		height: float, color: Color, lit_top := true) -> void:
@@ -250,3 +348,25 @@ static func box_footprint(origin: Vector2, width: float, depth: float) -> Packed
 		origin + Vector2(-half, -depth), origin + Vector2(half, -depth),
 		origin + Vector2(half, 0.0), origin + Vector2(-half, 0.0),
 	])
+
+
+## A flat shape lying on the roof, projected corner by corner. Anything whose
+## outline is on the ground plane — a plate, a gutter, a parapet's footprint —
+## goes through this rather than being billboarded, because its shape is the
+## part that carries the perspective.
+static func project_all(points: PackedVector2Array) -> PackedVector2Array:
+	if view_mode != View.PERSPECTIVE:
+		return points
+	var out := PackedVector2Array()
+	for point in points:
+		out.append(project(point))
+	return out
+
+
+## A stretch of floor as a projected quad, from a rectangle given in world
+## coordinates. The workhorse for the architecture: a plate, a gutter, a
+## parapet's lid and a prop's footprint are all this shape.
+static func floor_quad(rect: Rect2) -> PackedVector2Array:
+	return project_all(PackedVector2Array([
+		rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y),
+	]))

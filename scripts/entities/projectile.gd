@@ -96,10 +96,12 @@ func _physics_process(delta: float) -> void:
 		var desired := ground_position.direction_to(target.global_position)
 		direction = direction.lerp(desired, minf(1.0, turn_speed * delta)).normalized()
 	ground_position += direction * speed * delta
-	# The node carries the drawing, so it is the one that gets lifted. Applied to
+	# The node carries the drawing, so it is the one that gets placed. Applied to
 	# the position rather than inside _draw because the node spins to face its
 	# heading, and a lift baked into a rotated canvas would tip over with it.
-	position = ground_position + RooftopSpace.lift(flight_height)
+	# On a flat roof this is the floor point unchanged, which is why the run is
+	# not affected by it.
+	position = RooftopSpace.raised(ground_position, flight_height)
 	rotation = direction.angle()
 	# Node scale and modulate rather than a redraw: an ember that burns down and
 	# a star that steadies as it flies, for free at three hundred projectiles.

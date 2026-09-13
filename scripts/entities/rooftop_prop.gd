@@ -42,12 +42,18 @@ const SHAPE := {
 
 var kind := "planter"
 var variant := 0 ## Stable per-prop randomness: leaf angles, plank counts, rust.
+## Where this prop stands on the flat floor. `position` holds the projected
+## point, which is where it is drawn and the key the sorted layer reads; this is
+## what it is drawn *of*. The stage keeps the two in step.
+var ground := Vector2.ZERO
 
 
 func setup(prop_kind: String, at: Vector2, prop_variant := 0) -> void:
 	kind = prop_kind if SHAPE.has(prop_kind) else "crate"
 	variant = prop_variant
-	position = at
+	ground = at
+	position = RooftopSpace.project(at)
+	scale = Vector2.ONE * RooftopSpace.view_scale(at.y)
 	z_index = 0
 	queue_redraw()
 
@@ -70,12 +76,15 @@ func bulky() -> bool:
 	return height() >= RooftopSpace.BULKY_HEIGHT
 
 
-## What this prop covers on screen, in world coordinates: from the lifted lid
-## down to the floor. The stage tests actors against this to decide whether
-## anyone is actually hidden, so it is the drawn extent and not the footprint.
+## What this prop covers on screen: from the lifted lid down to where it meets
+## the floor. The stage tests actors against this to decide whether anyone is
+## actually hidden, so it is the drawn extent and not the footprint — and it is
+## measured off the projected position and the view scale, because at the far
+## end of a trapezoid a planter covers rather less than it does at the near end.
 func screen_rect() -> Rect2:
-	var top := position.y - depth() - height() * RooftopSpace.tilt()
-	return Rect2(position.x - width() * 0.5, top, width(), position.y - top)
+	var size := scale.x
+	var top := position.y - (depth() + height() * RooftopSpace.tilt()) * size
+	return Rect2(position.x - width() * 0.5 * size, top, width() * size, position.y - top)
 
 
 func _draw() -> void:
