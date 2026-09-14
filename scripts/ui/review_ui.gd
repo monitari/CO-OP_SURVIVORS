@@ -6,6 +6,7 @@ const G := preload("res://scripts/ui/layout_grid.gd")
 
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
+const DETAILS_WIDTH := 608.0
 const PAUSE_ITEM_COUNT := 8
 const PAUSE_SLOTS := [
 	Rect2(20, 80, 340, 44), Rect2(20, 188, 340, 44), Rect2(20, 242, 340, 44),
@@ -184,15 +185,24 @@ static func install(main: Node) -> void:
 		var x := 18 + index * 182
 		UI.label(snapshot, ["생존 시간", "공유 성장", "처치", "사슬 내구"][index], Rect2(x, 38, 168, 20), 13, Palette.MUTED)
 		UI.label(snapshot, "", Rect2(x, 62, 168, 34), Palette.TYPE_VALUE, Palette.INK).name = "Metric%d" % index
-	main.details_overlay = UI.plate(main.pause_overlay.get_parent(), Rect2(G.x(0), 132, G.w(12), 545), Palette.PANEL)
+	# One survivor's sheet, centred: the column it needs and no more. Both sheets
+	# are built at the same place and only the one being read is shown.
+	main.details_overlay = UI.plate(main.pause_overlay.get_parent(),
+		Rect2((G.VIEWPORT.x - DETAILS_WIDTH) * 0.5, 132, DETAILS_WIDTH, 545), Palette.PANEL)
 	main.details_overlay.name = "BuildDetails"
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.details_overlay.z_index = 20
 	main.details_overlay.hide()
-	UI.label(main.details_overlay, "성장 기록    전체 능력치", Rect2(24, 12, 900, 40), Palette.TYPE_TITLE)
-	button(main.details_overlay, "닫기    TAB / X", Rect2(G.w(12) - 210.0 - G.GUTTER, 16, 210, 34), func() -> void: toggle_details(main))
+	UI.label(main.details_overlay, "성장 기록    전체 능력치", Rect2(24, 12, 340, 40), Palette.TYPE_TITLE)
+	button(main.details_overlay, "닫기    TAB / X", Rect2(DETAILS_WIDTH - 180.0 - 24.0, 16, 180, 34), func() -> void: toggle_details(main))
+	# Local co-op has two readers on one screen, so the sheet can be flipped to
+	# the other survivor. With an AI partner or online there is only "me".
+	var swap := button(main.details_overlay, "P1 / P2 전환", Rect2(DETAILS_WIDTH - 150.0 - 24.0, 502, 150, 30), func() -> void:
+		main.details_overlay.set_meta("detail_slot", 1 - int(main.details_overlay.get_meta("detail_slot", 0)))
+		preload("res://scripts/ui/player_perspective.gd").details(main))
+	swap.name = "DetailSwap"
 	for slot in 2:
-		var x := 24.0 + slot * 576.0
+		var x := 24.0
 		var header := UI.plate(main.details_overlay, Rect2(x, 64, 560, 72), Palette.CARD)
 		header.name = "DetailHeader%d" % slot
 		UI.icon(header, null, Rect2(12, 8, 56, 56)).name = "Portrait"
@@ -209,7 +219,7 @@ static func install(main: Node) -> void:
 		build.name = "Build%d" % slot
 		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 14, Palette.GOLD)
 		UI.label(build, "", Rect2(16, 32, 528, 78), 14, Palette.INK).name = "Value"
-	UI.label(main.details_overlay, "한 화면에 핵심 수치와 장비를 모두 표시합니다    선택은 창을 닫은 뒤 확정", Rect2(24, 508, 1138, 24), 14, Palette.MUTED)
+	UI.label(main.details_overlay, "선택은 창을 닫은 뒤 확정합니다", Rect2(24, 505, 360, 24), 14, Palette.MUTED).name = "DetailFooter"
 
 
 static func toggle_character_details(main: Node) -> void:
@@ -275,6 +285,8 @@ static func toggle_details(main: Node) -> void:
 	main.level_overlay.visible = main.level_up_active and not main.details_overlay.visible
 	main.pause_overlay.visible = main.pause_active and not main.details_overlay.visible
 	if not main.details_overlay.visible: return
+	# Opens on whoever is deciding: the survivor whose growth turn it is, or P1.
+	main.details_overlay.set_meta("detail_slot", main.focused_growth_slot() if main.level_up_active else 0)
 	for slot in 2:
 		var p: Node = main.players[slot]
 		var header: Panel = main.details_overlay.get_node("DetailHeader%d" % slot)

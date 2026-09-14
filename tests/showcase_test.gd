@@ -3,6 +3,7 @@ extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 const EnemyScript := preload("res://scripts/entities/enemy.gd")
 const TestHarness := preload("res://tests/test_harness.gd")
+const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
 
 var failures: Array[String] = []
 
@@ -132,11 +133,14 @@ func _test_the_three_modes_are_different_shapes() -> void:
 		and chest.reward_cards[0].get_node("Recommendation").text.begins_with("👍"),
 		"a rated chest card carries a thumbs-up recommendation")
 	_check(chest.reward_cards[0].get_meta("growth_card_visual", false)
+		and chest.reward_cards[0] is Label
+		and chest.reward_cards[0].size == CardVisual.CARD_SIZE
 		and chest.reward_cards[0].has_node("Category")
+		and chest.reward_cards[0].has_node("Icon")
 		and chest.reward_cards[0].has_node("CardTitle")
-		and chest.reward_cards[0].has_node("Detail")
-		and chest.reward_cards[0].has_node("Recommendation"),
-		"a chest reward uses the growth-choice card hierarchy")
+		and chest.reward_cards[0].has_node("Recommendation")
+		and (chest.reward_cards[0] as Label).text == "피해 1 → 2",
+		"a chest reward is the growth-choice card: same node, size, and body text")
 
 	# A chest with more in it takes longer, because each reward is revealed
 	# separately; a chest that dumped everything at once would be a list.
@@ -154,8 +158,9 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	crowded.age = crowded._reward_beat(7) + 0.5
 	crowded._step_chest()
 	_check(crowded.reward_cards.all(func(card: Control) -> bool:
-		return card.position.y >= 0.0 and card.position.y + card.size.y <= 720.0),
-		"the maximum eight growth-style rewards fit in two rows")
+		var drawn := Rect2(card.position + card.size * 0.5 * (Vector2.ONE - card.scale), card.size * card.scale)
+		return Rect2(0, 0, 1280, 720).encloses(drawn)),
+		"the maximum eight growth cards fit on screen in one row")
 	for node: Showcase in [fusion, resonance, chest, big, crowded]:
 		node.free()
 

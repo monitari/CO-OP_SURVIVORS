@@ -122,7 +122,10 @@ func run() -> void:
 	main.level_overlay.hide()
 	main.ReviewUI.toggle_details(main)
 	await shot("details")
-	check(main.details_overlay.get_node("PartnerSummary").visible, "partner stats summarized")
+	check(main.details_overlay.get_node("DetailHeader%d" % main.local_view_slot()).visible
+		and not main.details_overlay.get_node("DetailHeader%d" % (1 - main.local_view_slot())).visible
+		and main.details_overlay.get_node_or_null("PartnerSummary") == null,
+		"details show only this player's own sheet")
 	main.details_overlay.hide()
 	var showcase := Showcase.new()
 	var rewards: Array = []

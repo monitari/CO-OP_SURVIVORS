@@ -47,9 +47,6 @@ func _draw() -> void:
 		draw_polyline(points, Color(accent, pulse), 3, true)
 		draw_circle(Vector2(x - 7, -3), 1.8, accent)
 		draw_circle(Vector2(x + 7, -3), 1.8, accent)
-	for corner in [Vector2(7, 10), Vector2(size.x - 7, size.y - 10)]:
-		draw_line(corner - Vector2(4, 0), corner + Vector2(4, 0), Color.WHITE, 1, true)
-		draw_line(corner - Vector2(0, 4), corner + Vector2(0, 4), accent, 1, true)
 
 func _paw(at: Vector2, factor: float) -> void:
 	draw_circle(at + Vector2(0, 3) * factor, 4 * factor, Color(accent, 0.75))

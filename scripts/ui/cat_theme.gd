@@ -76,13 +76,13 @@ static func button_surface(state := "normal", accent: Color = P1, primary := fal
 	if primary:
 		tint = NIGHT_RAISED.lerp(accent, 0.28)
 	if state == "hover":
-		tint = tint.lerp(accent, 0.12)
+		tint = tint.lerp(accent, 0.18)
 	elif state == "pressed":
-		tint = tint.lerp(accent, 0.22)
+		tint = tint.lerp(accent, 0.28)
 	elif state == "disabled":
 		tint = PANEL
-	var style := surface(tint)
-	style.border_color = accent if primary else OUTLINE
-	style.set_border_width_all(BORDER_ACTIVE if primary else BORDER)
+	var style := surface(tint, RADIUS + 4)
+	style.border_color = accent if primary or state == "hover" else OUTLINE
+	style.set_border_width_all(BORDER_ACTIVE if primary or state == "hover" else BORDER)
 	style.set_content_margin_all(8)
 	return style

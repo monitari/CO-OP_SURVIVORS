@@ -345,9 +345,15 @@ static func _lobby(main: Node) -> void:
 	var ambience = LobbyAmbience.new()
 	ambience.name = "LobbyAmbience"
 	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
+	# The logo remains the hero, but leaves a little more breathing room for the
+	# two survivor states beneath it.
+	ambience.logo_origin = Vector2(220, 8)
+	ambience.title_logo.position = ambience.logo_origin
+	ambience.title_logo.size = Vector2(660, 302)
+	ambience.title_logo.pivot_offset = ambience.title_logo.size * 0.5
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	var prompt := label(screen, "두 고양이가 모이면 바로 출발", G.inner(0, 0, 3.5, 4, 5, 0.4), Palette.TYPE_VALUE, Palette.MUTED)
+	var prompt := label(screen, "P1과 P2가 연결되면 바로 출발", G.inner(0, 0, 3.5, 4, 5, 0.4), Palette.TYPE_VALUE, Palette.MUTED)
 	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		var item: Label = main.lobby_p1_label if slot == 0 else main.lobby_p2_label
@@ -356,8 +362,25 @@ static func _lobby(main: Node) -> void:
 		item.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD))
 		var style := item.get_theme_stylebox("normal") as StyleBoxFlat
 		style.set_content_margin_all(22)
-	var hint := footer(screen, "나 WASD / 패드 1    동료 방향키 / 패드 2    ESC / START 참가 취소")
+		var accent := Palette.P1 if slot == 0 else Palette.P2
+		var cat_center_x := 147.0 if slot == 0 else 957.0
+		var connector := ColorRect.new()
+		connector.name = "LobbyConnector%d" % slot
+		connector.color = Color(accent, 0.52)
+		connector.position = Vector2(cat_center_x, 346)
+		connector.size = Vector2(2, item.position.y - 346)
+		connector.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		screen.add_child(connector)
+		var card_mark := ColorRect.new()
+		card_mark.name = "LobbyCardAccent%d" % slot
+		card_mark.color = Color(accent, 0.88)
+		card_mark.position = item.position + Vector2(16, 0)
+		card_mark.size = Vector2(item.size.x - 32, 3)
+		card_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		screen.add_child(card_mark)
+	var hint := footer(screen, "P1  WASD / 패드 1    P2  방향키 / 패드 2    ESC / START  나가기")
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_color_override("font_color", Palette.MUTED.lerp(Palette.CREAM, 0.24))
 
 
 static func refresh_lobby(main: Node) -> void:
@@ -642,18 +665,14 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		var kind := String(option["id"])
 		card.set_meta("tech_card", kind == "choose_tech")
 		var category := card.get_node("Category") as Label
+		category.text = growth_category(option)
 		if kind == "choose_tech":
 			var profile := String((option["tech"] as Dictionary).get("profile", "balanced"))
-			category.text = {
-				"force": "공격 변형", "tempo": "공격 변형",
-				"control": "영역 변형", "balanced": "협동 변형",
-			}.get(profile, "테크 결정")
 			category.add_theme_color_override("font_color", {
 				"force": Color("ff8e72"), "tempo": Color("67c8ff"),
 				"control": Color("80ed99"), "balanced": Palette.GOLD,
 			}.get(profile, Palette.MUTED))
 		else:
-			category.text = "새 보물" if kind == "unlock_treasure" else ("보물 강화" if kind == "treasure_upgrade" else ("새 무기" if kind == "unlock_weapon" else ("최종 진화" if kind == "evolve_weapon" else "무기 강화")))
 			category.add_theme_color_override("font_color", Palette.MUTED)
 		var shared := false
 		if kind == "unlock_treasure":
@@ -663,7 +682,7 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		card.get_node("Scope").text = (
 			"%s 테크" % main.player_label(slot) if kind == "choose_tech"
 			else "두 고양이에게 적용" if shared else "%s에게 적용" % main.player_label(slot))
-		card.get_node("CardTitle").text = String(option["title"]).replace("새 보물: ", "").replace("신규 기술: ", "").replace("보물 강화: ", "").replace("무기 진화: ", "")
+		card.get_node("CardTitle").text = growth_title(option)
 		card.text = compact_growth_description(option)
 		card.text = card.text.replace(", ", "\n").replace("출혈 시간", "구조 시간").replace("내구도 소모", "내구 소모")
 		if kind == "evolve_weapon":
@@ -692,6 +711,31 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		reroll.visible = slot == main.focused_growth_slot() and not locked and not complete and not tech_hand and main.rerolls_remaining[slot] > 0
 		reroll.disabled = main.level_up_input_delay > 0.0
 		reroll.text = "↻  다시 뽑기    %d" % main.rerolls_remaining[slot]
+
+
+## The small heading over a growth card's art.
+static func growth_category(option: Dictionary) -> String:
+	match String(option["id"]):
+		"choose_tech":
+			return {
+				"force": "공격 변형", "tempo": "공격 변형",
+				"control": "영역 변형", "balanced": "협동 변형",
+			}.get(String((option["tech"] as Dictionary).get("profile", "balanced")), "테크 결정")
+		"unlock_treasure":
+			return "새 보물"
+		"treasure_upgrade":
+			return "보물 강화"
+		"unlock_weapon":
+			return "새 무기"
+		"evolve_weapon":
+			return "최종 진화"
+	return "무기 강화"
+
+
+## The card title: the option's own title without the prefix the category
+## heading already says.
+static func growth_title(option: Dictionary) -> String:
+	return String(option.get("title", "")).replace("새 보물: ", "").replace("신규 기술: ", "").replace("보물 강화: ", "").replace("무기 진화: ", "")
 
 
 static func compact_growth_description(option: Dictionary) -> String:
@@ -837,58 +881,42 @@ static func _hud(main: Node) -> void:
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var objective_readout := label(main.combat_hud, "", Rect2(436, 22, 146, 24), 14, Palette.GOLD)
 	objective_readout.name = "ObjectiveReadout"
-	# Six reserved slots per row explain the space before a build is full. The
-	# cells got narrower rather than the ribbon wider: the HUD band between the
-	# two survivor panels is the clock and the chain, and neither moves.
+	# What each survivor carries, directly under their health bar: weapons on the
+	# first row, treasures on the second, only what has actually been picked up,
+	# each with its level in the bottom-right corner.
 	for slot in 2:
 		var holder := Control.new()
-		var accent := Palette.P1 if slot == 0 else Palette.P2
-		holder.position = Vector2(26 if slot == 0 else 886, 63)
-		# Widened from 368 to 376, which puts P2's row flush with the right edge
-		# of its own plate: six cells plus the level caption each one carries
-		# needs the room, and the ribbon already overhangs its plate downward.
-		holder.size = Vector2(350, 58)
+		holder.size = Vector2(CARRIED_PITCH * float(main.WEAPON_LOADOUT_CAP) - (CARRIED_PITCH - CARRIED_CELL),
+			CARRIED_PITCH + CARRIED_CELL)
 		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.name = "Carried%d" % slot
 		main.combat_hud.add_child(holder)
 		var cap: int = int(main.WEAPON_LOADOUT_CAP)
-		var pitch := 31.0
 		for row in ["Weapon", "Treasure"]:
 			var weapon_row: bool = row == "Weapon"
-			var y := 0 if weapon_row else 29
-			var cell_height := 27
-			var icon_size := 25
-			var row_label := label(holder, "무기" if weapon_row else "보물",
-				Rect2(0, y, 34, cell_height), 12, accent)
-			row_label.name = "%sLabel" % row
 			for index in cap:
-				var x := 36.0 + index * pitch
-				var socket := plate(holder, Rect2(x, y, cell_height, cell_height), Color("24464b"))
+				var socket := plate(holder, Rect2(0, 0, CARRIED_CELL, CARRIED_CELL), Palette.NIGHT)
 				socket.name = "%sSlot%d" % [row, index]
-				var style := Palette.surface(Color("20334e55") if weapon_row else Color("20334e33"))
+				var style := Palette.surface(Color("0b1628d9"), 7)
 				style.border_color = Palette.OUTLINE
 				socket.add_theme_stylebox_override("panel", style)
-				# A faint socket already communicates capacity. Repeating plus signs
-				# across every empty slot made the opening HUD look busier than play.
-				var empty := label(socket, "", Rect2(0, 0, cell_height, cell_height), 16, Color("6a8585"))
-				empty.name = "Empty"
-				empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-				var art := icon(holder, null, Rect2(x + 1, y + 1, icon_size, icon_size))
+				var art := icon(holder, null, Rect2(0, 0, CARRIED_CELL - 4, CARRIED_CELL - 4))
 				art.name = "%s%d" % [row, index]
-				# A large bare level fits the compact cell; the tooltip names its unit.
-				var tier := label(art, "", Rect2(8, 13, 20, 14), 10, Palette.CREAM)
+				var tier := label(art, "", Rect2(CARRIED_CELL - 23, CARRIED_CELL - 20, 19, 16), 13, Palette.CREAM)
 				var border := preload("res://scripts/ui/equipment_border.gd").new()
 				border.name = "CooldownBorder"
 				border.game = main
 				border.owner_slot = slot
 				border.item_slot = index
 				border.weapon = weapon_row
-				border.size = Vector2(cell_height, cell_height)
+				border.size = Vector2(CARRIED_CELL, CARRIED_CELL)
 				socket.add_child(border)
 				tier.add_theme_color_override("font_outline_color", Color("080f20"))
 				tier.add_theme_constant_override("outline_size", 4)
 				tier.name = "Tier"
-				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+				tier.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		layout_carried(holder, slot == 1)
 	var alert := plate(main.combat_hud, Rect2(388, 650, 504, 46), Palette.NIGHT_PANEL)
 	alert.name = "TacticalAlert"
 	alert.hide()
@@ -896,6 +924,29 @@ static func _hud(main: Node) -> void:
 	action.name = "Action"
 	action.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
+
+
+const CARRIED_CELL := 30.0
+const CARRIED_PITCH := 33.0
+
+
+## Places a carried-equipment ribbon's cells. Mirrored for the survivor on the
+## right, whose health bar also fills from the right: their first item sits
+## nearest their own portrait, just as it does on the left.
+static func layout_carried(holder: Control, mirrored: bool) -> void:
+	if holder.has_meta("mirrored") and bool(holder.get_meta("mirrored")) == mirrored:
+		return
+	holder.set_meta("mirrored", mirrored)
+	for row in ["Weapon", "Treasure"]:
+		var y := 0.0 if row == "Weapon" else CARRIED_PITCH
+		var index := 0
+		while holder.has_node("%s%d" % [row, index]):
+			var x := float(index) * CARRIED_PITCH
+			if mirrored:
+				x = holder.size.x - CARRIED_CELL - x
+			holder.get_node("%sSlot%d" % [row, index]).position = Vector2(x, y)
+			holder.get_node("%s%d" % [row, index]).position = Vector2(x + 2.0, y + 2.0)
+			index += 1
 
 
 ## Native panels share menu geometry, with cream confined to portrait plaques.
@@ -915,7 +966,9 @@ static func _install_hud_frames(main: Node) -> void:
 		portrait.name = "PortraitPlaque"
 		var paw := icon(panel, HudPaw, Rect2(374, 98, 12, 12))
 		paw.modulate = Palette.P1.darkened(0.22) if slot == 0 else Palette.P2.darkened(0.22)
-	var shared := plate(main.combat_hud, Rect2(418, 8, 444, 116), Palette.HUD)
+	# Its last line (chain status, y 77..97) is the bottom of what it holds; the
+	# 116px box left an empty strip under it.
+	var shared := plate(main.combat_hud, Rect2(418, 8, 444, 96), Palette.HUD)
 	shared.name = "SharedFrame"
 	shared.z_index = -2
 	var shared_style := Palette.surface(Palette.HUD)
@@ -988,7 +1041,6 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 		tier.add_theme_color_override("font_color", Palette.GOLD if resonating else Palette.CREAM)
 		holder.get_node("%sSlot%d/CooldownBorder" % [prefix, index]).refresh()
 		index += 1
-	holder.get_node("%sLabel" % prefix).visible = not carried.is_empty()
 
 
 ## One actionable message, ordered by urgency. No blinking or permanent warning.

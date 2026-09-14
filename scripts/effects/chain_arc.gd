@@ -149,15 +149,6 @@ func _draw() -> void:
 	var ground := ground_points()
 	var drawn := local_points()
 	_draw_shadow(ground)
-	# Body first as a dark backing, then the coloured rope inside it. The dark
-	# edge is what keeps the chain visible over a pale floor and inside a crowd,
-	# and it is the reason nothing in this file is additively blended.
-	var body := Color("0a1520") if not overloaded else Color("120a10")
-	var pulse := 1.0 + sin(Time.get_ticks_msec() * 0.016) * 0.16 if warded else 1.0
-	var body_width := (13.0 * pulse) if warded else (9.0 if not overloaded else 5.0)
-	var core_width := (8.0 * pulse) if warded else (5.0 if not overloaded else 2.5)
-	draw_polyline(drawn, Color(body, 0.85), body_width, true)
-	draw_polyline(drawn, Color(tint, 1.0 if warded else (0.95 if not overloaded else 0.4)), core_width, true)
 	_draw_links(drawn)
 
 
@@ -177,13 +168,86 @@ func _draw_shadow(ground: PackedVector2Array) -> void:
 	draw_polyline(shadow, Color(Moonlight.SHADOW_INK, 0.22), 6.0, true)
 
 
-## Links, spaced along the rope rather than along the straight span, so they
-## crowd where the chain bends. That crowding is the second readout of slack and
-## it costs nothing: the points are already in hand.
+## Interlocking links, measured out along the rope's length so they follow the
+## sag. Every other link is seen face-on — an oval ring with a hole through it —
+## and the ones between are turned ninety degrees and seen edge-on as a short
+## bar threaded through both neighbours, which is what makes it read as a chain
+## rather than as a dotted line.
+##
+## Each link is inked the way everything else on the roof is: a dark outline,
+## a metal body, and a thin highlight on its upper edge. The metal is tinted
+## toward the tension colour rather than replaced by it, so the chain still
+## says calm / straining / at the limit, and none of it is additive.
+const LINK_PITCH := 12.5
+const LINK_HALF_LENGTH := 8.0
+const LINK_HALF_WIDTH := 5.0
+const LINK_WIRE := 2.6
+const STEEL := Color("aebccb")
+const LINK_INK := Color("09121c")
+
+
 func _draw_links(drawn: PackedVector2Array) -> void:
-	if overloaded:
+	var lengths := PackedFloat32Array([0.0])
+	for index in range(1, drawn.size()):
+		lengths.append(lengths[index - 1] + drawn[index].distance_to(drawn[index - 1]))
+	var total := lengths[lengths.size() - 1]
+	if total <= LINK_PITCH:
 		return
-	for step in range(1, drawn.size() - 1, 2):
-		var along := (drawn[step + 1] - drawn[step - 1]).normalized()
-		var across := along.orthogonal() * 3.4
-		draw_line(drawn[step] - across, drawn[step] + across, Color(tint.lightened(0.35), 0.5), 2.0, true)
+	var pulse := 1.0 + sin(Time.get_ticks_msec() * 0.016) * 0.12 if warded else 1.0
+	var size_scale := (1.18 * pulse) if warded else (0.82 if overloaded else 1.0)
+	var metal := STEEL.lerp(tint, 0.55 if warded else 0.42)
+	if overloaded:
+		metal = Color("4a3038")
+	var shade := metal.darkened(0.38)
+	var shine := metal.lightened(0.55)
+	var count := int(total / LINK_PITCH)
+	# Centred on the span, so both ends lose the same fraction of a link.
+	var start := (total - float(count - 1) * LINK_PITCH) * 0.5
+	var edge_on: Array[Transform2D] = []
+	var face_on: Array[Transform2D] = []
+	var cursor := 0
+	for link in count:
+		var distance := start + float(link) * LINK_PITCH
+		while cursor < lengths.size() - 2 and lengths[cursor + 1] < distance:
+			cursor += 1
+		var span := maxf(0.001, lengths[cursor + 1] - lengths[cursor])
+		var at := drawn[cursor].lerp(drawn[cursor + 1], (distance - lengths[cursor]) / span)
+		var along := (drawn[cursor + 1] - drawn[cursor]).normalized()
+		var frame := Transform2D(along * size_scale, along.orthogonal() * size_scale, at)
+		(face_on if link % 2 == 0 else edge_on).append(frame)
+	# Rings first, then the bars over them: each bar ends inside the hole of the
+	# ring on either side, so it reads as threaded through both.
+	for frame in face_on:
+		_draw_face_link(frame, shade, metal, shine)
+	for frame in edge_on:
+		_draw_edge_link(frame, shade, metal, shine)
+
+
+## A ring seen from above: an outlined oval with the floor showing through it.
+func _draw_face_link(frame: Transform2D, shade: Color, metal: Color, shine: Color) -> void:
+	var ring := PackedVector2Array()
+	for step in 17:
+		var angle := TAU * float(step) / 16.0
+		ring.append(frame * Vector2(cos(angle) * LINK_HALF_LENGTH, sin(angle) * LINK_HALF_WIDTH))
+	# The half of the ring facing up the screen catches the moonlight. The first
+	# half of the loop runs along the frame's +y side.
+	var top := ring.slice(0, 9) if frame.y.y < 0.0 else ring.slice(8, 17)
+	var scale_factor := frame.x.length()
+	draw_polyline(ring, LINK_INK, (LINK_WIRE + 2.4) * scale_factor, true)
+	draw_polyline(ring, shade, LINK_WIRE * scale_factor, true)
+	draw_polyline(top, metal, LINK_WIRE * 0.62 * scale_factor, true)
+	draw_polyline(top.slice(2, 7), Color(shine, 0.7), 0.9 * scale_factor, true)
+
+
+## A ring turned side-on: a short rounded bar along the rope.
+func _draw_edge_link(frame: Transform2D, shade: Color, metal: Color, shine: Color) -> void:
+	var scale_factor := frame.x.length()
+	var from := frame * Vector2(-LINK_HALF_LENGTH, 0.0)
+	var to := frame * Vector2(LINK_HALF_LENGTH, 0.0)
+	var lift := frame.y.normalized() * (0.8 * scale_factor)
+	if lift.y > 0.0:
+		lift = -lift
+	draw_line(from, to, LINK_INK, (LINK_WIRE + 3.4) * scale_factor, true)
+	draw_line(from, to, shade, (LINK_WIRE + 1.0) * scale_factor, true)
+	draw_line(from + lift, to + lift, metal, LINK_WIRE * 0.55 * scale_factor, true)
+	draw_line(from * 0.8 + to * 0.2 + lift * 1.6, from * 0.2 + to * 0.8 + lift * 1.6, Color(shine, 0.65), 0.8 * scale_factor, true)

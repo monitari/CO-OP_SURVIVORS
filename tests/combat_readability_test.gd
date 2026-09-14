@@ -48,7 +48,9 @@ func run() -> void:
 	check(passive.visible and passive.continuous, "Newly acquired passive has a continuous border")
 	main.resonance_system.activate({"id": "guided_thunder", "name": "추적 뇌광", "cooldown": 6.0, "weapon_a_slot": 0, "weapon_b_slot": 0})
 	border.refresh()
-	check(border.resonating and holder.get_node("Weapon0/Tier").text == "I", "Bound weapons use golden Roman resonance number")
+	check(border.resonating and holder.get_node("Weapon0/Tier").text == "1"
+		and holder.get_node("Weapon0/Tier").get_theme_color("font_color") == border.GOLD,
+		"Bound weapons keep their level number, in gold")
 	check(main.player_label(0) == "나" and main.player_label(1) == "동료", "Player labels are relative")
 	var snapshot: Dictionary = main.online._snapshot()
 	main.online.session.role = NetworkSession.Role.CLIENT

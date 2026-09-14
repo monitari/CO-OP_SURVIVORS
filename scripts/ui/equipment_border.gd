@@ -2,7 +2,6 @@ extends Control
 
 const SILVER := Color("d4dde7")
 const GOLD := Color("ffd36b")
-const ROMAN := ["I", "II", "III", "IV", "V", "VI"]
 var game: Node
 var owner_slot := 0
 var item_slot := 0
@@ -30,8 +29,7 @@ func refresh() -> void:
 	tier.add_theme_color_override("font_color", SILVER)
 	if resonating:
 		continuous = false
-		var index: int = game.resonance_system.active_resonances.find(bound)
-		tier.text = ROMAN[clampi(index, 0, ROMAN.size() - 1)]
+		# The corner number stays the level; gold is what says it is resonating.
 		tier.add_theme_color_override("font_color", GOLD)
 		progress = 1.0 - float(bound.get("cooldown_remaining", 0.0)) / maxf(0.01, float(bound.get("cooldown", 1.0)))
 	elif weapon and not continuous:

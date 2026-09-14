@@ -1,6 +1,7 @@
 extends RefCounted
 const UI := preload("res://scripts/ui/editorial_ui.gd")
 const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
+const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const CYAN := CardVisual.CYAN
 const VIOLET := CardVisual.PARTNER
 const INK := CardVisual.INK
@@ -97,53 +98,34 @@ static func _animate_card(card: Control, target: Vector2, angle: float, selected
 
 
 static func _card(main: Node, card: Label, slot: int, option: Dictionary, selected: bool, width: float, height: float) -> void:
-	var kind := String(option["id"])
-	var tech := kind == "choose_tech"
 	# Card borders describe ownership. The partner's warm orange is reserved for
 	# their own hand and summary, so rarity/category can never be mistaken for P2.
-	var tint := CYAN if slot == main.local_view_slot() else VIOLET
-	var style := surface(tint, selected)
-	style.content_margin_left = 18
-	style.content_margin_right = 18
-	style.content_margin_top = 178 if tech else (214 if height > 330 else 190)
-	style.content_margin_bottom = 56
-	card.add_theme_stylebox_override("normal", style)
-	card.add_theme_font_size_override("font_size", 13 if tech else (16 if width > 190 else 14))
-	card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	card.clip_text = true
-	card.text = main._upgrade_preview(slot, option) if kind != "choose_tech" else UI.compact_growth_description(option)
-	var category: Label = card.get_node("Category")
-	category.position = Vector2(30, 12)
-	category.size = Vector2(width - 60, 25)
-	category.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	category.add_theme_font_size_override("font_size", 17 if width > 190 else 14)
-	category.add_theme_color_override("font_color", tint.lightened(0.35))
-	var icon: TextureRect = card.get_node("Icon")
-	var art := 80.0 if tech else (106.0 if height > 330 else 86.0)
-	icon.position = Vector2((width - art) * 0.5, 45)
-	icon.size = Vector2.ONE * art
-	var title: Label = card.get_node("CardTitle")
-	title.position = Vector2(13, 123 if tech else (155 if height > 330 else 132))
-	title.size = Vector2(width - 26, 52)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 21 if width > 190 else 17)
-	var scope: Label = card.get_node("Scope")
-	scope.visible = false
-	var fusion: TextureRect = card.get_node("FusionMark")
-	fusion.position = Vector2(width - 45, 52)
-	fusion.size = Vector2(32, 32)
-	var badge: Label = card.get_node("Recommendation")
-	var reason := String(option.get("recommendation_reason", "무난한 성장"))
+	CardVisual.paint(card, card_model(main, slot, option), card_tint(main, slot), selected, width, height)
+
+
+static func card_tint(main: Node, slot: int) -> Color:
+	if slot < 0:
+		return CardVisual.CHEST
+	return CYAN if slot == main.local_view_slot() else VIOLET
+
+
+## What a growth card says about `option`, for CardVisual.paint. The chest takes
+## this before it applies a reward, because the preview is a before/after of the
+## build the reward is about to change.
+static func card_model(main: Node, slot: int, option: Dictionary) -> Dictionary:
+	var tech := String(option["id"]) == "choose_tech"
 	var against := bool(option.get("discouraged", false))
-	badge.text = ("👎 " + String(option.get("discouragement_reason", reason))) if against else ("👍 " if bool(option.get("recommended", false)) else "— ") + reason
-	badge.position = Vector2(10, height - 47)
-	badge.size = Vector2(width - 20, 36)
-	badge.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.add_theme_font_size_override("font_size", 13)
-	badge.add_theme_stylebox_override("normal", surface(tint.darkened(0.3)))
-	badge.add_theme_color_override("font_color", Color("ffafbd") if against else Color("71ffcd"))
-	trim(card, tint, selected, false)
+	var reason := String(option.get("recommendation_reason", "무난한 성장"))
+	return {
+		"category": UI.growth_category(option),
+		"title": UI.growth_title(option),
+		"body": UI.compact_growth_description(option) if tech else main._upgrade_preview(slot, option),
+		"icon": Icons.upgrade(main._option_icon_id(slot, option), main._option_weapon_id(slot, option)),
+		"fusion": main._fusion_partner_for_option(slot, option).get("texture"),
+		"tech": tech,
+		"advice": "discouraged" if against else ("recommended" if bool(option.get("recommended", false)) else "neutral"),
+		"reason": String(option.get("discouragement_reason", reason)) if against else reason,
+	}
 
 static func _install(main: Node) -> void:
 	if main.level_overlay.has_node("PartnerChoice"): return

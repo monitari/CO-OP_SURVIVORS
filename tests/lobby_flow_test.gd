@@ -37,6 +37,39 @@ func _run() -> void:
 	_check(main.lobby_overlay.visible, "lobby overlay is visible")
 	_check(not main.character_overlay.visible, "character select is hidden behind the lobby")
 	_check(main.lobby_p1_label.text.contains("참가") and not main.lobby_p1_label.text.contains("완료"), "empty P1 slot prompts to join")
+	_check(main.lobby_p1_label.text.contains("P1") and main.lobby_p2_label.text.contains("P2"),
+		"lobby presents both survivors as state cards")
+	_check(main.lobby_overlay.find_child("JoinCompanion", true, false) == null,
+		"LAN lobby does not fill an empty slot with an AI action")
+	var address := main.lobby_overlay.find_child("LanAddress", true, false) as LineEdit
+	var join_lan := main.lobby_overlay.find_child("JoinLan", true, false) as Button
+	var host_section := main.lobby_overlay.get_node("HostLanSection") as Panel
+	var join_section := main.lobby_overlay.get_node("JoinLanSection") as Panel
+	_check(address != null and address.text.is_empty() and address.placeholder_text == "호스트 IP 입력",
+		"LAN join starts with a clear IP placeholder")
+	_check(join_lan != null and join_lan.text.contains("LAN 참가"),
+		"LAN join action is named explicitly")
+	_check(host_section.position.x + host_section.size.x < join_section.position.x,
+		"create and join actions are separate LAN panels")
+	_check(main.lobby_p1_label.position.y + main.lobby_p1_label.size.y <= host_section.position.y,
+		"P1 state card does not overlap the LAN create panel")
+	_check(main.lobby_p2_label.position.y + main.lobby_p2_label.size.y <= join_section.position.y,
+		"P2 state card does not overlap the LAN join panel")
+	main._set_lobby_exit_confirm(true)
+	_check(main.lobby_exit_confirm and main.lobby_overlay.get_node("LobbyExitConfirm").visible,
+		"leaving the LAN room opens a confirmation")
+	main._set_lobby_exit_confirm(false)
+	_check(not main.lobby_exit_confirm and not main.lobby_overlay.get_node("LobbyExitConfirm").visible,
+		"the player can stay in the LAN room")
+	main._set_lobby_exit_confirm(true)
+	main._confirm_lobby_exit()
+	_check(main.title_active and not main.lobby_active and not main.lobby_overlay.visible,
+		"confirming LAN exit returns to the main menu")
+	main._activate_title_item(0)
+	main._activate_title_item(2)
+	await process_frame
+	_check(main.lobby_active and main.lobby_overlay.visible,
+		"LAN room can be opened again after a confirmed exit")
 
 	main.lobby_input_cooldown = 0.0
 	main._join_lobby_slot(0, -1, "키보드 WASD")

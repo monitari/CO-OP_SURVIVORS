@@ -51,7 +51,8 @@ func run() -> void:
 	main.players[0].downed = false
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
 	main._update_hud()
-	check(not main.combat_hud.get_node("Carried1").visible, "Partner loadout is compact")
+	check(main.combat_hud.get_node("Carried0").visible and main.combat_hud.get_node("Carried1").visible,
+		"Both loadouts sit under their health bars")
 	await shot("hud")
 	main.online.session.role = NetworkSession.Role.CLIENT
 	main._update_hud()

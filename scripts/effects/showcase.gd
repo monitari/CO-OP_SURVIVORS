@@ -101,49 +101,47 @@ func play_chest(entries: Array) -> void:
 	headline = "행운 상자"
 	subtitle = "%d개 획득" % entries.size()
 	for entry: Dictionary in entries:
-		var card := Panel.new()
-		card.size = Vector2(208, 294)
+		# The very card the growth hand deals, painted by the same function at the
+		# same size — a reward out of a box is a growth choice somebody else made.
+		var card := CardVisual.create_card()
 		card.tooltip_text = String(entry.get("label", "보상")) + "\n" + String(entry.get("detail", "")) + "\n" + String(entry.get("advice_reason", ""))
 		card.pivot_offset = card.size * 0.5
 		var owner := int(entry.get("slot", -1))
-		var tint := CardVisual.CYAN if owner == 0 else (CardVisual.PARTNER if owner == 1 else CardVisual.CHEST)
-		CardVisual.decorate(card, tint, true, true)
+		var tint: Color = entry.get("tint", CardVisual.CYAN if owner == 0 else (CardVisual.PARTNER if owner == 1 else CardVisual.CHEST))
+		var model: Dictionary = entry.get("card", {
+			"category": "상자 보상",
+			"title": String(entry.get("label", "보상")),
+			"body": String(entry.get("detail", "획득")),
+			"icon": entry.get("icon"),
+			"advice": String(entry.get("advice", "neutral")),
+			"reason": String(entry.get("advice_reason", "무난한 선택")),
+		})
+		CardVisual.paint(card, model, tint, true, card.size.x, card.size.y)
 		add_child(card)
 		card.modulate.a = 0.0
-		var category := _card_text(card, "상자 보상", 12, 28, 15, tint.lightened(0.32))
-		category.name = "Category"
-		var art := _add_icon(entry.get("icon"), 88.0)
-		remove_child(art)
-		card.add_child(art)
-		art.name = "Icon"
-		art.position = Vector2(60, 48)
-		reward_icons.append(art)
+		_add_owner_tag(card, owner, tint)
+		reward_icons.append(card.get_node("Icon"))
 		reward_cards.append(card)
-		var advice := String(entry.get("advice", "neutral"))
-		var title := _card_text(card, String(entry.get("label", "보상")), 141, 46, 17, CardVisual.INK)
-		title.name = "CardTitle"
-		var detail := _card_text(card, String(entry.get("detail", "획득")), 188, 52, 13, Color("dce8f8"))
-		detail.name = "Detail"
-		var reason := String(entry.get("advice_reason", "무난한 선택"))
-		var badge := _card_text(card, CardVisual.recommendation_text(advice, reason), 248, 36, 12,
-			CardVisual.recommendation_color(advice))
-		badge.name = "Recommendation"
-		badge.add_theme_stylebox_override("normal", CardVisual.surface(tint.darkened(0.3)))
 
 
-func _card_text(card: Control, text: String, y: float, height: float, font_size: int, ink: Color) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.position = Vector2(10, y)
-	label.size = Vector2(card.size.x - 20, height)
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.clip_text = true
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", ink)
-	card.add_child(label)
-	return label
+## Who the reward went to, above the card rather than on it: the card itself
+## stays exactly the growth card, and the owner is the one thing a chest adds.
+func _add_owner_tag(card: Control, slot: int, tint: Color) -> void:
+	if slot < 0 or slot >= player_labels.size():
+		return
+	var tag := Label.new()
+	tag.name = "Owner"
+	tag.text = String(player_labels[slot])
+	tag.position = Vector2(0.0, -34.0)
+	tag.size = Vector2(card.size.x, 28.0)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tag.add_theme_font_size_override("font_size", 19)
+	tag.add_theme_color_override("font_color", tint.lightened(0.3))
+	tag.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
+	tag.add_theme_constant_override("outline_size", 6)
+	card.add_child(tag)
 
 
 func _ready() -> void:
@@ -304,21 +302,33 @@ func _reward_beat(index: int) -> float:
 	return CHEST_BURST_AT + 0.18 + float(index) * REWARD_STAGGER
 
 
+## Horizontal step between reward cards at full size: the growth card plus a
+## gutter. One row always, like a dealt hand; a box too full for the row deals
+## the same cards smaller rather than a second, differently shaped layout.
+const REWARD_PITCH := CardVisual.CARD_SIZE.x + 14.0
+const REWARD_ROW_Y := 414.0
+const REWARD_ROW_SPAN := 1240.0
+
+
+func reward_scale() -> float:
+	return minf(1.0, REWARD_ROW_SPAN / (float(maxi(1, reward_cards.size())) * REWARD_PITCH))
+
+
 func _step_chest() -> void:
 	var centre := _centre()
+	var settle := reward_scale()
+	var width := size.x if size.x > 0.0 else 1280.0
 	for index in reward_cards.size():
 		var card := reward_cards[index]
 		var pop := smoothstep(_reward_beat(index), _reward_beat(index) + 0.34, age)
-		var columns := mini(4, reward_cards.size())
-		var row_count := mini(columns, reward_cards.size() - (index / 4) * 4)
-		var x := centre.x + (index % 4 - (row_count - 1) * 0.5) * 226.0
-		var y := 210.0 + (index / 4) * 310.0 if reward_cards.size() > 4 else 370.0
-		var target := Vector2(x, y)
+		var x := width * 0.5 + (float(index) - float(reward_cards.size() - 1) * 0.5) * REWARD_PITCH * settle
+		var target := Vector2(x, REWARD_ROW_Y)
 		card.position = centre.lerp(target, pop) - card.size * 0.5
-		card.scale = Vector2.ONE * lerpf(0.1, 1.0, pop)
+		card.scale = Vector2.ONE * lerpf(0.1, settle, pop)
 		card.rotation = (1.0 - pop) * 0.3
 		card.modulate.a = pop * minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
-	_place_captions(Vector2(centre.x, -78), smoothstep(0.5, 0.85, age))
+	# Under the top HUD rather than over it, and above the row of cards.
+	_place_captions(Vector2(centre.x, 22.0), smoothstep(0.5, 0.85, age))
 
 
 func _place_captions(centre: Vector2, reveal: float) -> void:
@@ -433,8 +443,8 @@ func _draw_chest(centre: Vector2, veil: float) -> void:
 		var pulse := 1.0 - clampf((age - at) / 0.42, 0.0, 1.0)
 		if pulse <= 0.0 or age < at:
 			continue
-		var art := reward_icons[index]
-		var landing := art.position + art.size * 0.5
+		var card := reward_cards[index]
+		var landing := card.position + card.size * 0.5
 		draw_arc(landing, 26.0 + (1.0 - pulse) * 70.0, 0.0, TAU, 32,
 			Color(Color.WHITE, pulse * 0.75 * veil), 5.0 * pulse + 1.0, true)
 		for spark in 8:

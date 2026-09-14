@@ -230,12 +230,17 @@ func _test_the_growth_screen_arrives_and_leaves(main: Node) -> void:
 	main.level_up_active = true
 
 
-## Combat keeps only the two portraits and mirrored health bars. Build details
-## still live in the details screen, where they do not cover the play field.
+## Combat keeps the two portraits, mirrored health bars, and each survivor's
+## carried equipment directly under their own bar.
 func _test_play_field_hud_alignment(main: Node) -> void:
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
-		_check(not holder.visible, "P%d build readout stays off the play field" % (slot + 1))
+		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
+		_check(holder.visible, "P%d carried equipment is shown" % (slot + 1))
+		_check(holder.position.y >= bar.position.y + bar.size.y
+			and holder.position.x >= bar.position.x - 0.5
+			and holder.position.x + holder.size.x <= bar.position.x + bar.size.x + 0.5,
+			"P%d equipment sits under its own health bar" % (slot + 1))
 		_check(not main.combat_hud.get_node("P%dFrame" % (slot + 1)).visible,
 			"P%d decorative HUD box stays hidden" % (slot + 1))
 		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).visible

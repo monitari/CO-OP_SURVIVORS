@@ -35,6 +35,7 @@ const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
 const ItemStateVeilScript := preload("res://scripts/ui/item_state_veil.gd")
 const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
+const NeonGrowthUI := preload("res://scripts/ui/neon_growth_ui.gd")
 const DebugInspectorScript := preload("res://scripts/ui/debug_inspector.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
@@ -274,6 +275,7 @@ var growth_finished := false
 var overflow_levels := 0
 var character_select_active := true
 var character_exit_confirm := false
+var lobby_exit_confirm := false
 var resonance_vote_active := false
 var pause_active := false
 var pause_cursor := 0
@@ -575,7 +577,7 @@ func _input(event: InputEvent) -> void:
 		last_input_gamepad[device] = true
 	elif event is InputEventKey and event.pressed:
 		last_input_gamepad = [false, false]
-	if lobby_active and event.is_pressed() and not event.is_echo():
+	if lobby_active and not lobby_exit_confirm and event.is_pressed() and not event.is_echo():
 		if event is InputEventJoypadButton:
 			_join_lobby_with_gamepad(event.device)
 		elif event is InputEventKey:
@@ -584,8 +586,6 @@ func _input(event: InputEvent) -> void:
 				online.host_game()
 			elif key == KEY_J:
 				online.join_game(CoopSelectionUI.lan_address(self))
-			elif key == KEY_B:
-				_join_ai_companion()
 			elif key in [KEY_W, KEY_A, KEY_S, KEY_D]:
 				_join_lobby_slot(0, -1, "키보드 WASD")
 			elif key in [KEY_UP, KEY_LEFT, KEY_DOWN, KEY_RIGHT]:
@@ -659,14 +659,14 @@ func _physics_process(delta: float) -> void:
 		return
 	if lobby_active:
 		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
+		if lobby_exit_confirm:
+			if Input.is_action_just_pressed("menu_confirm"):
+				_confirm_lobby_exit()
+			elif Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
+				_set_lobby_exit_confirm(false)
+			return
 		if lobby_input_cooldown <= 0.0 and Input.is_action_just_pressed("pause"):
-			# Backing out of an empty lobby returns to the title; backing out of one
-			# somebody has already joined only clears the joins, so a mis-press does
-			# not throw the other player out of the room.
-			if lobby_joined[0] or lobby_joined[1]:
-				_begin_lobby()
-			else:
-				_begin_title()
+			_set_lobby_exit_confirm(true)
 		return
 	if game_over:
 		_handle_result_input()
@@ -1730,6 +1730,7 @@ const TITLE_CREDITS := ["뒤로"]
 
 func _begin_title() -> void:
 	title_active = true
+	_set_lobby_exit_confirm(false)
 	title_mode = "menu"
 	title_cursor = 0
 	lobby_active = false
@@ -1893,6 +1894,7 @@ func _refresh_title_ui() -> void:
 func _begin_lobby() -> void:
 	if online != null and online.is_online():
 		online.stop()
+	_set_lobby_exit_confirm(false)
 	ai_companion = false
 	title_active = false
 	title_overlay.visible = false
@@ -1907,6 +1909,24 @@ func _begin_lobby() -> void:
 	help_label.text = "참가 대기 중 — 두 사람이 각자 사용할 조작을 눌러 참가하세요."
 	_refresh_lobby_ui()
 	get_tree().paused = true
+
+
+func _set_lobby_exit_confirm(enabled: bool) -> void:
+	lobby_exit_confirm = enabled
+	if is_instance_valid(lobby_overlay) and lobby_overlay.has_node("LobbyExitConfirm"):
+		lobby_overlay.get_node("LobbyExitConfirm").visible = enabled
+	if not enabled:
+		lobby_input_cooldown = maxf(lobby_input_cooldown, 0.12)
+
+
+func _confirm_lobby_exit() -> void:
+	if online != null and online.is_online():
+		online.stop()
+	lobby_joined = [false, false]
+	lobby_devices = [-1, -1]
+	lobby_device_names = ["", ""]
+	_set_lobby_exit_confirm(false)
+	_begin_title()
 
 
 func _join_ai_companion() -> void:
@@ -2037,11 +2057,11 @@ func _refresh_lobby_ui() -> void:
 
 
 func _format_lobby_slot(slot: int) -> String:
-	var heading := "%s" % player_label(slot)
+	var heading := "P%d  ·  %s" % [slot + 1, player_label(slot)]
 	if lobby_joined[slot]:
-		return "%s  ✓ 참가 완료\n%s" % [heading, lobby_device_names[slot]]
+		return "%s    ✓ 참가 완료\n%s" % [heading, lobby_device_names[slot]]
 	var hint := "WASD  /  패드 1 아무 버튼" if slot == 0 else "방향키  /  패드 2 아무 버튼"
-	return "%s  참가\n%s" % [heading, hint]
+	return "%s    ○ 참가 대기\n%s" % [heading, hint]
 
 
 func _begin_character_select() -> void:
@@ -3450,6 +3470,9 @@ func _open_chest() -> Array[Dictionary]:
 				"advice": "neutral",
 				"icon": IconCatalog.upgrade("luck"),
 				"slot": -1,
+				"card": {"category": "상자 보상", "title": "달빛 생선 +%d" % paid,
+					"body": "영구 재화로 저장\n다음 원정에서 사용", "icon": IconCatalog.upgrade("luck"),
+					"advice": "neutral", "reason": "빌드 완성 보상"},
 			})
 			continue
 		var chosen := _choose_chest_candidate(candidates)
@@ -3465,6 +3488,14 @@ func _open_chest() -> Array[Dictionary]:
 		var advice_reason := String(rating["reason"])
 		if advice == "discouraged":
 			advice_reason = _discouragement_reason(slot, option, score)
+		# Annotated the way a growth hand is, so the card model reads the same
+		# verdict fields; taken before the reward is applied because the card body
+		# is a before/after of the build it is about to change.
+		option["recommendation_reason"] = String(rating["reason"])
+		option["recommended"] = advice == "recommended"
+		option["discouraged"] = advice == "discouraged"
+		option["discouragement_reason"] = advice_reason
+		var card: Dictionary = NeonGrowthUI.card_model(self, slot, option)
 		_apply_upgrade(slot, option)
 		results.append({
 			"label": "%s %s" % [player_label(slot), String(chosen["label"])],
@@ -3473,6 +3504,8 @@ func _open_chest() -> Array[Dictionary]:
 			"advice_reason": advice_reason,
 			"icon": art,
 			"slot": slot,
+			"card": card,
+			"tint": NeonGrowthUI.card_tint(self, slot),
 			# The portrait is what actually reads at a glance while eight things
 			# are flying out of a box: a player finds their own cat, not a "P2".
 			"owner_icon": IconCatalog.survivor(String(selected_characters[slot]["id"])) if selected_characters[slot] != null else null,
@@ -3518,23 +3551,29 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 			if not evolution.is_empty():
 				candidates.append({
 					"slot": slot, "priority": 3,
-					"option": {"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution},
+					"option": {"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
+						"title": "최종 진화: %s" % String(evolution["weapon_name"])},
 					"label": "보물 강화 %s" % String(evolution["weapon_name"]),
 				})
 				continue
 			if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
 				continue
+			# Titles are the growth hand's own, so a chest reward's card names the
+			# upgrade exactly as the level-up card for it would.
 			for upgrade_id in ["weapon_power", "weapon_rate"]:
 				candidates.append({
 					"slot": slot, "priority": 2,
-					"option": {"id": upgrade_id, "weapon_slot": weapon_slot},
+					"option": {"id": upgrade_id, "weapon_slot": weapon_slot,
+						"title": "%s\n%s" % ["마력 증폭" if upgrade_id == "weapon_power" else "고속 시전", String(state["weapon_name"])]},
 					"label": "%s %s" % [String(state["weapon_name"]), "화력" if upgrade_id == "weapon_power" else "속도"],
 				})
 			for key in ["a", "b"]:
 				if _special_has_room(slot, weapon_slot, key):
+					var spec := _special_spec(String(state["weapon_id"]), key)
 					candidates.append({
 						"slot": slot, "priority": 2,
-						"option": {"id": "special_" + key, "weapon_slot": weapon_slot},
+						"option": {"id": "special_" + key, "weapon_slot": weapon_slot,
+							"title": "%s\n%s" % [String(spec.get("title", "특성")), String(state["weapon_name"])]},
 						"label": "%s 특성" % String(state["weapon_name"]),
 					})
 		for treasure_slot in treasure_loadouts[slot].size():
@@ -3542,7 +3581,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 			if int(treasure["tier"]) < Treasures.MAX_TIER:
 				candidates.append({
 					"slot": slot, "priority": 2,
-					"option": {"id": "treasure_upgrade", "treasure_slot": treasure_slot},
+					"option": {"id": "treasure_upgrade", "treasure_slot": treasure_slot, "title": String(treasure["name"])},
 					"label": "%s Lv.%d" % [String(treasure["name"]), int(treasure["tier"]) + 1],
 				})
 	return candidates
@@ -3555,14 +3594,16 @@ func _chest_unlock_candidates() -> Array[Dictionary]:
 			for character in _pick_unowned_characters(slot, character_catalog.size()):
 				candidates.append({
 					"slot": slot, "priority": 1,
-					"option": {"id": "unlock_weapon", "character": character},
+					"option": {"id": "unlock_weapon", "character": character,
+						"title": "신규 무기: %s" % String(character["weapon_name"])},
 					"label": "신규 %s" % String(character["weapon_name"]),
 				})
 		if treasure_loadouts[slot].size() < TREASURE_LOADOUT_CAP:
 			for treasure in _pick_unowned_treasures(slot, Treasures.all_treasures().size()):
 				candidates.append({
 					"slot": slot, "priority": 1,
-					"option": {"id": "unlock_treasure", "treasure": treasure},
+					"option": {"id": "unlock_treasure", "treasure": treasure,
+						"title": "새 보물: %s" % String(treasure["name"])},
 					"label": "신규 %s" % String(treasure["name"]),
 				})
 	return candidates
