@@ -324,7 +324,7 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 				var centre := players[index].global_position
 				for step in 5:
 					var mine := MineScript.new() as ProximityMine
-					mine.configure(38.0 * damage_multiplier, 110.0, Color("bdb2ff"), -1, current_source_weapon)
+					mine.configure(38.0 *  damage_multiplier, 110.0, Color("bdb2ff"), -1, current_source_weapon)
 					mine.spatial_grid = spatial_grid
 					mine.detonated.connect(_on_mine_detonated)
 					mine.global_position = centre + Vector2.from_angle(TAU * float(step) / 5.0) * 120.0

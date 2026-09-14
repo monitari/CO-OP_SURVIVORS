@@ -10,6 +10,9 @@ var age := 0.0
 var left_origin := Vector2(72.0, 204.0)
 var right_origin := Vector2(882.0, 204.0)
 var logo_origin := Vector2(190.0, 4.0)
+var motion_enabled := true
+var starfield_enabled := true
+var shadows_enabled := true
 
 const STARS := [
 	Vector2(72, 84), Vector2(164, 52), Vector2(929, 75), Vector2(1017, 132),
@@ -24,6 +27,8 @@ func setup(logo_texture: Texture2D, first_cat: Texture2D, second_cat: Texture2D)
 	title_logo.name = "TitleLogo"
 	left_cat = _texture(first_cat, left_origin, Vector2(150.0, 150.0))
 	right_cat = _texture(second_cat, right_origin, Vector2(150.0, 150.0))
+	left_cat.name = "LeftCat"
+	right_cat.name = "RightCat"
 	left_cat.pivot_offset = left_cat.size * 0.5
 	right_cat.pivot_offset = right_cat.size * 0.5
 	title_logo.pivot_offset = title_logo.size * 0.5
@@ -43,6 +48,8 @@ func _texture(texture: Texture2D, at: Vector2, bounds: Vector2) -> TextureRect:
 
 
 func _process(delta: float) -> void:
+	if not motion_enabled:
+		return
 	age += delta
 	if not is_instance_valid(title_logo):
 		return
@@ -62,12 +69,19 @@ func _draw() -> void:
 	# came out as a beige sliver poking from behind the panel and cut by the HUD.
 	# It lives inside the lobby panel now, clear of everything, where it is a
 	# moon rather than an artefact.
-	_draw_ellipse(Vector2(147.0, 335.0), Vector2(57.0, 10.0), Color(0.02, 0.05, 0.08, 0.20))
-	_draw_ellipse(Vector2(957.0, 335.0), Vector2(57.0, 10.0), Color(0.02, 0.05, 0.08, 0.20))
+	if shadows_enabled and is_instance_valid(left_cat):
+		_draw_ellipse(left_origin + Vector2(left_cat.size.x * 0.5, left_cat.size.y * 0.88),
+			Vector2(left_cat.size.x * 0.38, 10.0), Color(0.02, 0.05, 0.08, 0.20))
+		_draw_ellipse(right_origin + Vector2(right_cat.size.x * 0.5, right_cat.size.y * 0.88),
+			Vector2(right_cat.size.x * 0.38, 10.0), Color(0.02, 0.05, 0.08, 0.20))
+	if not starfield_enabled:
+		return
 	for index in STARS.size():
 		var alpha := 0.22 + (sin(age * 2.2 + float(index) * 0.9) * 0.5 + 0.5) * 0.48
 		var radius := 3.0 + float(index % 3)
 		var at: Vector2 = STARS[index]
+		if name == "TitleAmbience" and at.x < 488:
+			continue
 		var points := PackedVector2Array([
 			at + Vector2(0, -radius), at + Vector2(radius, 0),
 			at + Vector2(0, radius), at + Vector2(-radius, 0),

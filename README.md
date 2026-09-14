@@ -26,6 +26,12 @@ AI는 게임 내부 행동 로직으로 동작하며 API 키나 외부 서비스
 
 ---
 
+## UI 제작 최우선 원칙
+
+UI는 예쁜 그림보다 **레이아웃 정확도 → 정렬과 공통 기준선 → 가독성과 정보 위계 → 시각적 스타일 → 장식** 순으로 완성합니다. 모든 화면은 공통 그리드와 재사용 컴포넌트를 사용하고, 반복 요소의 크기·padding·아이콘 영역·baseline·버튼 상태를 동일하게 유지합니다. 이미지 생성 시안도 자유 배치나 과한 glow보다 production-ready game UI, geometric alignment, restrained effects를 우선합니다.
+
+상세 규칙과 imagegen에 붙여 넣을 하드 제약 블록은 [UI 제작 및 이미지 생성 지침](docs/ui-generation-guidelines.md)에 정리했습니다. 실제 Godot UI 구현은 [UI 가이드](docs/ui-guide.md)와 `scripts/ui/layout_grid.gd`를 함께 기준으로 삼습니다.
+
 ## 목차
 
 | | |

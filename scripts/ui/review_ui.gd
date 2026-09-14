@@ -56,18 +56,50 @@ static func refresh_title(main: Node) -> void:
 
 
 static func install(main: Node) -> void:
-	button(main.character_overlay, "상세 보기    TAB / X", Rect2(936, 14, 224, 36), func() -> void:
+	button(main.character_overlay, "능력치 보기    TAB / X", Rect2(808, 14, 192, 36), func() -> void:
 		toggle_character_details(main)).name = "CharacterDetails"
+	button(main.character_overlay, "나가기", Rect2(1008, 14, 116, 36), func() -> void:
+		main._set_character_exit_confirm(true)).name = "CharacterExit"
+	var exit_layer := Control.new()
+	exit_layer.name = "CharacterExitConfirm"
+	exit_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	exit_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	exit_layer.z_index = 50
+	exit_layer.hide()
+	main.character_overlay.add_child(exit_layer)
+	var exit_dim := ColorRect.new()
+	exit_dim.color = Color(0.015, 0.025, 0.055, 0.78)
+	exit_dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	exit_dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	exit_layer.add_child(exit_dim)
+	var exit_panel := UI.plate(exit_layer, Rect2(346, 208, 448, 224), Palette.PANEL)
+	exit_panel.name = "ExitPanel"
+	UI.label(exit_panel, "캐릭터 선택을 나갈까요?", Rect2(24, 24, 400, 40),
+		Palette.TYPE_HEADING, Palette.CREAM).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var exit_copy := UI.label(exit_panel,
+		"현재 준비 상태를 취소하고\n메인 메뉴로 돌아갑니다.",
+		Rect2(32, 76, 384, 52), Palette.TYPE_BODY, Palette.MUTED)
+	exit_copy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	exit_copy.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	button(exit_panel, "계속 선택", Rect2(24, 152, 192, 48), func() -> void:
+		main._set_character_exit_confirm(false)).name = "ExitCancel"
+	button(exit_panel, "메인 메뉴로", Rect2(232, 152, 192, 48), func() -> void:
+		main._confirm_character_exit()).name = "ExitAccept"
 	for index in main.title_rows.size():
 		var hit := button(main.title_overlay, "", Rect2(0, 0, 10, 10), func() -> void: main._activate_title_item(index))
 		hit.name = "TitleHit%d" % index
+		hit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		hit.mouse_entered.connect(func() -> void:
+			if main.title_cursor != index:
+				main.title_cursor = index
+				main._refresh_title_ui())
 		# Transparent: the Label underneath is what is actually drawn, so the
 		# button contributes a click target and nothing else.
 		hit.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 		hit.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
 		hit.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
 		hit.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var meta_back := button(main.title_overlay, "메인 메뉴로", Rect2(870, 510, 180, 36), func() -> void: main._leave_title_subpage())
+	var meta_back := button(main.title_overlay, "메인 메뉴", Rect2(248, 72, 128, 36), func() -> void: main._leave_title_subpage())
 	meta_back.name = "TitleMetaBack"
 	meta_back.visible = false
 	for index in main.character_catalog.size():
@@ -88,11 +120,11 @@ static func install(main: Node) -> void:
 				main._join_lobby_slot(slot, -1, "키보드 WASD" if slot == 0 else "키보드 방향키"))
 		# The same half-page card the select screen draws, so the buttons sit
 		# under their own survivor rather than near them.
-		var x := G.x(0.25 + slot * 5.75) - G.x(0)
-		button(main.character_overlay, "이전", Rect2(x + G.GUTTER, 497, 90, 36), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
-		button(main.character_overlay, "다음", Rect2(x + G.GUTTER + 106.0, 497, 90, 36), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
+		var x := 24.0 + slot * 576.0
+		button(main.character_overlay, "‹  이전", Rect2(x + 16, 448, 260, 40), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
+		button(main.character_overlay, "다음  ›", Rect2(x + 284, 448, 260, 40), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
 		var accent := Palette.P1 if slot == 0 else Palette.P2
-		var confirm := button(main.character_overlay, "준비하기", Rect2(x + G.w(5.5) - 174.0 - G.GUTTER, 497, 174, 36), func() -> void:
+		var confirm := button(main.character_overlay, "준비하기", Rect2(x + 16, 496, 528, 40), func() -> void:
 			if main.lobby_input_cooldown > 0.0: return
 			main._set_character_choice(slot, main.selected_character_indices[slot],
 				not main.character_confirmed[slot]))

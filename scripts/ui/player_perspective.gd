@@ -45,48 +45,23 @@ static func hud(main: Node) -> void:
 
 static func characters(main: Node) -> void:
 	var screen: Control = main.character_overlay
-	var local: int = main.local_view_slot()
-	var shared: bool = not main.ai_companion and not main.online.is_online()
+	var detailed := bool(screen.get_meta("show_details", false))
+	# Keep both builds readable in local, AI, and online play. Input ownership
+	# is handled by the existing button permissions, independently of layout.
 	for slot in 2:
-		var own := shared or slot == local
-		var origin: Vector2 = Vector2(0 if slot == 0 else 575, 0)
-		var target: Vector2 = origin if shared else Vector2(0 if own else 650, 0 if own else 48)
-		var nodes: Array = [main.character_portrait_icons[slot], main.character_p1_label if slot == 0 else main.character_p2_label]
-		for prefix in ["CharacterPanel", "CatNumber", "CatName", "CatWeapon", "CatRole", "CharacterPrevious", "CharacterNext", "CharacterConfirm"]:
-			var item := screen.get_node_or_null("%s%d" % [prefix, slot])
-			if item != null:
-				nodes.append(item)
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
-			for prefix in ["CatStat", "CatStatIcon"]:
-				var item: Control = screen.get_node("%s%d_%d" % [prefix, slot, stat])
-				item.visible = own and (bool(screen.get_meta("show_details", false)) or stat < 4)
-				nodes.append(item)
-		for item: Control in nodes:
-			item.set_meta("view_position", item.position)
-			transform(item, origin, target, 1.0 if own else 0.78)
+			for prefix in ["CatStatBed", "CatStat", "CatStatIcon"]:
+				screen.get_node("%s%d_%d" % [prefix, slot, stat]).visible = detailed or stat < 4
 		var body: Control = main.character_p1_label if slot == 0 else main.character_p2_label
-		body.visible = own
-		screen.get_node("CatNumber%d" % slot).text = "%s" % main.player_label(slot)
-		if not own:
-			screen.get_node("CharacterPanel%d" % slot).size.y = 174
-			screen.get_node("CharacterConfirm%d" % slot).position = Vector2(830, 290)
-			for prefix in ["CharacterPrevious", "CharacterNext", "CatWeapon"]:
-				screen.get_node("%s%d" % [prefix, slot]).hide()
-		else:
-			screen.get_node("CharacterPanel%d" % slot).size.y = 332
-			for prefix in ["CharacterPrevious", "CharacterNext", "CatWeapon"]:
-				screen.get_node("%s%d" % [prefix, slot]).show()
+		body.show()
+		screen.get_node("CatNumber%d" % slot).text = "P%d  ·  %s" % [main.display_player_number(slot), main.player_label(slot)]
+		screen.get_node("CharacterPanel%d" % slot).size.y = 376
+		for prefix in ["CharacterPrevious", "CharacterNext", "CatWeapon"]:
+			screen.get_node("%s%d" % [prefix, slot]).visible = prefix != "CatWeapon" or not detailed
 	var preview := screen.get_node_or_null("SurvivorPreview")
-	if preview == null:
-		preview = Preview.new()
-		preview.name = "SurvivorPreview"
-		preview.position = Vector2(680, 340)
-		preview.size = Vector2(430, 195)
-		screen.add_child(preview)
-	preview.visible = not shared
-	var character: Dictionary = main.character_catalog[main.selected_character_indices[local]]
-	preview.set_character(character, main._build_weapon_state(character))
-	screen.get_node("ControlFooter").text = "A / D 또는 패드 좌우    선택    W / 패드 A    준비    ESC    뒤로" if not shared else "나 A / D    W 준비     동료 ← / →    ↑ 준비     ESC 뒤로"
+	if preview != null:
+		preview.hide()
+	screen.get_node("ControlFooter").text = "A / D 또는 패드 좌우    선택    W / 패드 A    준비    ESC    뒤로" if main.ai_companion or main.online.is_online() else "나 A / D    W 준비     동료 ← / →    ↑ 준비     ESC 뒤로"
 
 static func restore_characters(main: Node) -> void:
 	for item in main.character_overlay.get_children():

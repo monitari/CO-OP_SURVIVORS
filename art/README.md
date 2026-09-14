@@ -6,6 +6,8 @@
 이 폴더(`art/`)는 `.gdignore`가 있어 Godot이 임포트하지 않습니다 — 제작 원본과 기록만 두는 곳이고,
 게임이 실제로 읽는 파일은 `assets/atlases/`와 `assets/sprites/`에 있습니다.
 
+UI 이미지 시안과 생성 프롬프트는 [UI 제작 및 이미지 생성 지침](../docs/ui-generation-guidelines.md)의 레이아웃 하드 제약과 production-ready 규칙을 먼저 적용합니다. 정확한 텍스트와 입력 상태는 imagegen 결과가 아니라 Godot UI로 구현합니다.
+
 | 시트 | 원본 크기 | 격자 | 항목 수 |
 | --- | --- | --- | --- |
 | atlases/survivors.png | 1983×793 | 5×2 | 고양이 10종 |

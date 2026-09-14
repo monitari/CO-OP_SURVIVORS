@@ -273,6 +273,7 @@ var level_up_active := false
 var growth_finished := false
 var overflow_levels := 0
 var character_select_active := true
+var character_exit_confirm := false
 var resonance_vote_active := false
 var pause_active := false
 var pause_cursor := 0
@@ -552,7 +553,7 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 
 func _input(event: InputEvent) -> void:
 	if is_instance_valid(details_overlay) and event.is_pressed() and not event.is_echo():
-		if event.is_action_pressed("build_details") and character_select_active:
+		if event.is_action_pressed("build_details") and character_select_active and not character_exit_confirm:
 			ReviewUI.toggle_character_details(self)
 			get_viewport().set_input_as_handled()
 			return
@@ -674,7 +675,8 @@ func _physics_process(delta: float) -> void:
 		_handle_pause_input()
 		return
 	if character_select_active:
-		_step_ai_character(delta)
+		if not character_exit_confirm:
+			_step_ai_character(delta)
 		lobby_input_cooldown = maxf(0.0, lobby_input_cooldown - delta)
 		if lobby_input_cooldown > 0.0:
 			return
@@ -1732,6 +1734,7 @@ func _begin_title() -> void:
 	title_cursor = 0
 	lobby_active = false
 	character_select_active = false
+	_set_character_exit_confirm(false)
 	lobby_input_cooldown = 0.25
 	title_overlay.visible = true
 	lobby_overlay.visible = false
@@ -2043,6 +2046,7 @@ func _format_lobby_slot(slot: int) -> String:
 
 func _begin_character_select() -> void:
 	character_select_active = true
+	_set_character_exit_confirm(false)
 	character_confirmed = [false, false]
 	ai_considered_human = -1
 	character_overlay.visible = true
@@ -2051,6 +2055,15 @@ func _begin_character_select() -> void:
 
 
 func _handle_character_select_input() -> void:
+	if character_exit_confirm:
+		if Input.is_action_just_pressed("menu_confirm"):
+			_confirm_character_exit()
+		elif Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
+			_set_character_exit_confirm(false)
+		return
+	if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
+		_set_character_exit_confirm(true)
+		return
 	if online.is_client():
 		return
 	for player_index in 2:
@@ -2079,6 +2092,23 @@ func _handle_character_select_input() -> void:
 
 	if character_confirmed[0] and character_confirmed[1]:
 		_start_selected_run()
+
+
+func _set_character_exit_confirm(enabled: bool) -> void:
+	character_exit_confirm = enabled
+	if is_instance_valid(character_overlay) and character_overlay.has_node("CharacterExitConfirm"):
+		character_overlay.get_node("CharacterExitConfirm").visible = enabled
+	if not enabled:
+		lobby_input_cooldown = maxf(lobby_input_cooldown, 0.12)
+
+
+func _confirm_character_exit() -> void:
+	if online != null and online.is_online():
+		online.stop()
+	character_confirmed = [false, false]
+	character_select_active = false
+	_set_character_exit_confirm(false)
+	_begin_title()
 
 
 func _refresh_character_select_ui() -> void:

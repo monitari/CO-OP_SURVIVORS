@@ -5,7 +5,9 @@ const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 const MetaProgressionData := preload("res://scripts/systems/meta_progression.gd")
-const TitleLogo := preload("res://assets/ui/moonroof_title.png")
+const TitleLogo := preload("res://assets/ui/moonroof_title_v3.png")
+const TitleLyra := preload("res://assets/ui/title_lyra_fullbody_v1.png")
+const TitleVolta := preload("res://assets/ui/title_volta_fullbody_v1.png")
 const HudPaw := preload("res://assets/ui/frames/hud_paw.svg")
 const PLAYSTYLE := {
 	"homing": "유도 별탄    단일 적 추적", "lightning": "연쇄 번개    적 사이로 전이",
@@ -123,27 +125,53 @@ static func _reink(node: Node) -> void:
 		_reink(child)
 
 
-## The front door. Built from the same ambience node the lobby uses — logo, two
-## cats, a moon — with the menu laid down its left side, so starting a game is
-## the same picture gaining a room rather than a different screen entirely.
+## Storefront composition: the logo and mascots are the hero, the primary play
+## action is centred beneath them, and four utility actions form a quiet 2x2 row.
 static func _title(main: Node) -> void:
 	var screen: Control = main.title_overlay
 	screen.chromeless = true
 	var menu_plate := Panel.new()
 	menu_plate.name = "TitlePlate"
 	menu_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	menu_plate.position = Vector2(24, 326)
-	menu_plate.size = Vector2(screen.size.x - 48, 278)
-	menu_plate.add_theme_stylebox_override("panel", Palette.image_surface())
+	menu_plate.position = Vector2(280, 344)
+	menu_plate.size = Vector2(624, 224)
+	var menu_style := Palette.surface(Color("081321b8"), 16)
+	menu_style.border_color = Color(Palette.OUTLINE, 0.45)
+	menu_plate.add_theme_stylebox_override("panel", menu_style)
 	screen.add_child(menu_plate)
 	screen.move_child(menu_plate, 0)
 	var ambience = LobbyAmbience.new()
 	ambience.name = "TitleAmbience"
-	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
+	ambience.setup(TitleLogo, TitleLyra, TitleVolta)
+	ambience.motion_enabled = false
+	ambience.starfield_enabled = false
+	ambience.shadows_enabled = false
+	ambience.set_process(false)
+	ambience.logo_origin = Vector2(252, 4)
+	ambience.title_logo.position = ambience.logo_origin
+	ambience.title_logo.size = Vector2(680, 300)
+	ambience.title_logo.scale = Vector2.ONE
+	ambience.left_origin = Vector2(10, 108)
+	ambience.right_origin = Vector2(924, 108)
+	ambience.left_cat.position = ambience.left_origin
+	ambience.right_cat.position = ambience.right_origin
+	ambience.left_cat.size = Vector2(268, 476)
+	ambience.right_cat.size = Vector2(268, 476)
+	ambience.left_cat.scale = Vector2.ONE
+	ambience.right_cat.scale = Vector2.ONE
+	ambience.left_cat.rotation = 0.0
+	ambience.right_cat.rotation = 0.0
+	ambience.title_logo.pivot_offset = ambience.title_logo.size * 0.5
+	ambience.left_cat.pivot_offset = ambience.left_cat.size * 0.5
+	ambience.right_cat.pivot_offset = ambience.right_cat.size * 0.5
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	label(screen, "로컬    LAN    AI로 함께 지키는 2인 협동",
-		Rect2(Palette.PADDING, 12, 420, 24), Palette.TYPE_CAPTION, Palette.GOLD).name = "TitleEyebrow"
+	label(screen, "달빛 옥상 · 간식 수호대",
+		Rect2(392, 40, 400, 40), 27, Palette.CREAM).name = "TitleEyebrow"
+	var tagline := label(screen, "둘이서 지키는, 우리만의 밤.",
+		Rect2(392, 304, 400, 32), 16, Palette.MUTED)
+	tagline.name = "TitleTagline"
+	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
 		place(row, G.inner(0, 0, 0.5, 3.9 + float(index) * 0.56, 4.0, 0.52), Palette.TYPE_HEADING)
@@ -167,20 +195,70 @@ static func _title(main: Node) -> void:
 static func refresh_title(main: Node) -> void:
 	var rows: Array = main._title_rows()
 	var meta: bool = main.title_mode == "meta"
-	main.title_overlay.chromeless = not meta
+	var menu: bool = main.title_mode == "menu"
+	var credits: bool = main.title_mode == "credits"
+	main.title_overlay.chromeless = true
 	main.title_overlay.queue_redraw()
-	main.title_overlay.get_node("TitlePlate").visible = not meta
-	main.title_overlay.get_node("TitleAmbience").visible = not meta
-	main.title_overlay.get_node("TitleEyebrow").text = "영구 성장    분야별 투자 / 전액 환급" if meta else "로컬    LAN    AI로 함께 지키는 2인 협동"
-	place(main.title_note, Rect2(570, 145, 540, 290) if meta else G.inner(0, 0, 5.0, 3.9, 5.8, 2.3), 18 if meta else 15, Palette.MUTED)
+	var title_plate: Panel = main.title_overlay.get_node("TitlePlate")
+	title_plate.visible = not menu
+	title_plate.position = Vector2(232, 56)
+	title_plate.size = Vector2(720, 544)
+	main.title_overlay.get_node("TitleAmbience").visible = menu
+	main.title_overlay.get_node("TitleTagline").visible = menu
+	var eyebrow: Label = main.title_overlay.get_node("TitleEyebrow")
+	eyebrow.visible = not menu
+	eyebrow.text = {
+		"modes": "플레이 방식",
+		"meta": "영구 성장",
+		"settings": "설정",
+		"credits": "제작진",
+	}.get(main.title_mode, "달빛 옥상 · 간식 수호대")
+	place(eyebrow, Rect2(264, 80, 656, 44), 28, Palette.CREAM)
+	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	main.title_note.visible = menu or meta or credits
+	main.title_note.add_theme_stylebox_override("normal",
+		StyleBoxEmpty.new() if menu else Palette.surface(Color("0b1526e8"), 8))
+	if menu:
+		place(main.title_note, Rect2(304, 568, 576, 28), 14, Palette.MUTED)
+		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	elif credits:
+		place(main.title_note, Rect2(280, 152, 624, 328), 17, Palette.MUTED)
+		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	elif meta:
+		place(main.title_note, Rect2(264, 482, 656, 100), 14, Palette.MUTED)
+		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
-		if main.title_mode == "meta":
-			place(row, Rect2(28, 100 + index * 54, 490, 48), 16)
+		if index >= rows.size():
+			row.visible = false
+			continue
+		if menu:
+			var slots := [
+				Rect2(392, 352, 400, 64),
+				Rect2(304, 432, 280, 56), Rect2(600, 432, 280, 56),
+				Rect2(304, 496, 280, 56), Rect2(600, 496, 280, 56),
+			]
+			place(row, slots[index], 28 if index == 0 else 18)
+		elif meta:
+			if main.meta_reset_pending:
+				place(row, Rect2(344, 240 + index * 72, 496, 56), 18)
+			elif index < 6:
+				var column: int = index % 2
+				var grid_row: int = index / 2
+				place(row, Rect2(264 + column * 336, 144 + grid_row * 64, 320, 56), 15)
+			else:
+				place(row, Rect2(264, 352 + (index - 6) * 62, 656, 54), 17)
+		elif credits:
+			place(row, Rect2(392, 512, 400, 52), 19)
+		elif main.title_mode == "modes":
+			place(row, Rect2(304, 160 + index * 72, 576, 56), 20)
 		else:
-			var row_height := 44.0 if rows.size() <= 5 else 32.0
-			place(row, Rect2(50, 334 + index * (row_height + 7), 384, row_height), 24 if rows.size() <= 5 else 18)
-			row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			place(row, Rect2(304, 128 + index * 58, 576, 50), 17)
+		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.visible = index < rows.size()
 		if not row.visible:
 			continue
@@ -206,33 +284,47 @@ static func refresh_title(main: Node) -> void:
 			var price: int = main.meta_progression.cost(id)
 			state.text = "Lv.%d/%d    %s" % [rank, int(entry["max_rank"]), "MAX" if price <= 0 else "%d개" % price]
 			state.add_theme_color_override("font_color", Palette.GOLD if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
-		row.text = ("▶  " if main.title_cursor == index else "     ") + caption
+		row.text = ("▶  " if main.title_cursor == index and not menu else "") + caption
 		var focused: bool = main.title_cursor == index
 		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if focused else Palette.CARD)
 		style.border_color = Palette.P1 if focused else Palette.OUTLINE
 		style.set_border_width_all(Palette.BORDER_ACTIVE if focused else Palette.BORDER)
-		style.set_content_margin_all(10)
-		row.add_theme_stylebox_override("normal", Palette.image_surface(focused))
+		style.set_content_margin_all(16)
+		style.border_width_left = 2 if focused else 1
+		style.bg_color = Color("315967") if focused else Color("101c2ebf")
+		row.add_theme_stylebox_override("normal", style)
 	match main.title_mode:
+		"menu":
+			var notes := [
+				"AI · 로컬 · LAN 중 플레이 방식을 선택합니다.",
+				"달빛 생선을 사용해 다음 원정을 강화합니다.",
+				"화면 · 소리 · 게임 플레이 옵션을 조정합니다.",
+				"함께 옥상을 만든 사람들을 확인합니다.",
+				"게임을 종료하고 바탕 화면으로 돌아갑니다.",
+			]
+			main.title_note.text = notes[clampi(main.title_cursor, 0, notes.size() - 1)]
 		"modes":
-			main.title_note.text = "AI 모드    자율적으로 싸우는 동료와 출발\n로컬 멀티    같은 화면에서 키보드 / 패드로 협동\nLAN 멀티    방을 만들거나 IP로 연결\n\n온라인에서는 각자 자신은 나, 상대는 동료로 표시됩니다."
+			main.title_note.text = ""
 		"settings":
-			main.title_note.text = "설정은 바로 저장되고 다음에 켤 때도 그대로예요."
+			main.title_note.text = ""
 			if main.settings.last_save_error != OK:
-				main.title_note.text += "\n\n저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
+				main.title_note.visible = true
+				place(main.title_note, Rect2(304, 536, 576, 40), 14, Color("ff9aa2"))
+				main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				main.title_note.text = "저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
 		"meta":
 			if main.meta_reset_pending or main.title_cursor == 7:
-				main.title_note.text = "성장 초기화\n\n사용한 생선 %d개를 전액 돌려받습니다.\n발견한 무기 기록은 유지됩니다.\n\n초기화 후 원하는 분야에 다시 투자하세요." % main.meta_progression.refund_value()
+				main.title_note.text = "성장 초기화 · 사용한 생선 %d개 전액 환급 · 발견한 무기 기록 유지" % main.meta_progression.refund_value()
 			elif main.title_cursor == 6:
-				main.title_note.text = "성장 분야 전환\n\n기초    체력 / 위력 / 공속 / 이동 / 자력 / 행운\n전문화    방어 / 재생 / 치명 / 범위 / 지속 / 구조"
+				main.title_note.text = "성장 분야 전환    기초: 체력·위력·공속·이동·자력·행운    전문화: 방어·재생·치명·범위·지속·구조"
 			else:
 				var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + main.title_cursor]
-				main.title_note.text = "영구 성장    보유 %d 달빛 생선\n\n%s\n%s    단계마다 적용\n\n선택하면 구매하며 다음 원정부터 적용됩니다." % [
+				main.title_note.text = "보유 %d 달빛 생선    ·    %s\n%s · 단계마다 적용 · 다음 원정부터 반영" % [
 					main.meta_progression.points, String(entry["name"]), String(entry["summary"])]
 			if main.meta_progression.last_save_error != OK:
 				main.title_note.text = "저장할 수 없습니다. 진행 상황은 변경되지 않았어요.\n\n저장 공간과 폴더 권한을 확인한 뒤 다시 시도해 주세요."
 		"credits":
-			main.title_note.text = "달빛 옥상 간식 수호대\n사슬로 묶인 두 고양이가 달빛 든 옥상을 지키는 2인 협동 서바이버.\n\n기획    프로그래밍    아트   monitari\n엔진   Godot 4\n\n함께 놀아준 모두에게 고맙습니다."
+			main.title_note.text = "달빛 옥상 간식 수호대\n\n사슬로 묶인 두 고양이가\n달빛 든 옥상을 지키는 2인 협동 서바이버\n\n기획 · 프로그래밍 · 아트    monitari\n엔진    Godot 4\n\n함께 놀아준 모두에게 고맙습니다."
 		_:
 			main.title_note.text = "두 사람이 함께, 또는 AI 동료와 출발하세요.\n\n게임 시작에서 AI / 로컬 / LAN 모드를 선택하세요."
 
@@ -278,57 +370,99 @@ static func refresh_lobby(main: Node) -> void:
 
 static func _characters(main: Node) -> void:
 	var screen: Control = main.character_overlay
-	# Existing large backgrounds are replaced with aligned dossier cards.
+	screen.chromeless = true
+	# The direction sheet is built as native controls: one strict roster strip,
+	# two identical dossiers, and a fixed action stack. Nothing is positioned by
+	# the length of its text.
 	for child in screen.get_children():
 		if child is Panel or (child is Label and child.text in ["나", "동료"]):
 			screen.remove_child(child)
 			child.queue_free()
-	place(main.character_title, G.inner(0, 0, 0.25, 0.2, 7), Palette.TYPE_TITLE)
+	place(main.character_title, Rect2(24, 8, 488, 48), 38, Palette.CREAM)
+	var backdrop := plate(screen, Rect2(8, 0, 1168, 640), Color("081321e8"))
+	backdrop.name = "SelectionBackdrop"
+	backdrop.z_index = -1
 	main.character_title.text = "오늘 밤의 수호대"
-	place(main.character_roster_label, Rect2(420, 16, 492, 30), 14, Palette.MUTED)
+	place(main.character_synergy_label, Rect2(520, 8, 272, 24), 15, Palette.MUTED)
+	main.character_synergy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	place(main.character_roster_label, Rect2(520, 32, 272, 20), 12, Palette.GOLD)
 	main.character_roster_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var title_rule := ColorRect.new()
+	title_rule.name = "CharacterTitleRule"
+	title_rule.color = Color(Palette.OUTLINE, 0.8)
+	title_rule.position = Vector2(24, 56)
+	title_rule.size = Vector2(1136, 1)
+	title_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(title_rule)
 	for index in main.character_catalog.size():
-		# The roster strip is a slice row rather than columns: twelve cats do not
-		# divide into twelve columns once the page margin is taken out.
-		var strip := G.inner(0, 0, 0.25, 1.0, 11.5, 1.2)
-		var slot_rect := G.slice(strip, main.character_catalog.size(), index, G.PAD)
+		# 12 x 80px cards + 11 x 8px gutters. The remaining 136px is split into
+		# 64px/72px page insets so every edge still lands on the 8px grid.
+		var slot_rect := Rect2(64 + index * 88, 64, 80, 104)
 		var tile := plate(screen, slot_rect)
 		tile.name = "Roster%d" % index
-		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2((slot_rect.size.x - 54) * 0.5, 4, 54, 54))
-		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(0, 58, slot_rect.size.x, 22), 13)
+		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2(8, 4, 64, 64))
+		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(4, 72, 72, 24), 13)
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
-		# Each survivor takes half the page: six columns, four rows deep.
-		var card := G.inner(0, 0, 0.25 + slot * 5.75, 2.4, 5.5, 4.35)
+		# Two exact 560px dossiers with a single 16px centre gutter. These values
+		# stay on the 8px grid and mirror the approved direction sheet.
+		var card := Rect2(24 + slot * 576, 176, 560, 376)
 		var x := card.position.x
 		var bed := plate(screen, card)
 		bed.name = "CharacterPanel%d" % slot
+		bed.add_theme_stylebox_override("panel", Palette.player_surface(slot, true))
 		screen.move_child(bed, 0)
 		preload("res://scripts/ui/neon_growth_ui.gd").trim(
-			bed, Palette.P1 if slot == 0 else Palette.P2, true, true)
+			bed, Palette.P1 if slot == 0 else Palette.P2, true, false)
+		var portrait_bed := plate(screen,
+			Rect2(x + 16, card.position.y + 48, 160, 216), Palette.NIGHT_RAISED)
+		portrait_bed.name = "CatPortraitBed%d" % slot
+		var portrait_style := Palette.surface(Color("14273b"), 8)
+		portrait_style.border_color = Color(Palette.P1 if slot == 0 else Palette.P2, 0.25)
+		portrait_bed.add_theme_stylebox_override("panel", portrait_style)
 		var portrait: TextureRect = main.character_portrait_icons[slot]
-		portrait.position = Vector2(x + G.GUTTER, card.position.y + G.GUTTER)
-		portrait.size = Vector2(104, 104)
-		label(screen, "%s" % main.player_label(slot), Rect2(x + 136, card.position.y + 6, 50, 25), 14, Palette.P1 if slot == 0 else Palette.P2).name = "CatNumber%d" % slot
-		var heading := label(screen, "", Rect2(x + 136, card.position.y + 31, card.size.x - 152, 38), Palette.TYPE_TITLE)
+		screen.move_child(portrait, screen.get_child_count() - 1)
+		portrait.position = Vector2(x + 24, card.position.y + 56)
+		portrait.size = Vector2(144, 200)
+		label(screen, "%s" % main.player_label(slot),
+			Rect2(x + 16, card.position.y + 8, 160, 32), 22,
+			Palette.P1 if slot == 0 else Palette.P2).name = "CatNumber%d" % slot
+		var heading := label(screen, "",
+			Rect2(x + 192, card.position.y + 48, 352, 40), Palette.TYPE_TITLE)
 		heading.name = "CatName%d" % slot
-		var weapon_art := icon(screen, null, Rect2(x + G.GUTTER, card.position.y + 124, 46, 46))
+		var status := label(screen, "", Rect2(x + 320, card.position.y + 8, 224, 32), 14,
+			Palette.P1 if slot == 0 else Palette.P2)
+		status.name = "CatStatus%d" % slot
+		status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		var weapon_art := icon(screen, null,
+			Rect2(x + 192, card.position.y + 184, 40, 40))
 		weapon_art.name = "CatWeapon%d" % slot
-		var role := label(screen, "", Rect2(x + 136, card.position.y + 73, card.size.x - 152, 48), 15, Palette.MUTED)
+		var role := label(screen, "",
+			Rect2(x + 192, card.position.y + 88, 352, 32), 14, Palette.MUTED)
 		role.name = "CatRole%d" % slot
 		role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		# Eight meaningful axes in a compact 4x2 grid. Weapon art anchors the first
-		# cell, so loadout identity is visible before anyone reads a description.
+		# Four exact 80x40 cells form the default stat row. The second row uses
+		# the same template in detailed mode instead of hand-offset labels.
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
 			var column := stat % 4
 			var row := stat / 4
+			var stat_bed := plate(screen, Rect2(
+				x + 192 + column * 88,
+				card.position.y + 128 + row * 48,
+				80, 40), Palette.NIGHT_RAISED)
+			stat_bed.name = "CatStatBed%d_%d" % [slot, stat]
 			icon(screen, Icons.upgrade(String(entry["icon"])),
-				Rect2(x + 76 + column * 108, card.position.y + 124 + row * 39, 25, 25)).name = "CatStatIcon%d_%d" % [slot, stat]
-			var value := label(screen, "", Rect2(x + 103 + column * 108, card.position.y + 121 + row * 39, 80, 32), 13)
+				Rect2(x + 200 + column * 88,
+					card.position.y + 138 + row * 48,
+					20, 20)).name = "CatStatIcon%d_%d" % [slot, stat]
+			var value := label(screen, "", Rect2(
+				x + 224 + column * 88,
+				card.position.y + 132 + row * 48,
+				40, 32), 11)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
-		place(body, Rect2(x + G.GUTTER, card.position.y + 196, card.size.x - G.GUTTER * 2.0, 96), Palette.TYPE_BODY)
+		place(body, Rect2(x + 240, card.position.y + 176, 304, 88), 14)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	# The one number the pair is actually choosing. A survivor's leash shows up on
@@ -336,17 +470,17 @@ static func _characters(main: Node) -> void:
 	# what the two of them add up to, and the leash is the constraint the whole
 	# run is played against. It sits on the pair row under both dossiers, next to
 	# the synergy line, because it belongs to neither cat on its own.
-	var leash := plate(screen, Rect2(G.x(0.25) - G.x(0), 548, G.w(2.9), 50))
+	var leash := plate(screen, Rect2(24, 560, 280, 32))
 	leash.name = "ChainPlate"
-	icon(leash, Icons.upgrade("resolve"), Rect2(G.PAD, 13, 30, 30))
-	label(leash, "사슬 길이", Rect2(46, 7, 120, 18), 13, Palette.MUTED)
-	var leash_value := label(leash, "", Rect2(46, 25, 160, 24), 19)
+	icon(leash, Icons.upgrade("resolve"), Rect2(8, 4, 24, 24))
+	label(leash, "연결 거리", Rect2(40, 4, 88, 24), 12, Palette.MUTED)
+	var leash_value := label(leash, "", Rect2(144, 4, 120, 24), 17)
 	leash_value.name = "ChainLength"
 	place(main.character_synergy_label,
-		Rect2(G.x(3.35) - G.x(0), 548, G.w(8.4), 50),
+		Rect2(312, 560, 848, 32),
 		Palette.TYPE_BODY, Palette.MUTED)
 	main.character_synergy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	footer(screen, "나 A / D 이동    W 확정     동료 ← / → 이동    ↑ 확정     ESC 뒤로")
+	footer(screen, "나 A / D 이동    W 확정     동료 ← / → 이동    ↑ 확정     ESC / B 나가기")
 
 
 static func refresh_characters(main: Node) -> void:
@@ -354,7 +488,7 @@ static func refresh_characters(main: Node) -> void:
 	var screen: Control = main.character_overlay
 	var detailed := bool(screen.get_meta("show_details", false))
 	if screen.has_node("CharacterDetails"):
-		screen.get_node("CharacterDetails").text = "간단 보기    TAB / X" if detailed else "상세 보기    TAB / X"
+		screen.get_node("CharacterDetails").text = "간단 보기    TAB / X" if detailed else "능력치 보기    TAB / X"
 	if main.ai_companion:
 		main.character_roster_label.text = "클릭으로 나 선택    AI는 조합에 맞춰 자동 선택"
 	elif main.online != null and main.online.is_client():
@@ -366,33 +500,50 @@ static func refresh_characters(main: Node) -> void:
 	for slot in 2:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
 		screen.get_node("CatName%d" % slot).text = String(cat["name"])
+		screen.get_node("CatStatus%d" % slot).text = "준비 완료" if main.character_confirmed[slot] else ("AI 동료" if main.ai_companion and slot != main.local_view_slot() else "캐릭터 선택 중")
 		screen.get_node("CatWeapon%d" % slot).texture = Icons.weapon(String(cat["weapon_id"]))
 		# The breed line, not the weapon line. Ten cats used to be introduced by
 		# what their weapon does and two by who they are, because only the two
 		# newest had no PLAYSTYLE entry to override them. The weapon still
 		# describes itself on the level-up card and in the block below.
-		screen.get_node("CatRole%d" % slot).text = "%s\n조작 난이도 %s" % [String(cat["title"]) if detailed else String(PLAYSTYLE.get(String(cat["weapon_id"]), "자동 공격")), CharacterCatalog.difficulty_stars(cat)]
+		screen.get_node("CatRole%d" % slot).text = "%s  ·  조작 난이도 %s" % [String(cat["title"]), CharacterCatalog.difficulty_stars(cat)]
 		screen.get_node("CatRole%d" % slot).tooltip_text = cat["description"]
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
 			screen.get_node("CatStat%d_%d" % [slot, stat]).text = CharacterCatalog.stat_text(cat, String(entry["field"]))
 			screen.get_node("CatStat%d_%d" % [slot, stat]).visible = detailed or stat < 4
 			screen.get_node("CatStatIcon%d_%d" % [slot, stat]).visible = detailed or stat < 4
+			screen.get_node("CatStatBed%d_%d" % [slot, stat]).visible = detailed or stat < 4
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
-		body.text = main._format_character_card(slot) if detailed else "%s\n\n시작 무기    %s\n협동    %s" % [String(cat["description"]), String(cat["weapon_name"]), main._chain_note(cat)]
-		body.position.y = screen.get_node("CharacterPanel%d" % slot).position.y + (196.0 if detailed else 168.0)
-		body.size.y = 96.0 if detailed else 124.0
-		body.add_theme_font_size_override("font_size", 15 if detailed else 17)
 		var panel: Panel = screen.get_node("CharacterPanel%d" % slot)
+		var x := panel.position.x
+		var portrait: TextureRect = main.character_portrait_icons[slot]
+		var portrait_bed: Panel = screen.get_node("CatPortraitBed%d" % slot)
+		if detailed:
+			portrait_bed.position = Vector2(x + 16, panel.position.y + 48)
+			portrait_bed.size = Vector2(160, 216)
+			portrait.position = Vector2(x + 24, panel.position.y + 56)
+			portrait.size = Vector2(144, 200)
+			body.text = "%s\n연결 특성  ·  %s" % [String(cat["description"]), main._chain_note(cat)]
+			place(body, Rect2(x + 192, panel.position.y + 224, 352, 40), 12)
+		else:
+			portrait_bed.position = Vector2(x + 16, panel.position.y + 48)
+			portrait_bed.size = Vector2(160, 216)
+			portrait.position = Vector2(x + 24, panel.position.y + 56)
+			portrait.size = Vector2(144, 200)
+			body.text = "시작 무기  ·  %s\n%s\n\n%s" % [String(cat["weapon_name"]), String(PLAYSTYLE.get(String(cat["weapon_id"]), "자동 공격")), main._chain_note(cat)]
+			place(body, Rect2(x + 240, panel.position.y + 176, 304, 88), 14)
+		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		panel.add_theme_stylebox_override("panel",
 			Palette.player_surface(slot, not main.character_confirmed[slot], main.character_confirmed[slot]))
 		preload("res://scripts/ui/neon_growth_ui.gd").trim(panel,
 			Palette.P1 if slot == main.local_view_slot() else Palette.P2,
-			not main.character_confirmed[slot], true)
+			not main.character_confirmed[slot], false)
 		if screen.has_node("CharacterConfirm%d" % slot):
 			var confirm: Button = screen.get_node("CharacterConfirm%d" % slot)
 			confirm.disabled = not main._can_control_player_slot(slot)
-			confirm.text = "✓ 준비 완료" if main.character_confirmed[slot] else "준비하기"
+			confirm.text = "✓  준비 완료" if main.character_confirmed[slot] else "준비하기"
 			confirm.add_theme_stylebox_override("normal",
 				Palette.button_surface("normal", Palette.P1 if slot == 0 else Palette.P2, true))
 		for action in ["CharacterPrevious%d" % slot, "CharacterNext%d" % slot]:
@@ -403,7 +554,8 @@ static func refresh_characters(main: Node) -> void:
 	var pair_leash := CharacterCatalog.chain_length_for(
 		main.character_catalog[main.selected_character_indices[0]],
 		main.character_catalog[main.selected_character_indices[1]])
-	screen.get_node("ChainPlate/ChainLength").text = "%d px" % roundi(pair_leash)
+	var leash_grade := "짧음" if pair_leash < 288.0 else ("보통" if pair_leash < 352.0 else "넓음")
+	screen.get_node("ChainPlate/ChainLength").text = "%s  ·  %d" % [leash_grade, roundi(pair_leash)]
 	for index in main.character_catalog.size():
 		var tile: Panel = screen.get_node("Roster%d" % index)
 		var style := tile.get_theme_stylebox("panel") as StyleBoxFlat
