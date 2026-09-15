@@ -57,16 +57,6 @@ func run() -> void:
 	check(meta.rank("armor") == 0, "confirmed reset")
 	main.title_mode = "modes"
 	main._activate_title_item(0)
-	var preview: Control = main.character_overlay.get_node("SurvivorPreview")
-	for character: Dictionary in main.character_catalog:
-		preview.set_character(character, main._build_weapon_state(character))
-		preview.controller.perform_attack(0, 0, 1.0)
-		await process_frame
-		check(preview.enemies.size() == 7, "isolated preview enemies")
-		check(preview.enemies.all(func(enemy: ChaserEnemy) -> bool: return not enemy.is_in_group("enemies")), "preview cannot enter gameplay target group")
-	for frame in 40:
-		await physics_frame
-	await shot("preview")
 	main._start_selected_run()
 	main.set_physics_process(false)
 	main.team_luck = 0

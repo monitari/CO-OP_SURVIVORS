@@ -31,6 +31,8 @@ the runtime cat portraits.
 
 ## moonroof_backdrop_v2.png
 
+Status: runtime copy removed — nothing loaded it. Regenerate from this prompt if needed.
+
 Prompt:
 Use case: stylized-concept. Asset type: production game menu background, landscape 16:9.
 Create a polished hand-painted cartoon midnight Seoul rooftop for a cooperative cute
@@ -44,6 +46,8 @@ Save as a project-ready background image.
 
 ## moonroof_panel_v2.png
 
+Status: runtime copy removed — nothing loaded it. Regenerate from this prompt if needed.
+
 Prompt:
 Use case: ui-mockup. Asset type: single reusable nine-slice game UI panel texture.
 Generate ONE rectangular panel filling the image with a thin cyan luminous bevel
@@ -56,6 +60,9 @@ All central 85 percent clear uniformly dark to hold dynamic labels. Actual produ
 texture not mockup screenshot.
 
 ## character_panel_v3.png
+
+Status: runtime copy removed — menu panels are now drawn as translucent overlays
+(`CatTheme.image_surface`). The source stays under `art/originals/ui/`.
 
 - Source: `art/originals/ui/character_panel_v3.png` (1536 x 1024)
 - Runtime: `assets/ui/character_panel_v3.png` (384 x 256)

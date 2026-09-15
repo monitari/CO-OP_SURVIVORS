@@ -1,0 +1,190 @@
+{
+	"cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+	"display": "Windows",
+	"engine": "4.7.2-stable (steam)",
+	"gpu": "NVIDIA GeForce RTX 5060 Ti",
+	"records": [
+		{
+			"draw_calls_max": 0.0,
+			"draw_calls_mean": 0.0,
+			"frames": 600,
+			"glow": true,
+			"kind": "render",
+			"max_ms": 0.742,
+			"mean_ms": 0.532684999999999,
+			"p50_ms": 0.52,
+			"p99_ms": 0.662,
+			"process_cpu": {
+				"frames": 659,
+				"max_ms": 0.002,
+				"mean_ms": 0.000479514415781487,
+				"p50_ms": 0.0,
+				"p99_ms": 0.001
+			},
+			"shots": 0
+		},
+		{
+			"draw_calls_max": 3750.0,
+			"draw_calls_mean": 3750.0,
+			"frames": 600,
+			"glow": true,
+			"kind": "render",
+			"max_ms": 11.151,
+			"mean_ms": 8.22589000000001,
+			"p50_ms": 8.155,
+			"p99_ms": 8.798,
+			"process_cpu": {
+				"frames": 660,
+				"max_ms": 0.001,
+				"mean_ms": 0.000409090909090909,
+				"p50_ms": 0.0,
+				"p99_ms": 0.001
+			},
+			"shots": 500
+		},
+		{
+			"draw_calls_max": 7500.0,
+			"draw_calls_mean": 7500.0,
+			"frames": 600,
+			"glow": true,
+			"kind": "render",
+			"max_ms": 17.354,
+			"mean_ms": 16.0100566666667,
+			"p50_ms": 15.94,
+			"p99_ms": 16.836,
+			"process_cpu": {
+				"frames": 660,
+				"max_ms": 0.001,
+				"mean_ms": 0.000328787878787879,
+				"p50_ms": 0.0,
+				"p99_ms": 0.001
+			},
+			"shots": 1000
+		},
+		{
+			"draw_calls_max": 15000.0,
+			"draw_calls_mean": 15000.0,
+			"frames": 600,
+			"glow": true,
+			"kind": "render",
+			"max_ms": 45.977,
+			"mean_ms": 34.2682983333333,
+			"p50_ms": 33.528,
+			"p99_ms": 42.304,
+			"process_cpu": {
+				"frames": 660,
+				"max_ms": 0.001,
+				"mean_ms": 0.000386363636363637,
+				"p50_ms": 0.0,
+				"p99_ms": 0.001
+			},
+			"shots": 2000
+		},
+		{
+			"draw_calls_max": 11000.0,
+			"draw_calls_mean": 11000.0,
+			"frames": 600,
+			"glow": false,
+			"kind": "render",
+			"max_ms": 32.582,
+			"mean_ms": 23.8199233333333,
+			"p50_ms": 23.385,
+			"p99_ms": 29.417,
+			"process_cpu": {
+				"frames": 660,
+				"max_ms": 0.001,
+				"mean_ms": 0.000315151515151515,
+				"p50_ms": 0.0,
+				"p99_ms": 0.001
+			},
+			"shots": 2000
+		},
+		{
+			"batched": false,
+			"draw_calls_max": 469.0,
+			"draw_calls_mean": 395.338333333333,
+			"enemies": 620,
+			"frames": 600,
+			"kind": "game_render",
+			"max_ms": 7.094,
+			"mean_ms": 2.87791333333333,
+			"p50_ms": 2.032,
+			"p99_ms": 6.434,
+			"paused_frames": 0,
+			"physics_cpu": {
+				"frames": 103,
+				"max_ms": 3.218,
+				"mean_ms": 2.5272427184466,
+				"p50_ms": 2.496,
+				"p99_ms": 2.923
+			},
+			"process_cpu": {
+				"frames": 600,
+				"max_ms": 1.3,
+				"mean_ms": 0.240881666666667,
+				"p50_ms": 0.062,
+				"p99_ms": 1.154
+			},
+			"resolution": "(1920, 1080)",
+			"shots": 0
+		},
+		{
+			"batched": false,
+			"draw_calls_max": 10687.0,
+			"draw_calls_mean": 10574.2316666667,
+			"enemies": 620,
+			"frames": 600,
+			"kind": "game_render",
+			"max_ms": 320.747,
+			"mean_ms": 288.849575,
+			"p50_ms": 287.874,
+			"p99_ms": 312.72,
+			"paused_frames": 0,
+			"physics_cpu": {
+				"frames": 4800,
+				"max_ms": 35.856,
+				"mean_ms": 5.695018125,
+				"p50_ms": 5.579,
+				"p99_ms": 7.056
+			},
+			"process_cpu": {
+				"frames": 600,
+				"max_ms": 1.972,
+				"mean_ms": 1.29038833333333,
+				"p50_ms": 1.263,
+				"p99_ms": 1.756
+			},
+			"resolution": "(1920, 1080)",
+			"shots": 1000
+		},
+		{
+			"batched": false,
+			"draw_calls_max": 20968.0,
+			"draw_calls_mean": 20803.31,
+			"enemies": 620,
+			"frames": 600,
+			"kind": "game_render",
+			"max_ms": 1831.356,
+			"mean_ms": 623.101453333334,
+			"p50_ms": 613.206,
+			"p99_ms": 766.512,
+			"paused_frames": 0,
+			"physics_cpu": {
+				"frames": 4800,
+				"max_ms": 39.054,
+				"mean_ms": 8.94811041666665,
+				"p50_ms": 8.684,
+				"p99_ms": 11.701
+			},
+			"process_cpu": {
+				"frames": 600,
+				"max_ms": 2.908,
+				"mean_ms": 1.44643333333333,
+				"p50_ms": 1.404,
+				"p99_ms": 1.847
+			},
+			"resolution": "(1920, 1009)",
+			"shots": 2000
+		}
+	]
+}

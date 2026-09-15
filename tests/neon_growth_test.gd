@@ -102,7 +102,12 @@ func run() -> void:
 	main.p2_choices = main.p1_choices.duplicate(true)
 	main.selected_upgrade_indices.assign([0, -1])
 	main._refresh_level_up_ui()
-	check(main.level_card_labels[1][5].visible and not main.level_card_labels[0][0].visible, "client sees own hand")
+	check(main.level_card_labels[1][5].visible and main.level_card_labels[1][5].scale == Vector2.ONE
+		and main.level_card_labels[0][0].visible and main.level_card_labels[0][0].scale.x < 0.6
+		and main.level_card_labels[0][0].modulate.a < 1.0,
+		"client sees own hand full size and the partner's as a small see-through fan")
+	check(main.level_card_labels[0][0].material == null and main.level_card_labels[0][1].material != null,
+		"only the partner's taken card keeps its colour")
 	await shot("client")
 	main.online.session.role = NetworkSession.Role.OFFLINE
 	main.ai_companion = false

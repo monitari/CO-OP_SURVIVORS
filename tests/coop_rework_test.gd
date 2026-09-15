@@ -97,7 +97,10 @@ func _run() -> void:
 	check(command["movement"].x < 0 and command["dash"], "AI evades nearby enemy with dash")
 	# Choosing a route must affect emitted attacks, not only catalog metadata.
 	for character: Dictionary in main.character_catalog:
-		main.weapon_loadouts[0] = [main._build_weapon_state(character)]
+		# Routes are chosen once a weapon reaches the unlock tier.
+		var gated: Dictionary = main._build_weapon_state(character)
+		gated["tier"] = main.WeaponGrowthScript.TECH_UNLOCK_TIER
+		main.weapon_loadouts[0] = [gated]
 		main.p1_choices = main._get_upgrade_choices(1)
 		main.level_overlay.visible = true
 		main._refresh_level_up_ui()

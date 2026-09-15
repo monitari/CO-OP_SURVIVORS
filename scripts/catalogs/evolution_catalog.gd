@@ -1,6 +1,8 @@
 class_name EvolutionCatalog
 extends RefCounted
 
+const Growth := preload("res://scripts/systems/weapon_growth.gd")
+
 ## The middle rung of the tech tree: base weapon + treasure → enhanced weapon → resonance.
 ##
 ## A weapon is enhanced when it is maxed out AND its owner carries the right treasure
@@ -155,14 +157,6 @@ static func all_fusions() -> Array[Dictionary]:
 	return all_evolutions()
 
 
-static func hybrids_for(base_weapon_id: String) -> Array[Dictionary]:
-	var matches: Array[Dictionary] = []
-	for evolution in all_hybrid_evolutions():
-		if base_weapon_id in (evolution["weapon_ids"] as Array):
-			matches.append(evolution)
-	return matches
-
-
 static func for_base(base_weapon_id: String) -> Dictionary:
 	for evolution in all_evolutions():
 		if String(evolution["base_weapon_id"]) == base_weapon_id:
@@ -203,4 +197,21 @@ static func build_state(evolution: Dictionary, base_state: Dictionary) -> Dictio
 	# the tier it climbed to, and the five rungs above EVOLUTION_TIER are what an
 	# enhanced weapon spends the last third of a run buying.
 	state["tier"] = maxi(EVOLUTION_TIER, int(base_state.get("tier", EVOLUTION_TIER)))
+	# Part of what the base weapon was grown by survives the enhancement, so the
+	# cards bought on the way are not thrown away at the moment the tree pays off.
+	if not bool(base_state.get("evolved", false)):
+		var catalogue := _base_catalogue_weapon(String(state["base_weapon_id"]))
+		if not catalogue.is_empty():
+			Growth.carry_into_evolution(state, base_state,
+				float(catalogue.get("damage", 0.0)), float(catalogue.get("cooldown", 0.0)))
+	for field in WeaponTechCatalog.CARRIED_FIELDS:
+		if base_state.has(field):
+			state[field] = base_state[field]
 	return state
+
+
+static func _base_catalogue_weapon(base_weapon_id: String) -> Dictionary:
+	for character in CharacterCatalog.all_characters():
+		if String(character["weapon_id"]) == base_weapon_id:
+			return character["weapon"]
+	return {}

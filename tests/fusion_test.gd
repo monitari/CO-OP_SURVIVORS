@@ -3,6 +3,7 @@ extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 const TestHarness := preload("res://tests/test_harness.gd")
 const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
+const Growth := preload("res://scripts/systems/weapon_growth.gd")
 
 var failures: Array[String] = []
 
@@ -101,9 +102,19 @@ func _test_route_choice_and_material(main: Node) -> void:
 	var character: Dictionary = CharacterCatalog.all_characters()[0]
 	main.weapon_loadouts[0] = [main._build_weapon_state(character)]
 	main.treasure_loadouts[0] = []
+	# A new weapon grows untyped first: no route hand before the unlock tier.
+	var opening: Array[Dictionary] = main._get_upgrade_choices(1)
+	_check(not opening.is_empty() and opening.all(func(option: Dictionary) -> bool: return String(option["id"]) != "choose_tech"),
+		"a new weapon is not asked for its tech before tier %d" % Growth.TECH_UNLOCK_TIER)
+	while int(main.weapon_loadouts[0][0]["tier"]) < Growth.TECH_UNLOCK_TIER:
+		main._apply_upgrade(0, {"id": "weapon_power", "weapon_slot": 0})
+	_check(String(main.weapon_loadouts[0][0].get("tech_id", "")).is_empty(), "a three-route weapon is never assigned a route on its own")
+	var tier_before := int(main.weapon_loadouts[0][0]["tier"])
+	main._apply_upgrade(0, {"id": "weapon_power", "weapon_slot": 0})
+	_check(int(main.weapon_loadouts[0][0]["tier"]) == tier_before, "a weapon waiting on its route takes no more tiers")
 	var routes: Array[Dictionary] = main._get_upgrade_choices(1)
 	_check(routes.size() == 3 and routes.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech"),
-		"a three-route weapon asks for its tech before numeric upgrades")
+		"a three-route weapon asks for its tech at the unlock tier, before numeric upgrades")
 	main._apply_upgrade(0, routes[0])
 	var chosen: Dictionary = main.weapon_loadouts[0][0]
 	_check(String(chosen.get("tech_id", "")) == String((routes[0]["tech"] as Dictionary)["id"]),

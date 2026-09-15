@@ -39,6 +39,8 @@ const CHEST_DURATION := 2.9
 ## a single-item one, which is the difference the player is being told about.
 const REWARD_STAGGER := 0.5
 const CHEST_BURST_AT := 0.72
+## Same weight as CatPanel's veil over the growth and pause screens.
+const CHEST_VEIL := 0.22
 
 var mode := Mode.FUSION
 var age := 0.0
@@ -117,6 +119,8 @@ func play_chest(entries: Array) -> void:
 			"reason": String(entry.get("advice_reason", "무난한 선택")),
 		})
 		CardVisual.paint(card, model, tint, true, card.size.x, card.size.y)
+		# The box has already decided; advice on something already taken is noise.
+		card.get_node("Recommendation").visible = false
 		add_child(card)
 		card.modulate.a = 0.0
 		_add_owner_tag(card, owner, tint)
@@ -160,60 +164,14 @@ func _make_label(font_size: int, ink: Color) -> Label:
 	item.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	item.add_theme_font_size_override("font_size", font_size)
 	item.add_theme_color_override("font_color", ink)
+	# Outlined: over the lightly veiled rooftop a chest's caption has no dark
+	# stage of its own to sit on.
+	item.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.9))
+	item.add_theme_constant_override("outline_size", 7)
 	item.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	item.modulate.a = 0.0
 	add_child(item)
 	return item
-
-
-## A portrait plus a P-number under a reward icon. Reward entries with a slot of
-## -1 are the ones that paid out in moon-fish and belong to nobody, so they get
-## no badge at all rather than a badge saying so.
-func _add_owner_badge(art: TextureRect, entry: Dictionary) -> void:
-	var slot := int(entry.get("slot", -1))
-	if slot < 0:
-		return
-	var portrait := entry.get("owner_icon") as Texture2D
-	if portrait != null:
-		var face := TextureRect.new()
-		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		face.texture = portrait
-		face.size = Vector2(38.0, 38.0)
-		face.position = Vector2(art.size.x * 0.5 - 19.0, art.size.y - 8.0)
-		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		art.add_child(face)
-	var tag := Label.new()
-	tag.text = String(player_labels[slot])
-	tag.size = Vector2(art.size.x, 20.0)
-	tag.position = Vector2(0.0, art.size.y + 30.0)
-	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tag.add_theme_font_size_override("font_size", 16)
-	tag.add_theme_color_override("font_color", Color("9bf6ff") if slot == 0 else Color("ffb4a2"))
-	tag.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
-	tag.add_theme_constant_override("outline_size", 5)
-	art.add_child(tag)
-
-
-## Same symbols as the growth cards, placed on the reward itself so the verdict
-## is visible during the throw; the final summary repeats it beside exact stats.
-func _add_advice_badge(art: TextureRect, entry: Dictionary) -> void:
-	var advice := String(entry.get("advice", "neutral"))
-	if advice == "neutral":
-		return
-	var badge := Label.new()
-	badge.text = "★" if advice == "recommended" else "▽"
-	badge.position = Vector2(58.0, -8.0)
-	badge.size = Vector2(34.0, 34.0)
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	badge.add_theme_font_size_override("font_size", 21)
-	badge.add_theme_color_override("font_color", Color("fff275") if advice == "recommended" else Color("ff8fab"))
-	badge.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.95))
-	badge.add_theme_constant_override("outline_size", 6)
-	art.add_child(badge)
 
 
 func _add_source(texture: Texture2D) -> void:
@@ -343,7 +301,10 @@ func _place_captions(centre: Vector2, reveal: float) -> void:
 
 func _draw() -> void:
 	var veil := _veil()
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, 0.78 * veil))
+	# A chest opens over the live rooftop, veiled as lightly as the growth and
+	# pause screens are; the fusion and resonance moments keep their dark stage.
+	var darkness := CHEST_VEIL if mode == Mode.CHEST else 0.78
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.06, darkness * veil))
 	var centre := _centre()
 	match mode:
 		Mode.FUSION:

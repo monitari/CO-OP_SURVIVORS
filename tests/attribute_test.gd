@@ -251,8 +251,11 @@ func _test_lifesteal(main: Node) -> void:
 	# worth depends on whether the other survivor holds one too — so applying the
 	# effect without the treasure existing anywhere is asking for nothing.
 	main.treasure_loadouts[0].append(TreasureCatalog.build_state(TreasureCatalog.by_id("lifesteal")))
-	main._apply_attribute(0, "lifesteal")
-	_check(is_equal_approx(main.team_lifesteal, main.LIFESTEAL_PER_TIER),
+	main._apply_attribute(0, "lifesteal", 1)
+	# The first tier of a treasure is the light one (TreasureCatalog.TIER_WEIGHTS).
+	var first_tier: float = TreasureCatalog.increment("lifesteal", 1)
+	_check(first_tier > 0.0 and first_tier < main.LIFESTEAL_PER_TIER, "the first lifesteal tier is lighter than a full step")
+	_check(is_equal_approx(main.team_lifesteal, first_tier),
 		"one tier grants the advertised shared lifesteal rate")
 	for player in main.players:
 		player.health = player.max_health * 0.5
@@ -263,7 +266,7 @@ func _test_lifesteal(main: Node) -> void:
 	var before: float = main.players[0].health + main.players[1].health
 	enemy.take_damage(100.0)
 	var healed: float = main.players[0].health + main.players[1].health - before
-	_check(absf(healed - 100.0 * main.LIFESTEAL_PER_TIER) < 0.01,
+	_check(absf(healed - 100.0 * first_tier) < 0.01,
 		"actual attack damage returns health to the team (%.2f)" % healed)
 	main._cull_enemy(enemy)
 
@@ -274,7 +277,7 @@ func _test_lifesteal(main: Node) -> void:
 	before = main.players[0].health + main.players[1].health
 	tiny.take_damage(999999.0)
 	healed = main.players[0].health + main.players[1].health - before
-	_check(healed <= 10.0 * main.LIFESTEAL_PER_TIER + 0.001,
+	_check(healed <= 10.0 * first_tier + 0.001,
 		"overkill cannot be converted into fake lifesteal (%.3f)" % healed)
 
 

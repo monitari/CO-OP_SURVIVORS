@@ -139,6 +139,26 @@ var telegraphing := false
 ## derived from an instance id whose spacing nothing guarantees.
 var ai_batch := 0
 static var _batch_cursor := 0
+## How the body moves, resolved from the archetype once at setup. The step used
+## to match on the archetype string every tick for every body.
+enum Behavior { WALKER, RUNNER, FLYER, CHARGER, SHOOTER, BOSS, CHAIN_BITER }
+const BEHAVIOR_BY_ARCHETYPE := {
+	"rat_runner": Behavior.RUNNER, "wasp": Behavior.FLYER, "owl": Behavior.FLYER,
+	"mole": Behavior.CHARGER, "charger": Behavior.CHARGER, "shooter": Behavior.SHOOTER,
+	"chain_hunter": Behavior.CHAIN_BITER,
+}
+var behavior := Behavior.WALKER
+## Whether CrowdRenderer last found this body inside the view. The crowd loop
+## steers off-screen bodies less often. True until measured, so a body nobody
+## has rendered yet (a headless test) steps at the ordinary rate.
+var on_screen := true
+## What CrowdRenderer resolved this body's art to; reset by setup().
+var render_stamp := 0
+var render_uv := PackedFloat32Array()
+var render_aspect := Vector2.ONE
+## Set by WaveDirector while the body sits in its pool, so releasing it twice
+## is a flag test rather than a search through every pooled body.
+var pooled := false
 
 
 ## `boss_rank` is 1-5 for the run's five bosses and 0 for everything else. Each
@@ -156,6 +176,10 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	faces_along_heading = archetype != "planter"
 	leads_its_target = archetype in ["wasp", "owl", "mole"]
 	hunts_the_chain = archetype == "chain_hunter" or archetype == "brute"
+	behavior = BEHAVIOR_BY_ARCHETYPE.get(archetype, Behavior.WALKER)
+	render_stamp = 0
+	if archetype == "brute" and is_boss:
+		behavior = Behavior.BOSS
 	elite = is_elite
 	boss = is_boss
 	active = true
@@ -380,30 +404,43 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 			queue_redraw()
 		return
 	contact_cooldown = maxf(0.0, contact_cooldown - delta)
-	var was_slowed := slow_timer > 0.0
-	slow_timer = maxf(0.0, slow_timer - delta)
-	if was_slowed and slow_timer <= 0.0:
-		slow_multiplier = 1.0
-		modulate = Color.WHITE
-	var here := global_position
-	var target := _nearest_living_player(players, here)
-	var target_position := target.global_position
+	if slow_timer > 0.0:
+		slow_timer = maxf(0.0, slow_timer - delta)
+		if slow_timer <= 0.0:
+			slow_multiplier = 1.0
+			modulate = Color.WHITE
+	# Enemies live under an untransformed stage, so the local position is the
+	# ground point; reading it avoids composing the global transform. Each
+	# survivor's position is read once here and handed down rather than looked
+	# up again by every helper below.
+	var here := position
+	var first := players[0]
+	var second := players[1]
+	var first_at := first.global_position
+	var second_at := second.global_position
+	var target := first
+	var target_position := first_at
+	if first.downed and not second.downed:
+		target = second
+		target_position = second_at
+	elif not (second.downed and not first.downed) and here.distance_squared_to(second_at) < here.distance_squared_to(first_at):
+		target = second
+		target_position = second_at
 	# Predict ranged aim and the mole's committed dash before their warning.
 	if leads_its_target:
 		target_position += target.current_input.limit_length() * target.move_speed * 0.65
 	if hunts_the_chain:
-		target_position = (players[0].global_position + players[1].global_position) * 0.5
+		target_position = (first_at + second_at) * 0.5
 	var speed_scale := slow_multiplier if slow_timer > 0.0 else 1.0
 	var had_telegraph := charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0
-	var had_flash := hit_flash > 0.0
-	if had_flash:
+	if hit_flash > 0.0:
 		hit_flash = maxf(0.0, hit_flash - delta / HIT_FLASH_TIME)
 		scale = Vector2.ONE * (1.0 + hit_flash * 0.22)
 
-	match archetype:
-		"rat_runner":
+	match behavior:
+		Behavior.RUNNER:
 			_step_runner(target_position, speed_scale, delta)
-		"wasp", "owl":
+		Behavior.FLYER:
 			_step_shooter(target_position, speed_scale, delta)
 			if archetype == "wasp" and shooter_windup <= 0.0:
 				position += here.direction_to(target_position).orthogonal() * move_speed * speed_scale * delta * 0.65
@@ -413,32 +450,27 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 					boss_attack_timer = 4.0
 					shooter_windup = 1.0
 					telegraph_direction = here.direction_to(target_position)
-		"mole":
+		Behavior.CHARGER:
 			_step_charger(target_position, speed_scale, delta)
-		"hedgehog":
-			var hedgehog_direction := here.direction_to(target_position)
-			position += hedgehog_direction * move_speed * speed_scale * delta
-			rotation = hedgehog_direction.angle()
-		"charger":
-			_step_charger(target_position, speed_scale, delta)
-		"shooter":
+		Behavior.SHOOTER:
 			_step_shooter(target_position, speed_scale, delta)
-		"brute":
-			if boss:
-				_step_boss(players, target_position, speed_scale, delta)
-			else:
-				var direction := here.direction_to(target_position)
-				position += direction * move_speed * speed_scale * delta
-				rotation = direction.angle()
+		Behavior.BOSS:
+			_step_boss(players, target_position, speed_scale, delta)
 		_:
 			var direction := here.direction_to(target_position)
-			position += direction * move_speed * speed_scale * delta
+			position = here + direction * move_speed * speed_scale * delta
 			rotation = direction.angle()
 
-	if archetype == "chain_hunter":
+	if behavior == Behavior.CHAIN_BITER:
 		_try_damage_chain(players, delta)
-	else:
-		_try_contact_damage(players)
+	elif contact_cooldown <= 0.0:
+		# Most of a crowd is nowhere near either survivor on a given tick. One
+		# squared-distance test against the nearer of the two rules that out
+		# before the per-survivor loop runs.
+		var reach := radius + maxf(first.radius, second.radius)
+		var now := position
+		if minf(now.distance_squared_to(first_at), now.distance_squared_to(second_at)) <= reach * reach:
+			_try_contact_damage(players)
 	# Runs here rather than at the top of the step so it reads the heading this
 	# step just chose. It used to be driven by NOTIFICATION_LOCAL_TRANSFORM_CHANGED,
 	# which meant every position write in the step — and every push the crowd
@@ -446,7 +478,10 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# that only depends on rotation. At a few hundred bodies that was thousands of
 	# callbacks a frame to answer the same question this one line answers once.
 	if is_instance_valid(body_sprite):
-		_update_body_facing()
+		# A body the CrowdRenderer is drawing is a hidden node: the renderer works
+		# its facing out from rotation as it batches, so the sprite is left alone.
+		if visible:
+			_update_body_facing()
 		# Skipped entirely in the ordinary case. Almost every body on the field is
 		# neither enraged nor mid-flash on any given tick, and writing white over
 		# white is still a property write across the engine boundary.
@@ -471,7 +506,7 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 	# regardless of whether anything they draw actually changed.
 	# Sprite tint/scale handle hit flashes without rebuilding health/elite art.
 	telegraphing = charge_windup > 0.0 or shooter_windup > 0.0 or chain_windup > 0.0 or boss_slam_windup > 0.0
-	if had_telegraph or telegraphing:
+	if (had_telegraph or telegraphing) and visible:
 		queue_redraw()
 
 
@@ -480,7 +515,7 @@ func _step_runner(target_position: Vector2, speed_scale: float, delta: float) ->
 		charge_timer = maxf(0.0, charge_timer - delta)
 		# A runner pursues through a broad turn, unlike the mole's straight dash.
 		# Reversing or dashing across its nose exploits the limited turn rate.
-		var heading := rotate_toward(charge_direction.angle(), global_position.direction_to(target_position).angle(), delta * 1.8)
+		var heading := rotate_toward(charge_direction.angle(), position.direction_to(target_position).angle(), delta * 1.8)
 		charge_direction = Vector2.from_angle(heading)
 		position += charge_direction * maxf(340.0, move_speed * 2.8) * speed_scale * delta
 		rotation = charge_direction.angle()
@@ -490,11 +525,11 @@ func _step_runner(target_position: Vector2, speed_scale: float, delta: float) ->
 		if charge_windup <= 0.0: charge_timer = 1.5
 		return
 	behavior_timer -= delta
-	rotation = global_position.direction_to(target_position).angle()
+	rotation = position.direction_to(target_position).angle()
 	position += Vector2.from_angle(rotation) * move_speed * speed_scale * delta
-	if behavior_timer <= 0.0 and global_position.distance_squared_to(target_position) < 680.0 * 680.0:
+	if behavior_timer <= 0.0 and position.distance_squared_to(target_position) < 680.0 * 680.0:
 		behavior_timer = 1.8
-		charge_direction = global_position.direction_to(target_position)
+		charge_direction = position.direction_to(target_position)
 		telegraph_direction = charge_direction
 		charge_windup = 0.75
 
@@ -511,7 +546,7 @@ func _step_charger(target_position: Vector2, speed_scale: float, delta: float) -
 			charge_timer = 0.55
 		return
 	behavior_timer -= delta
-	var direction := global_position.direction_to(target_position)
+	var direction := position.direction_to(target_position)
 	if behavior_timer <= 0.0:
 		charge_direction = direction
 		telegraph_direction = direction
@@ -523,8 +558,8 @@ func _step_charger(target_position: Vector2, speed_scale: float, delta: float) -
 
 
 func _step_shooter(target_position: Vector2, speed_scale: float, delta: float) -> void:
-	var distance := global_position.distance_to(target_position)
-	var direction := global_position.direction_to(target_position)
+	var distance := position.distance_to(target_position)
+	var direction := position.direction_to(target_position)
 	if distance > 390.0:
 		position += direction * move_speed * speed_scale * delta
 	elif distance < 245.0:
@@ -586,7 +621,7 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 			chain_slam.emit(boss_slam_point, 44.0 if boss_enraged else 34.0, BOSS_SLAM_RADIUS)
 		return
 
-	var direction := global_position.direction_to(target_position)
+	var direction := position.direction_to(target_position)
 	position += direction * move_speed * speed_scale * delta
 	rotation = direction.angle()
 
@@ -599,7 +634,7 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 			charge_windup = BOSS_CHARGE_WINDUP
 		else:
 			boss_slam_point = _closest_point_on_chain(players)
-			telegraph_direction = global_position.direction_to(boss_slam_point)
+			telegraph_direction = position.direction_to(boss_slam_point)
 			boss_slam_windup = BOSS_SLAM_WINDUP_ENRAGED if boss_enraged else BOSS_SLAM_WINDUP
 
 
@@ -652,18 +687,6 @@ func _try_damage_chain(players: Array[ChainPlayer], delta: float) -> void:
 			contact_cooldown = 0.9
 	else:
 		chain_windup = 0.0
-
-
-## Takes the caller's own position so the hot path does not pay for the global
-## transform twice more on top of the read it has already made.
-func _nearest_living_player(players: Array[ChainPlayer], from: Vector2 = global_position) -> ChainPlayer:
-	if players[0].downed and not players[1].downed:
-		return players[1]
-	if players[1].downed and not players[0].downed:
-		return players[0]
-	if from.distance_squared_to(players[1].global_position) < from.distance_squared_to(players[0].global_position):
-		return players[1]
-	return players[0]
 
 
 func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:

@@ -136,33 +136,6 @@ func _draw_home_terrace() -> void:
 			draw_circle(at + toe, 2, paw)
 
 
-## Props come from the cell they sit in, not from a run-wide seed, so the roof
-## can be generated in any order and still look the same every time.
-func _draw_props(low: Vector2, high: Vector2) -> void:
-	var first_cell := Vector2i(int(floor(low.x / PROP_CELL)), int(floor(low.y / PROP_CELL)))
-	var last_cell := Vector2i(int(ceil(high.x / PROP_CELL)), int(ceil(high.y / PROP_CELL)))
-	for cell_x in range(first_cell.x, last_cell.x):
-		for cell_y in range(first_cell.y, last_cell.y):
-			var rng := RandomNumberGenerator.new()
-			rng.seed = _cell_seed(cell_x, cell_y)
-			# Not every cell gets something; an evenly littered roof reads as
-			# wallpaper rather than as a place.
-			if rng.randf() > 0.62:
-				continue
-			var at := Vector2(
-				cell_x * PROP_CELL + rng.randf_range(60.0, PROP_CELL - 140.0),
-				cell_y * PROP_CELL + rng.randf_range(60.0, PROP_CELL - 140.0)
-			)
-			# The starting terrace stays clear so the opening seconds are readable.
-			if absf(at.x) < 560.0 and absf(at.y) < 350.0:
-				continue
-			match rng.randi() % 4:
-				0: pass # Reserved for the breakable planter entity.
-				1: _box(at)
-				2: _vent(at)
-				_: _yarn(at)
-
-
 ## A stable hash of the cell coordinates. Godot's seed is 64-bit, so the two
 ## coordinates are mixed rather than added — otherwise (1, -1) and (-1, 1) would
 ## generate the same patch of roof.

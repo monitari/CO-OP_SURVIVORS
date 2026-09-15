@@ -410,7 +410,9 @@ func _run_encounter(
 
 
 func release_enemy(enemy: ChaserEnemy) -> void:
-	if enemy in enemy_pool:
+	# A flag rather than `enemy in enemy_pool`: that searched the whole pool on
+	# every release, and a large crowd keeps a large pool.
+	if enemy.pooled:
 		return
 	# Counted here rather than where a planter is broken, because the other way
 	# one leaves the field is being culled when the pair walks off and leaves it
@@ -418,6 +420,7 @@ func release_enemy(enemy: ChaserEnemy) -> void:
 	if enemy.scenery:
 		planters_alive = maxi(0, planters_alive - 1)
 	enemy.deactivate()
+	enemy.pooled = true
 	enemy_pool.append(enemy)
 
 
@@ -431,6 +434,7 @@ func _acquire_enemy(
 		add_child(enemy)
 	else:
 		enemy = enemy_pool.pop_back()
+	enemy.pooled = false
 	enemy.setup(difficulty, archetype, elite, boss, boss_rank)
 	var angle := randf() * TAU
 	var distance := randf_range(900.0, 1080.0) if not boss else 1050.0

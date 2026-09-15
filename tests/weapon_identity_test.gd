@@ -73,7 +73,9 @@ func _test_every_weapon_has_specials(main: Node) -> void:
 					break
 			main.weapon_loadouts[0] = [state]
 			main.attack_timers[0] = [0.0]
-			var spec: Dictionary = main._special_spec(String(character["weapon_id"]), key)
+			# Resolved against the state: a route can replace a special its own
+			# delivery would leave with nothing to do (WeaponTechCatalog.SPECIAL_OVERRIDES).
+			var spec: Dictionary = main._special_spec(state, key)
 			_check(not spec.is_empty(), "%s's weapon declares special %s" % [name, key])
 			if spec.is_empty():
 				continue

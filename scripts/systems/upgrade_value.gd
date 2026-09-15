@@ -3,6 +3,8 @@ extends RefCounted
 ## delivery/count/area changes and cooldown floors. Same assumptions before/after.
 const Cats := preload("res://scripts/catalogs/character_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
+const Growth := preload("res://scripts/systems/weapon_growth.gd")
+const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 
 static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 	var id := String(option["id"])
@@ -10,21 +12,22 @@ static func has_effect(main: Node, slot: int, option: Dictionary) -> bool:
 	if index >= 0:
 		var w: Dictionary = main.weapon_loadouts[slot][index]
 		if id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
-			if int(w.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+			if int(w.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER or Growth.needs_tech(w):
 				return false
 		if id == "weapon_rate":
-			return maxf(0.25, maxf(0.32, float(w["cooldown"]) * main.WEAPON_RATE_STEP) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
+			return maxf(0.25, Growth.next_cooldown(w) * main.players[slot].haste) < main._weapon_interval(slot, index) - 0.00001
 		if id in ["special_a", "special_b"]:
 			# 보름베기 has a second way of being useless that the spec itself
 			# cannot see: a survivor whose area multiplier has already pushed
 			# the arc to a full circle gains nothing from a wider one.
-			if w["weapon_id"] == "scythe" and id == "special_b":
+			if w["weapon_id"] == "scythe" and String(main._special_spec(w, "b").get("field", "")) == "arc":
 				if float(w["arc"]) * main.players[slot].area >= TAU: return false
 			return main._special_has_room(slot, index, id.substr(id.length() - 1))
 	if id in ["unlock_treasure", "treasure_upgrade"]:
 		var effect: String = main._option_icon_id(slot, option)
-		if effect == "haste": return main.players[slot].haste > 0.60001
-		if effect == "crit": return main.players[slot].crit_chance < 0.59999
+		if effect == "haste": return main.players[slot].haste > main.HASTE_FLOOR + 0.00001
+		if effect == "crit": return main.players[slot].crit_chance < main.CRIT_CAP - 0.00001
+		if effect == "lucky_paw": return main.players[slot].dodge_chance < 0.44999
 	return true
 
 static func attributes(player: Node) -> Dictionary:
@@ -69,7 +72,13 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 	if id == "lightning":
 		coverage *= (1.0 - pow(0.82, float(w["jumps"]))) / (1.0 - pow(0.82, float(base["jumps"])))
 	if id in ["homing", "flame", "starpiercer", "supernova"]:
-		coverage *= 1.0 + float(a["pierce"]) * 0.35
+		coverage *= 1.0 + (float(a["pierce"]) + float(w.get("pierce_bonus", 0))) * 0.35
+	# Route specials that add a second hit: the overload blast and the eclipse
+	# afterimage. Priced as extra coverage so the scorer does not call them dead.
+	if w.has("splash"):
+		coverage *= 1.0 + float(w["splash"]) / 160.0
+	if w.has("afterimage"):
+		coverage *= 1.0 + float(w["afterimage"])
 	if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide"]:
 		coverage *= float(a["duration"])
 	# Area is not a damage upgrade for homing or fixed-radius orbit shards.
@@ -107,19 +116,24 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 	elif id == "evolve_weapon":
 		loadout[index] = Evolutions.build_state(option["evolution"], loadout[index])
 	elif id in ["unlock_treasure", "treasure_upgrade"]:
-		match main._option_icon_id(slot, option):
-			"might": a["might"] += 0.09
-			"area": a["area"] += 0.09
-			"amount": a["amount"] += 1
-			"haste": a["haste"] = maxf(0.6, a["haste"] - 0.06)
-			"crit": a["crit"] = minf(0.60, a["crit"] + 0.05)
-			"pierce": a["pierce"] += 1
-			"duration": a["duration"] += 0.10
+		var effect: String = main._option_icon_id(slot, option)
+		var next_tier := 1
+		if id == "treasure_upgrade":
+			next_tier = int(main.treasure_loadouts[slot][int(option["treasure_slot"])]["tier"]) + 1
+		var step := Treasures.increment(effect, next_tier)
+		match effect:
+			"might": a["might"] += step
+			"area": a["area"] += step
+			"amount": a["amount"] += roundi(step)
+			"haste": a["haste"] = maxf(main.HASTE_FLOOR, a["haste"] - step)
+			"crit": a["crit"] = minf(main.CRIT_CAP, a["crit"] + step)
+			"pierce": a["pierce"] += roundi(step)
+			"duration": a["duration"] += step
 	elif index >= 0:
 		var w: Dictionary = loadout[index]
 		match id:
-			"weapon_power": w["damage"] *= main.WEAPON_POWER_STEP
-			"weapon_rate": w["cooldown"] = maxf(0.32, w["cooldown"] * main.WEAPON_RATE_STEP)
+			"weapon_power": w["damage"] *= Growth.power_step(w)
+			"weapon_rate": w["cooldown"] = Growth.next_cooldown(w)
 			# Both specials run through the same table the real upgrade does, on
 			# this throwaway copy of the loadout. The old version listed six of
 			# the twenty specials by hand, so the scorer was silently pricing

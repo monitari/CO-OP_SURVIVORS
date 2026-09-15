@@ -175,15 +175,17 @@ func _test_gimmick_treasures(main: Node) -> void:
 	main._finish_level_up()
 	_check(main.players[0].health > hurt_health, "별빛 캣닢 heals on level completion")
 	_unlock(main, 0, "bounty_bell")
-	_check(main.team_hunt_bonus >= 0.18, "사냥꾼 방울 raises elite and boss XP")
+	_check(is_equal_approx(main.team_hunt_bonus, TreasureCatalog.increment("bounty_bell", 1)) and main.team_hunt_bonus > 0.0,
+		"사냥꾼 방울 raises elite and boss XP")
 	_unlock(main, 0, "twin_charm")
 	main.players[0].position = Vector2.ZERO
 	main.players[1].position = Vector2(20, 0)
 	_check(main._tension_damage_multiplier() > 1.0, "쌍둥이 부적 rewards close formation")
 	_unlock(main, 0, "dash_claw")
-	_check(main.team_dash_burst >= 11.0, "질주 발톱 arms a dash shockwave")
+	_check(is_equal_approx(main.team_dash_burst, TreasureCatalog.increment("dash_claw", 1)) and main.team_dash_burst > 0.0,
+		"질주 발톱 arms a dash shockwave")
 	_unlock(main, 1, "lucky_paw")
-	_check(main.players[1].dodge_chance >= 0.03, "행운의 앞발 grants dodge")
+	_check(main.players[1].dodge_chance >= TreasureCatalog.increment("lucky_paw", 1) - 0.0001, "행운의 앞발 grants dodge")
 	_unlock(main, 1, "nine_lives")
 	main.players[1].invulnerability = 0.0
 	main.players[1].dodge_chance = 0.0

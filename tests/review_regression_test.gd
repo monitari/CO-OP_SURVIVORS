@@ -84,8 +84,9 @@ func _run() -> void:
 			found = found or option["id"] == "evolve_weapon"
 		check(found, "fusion guaranteed even across repeated rerolls")
 	var power := {"id": "weapon_power", "weapon_slot": 0}
-	check(is_equal_approx(Value.gain(main, 0, power), main.WEAPON_POWER_STEP - 1.0),
-		"single weapon damage gain matches the card (%.0f percent)" % ((main.WEAPON_POWER_STEP - 1.0) * 100.0))
+	var power_step: float = main.WeaponGrowthScript.power_step(main.weapon_loadouts[0][0])
+	check(is_equal_approx(Value.gain(main, 0, power), power_step - 1.0),
+		"single weapon damage gain matches the card (%.0f percent)" % ((power_step - 1.0) * 100.0))
 	main.weapon_loadouts[0].append(main._build_weapon_state(main.character_catalog[1]))
 	check(Value.gain(main, 0, power) < 0.25, "single weapon gain weighted by whole loadout")
 	var lightning: Dictionary = main.weapon_loadouts[0][1]
@@ -131,10 +132,18 @@ func _run() -> void:
 	dummy.step(main.players, 1.0 / 60.0)
 	check(absf(dummy.rotation) > 0.001, "the enemy node really is rotated to face its target")
 	check(absf(dummy.body_sprite.global_rotation) < 0.001, "sprite stays upright while telegraph rotates")
-	check(dummy.z_index > 3, "enemy warnings stay above friendly rings")
+	# Bodies and shots are drawn by the crowd renderer inside the world stage, so
+	# the hierarchy is the stage's layer against the highest friendly effect.
+	check(main.world_stage.z_index > main.FRIENDLY_EFFECT_Z_MAX and main.crowd_renderer.threats_on_top,
+		"enemy warnings stay above friendly rings")
 	var card: String = main._format_character_card(0)
 	check(card.contains("필요") and card.contains("자동 공명"), "character select exposes route materials and automatic resonance")
 	check(not card.contains("난이도"), "character select removes difficulty labels")
+	# Route hands open once a weapon has grown to the unlock tier.
+	for slot in 2:
+		var untyped: Dictionary = main.weapon_loadouts[slot][0]
+		untyped.erase("tech_id")
+		untyped["tier"] = main.WeaponGrowthScript.TECH_UNLOCK_TIER
 	main.progression.add_experience(main.progression.required_experience)
 	main._begin_level_up()
 	main.level_up_input_delay = 0

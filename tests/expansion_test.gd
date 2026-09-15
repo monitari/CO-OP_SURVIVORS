@@ -50,8 +50,13 @@ func _run() -> void:
 	boss.shooter_windup = 0.01
 	boss.step(main.players, 0.02)
 	check(int(boss.get_meta("shots")) == 11, "owl boss releases a fan plus radial volley after warning")
-	for index in 7: main._show_message("알림 %d" % index, Color.WHITE)
-	check(main.notice_stack.size() == 4, "notifications are capped")
+	for index in 13: main._show_message("알림 %d" % index, Color.WHITE)
+	check(main.notice_stack.size() == 10, "notifications are capped at ten")
+	check(main.notice_stack.back().position.x + main.notice_stack.back().size.x > 1200.0
+		and main.notice_stack.back().position.y > 600.0
+		and main.notice_stack.back().horizontal_alignment == HORIZONTAL_ALIGNMENT_RIGHT
+		and not main.notice_stack.back().has_theme_stylebox_override("normal"),
+		"notices are bare right-aligned text in the bottom-right corner")
 	check(main.notice_stack.back().position.y > main.notice_stack.front().position.y, "latest event is lowest")
 	await create_timer(4.0).timeout
 	main._show_message("마지막", Color.WHITE)

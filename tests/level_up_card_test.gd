@@ -238,34 +238,13 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 		"the whole hand is never marked against (%d of %d)" % [discouraged_cards, main.p1_choices.size()])
 	_check(recommended_cards + discouraged_cards <= main.p1_choices.size(), "advice does not double up")
 	_test_advice_bands(main)
-	# Loadout data still refreshes for details and previews, but the in-world
-	# growth moment draws only cards and its contextual reroll action.
-	_check(not main.p1_level_footer.visible and not main.level_title.visible,
-		"growth removes the surrounding title and build readout")
-	_check(main.level_weapon_icons[0].size() == main.WEAPON_LOADOUT_CAP,
-		"the weapon row draws one slot per weapon the cap allows")
-	_check(main.level_treasure_icons[0].size() == main.TREASURE_LOADOUT_CAP,
-		"the treasure row draws one slot per treasure the cap allows")
-	var carried_weapons: int = main.weapon_loadouts[0].size()
-	var preview_is_new_weapon: bool = String(main.p1_choices[main.upgrade_cursors[0]]["id"]) == "unlock_weapon"
-	for index in main.level_weapon_icons[0].size():
-		var icon := main.level_weapon_icons[0][index] as TextureRect
-		var filled := icon.texture != null
-		var preview_slot: bool = preview_is_new_weapon and index == carried_weapons
-		_check(filled == (index < carried_weapons or preview_slot),
-			"weapon slot %d is %s" % [index, "filled" if index < carried_weapons else "an empty socket"])
-	_check(not main.level_weapon_icons[0][0].get_parent().visible,
-		"equipment sockets stay out of the immersive growth view")
-	var preview_choices: Array[Dictionary] = [{
-		"id": "weapon_power", "weapon_slot": 0, "title": "마력 증폭",
-		"description": main._upgrade_preview(0, {"id": "weapon_power", "weapon_slot": 0}),
-	}]
-	main.p1_choices = preview_choices
-	main.upgrade_cursors[0] = 0
-	main.selected_upgrade_indices[0] = -1
-	main._refresh_player_cards(1)
-	_check(String(main.level_weapon_icons[0][0].get_node("Tier").text).contains("→"),
-		"the focused upgrade previews the affected weapon's next level")
+	# The in-world growth moment draws only the cards and the reroll action: the
+	# band holds no loose panels, labels or icons of its own.
+	for child in main.level_overlay.get_children():
+		_check(child is Label and child in main.level_card_labels[0] + main.level_card_labels[1]
+			or child is Button or child.name in ["PartnerChoice", "NeonHint", "NeonControls"],
+			"growth band child %s is a card, a button or the partner caption" % child.name)
+
 
 func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_open_level_up(main)
@@ -293,7 +272,7 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	# the screen, so removing the locked hand would hide half the negotiation.
 	for index in main.p1_choices.size():
 		var locked_card: Label = main.level_card_labels[0][index]
-		_check(not locked_card.visible and main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료", "the confirmed choice moves to the partner summary")
+		_check(locked_card.visible and locked_card.scale.x < 1.0 and main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료", "the confirmed hand moves to the partner's small fan")
 		if index != main.selected_upgrade_indices[0]:
 			_check(locked_card.modulate.r < 1.0, "everything but the taken card dims without transparency")
 
@@ -370,11 +349,7 @@ func _test_luck_and_fan_hand(main: Node) -> void:
 			"fan cards never cover the reroll button")
 		_check(card.position.x >= 0.0 and card.position.x + card.size.x <= 1280,
 			"all four cards stay inside the viewport")
-	var equipment_y: float = main.level_weapon_icons[0][0].get_parent().position.y
-	print("FAN_METRICS: cards=%s equipment_y=%.0f" % [
-		str(cards.map(func(card: Label) -> String: return "%s/%s" % [card.position, card.size])), equipment_y])
-	_check(not main.level_weapon_icons[0][0].get_parent().visible,
-		"the equipment strip stays hidden during growth")
+	print("FAN_METRICS: cards=%s" % str(cards.map(func(card: Label) -> String: return "%s/%s" % [card.position, card.size])))
 	main.level_card_labels[0][3].mouse_entered.emit()
 	_check(main.upgrade_cursors[0] == 3 and main.level_card_labels[0][3].scale.is_equal_approx(Vector2.ONE),
 		"mouse hover moves the cursor without resizing the card")

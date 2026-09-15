@@ -454,10 +454,10 @@ func _prepare_fusions() -> void:
 				continue
 			game.treasure_loadouts[slot].append(Treasures.build_state(treasure))
 			treasure_slot = game.treasure_loadouts[slot].size() - 1
-			game._apply_attribute(slot, treasure_id)
+			game._apply_attribute(slot, treasure_id, 1)
 		while int(game.treasure_loadouts[slot][treasure_slot]["tier"]) < Evolutions.REQUIRED_TREASURE_TIER:
 			game.treasure_loadouts[slot][treasure_slot]["tier"] = int(game.treasure_loadouts[slot][treasure_slot]["tier"]) + 1
-			game._apply_attribute(slot, treasure_id)
+			game._apply_attribute(slot, treasure_id, int(game.treasure_loadouts[slot][treasure_slot]["tier"]))
 		prepared.append("%s %s" % [game.player_label(slot), String(evolution["weapon_name"])])
 	if prepared.is_empty():
 		notice = "보물 강화 준비 실패: %s" % ", ".join(blocked)

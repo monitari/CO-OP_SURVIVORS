@@ -1,9 +1,11 @@
 class_name WeaponTechCatalog
 extends RefCounted
 
-## A weapon chooses its delivery when it first joins a build. Routes leave
-## all later upgrade axes open, change the treasure needed for the final form,
-## and add a tag that determines which co-op resonance is created automatically.
+## A weapon chooses its delivery once it has been grown to
+## WeaponGrowth.TECH_UNLOCK_TIER. Routes leave every later upgrade axis open but
+## decide how much each one is worth (the `upgrades` list is the route's focus —
+## see WeaponGrowth.focus), change the treasure needed for the final form, and
+## add a tag that determines which co-op resonance is created automatically.
 const TECHS := {
 	"homing": [
 		{"id": "comet", "name": "혜성 추적", "description": "큰 한 발과 다중 유도를 키웁니다.", "treasure_id": "might", "upgrades": ["weapon_power", "special_a"], "tag": "burst", "profile": "force"},
@@ -68,7 +70,7 @@ const BEHAVIORS := {
 		"pursuit": {"text": "유도탄 한 발 추가    피해 20% 감소", "count": 1, "damage_scale": 0.8},
 		"constellation": {"text": "동료 위치에서도 유도탄 발사    피해 35% 감소", "echo": true, "damage_scale": 0.65}},
 	"lightning": {
-		"overload": {"text": "첫 적에게 집중 낙뢰    연쇄 1회", "jumps_set": 1, "damage_scale": 1.65},
+		"overload": {"text": "첫 적에게 집중 낙뢰와 착탄 폭발    연쇄 1회", "jumps_set": 1, "damage_scale": 1.65, "splash": 64.0},
 		"conductor": {"text": "연쇄 두 번 추가    피해 20% 감소", "jumps": 2, "damage_scale": 0.8}},
 	"flame": {
 		"sun": {"text": "적 둘을 관통하는 방사형 불꽃", "pierce": 2},
@@ -106,9 +108,32 @@ const BEHAVIORS := {
 }
 
 
+## A tech changes what a weapon does, and some of those changes leave one of the
+## weapon's own specials with nothing to act on: 과부하 pins the chain to a single
+## jump, so +1 연쇄 did nothing; 월식 is already a full circle, so a wider arc did
+## nothing; 심판 pins the lance to one beam, so +1 광선 did nothing. Those routes
+## replace the dead special with one that grows what the route is about. The
+## fields named here are read by WeaponController and carried into the enhanced
+## weapon by EvolutionCatalog.build_state.
+const SPECIAL_OVERRIDES := {
+	"homing": {"comet": {"b": {"title": "혜성 꼬리", "label": "추가 관통", "field": "pierce_bonus", "delta": 1, "integer": true, "cap": 6.0}}},
+	"flame": {"sun": {"b": {"title": "태양 흑점", "label": "추가 관통", "field": "pierce_bonus", "delta": 1, "integer": true, "cap": 6.0}}},
+	"lightning": {"overload": {"a": {"title": "낙뢰 폭심", "label": "착탄 폭발 반경", "field": "splash", "delta": 20.0}}},
+	"scythe": {"eclipse": {"b": {"title": "월식 잔상", "label": "잔상 베기 피해", "field": "afterimage", "delta": 0.22, "cap": 1.0, "percent": true}}},
+	"lance": {"judgement": {"b": {"title": "심판의 창날", "label": "창 폭", "field": "width", "delta": 7.0}}},
+}
+## Fields a route's specials add that the enhanced weapon keeps using.
+const CARRIED_FIELDS := ["pierce_bonus", "afterimage"]
+
+
 static func behavior(state: Dictionary) -> Dictionary:
 	var base_id := String(state.get("base_weapon_id", state.get("weapon_id", "")))
 	return BEHAVIORS.get(base_id, {}).get(String(state.get("tech_id", "")), {})
+
+
+static func special_override(state: Dictionary, key: String) -> Dictionary:
+	var base_id := String(state.get("base_weapon_id", state.get("weapon_id", "")))
+	return SPECIAL_OVERRIDES.get(base_id, {}).get(String(state.get("tech_id", "")), {}).get(key, {})
 
 
 static func cast_state(state: Dictionary) -> Dictionary:
@@ -124,8 +149,11 @@ static func cast_state(state: Dictionary) -> Dictionary:
 			result[field] = float(result[field]) * float(effect.get(field + "_scale", 1.0))
 	if effect.get("full_circle", false):
 		result["arc"] = TAU
-	result["tech_pierce"] = int(effect.get("pierce", 0))
+	result["tech_pierce"] = int(effect.get("pierce", 0)) + int(state.get("pierce_bonus", 0))
 	result["tech_homing"] = bool(effect.get("homing", false))
+	var splash := float(state.get("splash", 0.0)) + float(effect.get("splash", 0.0))
+	if splash > 0.0:
+		result["splash"] = splash
 	return result
 
 

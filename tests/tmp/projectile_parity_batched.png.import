@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c58c1cgna5uvg"
-path="res://.godot/imported/moonroof_backdrop_v2.png-3fb4c291e4f5910829a3ae308cf652ac.ctex"
+uid="uid://c87trujvrxwqm"
+path="res://.godot/imported/projectile_parity_batched.png-0db59424df06c3c9b1443d1a25283262.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/moonroof_backdrop_v2.png"
-dest_files=["res://.godot/imported/moonroof_backdrop_v2.png-3fb4c291e4f5910829a3ae308cf652ac.ctex"]
+source_file="res://tests/tmp/projectile_parity_batched.png"
+dest_files=["res://.godot/imported/projectile_parity_batched.png-0db59424df06c3c9b1443d1a25283262.ctex"]
 
 [params]
 

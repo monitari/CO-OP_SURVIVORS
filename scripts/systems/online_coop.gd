@@ -374,6 +374,9 @@ func _receive_enemy_shot(payload: Dictionary) -> void:
 	projectile.setup(Vector2(payload.get("origin", Vector2.ZERO)),
 		Vector2(payload.get("direction", Vector2.RIGHT)), 0.0, no_targets)
 	projectile.speed = float(payload.get("speed", projectile.speed))
+	# Registered like a host shot: the crowd renderer draws every enemy shot from
+	# this list, and the friendly weapons that knock shots down read it too.
+	game.enemy_shots.append(projectile)
 	game.rooftop_view.world.add_child(projectile)
 
 
@@ -525,7 +528,10 @@ func _sync_enemies(states: Array) -> void:
 		enemy.max_health = float(state[EnemyField.MAX_HEALTH])
 		enemy.dead = false
 		enemy.active = true
-		enemy.visible = true
+		# Visibility belongs to the crowd renderer, which hides the bodies it draws
+		# in batches; forcing it on every snapshot drew those bodies twice.
+		if not game.crowd_renderer.enabled or enemy.boss:
+			enemy.visible = true
 		enemy.slow_timer = float(state[EnemyField.SLOW_TIMER])
 		enemy.telegraphing = bool(state[EnemyField.TELEGRAPHING])
 		enemy.charge_windup = float(state[EnemyField.CHARGE_WINDUP])

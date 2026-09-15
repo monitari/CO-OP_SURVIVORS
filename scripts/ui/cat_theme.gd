@@ -22,22 +22,21 @@ const HUD := Color("0c172ae6")
 const RADIUS := 10
 const BORDER := 1
 const BORDER_ACTIVE := 2
-## Full-bleed generated panel art. Its corner and edge caps are protected by
-## StyleBoxTexture margins while the quiet centre stretches to every menu size.
-const PANEL_ART := preload("res://assets/ui/character_panel_v3.png")
-static var panel_texture: ImageTexture
+## The panel surface every menu box shares. It used to be the generated v3
+## panel art stretched as a nine-slice; it is a see-through overlay now, the
+## same size, so whatever is behind a panel — the rooftop backdrop, or the
+## paused run — still shows through it.
+const OVERLAY := Color(0.025, 0.045, 0.095, 0.64)
+const OVERLAY_EDGE := Color("7596bd40")
 
-static func image_surface(active := false) -> StyleBoxTexture:
-	var style := StyleBoxTexture.new()
-	if panel_texture == null:
-		var bitmap := PANEL_ART.get_image()
-		panel_texture = ImageTexture.create_from_image(bitmap)
-	style.texture = panel_texture
-	style.set_texture_margin_all(16.0)
-	style.set_expand_margin_all(0.0)
-	for side in [SIDE_LEFT, SIDE_TOP, SIDE_RIGHT, SIDE_BOTTOM]:
-		style.set_content_margin(side, 4.0)
-	style.modulate_color = Color.WHITE.lerp(P1, 0.08) if active else Color.WHITE
+static func image_surface(active := false) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = OVERLAY.lerp(Color(P1, OVERLAY.a), 0.08) if active else OVERLAY
+	style.border_color = OVERLAY_EDGE
+	style.set_border_width_all(BORDER)
+	style.set_corner_radius_all(RADIUS + 4)
+	style.corner_detail = 12
+	style.set_content_margin_all(4.0)
 	return style
 
 const PADDING := 16
@@ -60,13 +59,13 @@ static func surface(tint: Color = PANEL, radius: int = RADIUS) -> StyleBoxFlat:
 	return style
 
 
-static func player_surface(slot: int, active := false, confirmed := false, dark := false) -> StyleBoxTexture:
+static func player_surface(slot: int, active := false, confirmed := false, dark := false) -> StyleBoxFlat:
 	var accent := P1 if slot == 0 else P2
 	var style := image_surface(active or confirmed)
 	var tint_strength := 0.14 if confirmed else (0.08 if active else 0.025)
-	style.modulate_color = Color.WHITE.lerp(accent, tint_strength)
+	style.bg_color = OVERLAY.lerp(Color(accent, OVERLAY.a), tint_strength)
 	if dark:
-		style.modulate_color = style.modulate_color.darkened(0.06)
+		style.bg_color = style.bg_color.darkened(0.06)
 	style.set_content_margin_all(PADDING)
 	return style
 

@@ -1,0 +1,14 @@
+Godot Engine v4.7.2.stable.steam.ed1daf0bf - https://godotengine.org
+
+FRAME_BUDGET: crowd=200 live=200 tick_ms=1.597 measured_ms=1.588 (10% of 16.67ms budget)
+FRAME_SPREAD: crowd=200 p50=1.50 p90=1.77 p99=2.18 max=14.69
+FRAME_SPLIT: crowd=200 enemy_ai=0.466 hud=0.314 crowd_separation=0.257 grid_rebuild=0.236 players_chain_camera=0.236 effects=0.051 resonance=0.011 spawning=0.007 weapons=0.007 pickups=0.003
+FRAME_BUDGET: crowd=400 live=400 tick_ms=2.462 measured_ms=2.454 (15% of 16.67ms budget)
+FRAME_SPREAD: crowd=400 p50=2.33 p90=3.08 p99=3.90 max=4.34
+FRAME_SPLIT: crowd=400 enemy_ai=0.823 crowd_separation=0.533 grid_rebuild=0.450 hud=0.314 players_chain_camera=0.271 effects=0.033 resonance=0.011 weapons=0.010 spawning=0.007 pickups=0.002
+FRAME_BUDGET: crowd=620 live=620 tick_ms=3.202 measured_ms=3.195 (19% of 16.67ms budget)
+FRAME_SPREAD: crowd=620 p50=3.14 p90=3.51 p99=4.08 max=5.46
+FRAME_SPLIT: crowd=620 enemy_ai=1.121 crowd_separation=0.810 grid_rebuild=0.618 players_chain_camera=0.279 hud=0.272 effects=0.070 resonance=0.010 weapons=0.007 spawning=0.006 pickups=0.002
+FRAME_CENSUS: nodes=2480 canvas_items=2461 visible=141 enemies=620
+FRAME_SCALING: per_enemy_usec 200=7.94 620=5.15 growth=0.65x
+FRAME_BUDGET_PASS: the tick stays linear in the crowd

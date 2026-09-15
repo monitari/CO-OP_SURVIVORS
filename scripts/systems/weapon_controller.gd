@@ -11,6 +11,8 @@ const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
 const LanceStrikeScript := preload("res://scripts/effects/lance_strike.gd")
 const ReturningToyScript := preload("res://scripts/effects/returning_toy.gd")
 const ReactiveLightScript := preload("res://scripts/effects/reactive_light.gd")
+const TickerScript := preload("res://scripts/effects/resonance_ticker.gd")
+const ProjectileRendererScript := preload("res://scripts/effects/projectile_renderer.gd")
 const REACTIVE_LIGHT_CAP := 4
 
 signal cue_requested(cue_id: String)
@@ -32,6 +34,21 @@ var chain_visual_path := PackedVector2Array()
 var flight_field: FlightField
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
+## Every projectile this controller ever made, in creation order — which is also
+## their child order, and so the order they used to draw in. The batch renderer
+## walks this rather than the active list, because the active list is kept
+## compact by swap-removal and its order changes as shots land.
+var all_projectiles: Array[HomingProjectile] = []
+## Draws every friendly shot in two batches instead of several calls each.
+## Static so a comparison can switch every controller back to per-node drawing.
+static var batch_projectiles := true
+var projectile_renderer: Node2D
+
+
+## For comparisons: controllers created after this draw shots per node (false)
+## or in batches (true).
+static func set_batching(enabled: bool) -> void:
+	batch_projectiles = enabled
 var sustained_fields: Dictionary = {}
 # Point lights free themselves after a fraction of a second. Keep weak handles
 # so the cap can sweep an expired entry without ever assigning a freed Object
@@ -89,6 +106,8 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["pull"] = float(state.get("pull", 0.0)) * owner_player.area
 	scaled["cast_range"] = float(state.get("cast_range", 0.0)) * owner_player.area
 	scaled["duration"] = owner_player.duration
+	if state.has("splash"):
+		scaled["splash"] = float(state["splash"]) * owner_player.area
 	var behavior := WeaponTechs.behavior(state)
 	play_cast_cue = _deliver_attack(player_index, weapon_slot, scaled, damage, color, behavior)
 	if bool(behavior.get("echo", false)) and not players[1 - player_index].downed:
@@ -132,7 +151,10 @@ func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
 		return true
 	if weapon_id == "mine" and bool(behavior.get("mine_ring", false)):
 		var ring := scaled.duplicate()
-		ring["count"] = maxi(4, int(scaled["count"]))
+		# Three more than the survivor would plant anyway, so 다중 매설 keeps
+		# growing the ring from the first card instead of doing nothing until
+		# the count caught up with a fixed floor of four.
+		ring["count"] = int(scaled["count"]) + 3
 		_plant_ruin_garden(player_index, ring, damage, color)
 		return true
 	if weapon_id == "gravity":
@@ -150,7 +172,7 @@ func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
 		"skipping_stone": _throw_toy(player_index, scaled, damage, color, TAU / maxf(1.0, float(scaled["count"])))
 		"milk", "cream_tide": _spill_milk(player_index, scaled, damage, color)
 		"homing": play_cast_cue = _fire_homing(player_index, scaled, damage, color)
-		"lightning": play_cast_cue = _fire_lightning(owner_player.global_position, int(scaled["jumps"]), damage, float(scaled["range"]), color) > 0
+		"lightning": play_cast_cue = _strike_lightning(owner_player.global_position, scaled, damage, color)
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
 		"frost": play_cast_cue = _ensure_frost_aura(player_index, weapon_slot, scaled, damage, color)
 		"scythe": _swing_scythe(player_index, scaled, damage, color)
@@ -170,7 +192,39 @@ func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
 		"judgement": _fire_judgement(player_index, scaled, damage, color)
 		"ruin_garden": _plant_ruin_garden(player_index, scaled, damage, color)
 		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
+	var afterimage := float(scaled.get("afterimage", 0.0))
+	if afterimage > 0.0 and weapon_id in ["scythe", "black_moon"]:
+		_queue_afterimage(player_index, scaled, damage * afterimage, color)
 	return play_cast_cue
+
+
+## 과부하: the chain is pinned to one jump, and what it loses in reach it spends
+## on the first body — the bolt bursts where it lands.
+func _strike_lightning(origin: Vector2, state: Dictionary, damage: float, color: Color) -> bool:
+	var first := spatial_grid.nearest(origin, float(state["range"]))
+	if first == null:
+		return false
+	var impact := first.global_position
+	_chain_lightning(origin, first, int(state["jumps"]), damage, color)
+	var splash := float(state.get("splash", 0.0))
+	if splash > 0.0:
+		_damage_area(impact, splash, damage * 0.55)
+		_draw_ring(impact, splash, color.lightened(0.3), 7.0)
+	return true
+
+
+## 월식 잔상: the same sweep again a beat later, at a share of the damage.
+func _queue_afterimage(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
+	var echo := state.duplicate()
+	if String(state["weapon_id"]) == "black_moon":
+		echo["arc"] = TAU
+	var source_player := current_source_player
+	var source_weapon := current_source_weapon
+	var ticker = TickerScript.new()
+	ticker.setup(0.24, 0.24, 1, func(_index: int) -> void:
+		if not players[player_index].downed:
+			_swing_scythe(player_index, echo, damage, color.lightened(0.3), source_player, source_weapon))
+	add_child(ticker)
 
 
 ## 생선 부메랑, and the fused form that throws several at once. `fan` is the
@@ -223,6 +277,11 @@ func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Col
 ## ones, so it fires far later in a run and against far tougher enemies. The
 ## per-effect numbers below were written for the old gate; this scales all of
 ## them at once rather than rewriting twenty-five of them by hand.
+##
+## Every resonance does what its description says. Several used to be one
+## instant hit standing in for something that lasts or aims — a lightning field
+## that "keeps striking" struck once, a guided bombardment was an unguided ring
+## of embers — and are now built from the ticks, seekers and impacts below.
 const ENDGAME_SCALE := 2.2
 
 ## What separates a friendly area ring from an enemy telegraph is how long it
@@ -236,116 +295,421 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 	var resonance_id := String(resonance["id"])
 	current_source_player = -1
 	current_source_weapon = "resonance:" + resonance_id
-	damage_multiplier *= ENDGAME_SCALE
-	var midpoint := (players[0].global_position + players[1].global_position) * 0.5
+	var source := current_source_weapon
+	var m := damage_multiplier * ENDGAME_SCALE
+	var midpoint := _pair_midpoint()
 	_play_resonance_flare(midpoint, resonance)
 	match resonance_id:
 		"guided_thunder":
-			_fire_lightning(midpoint, 8, 38.0 * damage_multiplier, 760.0, Color("fff275"))
+			# Hunts the toughest body in reach and keeps striking it: one great
+			# chain and two follow-ups that re-acquire if the first mark died.
+			_repeat(source, 0.24, 3, func(tick: int) -> void:
+				var centre := _pair_midpoint()
+				var marks := _priority_targets(centre, 760.0, 1)
+				if not marks.is_empty():
+					_chain_lightning(centre, marks[0], 8 if tick == 0 else 3,
+						(38.0 if tick == 0 else 14.0) * m, Color("fff275"), 260.0))
 		"storm_volley":
-			_fire_flame_nova(0, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier, Color("b892ff"))
-			_fire_flame_nova(1, {"count": 10, "speed": 480.0}, 22.0 * damage_multiplier, Color("b892ff"))
-			_fire_lightning(midpoint, 5, 26.0 * damage_multiplier, 620.0, Color("b892ff"))
+			# Both survivors loose a piercing volley and call lightning from where
+			# they stand, so the storm comes from two sides at once.
+			for index in 2:
+				_fire_flame_nova(index, {"count": 10, "speed": 480.0, "tech_pierce": 1, "style": "star"},
+					18.0 * m, Color("b892ff"))
+				_fire_lightning(players[index].global_position, 5, 26.0 * m, 620.0, Color("b892ff"))
 		"arcane_circuit":
-			_damage_along_chain(68.0, 48.0 * damage_multiplier, 1.0)
-			for player in players:
-				player.heal(4.0)
+			# The chain stays live as a circuit: it burns what touches it and feeds
+			# both survivors on every pulse.
+			_repeat(source, 0.4, 6, func(_tick: int) -> void:
+				_damage_along_chain(68.0, 11.0 * m, 1.0)
+				for player in players:
+					player.heal(1.2))
 		"thermal_fracture":
-			_damage_area(midpoint, 300.0, 44.0 * damage_multiplier, 0.38)
-			_draw_ring(midpoint, 300.0, Color("ffb4a2"), 12.0)
+			# Frost first, then heat on the same ground: the blast hits harder on
+			# everything the frost is still holding.
+			_damage_area(midpoint, 300.0, 14.0 * m)
+			_slow_area(midpoint, 300.0, 2.6, 0.3)
+			_draw_ring(midpoint, 300.0, Color("8ecae6"), 10.0)
+			_repeat(source, 0.0, 1, func(_tick: int) -> void:
+				for enemy in _enemies_within(midpoint, 300.0):
+					enemy.take_damage(30.0 * m * (THERMAL_SHOCK if enemy.slow_timer > 0.0 else 1.0),
+						current_source_player, current_source_weapon)
+				_draw_ring(midpoint, 300.0, Color("ffb4a2"), 12.0)
+				_spawn_combat_flare(midpoint, Color("ff8c42"), Color("ffb4a2"), 150.0, 0.3), 0.45)
 		"eclipse_tether":
-			_fire_chain_pulse({"width": 92.0}, 42.0 * damage_multiplier)
-			_swing_scythe(0, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier, Color("ef476f"))
-			_swing_scythe(1, {"range": 280.0, "arc": 2.35}, 46.0 * damage_multiplier, Color("ef476f"))
+			_fire_chain_pulse({"width": 92.0}, 42.0 * m)
+			for index in 2:
+				_swing_scythe(index, {"range": 320.0, "arc": 3.0}, 46.0 * m, Color("ef476f"))
 		"storm_field":
-			_fire_lightning(players[0].global_position, 6, 28.0 * damage_multiplier, 520.0, Color("b892ff"))
-			_fire_lightning(players[1].global_position, 6, 28.0 * damage_multiplier, 520.0, Color("43d9ff"))
+			# A field around each survivor that keeps striking the three nearest
+			# bodies inside it for almost three seconds.
+			var tints := [Color("b892ff"), Color("43d9ff")]
+			for index in 2:
+				_draw_ring(players[index].global_position, STORM_FIELD_RADIUS, tints[index], 6.0)
+			_repeat(source, 0.35, 7, func(tick: int) -> void:
+				for index in 2:
+					var player := players[index]
+					if player.downed:
+						continue
+					for enemy in _nearest_enemies(player.global_position, STORM_FIELD_RADIUS, 3):
+						_draw_lightning(player.global_position, enemy.global_position, tints[index], 3.0)
+						enemy.take_damage(7.0 * m, current_source_player, current_source_weapon)
+					if tick % 4 == 3:
+						_draw_ring(player.global_position, STORM_FIELD_RADIUS, Color(tints[index], 0.6), 5.0))
 		"inferno_crescent":
-			_swing_scythe(0, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier, Color("ff8c42"))
-			_swing_scythe(1, {"range": 270.0, "arc": 2.5}, 48.0 * damage_multiplier, Color("ff8c42"))
+			# The crescents set what they cut alight.
+			var burning: Array[ChaserEnemy] = []
+			for index in 2:
+				var origin := players[index].global_position
+				var heading := _aim_direction(index, 270.0)
+				_swing_scythe(index, {"range": 270.0, "arc": 2.5}, 48.0 * m, Color("ff8c42"))
+				for enemy in _enemies_in_sector(origin, heading, 270.0, 2.5):
+					if enemy not in burning:
+						burning.append(enemy)
+			_burn(source, burning, 6.0 * m, 3, Color("ff8c42"))
 		"astral_covenant":
 			for player in players:
 				player.heal(8.0)
-				_damage_area(player.global_position, 190.0, 32.0 * damage_multiplier)
+				_damage_area(player.global_position, 190.0, 32.0 * m)
 				_draw_ring(player.global_position, 190.0, Color("e4c1f9"), 8.0)
 		"frozen_tether":
-			_damage_along_chain(82.0, 36.0 * damage_multiplier, 0.32)
+			# Everything near the chain is held nearly still and keeps taking the
+			# binding damage while it is.
+			_repeat(source, 0.45, 6, func(tick: int) -> void:
+				_damage_along_chain(82.0, (16.0 if tick == 0 else 6.0) * m, 0.2))
 		"comet_shower":
-			_fire_flame_nova(0, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier, Color("8ecae6"))
-			_fire_flame_nova(1, {"count": 14, "speed": 430.0}, 26.0 * damage_multiplier, Color("8ecae6"))
+			for index in 2:
+				_fire_flame_nova(index, {"count": 14, "speed": 430.0, "tech_pierce": 1, "slow_on_hit": 0.4, "style": "star"},
+					20.0 * m, Color("8ecae6"))
 		"starbound_trajectory":
-			_fire_lightning(players[0].global_position, 6, 30.0 * damage_multiplier, 560.0, Color("43d9ff"))
-			_fire_lightning(players[1].global_position, 6, 30.0 * damage_multiplier, 560.0, Color("43d9ff"))
+			# Guided stars from both survivors; where each one lands, lightning
+			# comes down from above it.
+			for index in 2:
+				var origin := players[index].global_position
+				for target in _nearest_enemies(origin, 700.0, 4):
+					_launch_seeker(origin, target, 16.0 * m, 560.0, Color("43d9ff"), "star",
+						func(at: Vector2) -> void:
+							_in_scope(source, func() -> void:
+								_chain_lightning(at + Vector2(0.0, -150.0), spatial_grid.nearest(at, 160.0), 3,
+									14.0 * m, Color("b892ff"), 220.0)
+								_spawn_combat_flare(at, Color("43d9ff"), Color("fff275"), 60.0, 0.22)))
 		"storm_core":
-			_fire_lightning(midpoint, 10, 34.0 * damage_multiplier, 820.0, Color("b892ff"))
+			# A core between the two survivors that chains out into all four
+			# quarters of the field, four times.
+			_repeat(source, 0.45, 3, func(_tick: int) -> void:
+				var core := _pair_midpoint()
+				_draw_ring(core, 46.0, Color("b892ff"), 8.0)
+				for first in _nearest_per_quadrant(core, 560.0):
+					if first != null:
+						_chain_lightning(core, first, 3, 11.0 * m, Color("b892ff"), 230.0))
 		"inferno_storm":
-			_fire_flame_nova(0, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier, Color("ff8c42"))
-			_fire_flame_nova(1, {"count": 16, "speed": 460.0}, 24.0 * damage_multiplier, Color("ff8c42"))
-			_damage_area(midpoint, 210.0, 34.0 * damage_multiplier)
+			for index in 2:
+				_fire_flame_nova(index, {"count": 16, "speed": 460.0}, 24.0 * m, Color("ff8c42"))
+			_draw_ring(midpoint, 230.0, Color("ff8c42", 0.5), 4.0)
+			_repeat(source, 0.0, 1, func(_tick: int) -> void:
+				var centre := _pair_midpoint()
+				_damage_area(centre, 230.0, 36.0 * m)
+				_draw_ring(centre, 230.0, Color("ffd166"), 12.0)
+				_spawn_combat_flare(centre, Color("ff8c42"), Color("fff275"), 140.0, 0.32), 0.5)
 		"absolute_zero":
-			_damage_area(players[0].global_position, 220.0, 30.0 * damage_multiplier, 0.3)
-			_damage_area(players[1].global_position, 220.0, 30.0 * damage_multiplier, 0.3)
-			_draw_ring(midpoint, 260.0, Color("8ecae6"), 10.0)
+			# Near-total freeze around both survivors, then the frozen shatter.
+			for index in 2:
+				var at := players[index].global_position
+				_damage_area(at, 240.0, 30.0 * m)
+				_slow_area(at, 240.0, 2.8, 0.12)
+				_draw_ring(at, 240.0, Color("8ecae6"), 10.0)
+			_repeat(source, 0.6, 3, func(_tick: int) -> void:
+				for index in 2:
+					for enemy in _enemies_within(players[index].global_position, 240.0):
+						if enemy.slow_timer > 0.0:
+							enemy.take_damage(5.0 * m, current_source_player, current_source_weapon)
+							if is_instance_valid(enemy) and not enemy.dead:
+								enemy.apply_slow(0.7, 0.12), 0.6)
 		"bright_moon_flurry":
-			_swing_scythe(0, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier, Color("ef476f"))
-			_swing_scythe(1, {"range": 260.0, "arc": 2.6}, 44.0 * damage_multiplier, Color("ef476f"))
+			for index in 2:
+				_swing_scythe(index, {"range": 260.0, "arc": 2.6}, 44.0 * m, Color("ef476f"))
+			# The flurry: both blades come back the other way.
+			_repeat(source, 0.0, 1, func(_tick: int) -> void:
+				for index in 2:
+					_swing_scythe(index, {"range": 240.0, "arc": 2.6, "rear": true}, 24.0 * m, Color("ff8fab")), 0.22)
 		"bonded_mantra":
 			for player in players:
-				player.heal(10.0)
-			_damage_along_chain(78.0, 34.0 * damage_multiplier, 1.0)
+				player.heal(16.0)
+			# A wave that runs the chain three times and clears shots off it.
+			_repeat(source, 0.22, 3, func(_tick: int) -> void:
+				_damage_along_chain(78.0, 16.0 * m, 1.0)
+				EnemyProjectile.break_along(enemy_shots, players[0].global_position, players[1].global_position, 78.0))
 		"guided_bombardment":
-			_fire_flame_nova(0, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier, Color("ff8c42"))
-			_fire_flame_nova(1, {"count": 12, "speed": 470.0}, 24.0 * damage_multiplier, Color("ff8c42"))
-			_fire_lightning(midpoint, 4, 22.0 * damage_multiplier, 520.0, Color("fff275"))
+			# Guided embers pick the thickest parts of the crowd and burst there.
+			var targets := _cluster_targets(midpoint, 620.0, BOMBARDMENT_SHELLS)
+			# Every shell flies even when the crowd is thin: a lone boss takes them all.
+			for shell in (BOMBARDMENT_SHELLS if not targets.is_empty() else 0):
+				var origin := players[shell % 2].global_position
+				_launch_seeker(origin, targets[shell % targets.size()], 8.0 * m, 520.0, Color("ff8c42"), "ember",
+					func(at: Vector2) -> void:
+						_in_scope(source, func() -> void:
+							_damage_area(at, 110.0, 16.0 * m)
+							_draw_ring(at, 110.0, Color("ff8c42"), 8.0)
+							_spawn_combat_flare(at, Color("ff8c42"), Color("fff275"), 70.0, 0.24)))
 		"twilight_pursuit":
-			_fire_lightning(players[0].global_position, 5, 26.0 * damage_multiplier, 600.0, Color("43d9ff"))
-			_swing_scythe(1, {"range": 250.0, "arc": 2.2}, 40.0 * damage_multiplier, Color("ef476f"))
+			# The guiding light marks the toughest bodies; a shadow blade follows
+			# it to each mark and cuts where it is weakest.
+			var marks := _priority_targets(midpoint, 650.0, 5)
+			for mark_index in marks.size():
+				var target := marks[mark_index]
+				var caster := players[0] if players[0].global_position.distance_squared_to(target.global_position) \
+					<= players[1].global_position.distance_squared_to(target.global_position) else players[1]
+				_draw_lightning(caster.global_position, target.global_position, Color("43d9ff"), 3.0)
+				_repeat(source, 0.0, 1, func(_tick: int) -> void:
+					if not is_instance_valid(target) or target.dead:
+						return
+					var at := target.global_position
+					target.take_damage(48.0 * m * (VITAL_STRIKE if target.elite or target.boss else 1.0),
+						current_source_player, current_source_weapon)
+					var blade = WeaponFieldScript.new()
+					blade.configure_scythe(at, Vector2.from_angle(randf() * TAU), spatial_grid, 24.0 * m, 130.0, TAU,
+						Color("ef476f"), current_source_player, current_source_weapon)
+					add_child(blade), 0.12 + 0.07 * mark_index)
 		"storm_cut_crescent":
-			_swing_scythe(0, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier, Color("b892ff"))
-			_swing_scythe(1, {"range": 260.0, "arc": 2.3}, 42.0 * damage_multiplier, Color("b892ff"))
-			_fire_lightning(midpoint, 4, 20.0 * damage_multiplier, 480.0, Color("b892ff"))
+			for index in 2:
+				_swing_scythe(index, {"range": 260.0, "arc": 2.3}, 42.0 * m, Color("b892ff"))
+				_fire_lightning(players[index].global_position, 3, 18.0 * m, 300.0, Color("b892ff"))
+				# 감전: what the charged blade passes stutters.
+				_slow_area(players[index].global_position, 260.0, 0.8, 0.45)
 		"sacred_flame_vow":
 			for player in players:
 				player.heal(9.0)
-			_damage_area(midpoint, 240.0, 32.0 * damage_multiplier)
+			_damage_area(midpoint, 240.0, 32.0 * m)
+			EnemyProjectile.break_within(enemy_shots, midpoint, 240.0)
 			_draw_ring(midpoint, 240.0, Color("ff8c42"), 9.0)
+			# The flame stays and keeps purifying the ground around the pair.
+			_repeat(source, 0.5, 3, func(_tick: int) -> void:
+				var centre := _pair_midpoint()
+				_damage_area(centre, 240.0, 5.0 * m)
+				EnemyProjectile.break_within(enemy_shots, centre, 240.0)
+				_draw_ring(centre, 240.0, Color("ffd166", 0.45), 4.0), 0.5)
+		"frost_shade":
+			var cuts: Array = []
+			for index in 2:
+				cuts.append([players[index].global_position, _aim_direction(index, 250.0)])
+				_swing_scythe(index, {"range": 250.0, "arc": 2.4}, 38.0 * m, Color("8ecae6"))
+			_damage_area(midpoint, 200.0, 20.0 * m, 0.35)
+			# What the frozen blades cut stays frozen behind them.
+			_repeat(source, 0.0, 1, func(_tick: int) -> void:
+				for cut: Array in cuts:
+					for enemy in _enemies_in_sector(cut[0], cut[1], 250.0, 2.4):
+						enemy.apply_slow(2.2, 0.3), 0.3)
 		"umbral_communion":
 			for index in 2:
-				_swing_scythe(index, {"range": 300.0, "arc": TAU}, 52.0 * damage_multiplier, Color("c77dff"))
+				_swing_scythe(index, {"range": 300.0, "arc": TAU}, 52.0 * m, Color("c77dff"))
 				players[index].heal(12.0)
-			_damage_along_chain(88.0, 40.0 * damage_multiplier, 1.0)
+			_damage_along_chain(88.0, 40.0 * m, 1.0)
 		"arcing_tempest":
-			# Six lances from the midpoint, so there is no safe bearing at all.
+			# Six lances from the midpoint, so there is no safe bearing at all. The
+			# fan turns with run time so two casts never leave the same gaps.
+			var phase := elapsed * 0.9
 			for step in 6:
-				var heading := Vector2.from_angle(TAU * float(step) / 6.0)
-				_lance_from(midpoint, heading, 620.0, 40.0, 46.0 * damage_multiplier, Color("caffbf"))
+				var heading := Vector2.from_angle(phase + TAU * float(step) / 6.0)
+				_lance_from(midpoint, heading, 620.0, 40.0, 46.0 * m, Color("caffbf"))
 		"warding_garden":
 			for index in 2:
 				var centre := players[index].global_position
 				for step in 5:
 					var mine := MineScript.new() as ProximityMine
-					mine.configure(38.0 *  damage_multiplier, 110.0, Color("bdb2ff"), -1, current_source_weapon)
+					mine.configure(38.0 * m, 110.0, Color("bdb2ff"), -1, current_source_weapon)
 					mine.spatial_grid = spatial_grid
 					mine.detonated.connect(_on_mine_detonated)
 					mine.global_position = centre + Vector2.from_angle(TAU * float(step) / 5.0) * 120.0
 					add_child(mine)
-				_damage_area(centre, 230.0, 26.0 * damage_multiplier, 0.2)
+				_damage_area(centre, 230.0, 26.0 * m, 0.2)
 			_draw_ring(midpoint, 300.0, Color("bdb2ff"), 8.0)
 		"singularity":
-			for enemy in spatial_grid.query_radius(midpoint, 420.0):
-				var offset := midpoint - enemy.global_position
-				if offset.length() > 420.0 + enemy.radius:
-					continue
-				if not enemy.boss:
-					enemy.position += offset.normalized() * minf(320.0, offset.length())
-				enemy.take_damage(30.0 * damage_multiplier, current_source_player, current_source_weapon)
-			_damage_area(midpoint, 190.0, 58.0 * damage_multiplier)
+			# Pulls everything in over half a second, crushes it, and then the
+			# centre goes out.
+			var well = WeaponFieldScript.new()
+			well.configure_gravity(midpoint, spatial_grid, 30.0 * m, 420.0, 320.0, Color("ff7bd5"),
+				func() -> void:
+					_in_scope(source, func() -> void:
+						_damage_area(midpoint, 190.0, 58.0 * m)
+						_draw_ring(midpoint, 190.0, Color("ff7bd5"), 12.0)
+						_spawn_combat_flare(midpoint, Color("ff7bd5"), Color.WHITE, 160.0, 0.34)),
+				-1, source)
+			add_child(well)
 			_draw_ring(midpoint, 420.0, Color("ff7bd5"), 4.0)
-			_draw_ring(midpoint, 190.0, Color("ff7bd5"), 12.0)
-		"frost_shade":
-			_swing_scythe(0, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
-			_swing_scythe(1, {"range": 250.0, "arc": 2.4}, 38.0 * damage_multiplier, Color("8ecae6"))
-			_damage_area(midpoint, 200.0, 20.0 * damage_multiplier, 0.35)
+
+
+## Damage bonus 열충격 붕괴 deals to bodies the frost is still holding.
+const THERMAL_SHOCK := 1.6
+## Damage bonus 황혼 추적 deals to elites and bosses.
+const VITAL_STRIKE := 1.6
+const STORM_FIELD_RADIUS := 230.0
+const BOMBARDMENT_SHELLS := 4
+
+
+func _pair_midpoint() -> Vector2:
+	return (players[0].global_position + players[1].global_position) * 0.5
+
+
+## Runs `body` with this resonance as the damage source, then puts back whatever
+## the controller was attributing before. Ticks and impacts land on later frames,
+## after other weapons have cast and moved the attribution on.
+func _in_scope(source: String, body: Callable) -> void:
+	var previous_player := current_source_player
+	var previous_weapon := current_source_weapon
+	current_source_player = -1
+	current_source_weapon = source
+	body.call()
+	current_source_player = previous_player
+	current_source_weapon = previous_weapon
+
+
+## `body(tick)` for `ticks` ticks, `interval` apart. With no delay the first tick
+## lands on this frame; the rest run on a resonance ticker so they pause with the
+## run and are swept by clear_transients.
+func _repeat(source: String, interval: float, ticks: int, body: Callable, first_delay := 0.0) -> void:
+	var first_index := 0
+	var delay := first_delay
+	if first_delay <= 0.0:
+		body.call(0)
+		first_index = 1
+		delay = interval
+	if ticks - first_index <= 0:
+		return
+	var ticker = TickerScript.new()
+	ticker.setup(delay, interval, ticks - first_index, func(tick: int) -> void:
+		_in_scope(source, func() -> void: body.call(tick)), first_index)
+	add_child(ticker)
+
+
+## A burn on these bodies: `ticks` hits of `damage`, half a second apart.
+func _burn(source: String, bodies: Array[ChaserEnemy], damage: float, ticks: int, color: Color) -> void:
+	if bodies.is_empty():
+		return
+	_repeat(source, 0.5, ticks, func(_tick: int) -> void:
+		var drawn := 0
+		for enemy in bodies:
+			if not is_instance_valid(enemy) or enemy.dead:
+				continue
+			var at := enemy.global_position
+			enemy.take_damage(damage, current_source_player, current_source_weapon)
+			if drawn < 8:
+				_draw_ring(at, 24.0, Color(color, 0.7), 4.0)
+				drawn += 1, 0.5)
+
+
+func _enemies_within(centre: Vector2, radius: float) -> Array[ChaserEnemy]:
+	var found: Array[ChaserEnemy] = []
+	for enemy in spatial_grid.query_radius(centre, radius + 45.0):
+		if is_instance_valid(enemy) and not enemy.dead and centre.distance_to(enemy.global_position) <= radius + enemy.radius:
+			found.append(enemy)
+	return found
+
+
+func _enemies_in_sector(origin: Vector2, heading: Vector2, reach: float, sweep: float) -> Array[ChaserEnemy]:
+	var found: Array[ChaserEnemy] = []
+	for enemy in _enemies_within(origin, reach):
+		var offset := enemy.global_position - origin
+		if sweep >= TAU - 0.01 or offset.length() <= enemy.radius \
+				or absf(heading.angle_to(offset)) <= sweep * 0.5 + enemy.radius / maxf(1.0, offset.length()):
+			found.append(enemy)
+	return found
+
+
+## Up to `count` living bodies, nearest first.
+func _nearest_enemies(origin: Vector2, radius: float, count: int) -> Array[ChaserEnemy]:
+	var found: Array[ChaserEnemy] = []
+	for index in count:
+		var enemy := spatial_grid.nearest(origin, radius, found)
+		if enemy == null:
+			break
+		found.append(enemy)
+	return found
+
+
+## The bodies worth a guided strike: bosses, then elites, then whatever has the
+## most health left. Planters are scenery and never chosen.
+func _priority_targets(origin: Vector2, radius: float, count: int) -> Array[ChaserEnemy]:
+	var pool: Array[ChaserEnemy] = []
+	for enemy in _enemies_within(origin, radius):
+		if not enemy.scenery:
+			pool.append(enemy)
+	pool.sort_custom(func(first: ChaserEnemy, second: ChaserEnemy) -> bool:
+		return _threat(first) > _threat(second))
+	return pool.slice(0, count)
+
+
+func _threat(enemy: ChaserEnemy) -> float:
+	return enemy.health + (1000000.0 if enemy.boss else 0.0) + (10000.0 if enemy.elite else 0.0)
+
+
+## The nearest body in each quarter of the field around `centre` (entries may be
+## null), so a core can chain out in four directions instead of four times at
+## the same crowd.
+func _nearest_per_quadrant(centre: Vector2, radius: float) -> Array:
+	var best: Array = [null, null, null, null]
+	var best_distance: Array[float] = [INF, INF, INF, INF]
+	for enemy in _enemies_within(centre, radius):
+		var offset := enemy.global_position - centre
+		var quadrant := clampi(int(fposmod(offset.angle(), TAU) / (PI * 0.5)), 0, 3)
+		var distance := offset.length_squared()
+		if distance < best_distance[quadrant]:
+			best_distance[quadrant] = distance
+			best[quadrant] = enemy
+	return best
+
+
+## Where a bombardment should land: the bodies with the most company, kept apart
+## from each other so six shells do not fall on one mouse. Samples a stride of
+## the crowd for the same reason the gravity well does.
+func _cluster_targets(centre: Vector2, radius: float, count: int) -> Array[ChaserEnemy]:
+	var candidates := _enemies_within(centre, radius)
+	var stride := maxi(1, ceili(float(candidates.size()) / 24.0))
+	var scored: Array = []
+	for index in range(0, candidates.size(), stride):
+		var enemy := candidates[index]
+		if enemy.scenery:
+			continue
+		var company := 0
+		for other in candidates:
+			if enemy.global_position.distance_squared_to(other.global_position) <= 110.0 * 110.0:
+				company += 1
+		scored.append([company, enemy])
+	scored.sort_custom(func(first: Array, second: Array) -> bool: return int(first[0]) > int(second[0]))
+	var chosen: Array[ChaserEnemy] = []
+	for entry: Array in scored:
+		var enemy: ChaserEnemy = entry[1]
+		var crowded := false
+		for picked in chosen:
+			if picked.global_position.distance_squared_to(enemy.global_position) < 90.0 * 90.0:
+				crowded = true
+				break
+		if not crowded:
+			chosen.append(enemy)
+		if chosen.size() >= count:
+			break
+	return chosen
+
+
+func _slow_area(centre: Vector2, radius: float, duration: float, multiplier: float) -> void:
+	for enemy in _enemies_within(centre, radius):
+		enemy.apply_slow(duration, multiplier)
+
+
+## One guided shot from anywhere, at a chosen body, that calls `impact` where it
+## finally lands.
+func _launch_seeker(origin: Vector2, target: ChaserEnemy, damage: float, speed: float, color: Color, style: String, impact: Callable) -> void:
+	var projectile := _acquire_projectile()
+	projectile.global_position = origin
+	projectile.setup(origin.direction_to(target.global_position), target)
+	projectile.source_player = current_source_player
+	projectile.source_weapon = current_source_weapon
+	projectile.style = style
+	projectile.spatial_grid = spatial_grid
+	projectile.damage = damage
+	projectile.speed = speed
+	projectile.turn_speed = 12.0
+	projectile.projectile_color = color
+	projectile.on_impact = impact
+	_give_projectile_height(projectile, "homing")
 
 
 func _play_resonance_flare(center: Vector2, resonance: Dictionary) -> void:
@@ -434,6 +798,8 @@ func clear_transients() -> void:
 		var field = child if child.get_script() == WeaponFieldScript else null
 		if field != null:
 			field.queue_free()
+		if child.get_script() == TickerScript:
+			child.queue_free()
 	sustained_fields.clear()
 
 
@@ -465,25 +831,55 @@ func clear_sustained_for_player(player_index: int) -> void:
 		sustained_fields.erase(key)
 
 
+func _ready() -> void:
+	if batch_projectiles and projectile_renderer == null:
+		projectile_renderer = ProjectileRendererScript.new()
+		projectile_renderer.name = "ProjectileBatch"
+		projectile_renderer.controller = self
+		add_child(projectile_renderer)
+		# First child: pooled shots are created early and keep their slots, so
+		# every transient effect appended later already drew over them.
+		move_child(projectile_renderer, 0)
+
+
 func _acquire_projectile() -> HomingProjectile:
 	var projectile: HomingProjectile
 	if projectile_pool.is_empty():
 		projectile = ProjectileScript.new() as HomingProjectile
 		projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
 		projectile.released.connect(_on_projectile_released)
+		all_projectiles.append(projectile)
 		add_child(projectile)
 	else:
 		projectile = projectile_pool.pop_back()
+		projectile.in_pool = false
+	projectile.batched = projectile_renderer != null
+	projectile.active_index = active_projectiles.size()
 	active_projectiles.append(projectile)
 	return projectile
 
 
+## O(1): the last active shot takes the released one's place. Releasing a
+## thousand shots used to erase each from the middle of the list and search the
+## whole pool to avoid a duplicate, which grew with the square of the count.
 func _on_projectile_released(projectile: HomingProjectile) -> void:
 	if is_instance_valid(flight_field) and projectile.flight_height > 0.0:
 		flight_field.flash(projectile.ground_position, projectile.projectile_color,
 			maxf(18.0, projectile.radius * 2.6))
-	active_projectiles.erase(projectile)
-	if projectile not in projectile_pool:
+	var index := projectile.active_index
+	if index >= 0 and index < active_projectiles.size() and active_projectiles[index] == projectile:
+		var last: HomingProjectile = active_projectiles.pop_back()
+		if last != projectile:
+			active_projectiles[index] = last
+			last.active_index = index
+	elif projectile in active_projectiles:
+		# Someone edited the list by hand; fall back rather than corrupt it.
+		active_projectiles.erase(projectile)
+		for position_index in active_projectiles.size():
+			active_projectiles[position_index].active_index = position_index
+	projectile.active_index = -1
+	if not projectile.in_pool:
+		projectile.in_pool = true
 		projectile_pool.append(projectile)
 
 
@@ -527,25 +923,38 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.lifetime *= float(state.get("duration", 1.0))
 		projectile.spawn_lifetime = projectile.lifetime
 		projectile.projectile_color = color
-		projectile.remaining_hits = 1 + players[current_source_player].pierce + int(state.get("tech_pierce", 0))
+		projectile.remaining_hits = 1 + _caster_pierce() + int(state.get("tech_pierce", 0))
 		_give_projectile_height(projectile, "homing")
 	return true
 
 
 func _fire_lightning(origin: Vector2, jumps: int, damage: float, first_range: float, color: Color) -> int:
+	return _chain_lightning(origin, spatial_grid.nearest(origin, first_range), jumps, damage, color).size()
+
+
+## A chain that starts on a chosen body rather than on whatever is nearest, so a
+## resonance can aim its first bolt at the thing worth hitting. Each jump loses
+## 18% and looks for the next body within `jump_range` of the last one.
+func _chain_lightning(origin: Vector2, first: ChaserEnemy, jumps: int, damage: float, color: Color, jump_range := 210.0) -> Array[ChaserEnemy]:
 	var hit: Array[ChaserEnemy] = []
+	var target := first
 	var current_position := origin
-	var search_range := first_range
 	for jump in jumps:
-		var target := spatial_grid.nearest(current_position, search_range, hit)
-		if target == null:
+		if target == null or not is_instance_valid(target) or target.dead:
 			break
-		_draw_lightning(current_position, target.global_position, color, 4.0)
+		var at := target.global_position
+		_draw_lightning(current_position, at, color, 4.0)
 		target.take_damage(damage * pow(0.82, jump), current_source_player, current_source_weapon)
 		hit.append(target)
-		current_position = target.global_position
-		search_range = 210.0
-	return hit.size()
+		current_position = at
+		target = spatial_grid.nearest(current_position, jump_range, hit)
+	return hit
+
+
+## Resonances cast with no owner (-1). Indexing the survivors with that reads the
+## last one, which quietly handed P2's 관통 to every resonance volley.
+func _caster_pierce() -> int:
+	return players[current_source_player].pierce if current_source_player >= 0 and current_source_player < players.size() else 0
 
 
 func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
@@ -560,7 +969,8 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		projectile.source_weapon = current_source_weapon
 		projectile.spatial_grid = spatial_grid
 		projectile.homing_enabled = bool(state.get("tech_homing", false))
-		projectile.remaining_hits = 1 + players[current_source_player].pierce + int(state.get("tech_pierce", 0))
+		projectile.remaining_hits = 1 + _caster_pierce() + int(state.get("tech_pierce", 0))
+		projectile.slow_on_hit = float(state.get("slow_on_hit", 1.0))
 		projectile.damage = damage
 		projectile.speed = float(state["speed"])
 		projectile.lifetime *= float(state.get("duration", 1.0))
@@ -570,7 +980,7 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		# The modestly wider hit disc preserves the radial gaps but makes close
 		# interceptions reliable.
 		projectile.radius = 9.0
-		projectile.style = "ember"
+		projectile.style = String(state.get("style", "ember"))
 		projectile.projectile_color = color
 		_give_projectile_height(projectile, "flame")
 	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)

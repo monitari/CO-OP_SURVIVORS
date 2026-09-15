@@ -182,9 +182,11 @@ func _test_enemy_pool_and_archetypes(main: Node) -> void:
 	_check(reused.shooter_windup > 0.0, "shooter telegraphs before firing")
 	reused.step(main.players, 0.25)
 	reused.step(main.players, 0.25)
+	# Shots live under the rooftop world, not under main; enemy_shots is the list
+	# the crowd renderer draws from and the knock-down weapons read.
 	var ranged_projectiles := 0
-	for child in main.get_children():
-		if child.get_script() == EnemyProjectileScript:
+	for shot in main.enemy_shots:
+		if is_instance_valid(shot) and shot.get_script() == EnemyProjectileScript:
 			ranged_projectiles += 1
 	_check(ranged_projectiles > 0, "shooter emits a hostile projectile")
 	main.spatial_grid.rebuild(main.enemies)

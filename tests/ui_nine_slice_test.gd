@@ -24,8 +24,8 @@ func _run() -> void:
 		"title screen gives the primary play action its own hero slot")
 	_check(main.title_overlay.get_node("TitleAmbience/TitleLogo").texture.resource_path.ends_with(
 		"moonroof_title_v3.png"), "title screen uses the matching v3 logo")
-	_check(CatPanel.BACKDROP_ART.resource_path.ends_with("moonroof_backdrop_v4.png"),
-		"menu screens use the simplified v4 rooftop")
+	_check(CatPanel.BACKDROP_ART.resource_path.ends_with("moonroof_backdrop_v3.png"),
+		"menu screens use the v3 rooftop")
 	_check(main.title_overlay.get_node("TitleAmbience").motion_enabled == false,
 		"title logo and full-body cats stay still")
 	_check(main.title_overlay.get_node("TitleAmbience/LeftCat").texture.resource_path.ends_with(
@@ -66,8 +66,8 @@ func _run() -> void:
 	main._finish_lobby()
 	await process_frame
 	var screen: Control = main.character_overlay
-	_check(CatTheme.PANEL_ART.resource_path.ends_with("character_panel_v3.png"),
-		"generated v3 panel is the shared nine-slice source")
+	_check(CatTheme.image_surface() is StyleBoxFlat and CatTheme.image_surface().bg_color.a < 1.0,
+		"the shared panel surface is a see-through overlay rather than the v3 art")
 	for index in main.character_catalog.size():
 		var tile: Control = screen.get_node("Roster%d" % index)
 		_check(tile.size == Vector2(80, 104), "roster tile %d keeps the shared template" % index)
@@ -81,8 +81,9 @@ func _run() -> void:
 		var next: Control = screen.get_node("CharacterNext%d" % slot)
 		var confirm: Control = screen.get_node("CharacterConfirm%d" % slot)
 		_check(panel.size == Vector2(560, 376), "player %d uses a 560x376 dossier" % slot)
-		_check(panel.get_theme_stylebox("panel") is StyleBoxTexture,
-			"player %d dossier uses nine-slice art" % slot)
+		_check(panel.get_theme_stylebox("panel") is StyleBoxFlat
+			and (panel.get_theme_stylebox("panel") as StyleBoxFlat).bg_color.a < 1.0,
+			"player %d dossier is drawn as an overlay" % slot)
 		_check(previous.size == Vector2(260, 40) and next.size == Vector2(260, 40),
 			"player %d secondary buttons share one template" % slot)
 		_check(confirm.size == Vector2(528, 40),

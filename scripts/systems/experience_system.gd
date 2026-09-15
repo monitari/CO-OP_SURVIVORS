@@ -111,13 +111,6 @@ func magnetize_all() -> int:
 	return pulled
 
 
-func _collect(gem: ExperienceGem) -> void:
-	var index := active_gems.find(gem)
-	if index < 0:
-		return
-	_collect_at(index, gem, -1)
-
-
 func _collect_at(index: int, gem: ExperienceGem, collector_index := -1) -> void:
 	active_gems.remove_at(index)
 	experience_collected.emit(gem.value, collector_index)

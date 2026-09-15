@@ -94,22 +94,20 @@ func _run() -> void:
 	main.level_up_input_delay = 0
 	main._refresh_level_up_ui()
 	await process_frame
-	for cards in main.level_card_labels:
-		for index in cards.size():
-			var card: Label = cards[index]
-			if card.visible:
-				# The hand is a fan, so a card may be tilted — but never scaled:
-				# a card that grows under the cursor shoves its neighbours and
-				# the whole row starts moving as the cursor walks it.
-				_check(card.scale.is_equal_approx(Vector2.ONE),
-					"growth cards keep their size while focus is shown by the border and the tilt")
+	# The deciding player's hand; the partner's is deliberately dealt small.
+	var cards: Array = main.level_card_labels[main.focused_growth_slot()]
+	for index in cards.size():
+		var card: Label = cards[index]
+		if card.visible:
+			# The hand is a fan, so a card may be tilted — but never scaled:
+			# a card that grows under the cursor shoves its neighbours and
+			# the whole row starts moving as the cursor walks it.
+			_check(card.scale.is_equal_approx(Vector2.ONE),
+				"growth cards keep their size while focus is shown by the border and the tilt")
 			_fit(card, "growth card")
 			_fit(card.get_node("CardTitle"), "growth title")
 	_check_icon_bounds(main.level_overlay)
 	main.fusion_discovered = true
-	main._refresh_team_stats_ui()
-	await process_frame
-	_fit(main.team_stats_label, "late-game fusion readout")
 	# Every treasure description, not merely three randomly drawn short ones.
 	for treasure in main.Treasures.all_treasures():
 		main.p1_choices.clear()
@@ -118,7 +116,7 @@ func _run() -> void:
 			"recommendation_reason": "공명 해금   긴 이름의 공명 후보"}
 		option["description"] = main._upgrade_preview(0, option)
 		main.p1_choices.append(option)
-		main._refresh_player_cards(1)
+		main._refresh_level_up_ui()
 		await process_frame
 		_fit(main.level_card_labels[0][0], "treasure " + String(treasure["id"]))
 		_fit(main.level_card_labels[0][0].get_node("CardTitle"), "treasure title")

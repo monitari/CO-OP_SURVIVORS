@@ -122,12 +122,9 @@ func _resize() -> void:
 func _process(_delta: float) -> void:
 	# Freeze the rendered battlefield too, including shader TIME animations.
 	surface.render_target_update_mode = SubViewport.UPDATE_DISABLED if get_tree().paused else SubViewport.UPDATE_ALWAYS
-	if get_tree().paused:
-		return
-	# Static planters need the same camera-relative correction as moving bodies.
-	for enemy in get_tree().get_nodes_in_group("enemies"):
-		if enemy.visible and enemy.scenery:
-			enemy._update_body_facing()
+	# Planters used to be re-faced here by walking every node in the "enemies"
+	# group each frame. CrowdRenderer computes every body's upright correction
+	# as it batches the crowd, so there is nothing left to do per body here.
 
 
 ## The window's real pixels behind one screen's worth of authored units. One to

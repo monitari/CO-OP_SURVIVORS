@@ -89,22 +89,6 @@ func _draw() -> void:
 		draw_colored_polygon(points, Color("ffd166", alpha))
 
 
-## A crescent cut out of a disc, drawn as one polygon ring so nothing has to be
-## painted over the panel behind it.
-func _draw_moon(centre: Vector2, radius: float) -> void:
-	var points := PackedVector2Array()
-	for index in 40:
-		points.append(centre + Vector2.from_angle(TAU * float(index) / 40.0) * radius)
-	var bite := centre + Vector2(radius * 0.42, -radius * 0.3)
-	var inner := PackedVector2Array()
-	for index in 40:
-		inner.append(bite + Vector2.from_angle(-TAU * float(index) / 40.0) * radius * 0.86)
-	draw_colored_polygon(points, Color("f2dcae"))
-	draw_colored_polygon(inner, Color("f4efe2"))
-	draw_circle(centre + Vector2(-radius * 0.34, radius * 0.12), radius * 0.15, Color("e2c894"))
-	draw_circle(centre + Vector2(-radius * 0.06, radius * 0.46), radius * 0.10, Color("e2c894"))
-
-
 func _draw_ellipse(center: Vector2, radius: Vector2, color: Color) -> void:
 	var points := PackedVector2Array()
 	for index in 32:

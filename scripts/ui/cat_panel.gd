@@ -1,6 +1,6 @@
 extends ColorRect
 ## Generated illustration and nine-slice chrome; labels stay live controls.
-const BACKDROP_ART := preload("res://assets/ui/moonroof_backdrop_v4.png")
+const BACKDROP_ART := preload("res://assets/ui/moonroof_backdrop_v3.png")
 const CatStyle := preload("res://scripts/ui/cat_theme.gd")
 var backdrop := false
 ## A backdrop can either replace what is behind it (lobby, character select,
@@ -36,7 +36,7 @@ func _draw() -> void:
 		return
 	var style := CatStyle.image_surface()
 	if translucent:
-		style.modulate_color.a = 0.88
+		style.bg_color.a *= 0.88
 	draw_style_box(style, Rect2(Vector2.ZERO, size))
 
 

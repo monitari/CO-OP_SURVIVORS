@@ -19,6 +19,7 @@ const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
 const ChainArcScript := preload("res://scripts/effects/chain_arc.gd")
 const ChainFlowScript := preload("res://scripts/effects/chain_flow.gd")
+const CrowdRendererScript := preload("res://scripts/effects/crowd_renderer.gd")
 const FlightFieldScript := preload("res://scripts/effects/flight_field.gd")
 const RooftopOcclusionScript := preload("res://scripts/effects/rooftop_occlusion.gd")
 const ShowcaseScript := preload("res://scripts/effects/showcase.gd")
@@ -36,12 +37,20 @@ const CatPanel := preload("res://scripts/ui/cat_panel.gd")
 const ItemStateVeilScript := preload("res://scripts/ui/item_state_veil.gd")
 const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
 const NeonGrowthUI := preload("res://scripts/ui/neon_growth_ui.gd")
+const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
 const DebugInspectorScript := preload("res://scripts/ui/debug_inspector.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
 const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
+const WeaponGrowthScript := preload("res://scripts/systems/weapon_growth.gd")
+const RunStatsTemplate := preload("res://scripts/templates/run_stats_template.gd")
+const InputBindings := preload("res://scripts/templates/input_bindings.gd")
 
 const CHAIN_WARNING_RATIO := 0.82
+## Draw layer of the actors. Friendly attack effects stay at or below
+## FRIENDLY_EFFECT_Z_MAX so enemies and their shots always read over them.
+const WORLD_STAGE_Z := 5
+const FRIENDLY_EFFECT_Z_MAX := 4
 const CHAIN_RESIST_RATIO := 0.70
 ## The run is five boss fights, not one. WaveDirector owns the schedule; this
 ## is the total length so the UI can say how far along a run is without
@@ -57,29 +66,11 @@ const WEAPON_LOADOUT_CAP := 6
 ## Treasures are the other half of a build. Attributes used to be unlimited
 ## free-floating cards; a survivor now commits to six and deepens those.
 const TREASURE_LOADOUT_CAP := 6
-## What a weapon is worth before anyone has spent anything on it, and what one
-## card is worth once they start. These two numbers are the shape of a run: the
-## first decides how strong the thing you are handed is, the second decides how
-## much of your build is the thing you chose to grow.
-##
-## They were 0.90 and 1.20, which made a starting weapon most of a finished one —
-## eight cards took it to four and a third times its opening damage, and against
-## the enemy curve that meant the opening was the strong part and upgrades were a
-## formality. A weapon now opens at roughly three quarters of what it used to and
-## each card is worth half again as much as it was, so a maxed one lands higher
-## than before while the route there is the interesting part.
-const BASE_WEAPON_DAMAGE_SCALE := 0.68
-const WEAPON_POWER_STEP := 1.28
-## Multiplier one 속도 card applies to a weapon's cooldown, floored at 0.32s.
-const WEAPON_RATE_STEP := 0.90
-## The ladder runs five rungs further than it used to (see
-## EvolutionCatalog.WEAPON_MAX_TIER). Continuing a geometric 1.28 through all of
-## them would have multiplied a finished weapon by fifteen rather than by four,
-## which is a different game rather than a longer one — so every rung from here
-## up is worth this share of a normal one. The climb keeps going; it stops being
-## the only thing that decides a fight.
-const WEAPON_LATE_TIER := 6
-const WEAPON_LATE_STEP_SHARE := 0.45
+## What a weapon is worth before anyone has spent anything on it. What each card
+## is worth after that depends on where the weapon is in its life and which tech
+## it took — both live in WeaponGrowth, so the card pool, the preview, the chest
+## and the recommendation scorer all read one ladder.
+const BASE_WEAPON_DAMAGE_SCALE := WeaponGrowthScript.OPENING_DAMAGE_SCALE
 
 ## Enemies spawn 610-760px out and never stopped chasing, so anything that
 ## drifted off — a shooter backing away, a charger that overshot — stayed
@@ -100,6 +91,11 @@ const ENEMY_CULL_RADIUS := 1500.0
 ## exemption took the tick from 11.7ms to 11.7ms. What is safe to stagger is
 ## decided by what the step does, not by where the body is.
 const AI_BATCHES := 2
+## The one distance tier that does pay: bodies outside the view. The stutter
+## that rules out three batches on screen cannot be seen off it, and a large
+## crowd keeps a real share of itself out there — spawning in, or left behind
+## as the pair kites. The frame they walk into view they drop back to AI_BATCHES.
+const OFFSCREEN_AI_BATCHES := 6
 ## The stagger rests on a compensated delta standing in for the ticks a body
 ## missed, and that substitution is only honest while the doubled step stays
 ## small next to the bodies and the distances involved. At the project's 60Hz it
@@ -115,11 +111,6 @@ const AI_BATCHES := 2
 ## Just above one tick at 60Hz, so a modestly scaled clock still staggers and an
 ## accelerated one does not.
 const MAX_STAGGER_DELTA := 0.02
-## Separation resolves each body every this many ticks. It is spread by batch
-## rather than by tick: running the whole pass on alternate frames costs the same
-## on average and twice as much on the frames it runs, and it was that peak — not
-## the average — that missed the deadline. Same work, laid flat.
-const CROWD_UPDATE_DIVISOR := 2
 
 ## P1 confirms with W and P2 with the up arrow — the same keys they move
 ## with. Without a beat of dead time the screen appearing mid-stride reads
@@ -159,10 +150,11 @@ var ai_character_preference := randi()
 var online: OnlineCoop
 var players: Array[ChainPlayer] = []
 var enemies: Array[ChaserEnemy] = []
+## The elites and bosses among `enemies`, for the off-screen threat pointer.
+var heavy_enemies: Array[ChaserEnemy] = []
 var world_stage: Node2D
+var crowd_renderer: CrowdRendererScript
 var rooftop_view: EndlessRooftopView
-var chain_line: Line2D
-var chain_glow: Line2D
 var chain_arc: ChainArc
 var chain_flow: ChainFlow
 var bursts: BurstField
@@ -222,13 +214,7 @@ var help_label: Label
 var message_label: Label
 var notice_stack: Array[Label] = []
 var level_overlay: ColorRect
-var level_title: Label
 var level_card_labels: Array = [[], []] ## level_card_labels[slot] = Array[Label], one per offered choice (up to 4)
-var p1_level_footer: Label
-var p2_level_footer: Label
-var level_portrait_icons: Array[TextureRect] = []
-var level_weapon_icons: Array = [[], []]
-var level_treasure_icons: Array = [[], []]
 var character_overlay: ColorRect
 var character_title: Label
 var character_p1_label: Label
@@ -261,7 +247,6 @@ var lobby_overlay: ColorRect
 var lobby_title: Label
 var lobby_p1_label: Label
 var lobby_p2_label: Label
-var team_stats_label: Label
 var threat_edge_indicator: Label
 
 var elapsed := 0.0
@@ -328,28 +313,11 @@ var resonance_cursors: Array[int] = [0, 0]
 ## named features that were never built; these six are events the game
 ## actually raises, and each is counted at the one place it happens so the
 ## screen cannot drift from play.
-var run_stats := {
-	"bosses": 0,
-	"revives": 0,
-	"dashes": 0,
-	"overcharge_time": 0.0,
-	"overloads": 0,
-	"resonance_casts": 0,
-	"items": 0,
-	"reflected": 0.0,
-	"planters": 0,
-	"xp_by_player": [0, 0],
-	"personal_levels": [1, 1],
-	"items_by_player": [0, 0],
-	"items_by_type": {},
-	"weapon_damage": [{}, {}],
-	"resonance_damage": 0.0,
-}
+var run_stats := RunStatsTemplate.create()
 
 var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
-var crowd_phase := 0
 var simulation_phase := 0
 ## Opt-in frame breakdown, off during play. Timing an algorithm on its own says
 ## how fast that algorithm is, not where a frame actually goes; the performance
@@ -533,7 +501,7 @@ func _ready() -> void:
 	add_child(rooftop_view)
 	for world_node in [arena_floor, world_stage, wave_director, experience_system,
 		field_items, item_aura, bursts, particles, flight_field, rooftop_occlusion,
-		chain_glow, chain_line, world_camera, weapon_controller, feedback]:
+		world_camera, weapon_controller, feedback]:
 		rooftop_view.adopt(world_node)
 	_begin_title()
 	queue_redraw()
@@ -625,9 +593,9 @@ func _physics_process(delta: float) -> void:
 	var modal := (title_active or lobby_active or character_select_active or level_up_active
 		or resonance_vote_active or pause_active or game_over or cinematic_active)
 	modal_dim.visible = modal
-	# Only the growth screen shows the run through; every other overlay replaces
-	# a screen there is nothing behind.
-	var veil := (level_up_active or pause_active) and not (lobby_active or character_select_active or game_over)
+	# The growth screen, the pause menu and a showcase (a chest opening) show the
+	# run through; every other overlay replaces a screen there is nothing behind.
+	var veil := (level_up_active or pause_active or cinematic_active) and not (title_active or lobby_active or character_select_active or game_over)
 	if modal_dim.veil_only != veil:
 		modal_dim.veil_only = veil
 		modal_dim.queue_redraw()
@@ -635,14 +603,23 @@ func _physics_process(delta: float) -> void:
 		if is_instance_valid(notice): notice.visible = not modal
 	if online.is_client():
 		online.client_tick(delta)
+		# The client's crowd arrives in snapshots rather than from a local tick,
+		# but it is drawn by the same batch renderer, which only rebuilds when it
+		# is told the crowd moved. Returning before this left a client's enemies
+		# frozen where the renderer first saw them.
+		crowd_renderer.view_rect = _visible_world_rect()
+		crowd_renderer.dirty = true
 		return
 	# The run is over on the result screen, so its bars are stale information
 	# drawn on top of the panel that replaced them — and the P2 panel reaches
 	# far enough right to clip the overlay's own corner.
 	combat_hud.visible = not title_active and not lobby_active and not character_select_active and not game_over and not pause_active and not resonance_vote_active
 	if modal:
-		for slot in 2:
-			combat_hud.get_node("Carried%d" % slot).visible = false
+		# The loadout under each health bar stays up through growth and a chest:
+		# those are exactly the moments it is changing.
+		if not (level_up_active or cinematic_active):
+			for slot in 2:
+				combat_hud.get_node("Carried%d" % slot).visible = false
 		_hide_boss_readout()
 		# Both of these live above the dim, so a fading banner or an off-screen
 		# arrow would otherwise sit on top of the overlay panel.
@@ -712,6 +689,7 @@ func _physics_process(delta: float) -> void:
 	_update_chain_integrity(delta)
 	_update_chain_visual()
 	_update_camera(delta)
+	crowd_renderer.view_rect = _visible_world_rect()
 
 	var cull_origin := (players[0].position + players[1].position) * 0.5
 	_update_contact_pressure()
@@ -741,21 +719,29 @@ func _physics_process(delta: float) -> void:
 		var enemy := enemies[enemy_index] as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
+		var batch := enemy.ai_batch + simulation_phase
 		# Bosses and fixed scenery remain in the world when the pair wanders away.
-		if not enemy.boss and not enemy.scenery and enemy.global_position.distance_squared_to(cull_origin) > cull_radius_squared:
-			enemies.remove_at(enemy_index)
+		if not enemy.boss and not enemy.scenery and enemy.position.distance_squared_to(cull_origin) > cull_radius_squared:
+			# Swapped out rather than removed in place: remove_at shifts every body
+			# after it, and a crowd walking off one edge culls dozens a tick.
+			enemies[enemy_index] = enemies[enemies.size() - 1]
+			enemies.pop_back()
 			wave_director.release_enemy(enemy)
 			continue
 		if not stepping:
 			continue
 		if not staggering or enemy.boss or enemy.telegraphing:
 			enemy.step(players, delta)
-		elif (enemy.ai_batch + simulation_phase) % AI_BATCHES == 0:
-			enemy.step(players, delta * AI_BATCHES)
+		elif enemy.on_screen:
+			if batch % AI_BATCHES == 0:
+				enemy.step(players, delta * AI_BATCHES)
+		elif batch % OFFSCREEN_AI_BATCHES == 0:
+			enemy.step(players, delta * OFFSCREEN_AI_BATCHES)
 	_profile("enemy_ai")
 	spatial_grid.rebuild(enemies)
 	_profile("grid_rebuild")
 	_separate_crowd()
+	crowd_renderer.dirty = true
 	_profile("crowd_separation")
 	# Ticked here rather than in _gain_shared_xp so the queue drains on run
 	# time: the pair gets the gap back as play, not as a paused screen.
@@ -873,12 +859,23 @@ func _create_world() -> void:
 	world_stage = Node2D.new()
 	world_stage.name = "WorldStage"
 	world_stage.y_sort_enabled = true
-	world_stage.z_index = 4
+	# One step above the friendly attack effects, which top out at 4 (a scythe
+	# sweep, a gravity well, a combat flare): the crowd is what the player has to
+	# read and dodge, so a friendly effect must never paint over an enemy.
+	world_stage.z_index = WORLD_STAGE_Z
 	add_child(world_stage)
 	rooftop_props = RooftopPropFieldScript.new() as RooftopPropField
 	rooftop_props.configure(world_stage)
 	add_child(rooftop_props)
 	rooftop_props.follow(Vector2.ZERO)
+	# The ordinary crowd is drawn in batches rather than by each enemy node;
+	# see CrowdRenderer for why and for which enemies still draw themselves.
+	crowd_renderer = CrowdRendererScript.new() as CrowdRendererScript
+	crowd_renderer.name = "CrowdRenderer"
+	crowd_renderer.enemies = enemies
+	crowd_renderer.shots = enemy_shots
+	crowd_renderer.stage = world_stage
+	add_child(crowd_renderer)
 
 	bursts = BurstFieldScript.new() as BurstField
 	add_child(bursts)
@@ -888,33 +885,11 @@ func _create_world() -> void:
 	flight_field = FlightFieldScript.new() as FlightField
 	add_child(flight_field)
 
-	# Three layers, and the split is the point. The halo adds light, the body
-	# never does — a chain that was additive all the way through lost its dark
-	# edge over a pale floor and vanished into a crowded wave, which is the
-	# opposite of what the one mechanic nobody else has should do.
-	chain_glow = Line2D.new()
-	chain_glow.width = 18.0
-	chain_glow.default_color = Color(0.25, 0.75, 1.0, 0.12)
-	chain_glow.z_index = -2
-	chain_glow.add_point(Vector2.ZERO)
-	chain_glow.add_point(Vector2.ZERO)
-	chain_glow.visible = false
-	add_child(chain_glow)
-
 	chain_arc = ChainArcScript.new() as ChainArc
 	world_stage.add_child(chain_arc)
 
 	chain_flow = ChainFlowScript.new() as ChainFlow
 	world_stage.add_child(chain_flow)
-
-	chain_line = Line2D.new()
-	chain_line.width = 5.0
-	chain_line.default_color = Color("43d9ff")
-	chain_line.z_index = -1
-	chain_line.add_point(Vector2.ZERO)
-	chain_line.add_point(Vector2.ZERO)
-	chain_line.visible = false
-	add_child(chain_line)
 
 	world_camera = Camera2D.new()
 	world_camera.enabled = true
@@ -944,7 +919,6 @@ func _toggle_moonlight() -> void:
 ## Everything the pass touches that is drawn once and kept, rather than redrawn
 ## every frame: the rooftop window, the actors, and the chain's halo material.
 func _apply_moonlight() -> void:
-	chain_glow.material = Moonlight.additive() if Moonlight.enabled else null
 	chain_flow.visible = Moonlight.enabled
 	arena_floor.queue_redraw()
 	for player in players:
@@ -1044,10 +1018,6 @@ func _create_hud() -> void:
 	combat_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(combat_hud)
 	layer = combat_hud
-
-	_make_hud_panel(layer, Vector2(18.0, 14.0), Vector2(365.0, 86.0))
-	_make_hud_panel(layer, Vector2(897.0, 14.0), Vector2(365.0, 86.0))
-	_make_hud_panel(layer, Vector2(430.0, 14.0), Vector2(420.0, 116.0))
 
 	hud_portrait_icons = [
 		_create_icon_rect(layer, Vector2(26.0, 21.0), Vector2(42.0, 42.0)),
@@ -1172,27 +1142,8 @@ func _create_hud() -> void:
 	level_overlay.visible = false
 	layer.add_child(level_overlay)
 
-	level_title = Label.new()
-	level_title.position = Vector2(24.0, 2.0)
-	level_title.size = Vector2(380.0, 28.0)
-	level_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	level_title.add_theme_font_size_override("font_size", 19)
-	level_title.add_theme_color_override("font_color", CatTheme.GOLD)
-	_confine_label(level_title)
-	level_overlay.add_child(level_title)
-
-	level_card_labels[0] = _create_level_cards(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
-	level_card_labels[1] = _create_level_cards(level_overlay, LEVEL_HALF_X[1], CatTheme.P2)
-	level_portrait_icons = [
-		_create_icon_rect(level_overlay, Vector2(20.0, 376.0), Vector2(60.0, 60.0)),
-		_create_icon_rect(level_overlay, Vector2(636.0, 376.0), Vector2(60.0, 60.0)),
-	]
-	level_weapon_icons[0] = _create_badged_icon_row(level_overlay, 54.0, 56.0, WEAPON_LOADOUT_CAP)
-	level_weapon_icons[1] = _create_badged_icon_row(level_overlay, 694.0, 56.0, WEAPON_LOADOUT_CAP)
-	level_treasure_icons[0] = _create_badged_icon_row(level_overlay, 54.0, 84.0, TREASURE_LOADOUT_CAP)
-	level_treasure_icons[1] = _create_badged_icon_row(level_overlay, 694.0, 84.0, TREASURE_LOADOUT_CAP)
-	p1_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[0], Color("43d9ff"))
-	p2_level_footer = _create_level_footer(level_overlay, LEVEL_HALF_X[1], CatTheme.P2)
+	level_card_labels[0] = _create_level_cards(level_overlay)
+	level_card_labels[1] = _create_level_cards(level_overlay)
 
 	resonance_overlay = CatPanel.new()
 	resonance_overlay.position = Vector2(180.0, 132.0)
@@ -1407,20 +1358,6 @@ func _create_hud() -> void:
 		var portrait := _create_icon_rect(result_overlay, Vector2(55 + slot * 735, 58), Vector2(75, 75))
 		portrait.name = "ResultCat%d" % slot
 
-	team_stats_label = Label.new()
-	# One shared line under the cards. The personal build sits in each
-	# player’s own footer; only the pooled stats belong in the middle.
-	team_stats_label.position = Vector2(150.0, 480.0)
-	team_stats_label.size = Vector2(940.0, 40.0)
-	team_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	team_stats_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	team_stats_label.add_theme_font_size_override("font_size", 16)
-	team_stats_label.add_theme_color_override("font_color", CatTheme.MUTED)
-	_confine_label(team_stats_label)
-	team_stats_label.visible = false
-	_make_label_background(team_stats_label, Color(0.02, 0.03, 0.07, 0.9))
-	level_overlay.add_child(team_stats_label)
-
 	threat_edge_indicator = _create_edge_indicator(layer, Color("ff5d8f"))
 	EditorialUI.apply(self)
 
@@ -1542,46 +1479,6 @@ func _create_icon_rect(parent: Node, icon_position: Vector2, icon_size: Vector2)
 	return icon
 
 
-## One row of small badged icons — the build ribbon uses two of them, weapons
-## and treasures, in place of the two dense lines of attribute numbers that used
-## to sit here. A row of icons says "this is what you are carrying" at a glance;
-## "공격 100    범위 100    탄량 +0    신속 100" did not.
-func _create_badged_icon_row(parent: Node, start_x: float, row_y: float, count: int) -> Array:
-	var icons: Array = []
-	for index in count:
-		var socket := Panel.new()
-		socket.position = Vector2(start_x + index * 42.0, row_y)
-		socket.size = Vector2(38.0, 38.0)
-		socket.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		socket.add_theme_stylebox_override("panel", _slot_placeholder_style())
-		parent.add_child(socket)
-		var icon := _create_icon_rect(socket, Vector2.ZERO, Vector2(38.0, 38.0))
-		var tier := Label.new()
-		tier.name = "Tier"
-		tier.position = Vector2(15.0, 21.0)
-		tier.size = Vector2(24.0, 17.0)
-		tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		tier.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		tier.add_theme_font_size_override("font_size", 12)
-		tier.add_theme_color_override("font_color", Color("f4f8ff"))
-		tier.add_theme_color_override("font_outline_color", Color(0.01, 0.02, 0.05, 0.95))
-		tier.add_theme_constant_override("outline_size", 5)
-		icon.add_child(tier)
-		icons.append(icon)
-	return icons
-
-
-## An empty treasure slot still shows as a slot: the pair can see how many
-## commitments they have left without opening anything.
-func _slot_placeholder_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = CatTheme.NIGHT_RAISED
-	style.border_color = CatTheme.OUTLINE
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(CatTheme.RADIUS)
-	return style
-
-
 ## The growth screen used to be a 1240x568 panel parked over the middle of the
 ## roof: it covered the fight it was interrupting, and the pair chose their next
 ## card while looking at a box instead of at the run.
@@ -1592,27 +1489,9 @@ func _slot_placeholder_style() -> StyleBoxFlat:
 ## the right — the way a hand of cards actually sits in front of a player.
 const LEVEL_OVERLAY_Y := 176.0
 const LEVEL_OVERLAY_HEIGHT := 544.0
-const LEVEL_CARD_WIDTH := 190.0
-const LEVEL_CARD_HEIGHT := 306.0
-const LEVEL_CARD_GAP := 16.0
 const LEVEL_CARD_SLOTS := 6
-## Half the viewport each: both hands are on screen at once, so a survivor can
-## see what their partner is about to take while they are still deciding.
-const LEVEL_HALF_WIDTH := 640.0
+## Where each hand's reroll button is parked before NeonGrowthUI places it.
 const LEVEL_HALF_X := [0.0, 640.0]
-const LEVEL_CARD_Y := 142.0
-## The fan. `SPREAD` is the horizontal step between neighbours, `ANGLE` the tilt
-## each step adds, and `DROP` how far an outer card sinks — together they are
-## what makes three cards read as one hand rather than as three boxes. A lucky
-## fourth card reduces the spread, preserving both font size and the hand shape.
-const LEVEL_FAN_CENTER_X := 320.0
-const LEVEL_FAN_MAX_SPREAD := 176.0
-const LEVEL_FAN_SPAN := 360.0
-const LEVEL_FAN_MAX_ANGLE := 0.085
-## How far below a card its rotation centre sits. A card tilted about its own
-## middle shears out of the row; one tilted about a point under the hand swings,
-## which is the difference between a fan and four rotated rectangles.
-const LEVEL_FAN_PIVOT_Y := 286.0
 
 const RESONANCE_CARD_SLOTS := 3
 const RESONANCE_CARD_WIDTH := 236.0
@@ -1639,74 +1518,16 @@ const LUCK_FOURTH_CARD_CHANCE_PER_POINT := 0.07
 const LUCK_FOURTH_CARD_MAX_CHANCE := 0.60
 
 
-## Builds the four possible card slots for one player's level-up choices. Each card is
-## a single autowrapping Label with a bordered background (swapped per-frame
-## in _refresh_level_up_ui() to show focus/locked/unlock-type state) rather
-## than separate title/description nodes, matching how the rest of this HUD
-## builds text blocks with a StyleBoxFlat behind them.
-func _create_level_cards(parent: Node, half_x: float, accent: Color) -> Array:
+## The six card slots one survivor's hand can deal, built from the shared growth
+## card template (the chest showcase deals the same card). NeonGrowthUI lays
+## them out and paints them each refresh.
+func _create_level_cards(parent: Node) -> Array:
 	var cards: Array = []
 	for index in LEVEL_CARD_SLOTS:
-		var card := Label.new()
-		card.position = Vector2(half_x, LEVEL_CARD_Y)
-		card.size = Vector2(LEVEL_CARD_WIDTH, LEVEL_CARD_HEIGHT)
-		card.pivot_offset = card.size * 0.5
-		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		card.add_theme_font_size_override("font_size", 16)
-		card.add_theme_color_override("font_color", CatTheme.CREAM)
-		_confine_label(card, true)
-		# The icon sits above the text rather than beside it, and the stylebox's
-		# top margin is what makes room for it — the card used to open with three
-		# blank lines, which is a layout expressed as content.
-		var icon := _create_icon_rect(card, Vector2((LEVEL_CARD_WIDTH - 64.0) * 0.5, 16.0), Vector2(64.0, 64.0))
-		icon.name = "Icon"
-		# This is the already-owned partner, never the undiscovered result. It is
-		# revealed only once both future ingredients are in the same loadout.
-		var fusion_mark := _create_icon_rect(card, Vector2(LEVEL_CARD_WIDTH - 47.0, 10.0), Vector2(36.0, 36.0))
-		fusion_mark.name = "FusionMark"
-		fusion_mark.mouse_filter = Control.MOUSE_FILTER_PASS
-		fusion_mark.visible = false
-		var recommendation := Label.new()
-		recommendation.name = "Recommendation"
-		recommendation.position = Vector2(10.0, LEVEL_CARD_HEIGHT - 40.0)
-		recommendation.size = Vector2(LEVEL_CARD_WIDTH - 20.0, 30.0)
-		recommendation.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		recommendation.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		recommendation.add_theme_font_size_override("font_size", 13)
-		recommendation.add_theme_color_override("font_color", CatTheme.GOLD)
-		_confine_label(recommendation)
-		_make_label_background(recommendation, Color(0.22, 0.16, 0.02, 0.95))
-		card.add_child(recommendation)
-		var style := CatTheme.surface(Color(accent, 0.1))
-		style.border_color = Color(accent, 0.4)
-		style.set_border_width_all(CatTheme.BORDER)
-		style.set_content_margin_all(CatTheme.PADDING)
-		style.content_margin_top = 92.0
-		style.content_margin_bottom = 48.0
-		card.add_theme_stylebox_override("normal", style)
+		var card := CardVisual.create_card()
 		parent.add_child(card)
 		cards.append(card)
 	return cards
-
-
-func _create_level_footer(parent: Node, half_x: float, color: Color) -> Label:
-	var footer := Label.new()
-	# 317px at font 13 wraps the attribute line in two, so the four written
-	# lines became five and the last one fell outside the box — invisibly,
-	# because clip_text does not complain. That fifth line is the status line:
-	# "잠시 후 선택할 수 있습니다" is the only thing explaining why input is
-	# ignored during the anti-misclick delay, and nobody had ever seen it.
-	footer.position = Vector2(half_x + 246.0, LEVEL_CARD_Y + LEVEL_CARD_HEIGHT + 6.0)
-	footer.size = Vector2(338.0, 100.0)
-	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	footer.add_theme_font_size_override("font_size", 13)
-	footer.add_theme_color_override("font_color", color)
-	_confine_label(footer, true)
-	parent.add_child(footer)
-	return footer
 
 
 func _create_character_label(label_position: Vector2, color: Color) -> Label:
@@ -2173,7 +1994,7 @@ func _format_character_card(player_index: int) -> String:
 		String(character["weapon_id"]), "자동 공격")).split("    ")[-1]
 	return "\n".join([
 		"무기    %s    %s" % [String(character["weapon_name"]), playstyle],
-		"테크    %s" % " / ".join(tech_names),
+		"테크 Lv.%d    %s" % [WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(tech_names)],
 		"필요 보물    %s" % " / ".join(material_names),
 		"최종    %s    자동 공명" % String(evolution.get("weapon_name", "최종 진화")),
 	])
@@ -2187,15 +2008,6 @@ func _chain_note(character: Dictionary) -> String:
 	if contribution <= -15.0:
 		return "사슬 짧게"
 	return "사슬 보통"
-
-
-func _character_select_status(player_index: int) -> String:
-	if character_confirmed[player_index]:
-		var cancel := "B로 변경" if last_input_gamepad[player_index] else ("S로 변경" if player_index == 0 else "↓로 변경")
-		return "선택 완료      %s" % cancel
-	if last_input_gamepad[player_index]:
-		return "LB / RB 선택      A 확정"
-	return "A / D 선택      W 확정" if player_index == 0 else "← / → 선택      ↑ 확정"
 
 
 ## The pair's shared read on their two picks, without naming anything they have
@@ -2488,10 +2300,6 @@ func _trigger_chain_overload() -> void:
 
 
 func _update_chain_visual() -> void:
-	chain_line.set_point_position(0, players[0].position)
-	chain_line.set_point_position(1, players[1].position)
-	chain_glow.set_point_position(0, players[0].position)
-	chain_glow.set_point_position(1, players[1].position)
 	var ratio := players[0].position.distance_to(players[1].position) / chain_max_length
 	var stage := 0
 	var chain_color := Color("43d9ff")
@@ -2511,9 +2319,6 @@ func _update_chain_visual() -> void:
 	if chain_warded():
 		stage = 0
 		chain_color = Color("fff275").lerp(Color.WHITE, 0.35 + sin(elapsed * 22.0) * 0.25)
-	chain_line.default_color = chain_color
-	chain_line.width = (10.0 + sin(elapsed * 16.0) * 2.0) if chain_warded() else (2.5 if chain_overloaded else 5.0)
-	chain_glow.default_color = Color(chain_color, 0.30 if chain_warded() else (0.05 if chain_overloaded else 0.12 + ratio * 0.13))
 	# The visible leash, its running light and the weapon hit path all come from
 	# one sampled rope. A slack tether therefore bows toward the viewer, settles
 	# close to the roof, and attacks exactly where the player sees it lying.
@@ -2543,9 +2348,12 @@ func _update_threat_indicator() -> void:
 	var centre := world_camera.position
 	var nearest: ChaserEnemy = null
 	var nearest_distance := 0.0
-	for candidate in enemies:
-		var enemy := candidate as ChaserEnemy
-		if not is_instance_valid(enemy) or enemy.dead or not (enemy.elite or enemy.boss):
+	# Only elites and bosses can be pointed at, so only they are walked: the whole
+	# crowd used to be scanned every tick to find the handful that qualify.
+	for index in range(heavy_enemies.size() - 1, -1, -1):
+		var enemy := heavy_enemies[index]
+		if not is_instance_valid(enemy) or enemy.dead or not enemy.active or not (enemy.elite or enemy.boss):
+			heavy_enemies.remove_at(index)
 			continue
 		var offset := rooftop_view.project_offset((enemy.global_position - centre) * world_camera.zoom)
 		if absf(offset.x) < view.x * 0.5 - 40.0 and absf(offset.y) < view.y * 0.5 - 40.0:
@@ -2636,6 +2444,8 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		enemy.enraged.connect(_on_boss_enraged)
 	if enemy not in enemies:
 		enemies.append(enemy)
+	if (enemy.elite or enemy.boss) and enemy not in heavy_enemies:
+		heavy_enemies.append(enemy)
 	if enemy.boss:
 		boss_enemy = enemy
 		boss_bar.max_value = enemy.max_health
@@ -2999,147 +2809,17 @@ func _perform_character_attack(player_index: int) -> void:
 		weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 
 
-## Recycles an enemy that wandered out of the fight. Deliberately not the
-## death path: nothing was killed, so there is no experience gem, no field
-## drop and no kill counted.
-## How hard two overlapping bodies push apart per tick, as a fraction of how
-## far they are inside each other. Not 1.0: a hard resolve makes a dense crowd
-## jitter, because every pair is corrected against a position two other pairs
-## are also correcting. Partial correction over several ticks settles instead.
-const CROWD_PUSH := 0.34
-## Bodies are allowed to touch a little. Without this, enemies that are meant to
-## arrive as a pack visibly repel each other on contact and a swarm stops
-## reading as a swarm.
-const CROWD_OVERLAP_SLACK := 0.82
-## The four forward neighbours. Walking only these plus the cell itself visits
-## every neighbouring pair exactly once; the backward four would visit each pair
-## a second time and cancel half the correction.
-## How many partners one body resolves against per tick. Capped because a
-## gravity pile in a single cell would otherwise make separation quadratic;
-## raised from 4/2 because at those numbers a twenty-body stack never came
-## apart and a crowd standing on a boss stayed standing on it.
-const CROWD_SAMPLES := 7
-const CROWD_NEIGHBOUR_SAMPLES := 4
-const CROWD_NEIGHBOURS: Array[Vector2i] = [
-	Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1),
-]
-
-
-## Stops bodies standing inside each other.
-##
-## Enemies all walked at the nearest survivor along their own straight line, so
-## anything spawned on a similar bearing converged into one stack: twenty mice
-## occupying one mouse's worth of screen, dealing twenty mice's worth of contact
-## damage from a single silhouette. A crowd that cannot be read cannot be
-## fought, and the swarm archetype — the whole point of which is that it arrives
-## as a mass — was the worst offender.
-##
-## Walks the spatial grid's own buckets rather than calling query_radius per
-## enemy: at several hundred bodies that would be several hundred array
-## allocations every physics tick. Cell size (192) is far wider than the largest
-## pair of radii, so own-cell plus four forward neighbours covers every overlap.
+## Stops bodies standing inside each other. The pass lives with the grid it
+## walks — see EnemySpatialGrid.separate — and runs on the arrays the grid was
+## rebuilt from this tick.
 func _separate_crowd() -> void:
-	# Advanced per call rather than read from the physics frame counter: inside
-	# one tick the frame number is constant, so every body sampled the same
-	# neighbours and a deep pile — a gravity cluster, a crowd on a boss — took
-	# dozens of frames to unstick, or never did.
-	crowd_phase += 1
-	for key in spatial_grid.cells:
-		var bucket: Array = spatial_grid.cells[key]
-		var bucket_size := bucket.size()
-		var own_samples := mini(CROWD_SAMPLES, bucket_size - 1)
-		for index in bucket_size:
-			var first := bucket[index] as ChaserEnemy
-			# Hoisted out of the pair loops below. The grid was rebuilt from the
-			# live enemy list this same tick and nothing here frees a body, so one
-			# check per body is worth the twenty-three this used to make per body.
-			if first.dead or first.scenery:
-				continue
-			# This body's turn in the rota. A resolve moves both bodies in the
-			# pair, so a body still gets pushed out of whatever is standing on it
-			# on the ticks it is not itself driving the pass.
-			if (first.ai_batch + crowd_phase) % CROWD_UPDATE_DIVISOR != 0:
-				continue
-			var first_position := first.global_position
-			var first_radius := first.radius
-			# Bound work in dense cells. The offset mixes the caller's clock with
-			# the body's own index so two neighbours in the same bucket look at
-			# different partners on the same tick, which is what makes a partial
-			# sample converge instead of oscillating.
-			for sample in own_samples:
-				var other_index := (index + 1 + sample * 3 + crowd_phase) % bucket_size
-				if other_index == index:
-					continue
-				# Testing for overlap here rather than inside the resolver is the
-				# single largest saving in the tick. The test is a subtraction and
-				# a dot product; the call it guards costs more than both, and at a
-				# full crowd the overwhelming majority of sampled pairs are simply
-				# not touching, so the call never has to happen.
-				var second := bucket[other_index] as ChaserEnemy
-				if second.scenery:
-					continue
-				var offset := second.global_position - first_position
-				var minimum := (first_radius + second.radius) * CROWD_OVERLAP_SLACK
-				if offset.length_squared() < minimum * minimum:
-					_resolve_overlap(first, second)
-					# The push moved us. The samples still to come in this loop have
-					# to be measured from where we are now — testing them against
-					# where we started is how a deep stack stops coming apart, since
-					# in a pile every sample lands on a body that has already moved.
-					first_position = first.global_position
-			# Sixteen of the twenty-three samples a body used to take were in the
-			# four neighbouring cells, and a cell is 192px against bodies whose
-			# combined reach is a fraction of that. A body sitting in the middle of
-			# its own cell cannot touch anything in the next one, so the neighbour
-			# walk is skipped unless it is actually near that boundary. Exact, not
-			# approximate: the reach below is the widest overlap the grid currently
-			# holds, so nothing that could touch is ever skipped.
-			var reach := (first_radius + spatial_grid.max_radius) * CROWD_OVERLAP_SLACK
-			var local_x := first_position.x - float(key.x) * spatial_grid.cell_size
-			var local_y := first_position.y - float(key.y) * spatial_grid.cell_size
-			var near_right := local_x > spatial_grid.cell_size - reach
-			var near_bottom := local_y > spatial_grid.cell_size - reach
-			var near_top := local_y < reach
-			for cell_offset in CROWD_NEIGHBOURS:
-				if cell_offset.x == 1 and not near_right:
-					continue
-				if cell_offset.y == 1 and not near_bottom:
-					continue
-				if cell_offset.y == -1 and not near_top:
-					continue
-				var neighbour: Variant = spatial_grid.cells.get(key + cell_offset)
-				if neighbour == null:
-					continue
-				var neighbour_bucket: Array = neighbour
-				var neighbour_size := neighbour_bucket.size()
-				for sample in mini(CROWD_NEIGHBOUR_SAMPLES, neighbour_size):
-					var second := neighbour_bucket[(sample * 3 + crowd_phase + index) % neighbour_size] as ChaserEnemy
-					if second.scenery:
-						continue
-					var offset := second.global_position - first_position
-					var minimum := (first_radius + second.radius) * CROWD_OVERLAP_SLACK
-					if offset.length_squared() < minimum * minimum:
-						_resolve_overlap(first, second)
-						first_position = first.global_position
-	# The survivors are solid too, but only one way: an enemy is pushed out of a
-	# cat, never the other way round. Shoving the player around would take the
-	# controls away at exactly the moment they matter most.
-	for player in players:
-		for candidate in spatial_grid.query_radius(player.global_position, player.radius + 64.0):
-			var enemy := candidate as ChaserEnemy
-			if not is_instance_valid(enemy) or enemy.dead or enemy.boss or enemy.scenery:
-				continue
-			var offset := enemy.global_position - player.global_position
-			var overlap := player.radius + enemy.radius - offset.length()
-			if overlap <= 0.0:
-				continue
-			var direction := offset.normalized() if offset.length_squared() > 0.01 else Vector2.from_angle(randf() * TAU)
-			enemy.position += direction * overlap
+	spatial_grid.view_rect = crowd_renderer.view_rect.grow(CrowdRendererScript.CULL_MARGIN) if is_instance_valid(crowd_renderer) else Rect2(-1e9, -1e9, 2e9, 2e9)
+	spatial_grid.separate(players)
 
 
-## Pushes two overlapping enemies apart, weighted by size so a mouse bounces off
-## a bulwark rather than moving it. A boss is immovable: it is the one thing on
-## the field whose position is a promise to the player.
+## The same push for one explicit pair of nodes, for callers holding two bodies
+## rather than a rebuilt grid. Weighted by size so a mouse bounces off a
+## bulwark rather than moving it; a boss is immovable.
 func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 	if not is_instance_valid(first) or not is_instance_valid(second) or first.dead or second.dead:
 		return
@@ -3147,16 +2827,14 @@ func _resolve_overlap(first: ChaserEnemy, second: ChaserEnemy) -> void:
 		return
 	if first.immovable and second.immovable:
 		return
-	var offset := second.global_position - first.global_position
-	var minimum := (first.radius + second.radius) * CROWD_OVERLAP_SLACK
+	var offset := second.position - first.position
+	var minimum := (first.radius + second.radius) * EnemySpatialGrid.CROWD_OVERLAP_SLACK
 	var distance_squared := offset.length_squared()
 	if distance_squared >= minimum * minimum:
 		return
 	var distance := sqrt(distance_squared)
 	var direction := offset / distance if distance > 0.01 else Vector2.from_angle(randf() * TAU)
-	var push := (minimum - distance) * CROWD_PUSH
-	# Share of the correction each one takes: the smaller body moves more, and a
-	# boss takes none of it at all.
+	var push := (minimum - distance) * EnemySpatialGrid.CROWD_PUSH
 	var first_share := 0.0 if first.immovable else (1.0 if second.immovable else second.radius / (first.radius + second.radius))
 	var second_share := 0.0 if second.immovable else (1.0 if first.immovable else first.radius / (first.radius + second.radius))
 	first.position -= direction * push * first_share
@@ -3332,6 +3010,8 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			# contained gets its own showcase (a chest can hand out a fusion).
 			_queue_showcase({"kind": "chest", "rewards": rewards}, true)
 			_play_showcase_queue()
+			# The loadout under the health bars stays visible while the box opens.
+			_update_hud()
 		"heal":
 			var restored: Array[int] = [0, 0]
 			for slot in 2:
@@ -3556,7 +3236,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 					"label": "보물 강화 %s" % String(evolution["weapon_name"]),
 				})
 				continue
-			if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+			if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER or WeaponGrowthScript.needs_tech(state):
 				continue
 			# Titles are the growth hand's own, so a chest reward's card names the
 			# upgrade exactly as the level-up card for it would.
@@ -3569,7 +3249,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 				})
 			for key in ["a", "b"]:
 				if _special_has_room(slot, weapon_slot, key):
-					var spec := _special_spec(String(state["weapon_id"]), key)
+					var spec := _special_spec(state, key)
 					candidates.append({
 						"slot": slot, "priority": 2,
 						"option": {"id": "special_" + key, "weapon_slot": weapon_slot,
@@ -3947,6 +3627,23 @@ func _selected_evolution_for_state(weapon: Dictionary) -> Dictionary:
 	return WeaponTechs.evolution_for(evolution, weapon) if not evolution.is_empty() else {}
 
 
+## Weapons still waiting on a route whose every route needs a treasure this
+## survivor does not carry: each one will need a slot of its own.
+func _untyped_weapons_without_material(slot: int) -> int:
+	var count := 0
+	for weapon: Dictionary in weapon_loadouts[slot]:
+		if bool(weapon.get("evolved", false)) or not String(weapon.get("tech_id", "")).is_empty():
+			continue
+		var covered := false
+		for route in WeaponTechs.for_weapon(WeaponGrowthScript.base_id(weapon)):
+			if _treasure_tier(slot, String(route["treasure_id"])) > 0:
+				covered = true
+				break
+		if not covered:
+			count += 1
+	return count
+
+
 func _missing_required_treasures(slot: int) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var seen: Dictionary = {}
@@ -3976,12 +3673,14 @@ func _missing_required_treasures(slot: int) -> Array[Dictionary]:
 const SHARED_SECOND_CARRIER := 0.5
 
 
-## Effective tiers of one shared treasure across the pair.
+## Effective tiers of one shared treasure across the pair, on the weighted ladder
+## (TreasureCatalog.effective_tiers) so a deep shared treasure pays like a deep
+## personal one.
 func _shared_tiers(treasure_id: String) -> float:
 	var deeper := 0.0
 	var shallower := 0.0
 	for slot in 2:
-		var tier := float(_treasure_tier(slot, treasure_id))
+		var tier := Treasures.effective_tiers(treasure_id, _treasure_tier(slot, treasure_id))
 		if tier > deeper:
 			shallower = deeper
 			deeper = tier
@@ -4051,11 +3750,12 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var route_materials: Array[Dictionary] = []
 	var choice_count := _growth_choice_count()
 
-	# A newly carried weapon must commit to a route before any of its numeric
-	# upgrades enter the pool. One-route weapons are assigned in _build_weapon_state.
+	# A weapon grows untyped for its first few cards and then has to commit to a
+	# route before it takes another tier. One-route weapons are assigned the
+	# moment they reach the gate (see _apply_upgrade), so they never stop here.
 	for weapon_slot in loadout.size():
 		var carried: Dictionary = loadout[weapon_slot]
-		if bool(carried.get("evolved", false)) or not String(carried.get("tech_id", "")).is_empty():
+		if not WeaponGrowthScript.needs_tech(carried):
 			continue
 		var tech_choices: Array[Dictionary] = []
 		for tech in WeaponTechs.for_weapon(String(carried.get("base_weapon_id", carried["weapon_id"]))):
@@ -4091,8 +3791,16 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			}
 			pool.append(material_option)
 			route_materials.append(material_option)
-		# Keep some discovery in the hand after guaranteeing the route materials.
+		# Keep some discovery in the hand after guaranteeing the route materials —
+		# but never by spending the slots those routes still need. Routes are
+		# chosen at TECH_UNLOCK_TIER now, so a survivor could fill all six slots
+		# before learning what a weapon required and be left with a weapon that
+		# could never be enhanced. Measured: a third fewer enhancements per run.
+		var open_slots := TREASURE_LOADOUT_CAP - treasures.size()
+		var discovery := open_slots > needed.size() + _untyped_weapons_without_material(slot)
 		for treasure in _pick_unowned_treasures(slot, maxi(3, needed.size()) + 3):
+			if not discovery:
+				break
 			if offered_ids.has(String(treasure["id"])) or offered_ids.size() >= maxi(3, needed.size()):
 				continue
 			offered_ids[String(treasure["id"])] = true
@@ -4102,10 +3810,9 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			})
 	for weapon_slot in loadout.size():
 		var state: Dictionary = loadout[weapon_slot]
-		if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER:
+		if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER or WeaponGrowthScript.needs_tech(state):
 			continue
 		var weapon_name := String(state["weapon_name"])
-		var weapon_id := String(state["weapon_id"])
 		if WeaponTechs.allows(state, "weapon_power"):
 			pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
 		if WeaponTechs.allows(state, "weapon_rate"):
@@ -4113,7 +3820,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 		for key: String in ["a", "b"]:
 			if not WeaponTechs.allows(state, "special_" + key):
 				continue
-			var spec := _special_spec(weapon_id, key)
+			var spec := _special_spec(state, key)
 			if spec.is_empty():
 				continue
 			pool.append({
@@ -4131,13 +3838,15 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
 			"title": "최종 진화: %s" % String(evolution["weapon_name"]),
 		})
+	# A new weapon arrives untyped: its route is chosen at TECH_UNLOCK_TIER, once
+	# the survivor has seen what it does. Offering one card per route here used to
+	# flood the hand with three copies of the same weapon.
 	if loadout.size() < WEAPON_LOADOUT_CAP:
 		for character in _pick_unowned_characters(slot, 2):
-			for tech in WeaponTechs.for_weapon(String(character["weapon_id"])):
-				pool.append({
-					"id": "unlock_weapon", "weapon_slot": -1, "character": character, "tech": tech,
-					"title": "신규 무기: %s\n%s 테크" % [String(character["weapon_name"]), String(tech["name"])],
-				})
+			pool.append({
+				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
+				"title": "신규 무기: %s" % String(character["weapon_name"]),
+			})
 	pool = pool.filter(func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option))
 	var ready_fusions: Array[Dictionary] = []
 	for option in pool:
@@ -4274,10 +3983,27 @@ const WEAPON_SPECIALS := {
 }
 
 
-## The spec for one weapon's special, or an empty dictionary if it has none —
-## fused weapons are already at the top of their track and take neither.
-func _special_spec(weapon_id: String, key: String) -> Dictionary:
-	var entry: Dictionary = WEAPON_SPECIALS.get(weapon_id, {})
+## The spec for one weapon's special, or an empty dictionary if it has none.
+##
+## Given a weapon *state*, the answer depends on the route: a tech whose delivery
+## leaves a special with nothing to act on swaps it for its own (see
+## WeaponTechCatalog.SPECIAL_OVERRIDES). An enhanced weapon keeps the specials of
+## the weapon it grew from wherever the enhanced form still has that field, so
+## the last third of a run is not only 화력 and 속도 cards. Given a bare weapon id
+## it returns the catalogue special, which is what the lobby and older callers ask.
+func _special_spec(weapon: Variant, key: String) -> Dictionary:
+	if weapon is Dictionary:
+		var state: Dictionary = weapon
+		var override := WeaponTechs.special_override(state, key)
+		var spec: Dictionary = override if not override.is_empty() \
+			else (WEAPON_SPECIALS.get(WeaponGrowthScript.base_id(state), {}) as Dictionary).get(key, {})
+		if spec.is_empty():
+			return {}
+		if bool(state.get("evolved", false)) and String(spec.get("target", "weapon")) != "run" \
+				and not state.has(String(spec["field"])):
+			return {}
+		return spec
+	var entry: Dictionary = WEAPON_SPECIALS.get(String(weapon), {})
 	return entry.get(key, {})
 
 
@@ -4288,52 +4014,73 @@ func _special_current(spec: Dictionary, state: Dictionary) -> float:
 
 
 ## The value this special would move its field to, floors and caps applied.
-func _special_next(spec: Dictionary, current: float) -> float:
-	var moved := current + float(spec["delta"])
+## `growth_scale` is the weapon's stage and route (WeaponGrowth.special_scale); count
+## specials always move by exactly their delta.
+func _special_next(spec: Dictionary, current: float, growth_scale := 1.0) -> float:
+	var delta := float(spec["delta"])
+	if not bool(spec.get("integer", false)):
+		delta *= growth_scale
+	var moved := current + delta
 	if spec.has("floor"):
-		moved = maxf(float(spec["floor"]), moved)
+		moved = maxf(minf(current, float(spec["floor"])), moved)
 	if spec.has("cap"):
-		moved = minf(float(spec["cap"]), moved)
+		# Never lets a cap pull a value that is already past it back down.
+		moved = minf(maxf(current, float(spec["cap"])), moved)
 	return moved
 
 
-## Whether taking this special would actually change anything. Only the two
-## bounded specials can ever answer no, but asking generically is what keeps a
-## future bounded one from quietly becoming a dead card.
+func _special_scale(state: Dictionary, spec: Dictionary, key: String) -> float:
+	return 1.0 if bool(spec.get("integer", false)) else WeaponGrowthScript.special_scale(state, key)
+
+
+## Whether taking this special would actually change anything. Only the bounded
+## specials can ever answer no, but asking generically is what keeps a future
+## bounded one from quietly becoming a dead card.
 func _special_has_room(slot: int, weapon_slot: int, key: String) -> bool:
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
-	var spec := _special_spec(String(state["weapon_id"]), key)
+	var spec := _special_spec(state, key)
 	if spec.is_empty():
 		return false
 	var current := _special_current(spec, state)
-	return not is_equal_approx(_special_next(spec, current), current)
+	return not is_equal_approx(_special_next(spec, current, _special_scale(state, spec, key)), current)
 
 
 ## Applies a special to a weapon state dictionary in place. Takes the state
 ## rather than a loadout index so the recommendation scorer can run it against
 ## a throwaway copy without touching the real build.
 func apply_special_to_state(state: Dictionary, key: String) -> void:
-	var spec := _special_spec(String(state["weapon_id"]), key)
+	var spec := _special_spec(state, key)
 	if spec.is_empty() or String(spec.get("target", "weapon")) == "run":
 		return
 	var field := String(spec["field"])
-	var next := _special_next(spec, float(state.get(field, 0.0)))
+	var growth_scale := _special_scale(state, spec, key)
+	var next := _special_next(spec, float(state.get(field, 0.0)), growth_scale)
 	state[field] = int(round(next)) if bool(spec.get("integer", false)) else next
-	if spec.has("extra_field"):
+	# Only where the weapon already reads the field: an enhanced gravity well has
+	# no cast range of its own, and inventing one would shrink its reach to 38px.
+	if spec.has("extra_field") and state.has(String(spec["extra_field"])):
 		var extra := String(spec["extra_field"])
-		state[extra] = float(state.get(extra, 0.0)) + float(spec["extra_delta"])
-
-
-func _special_preview(spec: Dictionary, state: Dictionary) -> String:
-	var current := _special_current(spec, state)
-	var next := _special_next(spec, current)
+		state[extra] = float(state[extra]) + float(spec["extra_delta"]) * growth_scale
 	if bool(spec.get("integer", false)):
-		return "%s %d → %d" % [String(spec["label"]), int(round(current)), int(round(next))]
-	if bool(spec.get("percent", false)):
-		return "%s %.0f%% → %.0f%%" % [String(spec["label"]), current * 100.0, next * 100.0]
-	if bool(spec.get("degrees", false)):
-		return "%s %.0f° → %.0f°" % [String(spec["label"]), rad_to_deg(current), rad_to_deg(next)]
-	return "%s %.0f → %.0f" % [String(spec["label"]), current, next]
+		state["damage"] = float(state["damage"]) * (1.0 + WeaponGrowthScript.integer_focus_damage(state, key))
+
+
+func _special_preview(spec: Dictionary, state: Dictionary, key := "") -> String:
+	var current := _special_current(spec, state)
+	var next := _special_next(spec, current, _special_scale(state, spec, key) if not key.is_empty() else 1.0)
+	var line := ""
+	if bool(spec.get("integer", false)):
+		line = "%s %d → %d" % [String(spec["label"]), int(round(current)), int(round(next))]
+		var bonus := WeaponGrowthScript.integer_focus_damage(state, key) if not key.is_empty() else 0.0
+		if bonus > 0.0:
+			line += "    피해 +%d%%" % roundi(bonus * 100.0)
+	elif bool(spec.get("percent", false)):
+		line = "%s %.0f%% → %.0f%%" % [String(spec["label"]), current * 100.0, next * 100.0]
+	elif bool(spec.get("degrees", false)):
+		line = "%s %.0f° → %.0f°" % [String(spec["label"]), rad_to_deg(current), rad_to_deg(next)]
+	else:
+		line = "%s %.0f → %.0f" % [String(spec["label"]), current, next]
+	return line
 
 
 func _has_weapon_upgrade(options: Array) -> bool:
@@ -4431,6 +4178,15 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"choose_tech":
 			score = 65.0
 			reason = "성장 경로 결정"
+			# A route whose treasure is already carried is one step from
+			# enhancement; one whose treasure cannot fit never gets there.
+			var material_id := String((option["tech"] as Dictionary)["treasure_id"])
+			if _treasure_tier(slot, material_id) > 0:
+				score += 22.0
+				reason = "보유 보물로 진화 가능"
+			elif treasures.size() >= TREASURE_LOADOUT_CAP:
+				score -= 30.0
+				reason = "필수 보물 칸 없음"
 		"weapon_power":
 			score = 50.0
 			reason = "주력 피해"
@@ -4562,6 +4318,11 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		if int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER - 1 and not bool(weapon.get("evolved", false)):
 			score += 34.0
 			reason = "레벨 %d   보물 강화 준비" % Evolutions.EVOLUTION_TIER
+		elif int(weapon.get("tier", 1)) == WeaponGrowthScript.TECH_UNLOCK_TIER - 1 and String(weapon.get("tech_id", "")).is_empty():
+			# The card that opens the route decision is worth a little more than
+			# its numbers: every card after it is priced by the route.
+			score += 10.0
+			reason = "레벨 %d   테크 선택" % WeaponGrowthScript.TECH_UNLOCK_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -4587,17 +4348,35 @@ func _build_weapon_state(character: Dictionary) -> Dictionary:
 	state["tags"] = (character["tags"] as Array).duplicate()
 	state["color"] = character["color"]
 	state["source_character"] = character["name"]
-	var techs := WeaponTechs.for_weapon(String(character["weapon_id"]))
-	if techs.size() == 1:
-		WeaponTechs.apply_to_state(state, techs[0])
 	return state
+
+
+## The first growth axis a route names that would actually move the weapon.
+func _route_lead_axis(slot: int, weapon_slot: int, route: Dictionary) -> String:
+	for axis: String in route.get("upgrades", []):
+		if not axis.begins_with("special_") or _special_has_room(slot, weapon_slot, axis.substr(axis.length() - 1)):
+			return axis
+	return "weapon_power"
+
+
+## A one-route weapon has nothing to choose, so reaching the gate chooses for it.
+## Returns whether a route was assigned.
+func _assign_only_route(state: Dictionary) -> bool:
+	if not WeaponGrowthScript.needs_tech(state):
+		return false
+	var techs := WeaponTechs.for_weapon(WeaponGrowthScript.base_id(state))
+	if techs.size() != 1:
+		return false
+	WeaponTechs.apply_to_state(state, techs[0])
+	return true
 
 
 func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 	var best := {}
 	var best_progress := -1.0
 	for weapon: Dictionary in weapon_loadouts[slot]:
-		if bool(weapon.get("evolved", false)):
+		# An untyped weapon has no material yet: its route decides which one.
+		if bool(weapon.get("evolved", false)) or String(weapon.get("tech_id", "")).is_empty():
 			continue
 		var evolution := _selected_evolution_for_state(weapon)
 		if evolution.is_empty() or String(evolution.get("treasure_id", "")) != treasure_id:
@@ -4698,15 +4477,21 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		WeaponTechs.apply_to_state(state, tech)
 		var base := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
 		var evolution := WeaponTechs.evolution_for(base, state)
-		return "%s\n필수    %s\n완성    %s" % [
-			_tech_focus(tech), String(material.get("name", "보물")),
-			String(evolution.get("weapon_name", "최종 진화")),
+		var material_id := String(tech["treasure_id"])
+		var material_state := " 보유" if _treasure_tier(slot, material_id) > 0 else (
+			" 칸 없음" if treasure_loadouts[slot].size() >= TREASURE_LOADOUT_CAP else "")
+		return "%s\n특화 %s +1    필수 %s%s\n완성    %s" % [
+			_tech_focus(tech), _tech_axes_text(state, tech), String(material.get("name", "보물")),
+			material_state, String(evolution.get("weapon_name", "최종 진화")),
 		]
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
-		var tech: Dictionary = option.get("tech", {})
-		var material := Treasures.by_id(String(tech.get("treasure_id", "")))
-		return "%s\n%s    필수 %s" % [EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"), _tech_focus(tech), String(material.get("name", "보물"))]
+		var routes: Array[String] = []
+		for route in WeaponTechs.for_weapon(String(character["weapon_id"])):
+			routes.append(String(route["name"]))
+		return "%s\n레벨 %d에 테크 선택    %s" % [
+			EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"),
+			WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(routes)]
 	if upgrade_id == "evolve_weapon":
 		var evolution: Dictionary = option["evolution"]
 		return "%s\n최종 단계    완성 후 공명 자동 판정" % String(evolution["description"])
@@ -4714,33 +4499,58 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		var treasure: Dictionary = option["treasure"]
 		return "%s
 획득 후 보물 %d/%d칸 사용" % [
-			String(treasure["per_tier"]), treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP
+			Treasures.tier_text(treasure, 1), treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP
 		]
 	if upgrade_id == "treasure_upgrade":
 		var carried: Dictionary = treasure_loadouts[slot][int(option["treasure_slot"])]
+		var next_tier := int(carried["tier"]) + 1
 		return "%s
 레벨 %d → %d" % [
-			String(carried["per_tier"]), int(carried["tier"]), int(carried["tier"]) + 1
+			Treasures.tier_text(Treasures.by_id(String(carried["id"])), next_tier), int(carried["tier"]), next_tier
 		]
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
-	var weapon_id := String(state["weapon_id"])
 	var tier := int(state.get("tier", 1))
 	var tier_hint := "\n레벨 %d → %d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
 		tier_hint = "\n레벨 %d — 최대 강화" % Evolutions.WEAPON_MAX_TIER
 	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
 		tier_hint = "\n레벨 %d — 보물 강화 가능" % Evolutions.EVOLUTION_TIER
+	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
+		tier_hint = "\n레벨 %d — 테크 선택 가능" % WeaponGrowthScript.TECH_UNLOCK_TIER
+	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
+	if not focus.is_empty():
+		tier_hint += "    " + focus
 	match upgrade_id:
 		"weapon_power":
-			return "피해 %.1f → %.1f%s\n한 번에 더 큰 피해" % [float(state["damage"]), float(state["damage"]) * _weapon_power_step(tier), tier_hint]
+			return "피해 %.1f → %.1f%s\n한 번에 더 큰 피해" % [float(state["damage"]), float(state["damage"]) * WeaponGrowthScript.power_step(state), tier_hint]
 		"weapon_rate":
-			return "발동 %.2f초 → %.2f초%s\n더 자주 공격" % [float(state["cooldown"]), maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP), tier_hint]
+			return "발동 %.2f초 → %.2f초%s\n더 자주 공격" % [float(state["cooldown"]), WeaponGrowthScript.next_cooldown(state), tier_hint]
 		"special_a", "special_b":
-			var spec := _special_spec(weapon_id, upgrade_id.substr(upgrade_id.length() - 1))
+			var key := upgrade_id.substr(upgrade_id.length() - 1)
+			var spec := _special_spec(state, key)
 			if not spec.is_empty():
-				return _special_preview(spec, state) + tier_hint
+				return _special_preview(spec, state, key) + tier_hint
 	return "현재 능력을 강화합니다."
+
+
+## The names of the growth axes a route leans on, as the card and the lobby say
+## them: "화력 · 연쇄" rather than a list of upgrade ids.
+func _tech_axes_text(state: Dictionary, tech: Dictionary) -> String:
+	var axes: Array = tech.get("upgrades", [])
+	if axes.size() >= 4:
+		return "균형"
+	var preview := state.duplicate()
+	WeaponTechs.apply_to_state(preview, tech)
+	var names: Array[String] = []
+	for axis: String in axes:
+		match axis:
+			"weapon_power": names.append("화력")
+			"weapon_rate": names.append("속도")
+			_:
+				var spec := _special_spec(preview, axis.substr(axis.length() - 1))
+				names.append(String(spec.get("label", spec.get("title", "고유"))))
+	return " · ".join(names)
 
 
 func _tech_focus(tech: Dictionary) -> String:
@@ -4836,11 +4646,18 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var upgrade_id := String(option["id"])
 	if upgrade_id == "choose_tech":
 		weapon_controller.clear_sustained_for_player(player_slot)
-		WeaponTechs.apply_to_state(weapon_loadouts[player_slot][int(option["weapon_slot"])], option["tech"] as Dictionary)
+		var route_slot := int(option["weapon_slot"])
+		var route: Dictionary = option["tech"]
+		WeaponTechs.apply_to_state(weapon_loadouts[player_slot][route_slot], route)
+		# Choosing a route takes a whole growth hand, so it pays one step on the
+		# route's own lead axis. Without it every weapon cost a card more than it
+		# used to, and over a run that was measured as a third fewer enhancements.
+		_apply_upgrade(player_slot, {"id": _route_lead_axis(player_slot, route_slot, route), "weapon_slot": route_slot})
 		return
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
 		var new_state := _build_weapon_state(character)
+		# Older callers (chest fixtures, saved tests) may still hand a route in.
 		if option.has("tech"):
 			WeaponTechs.apply_to_state(new_state, option["tech"] as Dictionary)
 		weapon_loadouts[player_slot].append(new_state)
@@ -4871,66 +4688,73 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		var treasure: Dictionary = option["treasure"]
 		var state := Treasures.build_state(treasure)
 		treasure_loadouts[player_slot].append(state)
-		_apply_attribute(player_slot, String(state["id"]))
+		_apply_attribute(player_slot, String(state["id"]), 1)
 		return
 	if upgrade_id == "treasure_upgrade":
 		var carried: Dictionary = treasure_loadouts[player_slot][int(option["treasure_slot"])]
 		carried["tier"] = int(carried["tier"]) + 1
-		_apply_attribute(player_slot, String(carried["id"]))
+		_apply_attribute(player_slot, String(carried["id"]), int(carried["tier"]))
 		return
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
-	var weapon_id := String(state["weapon_id"])
+	# A weapon waiting on its route takes no more tiers until it has one; the
+	# growth hand asks for the route first, and a chest never offers the card.
+	if WeaponGrowthScript.needs_tech(state):
+		return
 	match upgrade_id:
 		"weapon_power":
-			state["damage"] = float(state["damage"]) * _weapon_power_step(int(state.get("tier", 1)))
+			state["damage"] = float(state["damage"]) * WeaponGrowthScript.power_step(state)
 		"weapon_rate":
-			state["cooldown"] = maxf(0.32, float(state["cooldown"]) * WEAPON_RATE_STEP)
+			state["cooldown"] = WeaponGrowthScript.next_cooldown(state)
 		"special_a", "special_b":
 			var key := upgrade_id.substr(upgrade_id.length() - 1)
-			var spec := _special_spec(weapon_id, key)
+			var spec := _special_spec(state, key)
 			if not spec.is_empty() and String(spec.get("target", "weapon")) == "run":
-				chain_max_length = _special_next(spec, chain_max_length)
+				chain_max_length = _special_next(spec, chain_max_length, _special_scale(state, spec, key))
 			else:
 				apply_special_to_state(state, key)
 	if upgrade_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
 		state["tier"] = mini(Evolutions.WEAPON_MAX_TIER, int(state.get("tier", 1)) + 1)
+		if _assign_only_route(state):
+			_show_message("%s    %s 테크 자동 선택" % [String(state["weapon_name"]), String(state["tech_name"])], Color("80ed99"))
 
 
-## Applies an attribute card and reports whether it handled the id, so
-## _apply_upgrade can fall through to the weapon-slot path for everything else.
-func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
+## Applies the step of a treasure into `tier` and reports whether it handled the
+## id, so _apply_upgrade can fall through to the weapon-slot path for everything
+## else. How much a step is worth grows with the tier (TreasureCatalog.TIER_WEIGHTS).
+func _apply_attribute(player_slot: int, upgrade_id: String, tier := 1) -> bool:
 	var player := players[player_slot]
+	var step := Treasures.increment(upgrade_id, tier)
 	match upgrade_id:
 		"move":
-			player.move_speed *= 1.05
+			player.move_speed *= 1.0 + step
 		"vitality":
-			player.max_health += 12.0
-			player.heal(12.0)
+			player.max_health += step
+			player.heal(step)
 		"might":
-			player.might += 0.09
+			player.might += step
 		"area":
-			player.area += 0.09
+			player.area += step
 		"amount":
-			player.amount += 1
+			player.amount += roundi(step)
 		"haste":
-			player.haste = maxf(0.6, player.haste - 0.06)
+			player.haste = maxf(HASTE_FLOOR, player.haste - step)
 		"projectile_speed":
-			player.projectile_speed += 0.10
+			player.projectile_speed += step
 		"duration":
-			player.duration += 0.10
+			player.duration += step
 		"armor":
-			player.armor += 1.5
+			player.armor += step
 		"recovery":
-			player.recovery += 0.5
+			player.recovery += step
 		"crit":
-			player.crit_chance = minf(0.60, player.crit_chance + 0.05)
+			player.crit_chance = minf(CRIT_CAP, player.crit_chance + step)
 		"pierce":
-			player.pierce += 1
+			player.pierce += roundi(step)
 		"thorns":
-			player.thorns += 0.10
+			player.thorns += step
 		"resolve":
-			player.resolve += 3.0
+			player.resolve += step
 		"overcharge", "greed", "magnet", "growth", "luck", "lifesteal", "catnip", "bounty_bell", "twin_charm", "dash_claw":
 			# Shared effects are recomputed from what the pair is carrying rather
 			# than added to as they are picked, because what one copy is worth now
@@ -4943,12 +4767,16 @@ func _apply_attribute(player_slot: int, upgrade_id: String) -> bool:
 					_lifesteal_tiers() * LIFESTEAL_BURST_CAP_PER_TIER,
 					lifesteal_charge + LIFESTEAL_BURST_CAP_PER_TIER)
 		"lucky_paw":
-			player.dodge_chance = minf(0.45, player.dodge_chance + 0.03)
+			player.dodge_chance = minf(0.45, player.dodge_chance + step)
 		"nine_lives":
-			player.second_chances += 1
+			player.second_chances += roundi(step)
 		_:
 			return false
 	return true
+
+
+const HASTE_FLOOR := 0.6
+const CRIT_CAP := 0.60
 
 
 func focused_growth_slot() -> int:
@@ -4961,188 +4789,15 @@ func focused_growth_slot() -> int:
 
 func _refresh_level_up_ui() -> void:
 	CoopSelectionUI.restore(self)
-	level_title.text = "성장 선택   /   LV.%02d" % progression.level
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
-	_refresh_team_stats_ui()
 	CoopSelectionUI.refresh(self)
 
 
+## Per-hand state the cards do not paint themselves: tooltips and the reroll
+## button. The cards are laid out and painted by NeonGrowthUI.
 func _refresh_player_cards(player_index: int) -> void:
-	var slot := player_index - 1
-	var choices := p1_choices if player_index == 1 else p2_choices
-	var cards: Array = level_card_labels[slot]
-	var complete := selected_upgrade_indices[slot] == -2
-	var locked := selected_upgrade_indices[slot] >= 0
-	var accent := CatTheme.P1 if player_index == 1 else CatTheme.P2
-
-	for index in cards.size():
-		var card: Label = cards[index]
-		var option: Dictionary = choices[index] if index < choices.size() else {}
-		var has_option := not option.is_empty()
-		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
-		var is_unlock := String(option.get("id", "")) == "unlock_weapon"
-		var is_focused := not locked and not complete and index == upgrade_cursors[slot]
-		var is_chosen := locked and index == selected_upgrade_indices[slot]
-		var is_recommended := bool(option.get("recommended", false))
-		var is_discouraged := bool(option.get("discouraged", false))
-
-		# Preserve the hand after confirmation so the locked choice remains in
-		# context while its partner is still deciding.
-		card.visible = has_option
-		card.text = "%s\n%s" % [String(option.get("title", "")), String(option.get("description", ""))]
-		var icon := card.get_node("Icon") as TextureRect
-		icon.texture = IconCatalog.upgrade(_option_icon_id(slot, option), _option_weapon_id(slot, option))
-		var fusion_mark := card.get_node("FusionMark") as TextureRect
-		var partner := _fusion_partner_for_option(slot, option)
-		fusion_mark.visible = has_option and not partner.is_empty()
-		fusion_mark.texture = partner.get("texture")
-		fusion_mark.tooltip_text = "%s의 힘으로 무기가 강화됩니다." % String(partner.get("name", ""))
-		# The reason lives on the badge instead of as a fourth line of body copy:
-		# it explains the star, so it belongs to the star.
-		var recommendation := card.get_node("Recommendation") as Label
-		recommendation.visible = is_recommended or is_discouraged
-		if is_discouraged:
-			recommendation.text = "▽ %s" % String(option.get("discouragement_reason", ""))
-		else:
-			recommendation.text = "★ %s" % String(option.get("recommendation_reason", ""))
-
-		var border := accent
-		var tech_tint := Color.TRANSPARENT
-		if String(option.get("id", "")) == "choose_tech":
-			tech_tint = {
-				"force": Color("ff8e72"), "tempo": Color("67c8ff"),
-				"control": Color("80ed99"), "balanced": CatTheme.GOLD,
-			}.get(String((option["tech"] as Dictionary).get("profile", "balanced")), CatTheme.GOLD)
-		if level_up_input_delay > 0.0:
-			# Visibly inert until input opens, so the pause reads as deliberate
-			# rather than as the game ignoring a keypress.
-			style.bg_color = CatTheme.PANEL
-			style.border_color = CatTheme.OUTLINE
-			style.set_border_width_all(CatTheme.BORDER)
-		elif is_chosen:
-			style.bg_color = CatTheme.CARD.lerp(
-				tech_tint if tech_tint.a > 0.0 else border, 0.13)
-			style.border_color = border
-			style.set_border_width_all(CatTheme.BORDER_ACTIVE)
-		elif is_focused:
-			style.bg_color = CatTheme.CARD.lerp(
-				tech_tint if tech_tint.a > 0.0 else border, 0.12)
-			style.border_color = Color(border, 0.9)
-			style.set_border_width_all(CatTheme.BORDER_ACTIVE)
-		else:
-			style.bg_color = CatTheme.PANEL if locked else (
-				CatTheme.CARD.lerp(tech_tint, 0.07) if tech_tint.a > 0.0 else CatTheme.CARD)
-			style.border_color = Color(
-				tech_tint if tech_tint.a > 0.0 else CatTheme.OUTLINE,
-				0.45 if locked else 0.72 if tech_tint.a > 0.0 else 1.0)
-			style.set_border_width_all(CatTheme.BORDER)
-		# Opaque cards are essential in an overlapping hand: dim RGB, not alpha.
-		style.bg_color.a = 1.0
-		card.modulate = Color(0.94, 0.94, 0.94, 1.0) if locked and not is_chosen else Color.WHITE
-		style.border_width_top = 4 if is_chosen or is_focused else CatTheme.BORDER
-	_refresh_level_build_icons(slot)
-	var footer: Label = p1_level_footer if player_index == 1 else p2_level_footer
-	var character := selected_characters[slot]
-	var lines: Array[String] = [
-		"%s %s" % [player_label(player_index - 1), String(character["name"])],
-		"무기 %d/%d    보물 %d/%d" % [
-			weapon_loadouts[slot].size(), WEAPON_LOADOUT_CAP,
-			treasure_loadouts[slot].size(), TREASURE_LOADOUT_CAP,
-		],
-	]
-	if level_up_input_delay > 0.0:
-		lines.append("잠시 후 선택할 수 있습니다")
-	elif complete:
-		lines.append("✓ 빌드 완성 — 상대의 마지막 성장을 기다리는 중")
-	elif locked:
-		lines.append("✓ 확정 — 상대를 기다리는 중 (취소 가능)")
-	else:
-		var keys := ["LB/RB", "A", "B"] if last_input_gamepad[slot] else (["A/D", "W", "S"] if player_index == 1 else ["←/→", "↑", "↓"])
-		var reroll_key := "Y" if last_input_gamepad[slot] else ("Q" if player_index == 1 else "/")
-		lines.append("%s 이동   %s 확정   %s 취소" % [keys[0], keys[1], keys[2]])
-		lines.append("%s 재추첨 %d/%d회   %d레벨마다 충전" % [
-			reroll_key, rerolls_remaining[slot], REROLL_CAP, REROLL_PER_LEVELS,
-		])
-	footer.text = "\n".join(lines)
-	EditorialUI.refresh_growth(self, slot)
-	_layout_level_cards(slot)
-
-
-## One survivor's hand, laid out as a fan.
-##
-## Cards used to sit in a flat row, and a lucky fourth one re-flowed the whole
-## hand into a two-by-two grid — so the shape of the screen changed depending on
-## a luck roll, and a player's eye had to find the cards again. A fan holds its
-## shape: the middle card is upright and centred, its neighbours step out,
-## tilt away and sink, and a fourth card tightens the spacing without shrinking
-## the artwork or text. The card under the cursor lifts clear of its neighbours and
-## comes upright, which is what makes an overlapping hand readable.
-func _layout_level_cards(slot: int) -> void:
-	# Once the full-screen neon hand is installed it owns card motion. Reapplying
-	# the legacy half-screen fan before every hover caused visible snapping.
-	if level_overlay.has_node("NeonHint"):
-		return
-	var choices: Array = p1_choices if slot == 0 else p2_choices
-	var cards: Array = level_card_labels[slot]
-	var count := choices.size()
-	if count <= 0:
-		return
-	var card_width: float = LEVEL_CARD_WIDTH
-	var spread := minf(LEVEL_FAN_MAX_SPREAD, LEVEL_FAN_SPAN / maxf(1.0, float(count - 1)))
-	var centre: float = LEVEL_HALF_X[slot] + LEVEL_FAN_CENTER_X
-	var middle := float(count - 1) * 0.5
-	var focused := selected_upgrade_indices[slot] if selected_upgrade_indices[slot] >= 0 else upgrade_cursors[slot]
-	for index in cards.size():
-		var card := cards[index] as Label
-		if not card.visible:
-			continue
-		_layout_level_card_contents(card)
-		card.size = Vector2(card_width, LEVEL_CARD_HEIGHT)
-		# The pivot sits below the card, so the tilt reads as a card held in a
-		# hand rather than as a sheared rectangle.
-		card.pivot_offset = Vector2(card_width * 0.5, LEVEL_FAN_PIVOT_Y)
-		var offset := float(index) - middle
-		var raised := index == focused
-		card.rotation = 0.0 if raised else offset / maxf(middle, 1.0) * LEVEL_FAN_MAX_ANGLE
-		card.scale = Vector2.ONE
-		card.z_index = 4 if raised else 1
-		card.position = Vector2(
-			centre + offset * spread - card_width * 0.5,
-			LEVEL_CARD_Y + (0.0 if raised else 8.0 + absf(offset) * 6.0))
-
-
-func _layout_level_card_contents(card: Label) -> void:
-	var style := card.get_theme_stylebox("normal") as StyleBoxFlat
-	var icon := card.get_node("Icon") as TextureRect
-	var fusion_mark := card.get_node("FusionMark") as TextureRect
-	var scope := card.get_node("Scope") as Label
-	var category := card.get_node("Category") as Label
-	var title := card.get_node("CardTitle") as Label
-	var recommendation := card.get_node("Recommendation") as Label
-	# Keep identical content geometry at every hand size; focus exposes the card.
-	var width: float = LEVEL_CARD_WIDTH
-	var art: float = 64.0
-	style.content_margin_left = 16.0
-	style.content_margin_right = 16.0
-	style.content_margin_top = 152.0
-	style.content_margin_bottom = 12.0 if bool(card.get_meta("tech_card", false)) else 44.0
-	icon.position = Vector2(12.0, 14.0)
-	icon.size = Vector2(art, art)
-	fusion_mark.position = Vector2(width - 42.0, 9.0)
-	fusion_mark.size = Vector2(32.0, 32.0)
-	scope.position = Vector2(12.0, 82.0)
-	scope.size = Vector2(width - 24.0, 20.0)
-	scope.add_theme_font_size_override("font_size", 12)
-	category.position = Vector2(86.0, 42.0)
-	category.size = Vector2(width - 98.0, 28.0)
-	category.visible = true
-	title.position = Vector2(14.0, 106.0)
-	title.size = Vector2(width - 28.0, 38.0)
-	title.add_theme_font_size_override("font_size", 20)
-	recommendation.position = Vector2(9.0, LEVEL_CARD_HEIGHT - 35.0)
-	recommendation.size = Vector2(width - 18.0, 28.0)
-	card.add_theme_font_size_override("font_size", 16)
+	EditorialUI.refresh_growth(self, player_index - 1)
 
 
 ## Which atlas entry a card should show. Treasure ids are deliberately the same
@@ -5198,7 +4853,7 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 
 	if not weapon_id.is_empty():
 		var state: Dictionary = weapon_loadouts[slot][int(option.get("weapon_slot", -1))]
-		var basic := _selected_evolution_for_state(state)
+		var basic := _selected_evolution_for_state(state) if not String(state.get("tech_id", "")).is_empty() else {}
 		if not basic.is_empty():
 			var wanted_treasure := String(basic["treasure_id"])
 			if _treasure_tier(slot, wanted_treasure) > 0:
@@ -5207,93 +4862,12 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 
 	if not treasure_id.is_empty():
 		for owned: Dictionary in weapon_loadouts[slot]:
-			if bool(owned.get("evolved", false)):
+			if bool(owned.get("evolved", false)) or String(owned.get("tech_id", "")).is_empty():
 				continue
 			var evolution := _selected_evolution_for_state(owned)
 			if String(evolution.get("treasure_id", "")) == treasure_id:
 				return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(String(owned["weapon_id"]))}
 	return {}
-
-
-## Draws what this survivor is carrying as two rows of icons: weapons on top,
-## treasures under them, empty slots shown as empty. This replaced two lines of
-## attribute numbers that nobody could read mid-decision.
-func _refresh_level_build_icons(slot: int) -> void:
-	level_portrait_icons[slot].texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
-	var choices: Array = p1_choices if slot == 0 else p2_choices
-	var preview_index := selected_upgrade_indices[slot] if selected_upgrade_indices[slot] >= 0 else upgrade_cursors[slot]
-	var option: Dictionary = choices[preview_index] if preview_index >= 0 and preview_index < choices.size() else {}
-	var weapon_target := -1
-	var treasure_target := -1
-	var preview_weapon: Dictionary = {}
-	var preview_treasure: Dictionary = {}
-	var option_id := String(option.get("id", ""))
-	if option_id == "unlock_weapon":
-		weapon_target = weapon_loadouts[slot].size()
-		preview_weapon = _build_weapon_state(option["character"])
-	elif int(option.get("weapon_slot", -1)) >= 0:
-		weapon_target = int(option["weapon_slot"])
-	if option_id == "unlock_treasure":
-		treasure_target = treasure_loadouts[slot].size()
-		preview_treasure = Treasures.build_state(option["treasure"])
-	elif option_id == "treasure_upgrade":
-		treasure_target = int(option["treasure_slot"])
-	elif option_id == "evolve_weapon":
-		var material_id := String((option["evolution"] as Dictionary)["treasure_id"])
-		for index in treasure_loadouts[slot].size():
-			if String(treasure_loadouts[slot][index]["id"]) == material_id:
-				treasure_target = index
-				break
-	_refresh_icon_row(level_weapon_icons[slot], weapon_loadouts[slot], true, weapon_target, preview_weapon, option_id, slot)
-	_refresh_icon_row(level_treasure_icons[slot], treasure_loadouts[slot], false, treasure_target, preview_treasure, option_id, slot)
-
-
-func _refresh_icon_row(icons: Array, carried: Array, is_weapon: bool, preview_index := -1, preview_entry: Dictionary = {}, option_id := "", slot := 0) -> void:
-	for index in icons.size():
-		var icon := icons[index] as TextureRect
-		var tier := icon.get_node("Tier") as Label
-		var socket := icon.get_parent() as Panel
-		var highlighted := index == preview_index
-		var socket_style := _slot_placeholder_style()
-		socket_style.bg_color = CatTheme.CARD if index < carried.size() else Color(CatTheme.NIGHT_RAISED, 0.55)
-		socket_style.border_color = (CatTheme.P1 if slot == 0 else CatTheme.P2) if highlighted else Color(CatTheme.OUTLINE, 0.45 if index >= carried.size() else 0.9)
-		socket_style.set_border_width_all(CatTheme.BORDER_ACTIVE if highlighted else 1)
-		socket.add_theme_stylebox_override("panel", socket_style)
-		icon.modulate = Color(1.0, 1.0, 1.0, 0.82 if highlighted and index >= carried.size() else 1.0)
-		if index >= carried.size():
-			# An empty slot is information: it is how many commitments are left.
-			if highlighted and not preview_entry.is_empty():
-				icon.texture = IconCatalog.weapon(String(preview_entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(preview_entry["id"]))
-				tier.visible = true
-				tier.text = "신규"
-			else:
-				icon.texture = null
-				tier.visible = false
-			continue
-		var entry: Dictionary = carried[index]
-		icon.texture = IconCatalog.weapon(String(entry["weapon_id"])) if is_weapon else IconCatalog.upgrade(String(entry["id"]))
-		tier.visible = true
-		var current_tier := int(entry.get("tier", 1))
-		var resonating := is_weapon and resonance_system.is_bound(slot, index)
-		if resonating:
-			icon.modulate = Color(0.62, 0.78, 1.0, 0.78)
-		if highlighted and option_id == "evolve_weapon" and is_weapon:
-			tier.text = "진화"
-		elif highlighted and ((is_weapon and option_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]) or (not is_weapon and option_id == "treasure_upgrade")):
-			tier.text = "%d→%d" % [current_tier, current_tier + 1]
-		elif resonating:
-			# The weapon is not idle, it is busy being half of a resonance. The
-			# tier gives way to the word here rather than sitting beside it: this
-			# caption shares a 26px socket, and the build details panel is where
-			# a silenced weapon's level is spelled out.
-			tier.text = "공명"
-		else:
-			tier.text = "Lv.%d" % current_tier
-## The old team-wide recipe strip stays empty so it cannot compete with the
-## cards. Each tech card and the optional detail view show its route with the
-## real final-form and treasure names.
-func _refresh_team_stats_ui() -> void:
-	team_stats_label.text = ""
 
 
 ## The nearest final form this survivor can reach through the selected tech.
@@ -5305,6 +4879,14 @@ func _fusion_progress_line(slot: int) -> String:
 	for weapon in weapon_loadouts[slot]:
 		if bool(weapon.get("evolved", false)):
 			fused.append(String(weapon["weapon_name"]))
+			continue
+		if String(weapon.get("tech_id", "")).is_empty():
+			# Below the route gate the next step is the route, not a material.
+			var untyped_progress := minf(1.0, float(int(weapon.get("tier", 1))) / float(WeaponGrowthScript.TECH_UNLOCK_TIER)) * 0.4
+			if untyped_progress > best_progress:
+				best_progress = untyped_progress
+				best = "%s %d/%d → 테크 선택" % [String(weapon["weapon_name"]),
+					mini(int(weapon.get("tier", 1)), WeaponGrowthScript.TECH_UNLOCK_TIER), WeaponGrowthScript.TECH_UNLOCK_TIER]
 			continue
 		var evolution := _selected_evolution_for_state(weapon)
 		if evolution.is_empty():
@@ -5542,16 +5124,6 @@ func _resonance_trade_power(resonance: Dictionary) -> float:
 	return total * 0.5 * ResonanceSystem.TRADE_POWER
 
 
-## What one 화력 card multiplies a weapon's damage by, given the tier it is
-## leaving. Flat up to WEAPON_LATE_TIER and a fraction of a step above it: the
-## ladder is five rungs longer than it was, and paying a full 28% for every one
-## of them would end a run at fifteen times the opening damage instead of four.
-func _weapon_power_step(tier: int) -> float:
-	if tier < WEAPON_LATE_TIER:
-		return WEAPON_POWER_STEP
-	return 1.0 + (WEAPON_POWER_STEP - 1.0) * WEAPON_LATE_STEP_SHARE
-
-
 func _weapon_interval(player_index: int, weapon_slot: int) -> float:
 	var base := float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
 	var frenzy_rate := FRENZY_ATTACK_SPEED if frenzy_remaining > 0.0 else 1.0
@@ -5666,13 +5238,7 @@ func _run_stats_summary() -> String:
 
 
 func _reset_run_stats() -> void:
-	run_stats = {
-		"bosses": 0, "revives": 0, "dashes": 0, "overcharge_time": 0.0,
-		"overloads": 0, "resonance_casts": 0, "items": 0, "reflected": 0.0,
-		"planters": 0, "xp_by_player": [0, 0], "personal_levels": [1, 1],
-		"items_by_player": [0, 0], "items_by_type": {}, "weapon_damage": [{}, {}],
-		"resonance_damage": 0.0,
-	}
+	run_stats = RunStatsTemplate.create()
 
 
 func _personal_level_for_xp(total_xp: int) -> int:
@@ -5730,33 +5296,39 @@ func _item_count_summary() -> String:
 	return "획득 없음" if parts.is_empty() else "   ".join(parts)
 
 
+const NOTICE_CAP := 10
+const NOTICE_WIDTH := 440.0
+const NOTICE_PITCH := 19.0
+## Bottom edge of the newest notice: just above the XP bar at y=690.
+const NOTICE_BOTTOM := 684.0
+
+
 func _show_message(text: String, color: Color) -> void:
 	message_label.text = text # Last event remains available to accessibility/tests.
 	message_label.modulate.a = 0.0
 	for index in range(notice_stack.size() - 1, -1, -1):
 		if not is_instance_valid(notice_stack[index]) or notice_stack[index].is_queued_for_deletion():
 			notice_stack.remove_at(index)
-	if notice_stack.size() >= 4:
+	if notice_stack.size() >= NOTICE_CAP:
 		notice_stack.pop_front().queue_free()
+	# A running log in the bottom-right corner: bare outlined text, right-aligned,
+	# newest at the bottom just above the XP bar, older lines climbing above it.
 	var notice := Label.new()
 	notice.text = text.replace("\n", "    ")
-	notice.size = Vector2(372, 48)
-	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	notice.size = Vector2(NOTICE_WIDTH, NOTICE_PITCH)
 	notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	notice.clip_text = true
-	notice.add_theme_font_size_override("font_size", 16)
-	var notice_style := CatTheme.surface(Color("19393e"), 8)
-	notice_style.border_color = Color("36565b")
-	notice_style.content_margin_left = 10
-	notice_style.content_margin_right = 10
-	notice.add_theme_stylebox_override("normal", notice_style)
+	notice.add_theme_font_size_override("font_size", 13)
 	notice.add_theme_color_override("font_color", color)
+	notice.add_theme_color_override("font_outline_color", Color(0.02, 0.035, 0.07, 0.92))
+	notice.add_theme_constant_override("outline_size", 4)
 	notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	message_label.get_parent().add_child(notice)
 	notice_stack.append(notice)
 	for index in notice_stack.size():
-		notice_stack[index].position = Vector2(886, 168 + index * 52)
+		notice_stack[index].position = Vector2(1280.0 - 16.0 - NOTICE_WIDTH,
+			NOTICE_BOTTOM - float(notice_stack.size() - index) * NOTICE_PITCH)
 	var tween := create_tween()
 	tween.tween_interval(3.0)
 	tween.tween_property(notice, "modulate:a", 0.0, 0.65)
@@ -5839,117 +5411,4 @@ func _end_run(victory: bool = false, grant_rewards := true) -> void:
 
 
 func _setup_input_map() -> void:
-	_add_key_action("build_details", KEY_TAB)
-	_add_key_action("menu_previous", KEY_UP)
-	_add_key_action("menu_previous", KEY_W)
-	_add_key_action("menu_next", KEY_DOWN)
-	_add_key_action("menu_next", KEY_S)
-	_add_key_action("menu_left", KEY_LEFT)
-	_add_key_action("menu_left", KEY_A)
-	_add_key_action("menu_right", KEY_RIGHT)
-	_add_key_action("menu_right", KEY_D)
-	_add_key_action("menu_confirm", KEY_ENTER)
-	_add_key_action("menu_cancel", KEY_BACKSPACE)
-	for device in 2:
-		_add_joy_button("build_details", device, JOY_BUTTON_X)
-		_add_joy_button("menu_previous", device, JOY_BUTTON_DPAD_UP)
-		_add_joy_button("menu_next", device, JOY_BUTTON_DPAD_DOWN)
-		_add_joy_button("menu_left", device, JOY_BUTTON_DPAD_LEFT)
-		_add_joy_button("menu_right", device, JOY_BUTTON_DPAD_RIGHT)
-		_add_joy_button("menu_confirm", device, JOY_BUTTON_A)
-		_add_joy_button("menu_cancel", device, JOY_BUTTON_B)
-	_add_key_action("p1_left", KEY_A)
-	_add_key_action("p1_right", KEY_D)
-	_add_key_action("p1_up", KEY_W)
-	_add_key_action("p1_down", KEY_S)
-	_add_key_action("p2_left", KEY_LEFT)
-	_add_key_action("p2_right", KEY_RIGHT)
-	_add_key_action("p2_up", KEY_UP)
-	_add_key_action("p2_down", KEY_DOWN)
-	_add_key_action("restart", KEY_ENTER)
-	_add_key_action("pause", KEY_ESCAPE)
-	_add_key_action("toggle_shake", KEY_F1)
-	_add_key_action("toggle_numbers", KEY_F2)
-	_add_key_action("toggle_sound", KEY_F3)
-	_add_key_action("toggle_music", KEY_F4)
-	_add_key_action("toggle_fullscreen", KEY_F11)
-	_add_key_action("toggle_moonlight", KEY_F12)
-	_add_key_action("p1_choice_1", KEY_A)
-	_add_key_action("p1_choice_2", KEY_S)
-	_add_key_action("p1_choice_3", KEY_D)
-	_add_key_action("p2_choice_1", KEY_LEFT)
-	_add_key_action("p2_choice_2", KEY_DOWN)
-	_add_key_action("p2_choice_3", KEY_RIGHT)
-	_add_key_action("p1_select_previous", KEY_A)
-	_add_key_action("p1_select_next", KEY_D)
-	_add_key_action("p1_select_confirm", KEY_W)
-	_add_key_action("p1_select_cancel", KEY_S)
-	_add_key_action("p2_select_previous", KEY_LEFT)
-	_add_key_action("p2_select_next", KEY_RIGHT)
-	_add_key_action("p2_select_confirm", KEY_UP)
-	_add_key_action("p2_select_cancel", KEY_DOWN)
-	_add_key_action("p1_reroll", KEY_Q)
-	_add_key_action("p2_reroll", KEY_SLASH)
-	_add_key_action("p1_dash", KEY_SPACE)
-	_add_key_action("p2_dash", KEY_PERIOD)
-	_add_key_action("meta_buy", KEY_SPACE)
-	_add_joy_axis("p1_left", 0, JOY_AXIS_LEFT_X, -1.0)
-	_add_joy_axis("p1_right", 0, JOY_AXIS_LEFT_X, 1.0)
-	_add_joy_axis("p1_up", 0, JOY_AXIS_LEFT_Y, -1.0)
-	_add_joy_axis("p1_down", 0, JOY_AXIS_LEFT_Y, 1.0)
-	_add_joy_axis("p2_left", 1, JOY_AXIS_LEFT_X, -1.0)
-	_add_joy_axis("p2_right", 1, JOY_AXIS_LEFT_X, 1.0)
-	_add_joy_axis("p2_up", 1, JOY_AXIS_LEFT_Y, -1.0)
-	_add_joy_axis("p2_down", 1, JOY_AXIS_LEFT_Y, 1.0)
-	_add_joy_button("p1_choice_1", 0, JOY_BUTTON_X)
-	_add_joy_button("p1_choice_2", 0, JOY_BUTTON_A)
-	_add_joy_button("p1_choice_3", 0, JOY_BUTTON_B)
-	_add_joy_button("p2_choice_1", 1, JOY_BUTTON_X)
-	_add_joy_button("p2_choice_2", 1, JOY_BUTTON_A)
-	_add_joy_button("p2_choice_3", 1, JOY_BUTTON_B)
-	_add_joy_button("p1_select_previous", 0, JOY_BUTTON_LEFT_SHOULDER)
-	_add_joy_button("p1_select_next", 0, JOY_BUTTON_RIGHT_SHOULDER)
-	_add_joy_button("p1_select_confirm", 0, JOY_BUTTON_A)
-	_add_joy_button("p1_select_cancel", 0, JOY_BUTTON_B)
-	_add_joy_button("p2_select_previous", 1, JOY_BUTTON_LEFT_SHOULDER)
-	_add_joy_button("p2_select_next", 1, JOY_BUTTON_RIGHT_SHOULDER)
-	_add_joy_button("p2_select_confirm", 1, JOY_BUTTON_A)
-	_add_joy_button("p2_select_cancel", 1, JOY_BUTTON_B)
-	_add_joy_button("pause", 0, JOY_BUTTON_START)
-	_add_joy_button("pause", 1, JOY_BUTTON_START)
-	_add_joy_button("restart", 0, JOY_BUTTON_A)
-	_add_joy_button("restart", 1, JOY_BUTTON_A)
-	_add_joy_button("p1_reroll", 0, JOY_BUTTON_Y)
-	_add_joy_button("p2_reroll", 1, JOY_BUTTON_Y)
-	_add_joy_button("meta_buy", 0, JOY_BUTTON_Y)
-	_add_joy_button("meta_buy", 1, JOY_BUTTON_Y)
-	# The right trigger is the only pad control still free, and it is where a
-	# dash sits on most games anyway.
-	_add_joy_axis("p1_dash", 0, JOY_AXIS_TRIGGER_RIGHT, 1.0)
-	_add_joy_axis("p2_dash", 1, JOY_AXIS_TRIGGER_RIGHT, 1.0)
-
-
-func _add_key_action(action: StringName, physical_keycode: int) -> void:
-	if not InputMap.has_action(action):
-		InputMap.add_action(action)
-	var event := InputEventKey.new()
-	event.physical_keycode = physical_keycode
-	if not InputMap.action_has_event(action, event):
-		InputMap.action_add_event(action, event)
-
-
-func _add_joy_axis(action: StringName, device: int, axis: int, value: float) -> void:
-	var event := InputEventJoypadMotion.new()
-	event.device = device
-	event.axis = axis
-	event.axis_value = value
-	if not InputMap.action_has_event(action, event):
-		InputMap.action_add_event(action, event)
-
-
-func _add_joy_button(action: StringName, device: int, button: int) -> void:
-	var event := InputEventJoypadButton.new()
-	event.device = device
-	event.button_index = button
-	if not InputMap.action_has_event(action, event):
-		InputMap.action_add_event(action, event)
+	InputBindings.install()

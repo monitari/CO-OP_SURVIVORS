@@ -311,11 +311,8 @@ func _test_layout(main: Node) -> void:
 	_check(not main.world_camera.position_smoothing_enabled,
 		"only the manual camera lerp smooths the view")
 	# Cards at 142px fit about seven Korean glyphs a line.
-	_check(main.LEVEL_CARD_WIDTH >= 165.0,
-		"level-up cards are wide enough for Korean text (%.0f)" % main.LEVEL_CARD_WIDTH)
-	var half_width: float = main.LEVEL_CARD_WIDTH * 3.0 + main.LEVEL_CARD_GAP * 2.0
-	_check(596.0 + half_width <= main.level_overlay.size.x,
-		"both card halves fit inside the overlay (%.0f of %.0f)" % [596.0 + half_width, main.level_overlay.size.x])
+	_check(main.CardVisual.CARD_SIZE.x >= 165.0,
+		"level-up cards are wide enough for Korean text (%.0f)" % main.CardVisual.CARD_SIZE.x)
 	var bounded_labels: Array = [
 		main.p1_status_label, main.p2_status_label, main.hud_label,
 		main.chain_status_label, main.resonance_status_label,
@@ -349,8 +346,6 @@ func _test_nothing_is_clipped(main: Node) -> void:
 	for slot in 2:
 		for index in 3:
 			_check_fits("P%d의 %d번 카드" % [slot + 1, index + 1], main.level_card_labels[slot][index])
-	_check_fits("P1 빌드 요약", main.p1_level_footer)
-	_check_fits("P2 빌드 요약", main.p2_level_footer)
 	main.level_up_active = false
 
 	main._end_run(true)

@@ -1,7 +1,6 @@
 extends RefCounted
 
 
-const Preview := preload("res://scripts/ui/survivor_preview.gd")
 const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const UI := preload("res://scripts/ui/editorial_ui.gd")
 
@@ -54,9 +53,6 @@ static func characters(main: Node) -> void:
 		screen.get_node("CharacterPanel%d" % slot).size.y = 376
 		for prefix in ["CharacterPrevious", "CharacterNext", "CatWeapon"]:
 			screen.get_node("%s%d" % [prefix, slot]).visible = prefix != "CatWeapon" or not detailed
-	var preview := screen.get_node_or_null("SurvivorPreview")
-	if preview != null:
-		preview.hide()
 	screen.get_node("ControlFooter").text = "A / D 또는 패드 좌우    선택    W / 패드 A    준비    ESC    뒤로" if main.ai_companion or main.online.is_online() else "나 A / D    W 준비     동료 ← / →    ↑ 준비     ESC 뒤로"
 
 static func restore_characters(main: Node) -> void:

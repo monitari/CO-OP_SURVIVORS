@@ -103,19 +103,12 @@ static func apply(main: Node) -> void:
 	_title(main)
 	_lobby(main)
 	_characters(main)
-	_growth(main)
 	_results(main)
 	_pause(main)
 	_hud(main)
 	_resonance(main)
 	main.pause_label.add_theme_color_override("font_color", Palette.INK)
 	main.result_label.add_theme_color_override("font_color", Palette.INK)
-	main.team_stats_label.add_theme_stylebox_override("normal", Palette.surface(Palette.PANEL))
-	main.team_stats_label.add_theme_color_override("font_color", Palette.MUTED)
-	for slot in 2:
-		for row in [main.level_weapon_icons[slot], main.level_treasure_icons[slot]]:
-			for item: TextureRect in row:
-				item.get_node("Tier").add_theme_color_override("font_color", Palette.CREAM)
 
 
 static func _reink(node: Node) -> void:
@@ -615,98 +608,21 @@ static func _animate_character_choice(panel: Control, name_label: Control,
 	tween.tween_property(name_label, "modulate:a", 1.0, 0.16)
 
 
-static func _growth(main: Node) -> void:
-	var screen: Control = main.level_overlay
-	# Only the two hands and a contextual reroll action remain on the field.
-	# Player ownership, scope and recommendation live on the cards themselves.
-	main.level_title.hide()
-	main.p1_level_footer.hide()
-	main.p2_level_footer.hide()
-	main.team_stats_label.hide()
-	for slot in 2:
-		for card: Label in main.level_card_labels[slot]:
-			card.add_theme_color_override("font_color", Palette.INK)
-			card.add_theme_font_size_override("font_size", Palette.TYPE_BODY)
-			card.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			var style := card.get_theme_stylebox("normal") as StyleBoxFlat
-			style.set_corner_radius_all(Palette.RADIUS)
-			# A fan overlaps, so a card needs an edge of its own rather than only
-			# a tint: without the drop shadow the three of them read as one shape.
-			style.shadow_color = Color(0.01, 0.02, 0.05, 0.45)
-			style.shadow_size = 4
-			style.shadow_offset = Vector2(0, 3)
-			var scope := label(card, "", Rect2(88, 14, 88, 26), 11, Palette.MUTED)
-			scope.name = "Scope"
-			scope.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-			var category := label(card, "", Rect2(90, 46, 88, 28), 13, Palette.MUTED)
-			category.name = "Category"
-			category.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			var title := label(card, "", Rect2(14, 78, 156, 46), Palette.TYPE_VALUE)
-			title.name = "CardTitle"
-			title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			var badge: Label = card.get_node("Recommendation")
-			badge.add_theme_color_override("font_color", Palette.P1)
-			badge.add_theme_stylebox_override("normal", Palette.surface(Palette.NIGHT_RAISED))
-			badge.add_theme_font_size_override("font_size", Palette.TYPE_CAPTION)
-		main.level_portrait_icons[slot].hide()
-		for row: Array in [main.level_weapon_icons[slot], main.level_treasure_icons[slot]]:
-			for art: TextureRect in row:
-				art.get_parent().hide()
-
-
+## What a hand needs beyond the painted cards: each card's tooltip, and the
+## reroll button's state. Layout and painting are NeonGrowthUI's.
 static func refresh_growth(main: Node, slot: int) -> void:
-	var screen: Control = main.level_overlay
 	var complete: bool = main.selected_upgrade_indices[slot] == -2
 	var locked: bool = main.selected_upgrade_indices[slot] >= 0
 	var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 	for index in choices.size():
 		var option: Dictionary = choices[index]
 		var card: Label = main.level_card_labels[slot][index]
-		var kind := String(option["id"])
-		card.set_meta("tech_card", kind == "choose_tech")
-		var category := card.get_node("Category") as Label
-		category.text = growth_category(option)
-		if kind == "choose_tech":
-			var profile := String((option["tech"] as Dictionary).get("profile", "balanced"))
-			category.add_theme_color_override("font_color", {
-				"force": Color("ff8e72"), "tempo": Color("67c8ff"),
-				"control": Color("80ed99"), "balanced": Palette.GOLD,
-			}.get(profile, Palette.MUTED))
-		else:
-			category.add_theme_color_override("font_color", Palette.MUTED)
-		var shared := false
-		if kind == "unlock_treasure":
-			shared = bool((option["treasure"] as Dictionary).get("shared", false))
-		elif kind == "treasure_upgrade":
-			shared = bool((main.treasure_loadouts[slot][int(option["treasure_slot"])] as Dictionary).get("shared", false))
-		card.get_node("Scope").text = (
-			"%s 테크" % main.player_label(slot) if kind == "choose_tech"
-			else "두 고양이에게 적용" if shared else "%s에게 적용" % main.player_label(slot))
-		card.get_node("CardTitle").text = growth_title(option)
-		card.text = compact_growth_description(option)
-		card.text = card.text.replace(", ", "\n").replace("출혈 시간", "구조 시간").replace("내구도 소모", "내구 소모")
-		if kind == "evolve_weapon":
-			card.text = short_evolution(String(option["evolution"]["weapon_id"]))
-		card.tooltip_text = String(option["title"]) + "\n" + String(option["description"])
-		# The badge carries whichever advice the card actually has. It used to
-		# always print a star, so a card marked against still read as endorsed.
-		var badge: Label = card.get_node("Recommendation")
 		var against := bool(option.get("discouraged", false))
 		var reason := String(option.get("discouragement_reason" if against else "recommendation_reason", ""))
-		var recommended := bool(option.get("recommended", false))
-		badge.text = ("👎" if against else ("👍" if recommended else "—"))
-		badge.position.y = 262
-		badge.size.y = 42
-		badge.add_theme_font_size_override("font_size", 11)
-		badge.text += "\n" + (reason.split("   ")[0] if not reason.is_empty() else "현재 구성에서 무난")
-		badge.tooltip_text = reason if not reason.is_empty() else "현재 구성에서 무난한 선택입니다."
-		card.tooltip_text += "\n" + badge.text + "    " + badge.tooltip_text + "\n" + main._upgrade_preview(slot, option)
-		badge.add_theme_color_override("font_color", Color("ffb2ac") if against else Palette.P1)
-		badge.add_theme_stylebox_override("normal",
-			Palette.surface(Palette.NIGHT_RAISED))
-		badge.visible = true
-	if screen.has_node("Reroll%d" % slot):
-		var reroll: Button = screen.get_node("Reroll%d" % slot)
+		card.tooltip_text = "%s\n%s\n%s" % [String(option["title"]), main._upgrade_preview(slot, option),
+			reason if not reason.is_empty() else "현재 구성에서 무난한 선택입니다."]
+	var reroll: Button = main.level_overlay.get_node_or_null("Reroll%d" % slot)
+	if reroll != null:
 		var tech_hand := not choices.is_empty() and choices.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech")
 		reroll.visible = slot == main.focused_growth_slot() and not locked and not complete and not tech_hand and main.rerolls_remaining[slot] > 0
 		reroll.disabled = main.level_up_input_delay > 0.0
@@ -746,27 +662,6 @@ static func compact_growth_description(option: Dictionary) -> String:
 		"투사체  장판 지속시간", "투사체  장판 지속").replace(
 		"가한 피해 0.6%를 팀 체력으로 회복    초당 최대 1.5",
 		"피해의 0.6% 팀 회복\n초당 최대 +1.5")
-
-
-static func compact_grid_description(description: String) -> String:
-	var lines := description.split("\n", false)
-	if lines.size() <= 2:
-		return description
-	# The first line is the core before/after value. The last line is either its
-	# plain-language meaning or the slot result; full secondary detail remains
-	# available in the always-accessible detail sheet and tooltip.
-	return "%s\n%s" % [lines[0], lines[lines.size() - 1]]
-
-
-static func short_evolution(id: String) -> String:
-	return {
-		"starpiercer": "유도탄 + 관통 광선\n공명 조합 해금", "thunder_god": "범위 안 적 동시 낙뢰\n공명 조합 해금",
-		"supernova": "불씨 뒤 2차 폭발\n공명 조합 해금", "absolute_zero": "빙결 후 파쇄\n공명 조합 해금",
-		"black_moon": "주변을 두 번 회전베기\n공명 조합 해금", "stigmata": "사슬 화상 + 공동 회복\n공명 조합 해금",
-		"celestial": "양방향 이중 궤도\n공명 조합 해금", "judgement": "세 갈래 관통 공격\n공명 조합 해금",
-		"ruin_garden": "원형 지뢰밭 설치\n공명 조합 해금", "event_horizon": "흡인 후 중심 폭발\n공명 조합 해금",
-		"skipping_stone": "사방으로 튕기는 왕복 공격\n공명 조합 해금", "cream_tide": "바닥을 덮는 둔화 해일\n공명 조합 해금"
-	}.get(id, "최종 공격    상세 확인")
 
 
 static func _resonance(main: Node) -> void:
@@ -1008,7 +903,7 @@ static func refresh_hud(main: Node) -> void:
 		fill.bg_color = Color("c65567") if endangered else (
 			Palette.P1 if slot == main.local_view_slot() else Palette.P2)
 		main.combat_hud.get_node("PlayerIdentity%d" % slot).text = ""
-		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)
+		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
 		# A weapon a resonance is firing for is still carried and still levelling;
 		# it just is not attacking, and the ribbon is where that has to be legible.
 		var silenced: Array[bool] = []

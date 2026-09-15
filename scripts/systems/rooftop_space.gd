@@ -146,19 +146,55 @@ static var focus := Vector2.ZERO
 ## Counteract the battlefield projection for upright bodies only. Ground
 ## shadows and attack areas continue to use the original floor projection.
 static func upright_basis(item: Node2D, offset := Vector2.ZERO) -> Transform2D:
+	var snapshot := view_snapshot(item)
+	if not snapshot.valid:
+		return Transform2D(0.0, offset)
+	return snapshot.basis_at(item.global_position, offset)
+
+
+## The camera the upright correction is measured against, read once per frame
+## per viewport. Looking the viewport, its camera and the camera's screen centre
+## up again for every body was a real share of a crowded tick — thousands of
+## engine calls a frame to recover the same four numbers.
+class ViewSnapshot:
+	var valid := false
+	var centre := Vector2.ZERO
+	var zoom := Vector2.ONE
+	var view_size := Vector2(1280, 720)
+
+	func basis_at(ground: Vector2, offset := Vector2.ZERO) -> Transform2D:
+		if not valid:
+			return Transform2D(0.0, offset)
+		var p := (ground - centre) * zoom / view_size
+		var k := 1.0 - EndlessRooftopView.PERSPECTIVE * p.y
+		var shear := -EndlessRooftopView.PERSPECTIVE * p.x * view_size.x / view_size.y / EndlessRooftopView.TILT
+		return Transform2D(Vector2.RIGHT, Vector2(shear, k / EndlessRooftopView.TILT), offset)
+
+
+static var _snapshot := ViewSnapshot.new()
+static var _snapshot_viewport := 0
+static var _snapshot_frame := -1
+
+
+static func view_snapshot(item: Node) -> ViewSnapshot:
 	var viewport := item.get_viewport()
+	var frame := Engine.get_process_frames() * 8192 + Engine.get_physics_frames()
+	if viewport != null and viewport.get_instance_id() == _snapshot_viewport and frame == _snapshot_frame:
+		return _snapshot
+	_snapshot_frame = frame
+	_snapshot_viewport = viewport.get_instance_id() if viewport != null else 0
+	_snapshot.valid = false
 	if not viewport is SubViewport:
-		return Transform2D(0.0, offset)
+		return _snapshot
 	var camera := viewport.get_camera_2d()
-	if camera == null:
-		return Transform2D(0.0, offset)
 	var view := viewport.get_parent()
-	if not view is EndlessRooftopView:
-		return Transform2D(0.0, offset)
-	var p: Vector2 = (item.global_position - camera.get_screen_center_position()) * camera.zoom / view.view_size
-	var k := 1.0 - EndlessRooftopView.PERSPECTIVE * p.y
-	var shear: float = -EndlessRooftopView.PERSPECTIVE * p.x * view.view_size.x / view.view_size.y / EndlessRooftopView.TILT
-	return Transform2D(Vector2.RIGHT, Vector2(shear, k / EndlessRooftopView.TILT), offset)
+	if camera == null or not view is EndlessRooftopView:
+		return _snapshot
+	_snapshot.valid = true
+	_snapshot.centre = camera.get_screen_center_position()
+	_snapshot.zoom = camera.zoom
+	_snapshot.view_size = view.view_size
+	return _snapshot
 
 
 ## The flying height of a weapon, or the floor for anything not listed — a new
@@ -226,19 +262,6 @@ static func floor_squash(ground_y: float) -> float:
 	return clampf(HORIZON_RISE * FORESHORTEN * view_scale(ground_y), 0.25, 1.0)
 
 
-## Sets the canvas transform a body standing on the floor is drawn under, and
-## returns the scale it was given so the caller can size anything it works out
-## for itself the same way.
-##
-## Bodies are billboards: placed and scaled by the view, never sheared by it.
-## `local` is an offset in the body's own frame — a lift, a dash lunge — applied
-## after the scale so that it means the same thing at every depth.
-static func billboard(canvas: CanvasItem, ground: Vector2, local := Vector2.ZERO, spin := 0.0) -> float:
-	var scale := view_scale(ground.y)
-	canvas.draw_set_transform(project(ground) - ground + local * scale, spin, Vector2.ONE * scale)
-	return scale
-
-
 ## Front-to-back order. `base` belongs to the thing being drawn and `other` to
 ## whatever might be behind it; both are the ground-contact Y described above.
 ## A prop is in front of an actor when its footprint reaches further down the
@@ -303,14 +326,20 @@ static func cast_shadow(canvas: CanvasItem, footprint: PackedVector2Array, heigh
 ## travel while the body leans into it, so the burst reads as a body throwing
 ## itself forward rather than as a sprite sliding. At rest it is 0, and this is
 ## then exactly the flattened ellipse Moonlight already puts under every actor.
+## Where footing() puts a shadow's centre. Shared with FlightField's batched
+## shadows so the two can never drift apart.
+static func footing_centre(at: Vector2, radius: float, height: float) -> Vector2:
+	return at + Vector2(0.0, radius * CONTACT_DROP) \
+		+ Moonlight.SHADOW_DIRECTION * radius * Moonlight.SHADOW_REACH \
+		+ Moonlight.SHADOW_DIRECTION * height * SHADOW_PER_HEIGHT
+
+
 static func footing(canvas: CanvasItem, at: Vector2, radius: float, height := 0.0,
 		strength := 1.0, stretch := 0.0, along := Vector2.RIGHT) -> void:
 	if not Moonlight.enabled or radius <= 0.0:
 		return
-	var drop := Moonlight.SHADOW_DIRECTION * height * SHADOW_PER_HEIGHT
 	var spin := along.angle() if stretch > 0.001 else 0.0
-	var centre := at + Vector2(0.0, radius * CONTACT_DROP) \
-		+ Moonlight.SHADOW_DIRECTION * radius * Moonlight.SHADOW_REACH + drop
+	var centre := footing_centre(at, radius, height)
 	# A body up in the air throws a shadow that is both wider and weaker; a body
 	# on the floor throws a tight dark one. That difference is most of what lets
 	# a hop read as leaving the ground at all.

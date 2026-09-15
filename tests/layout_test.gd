@@ -316,7 +316,7 @@ func _walk(screen_name: String, node: Control) -> void:
 		# The tier badge deliberately hangs off the corner of the icon it labels.
 		if node.size.x > 0.0 and control.name != "Tier":
 			var own := Rect2(control.position, control.size)
-			if control.name == "PartnerChoice":
+			if control.name == "PartnerChoice" or control.scale.x < 1.0:
 				var global_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))
 				_check(global_bounds.encloses(control.get_global_rect()), "partner summary stays in the viewport above the growth band")
 				_walk(screen_name, control)
