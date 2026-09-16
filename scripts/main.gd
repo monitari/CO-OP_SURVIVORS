@@ -2049,6 +2049,24 @@ func _chain_note(character: Dictionary) -> String:
 ## not unlocked. It compares the two survivors' demands rather than previewing
 ## the tech tree, because "are these two going to cover for each other" is the
 ## question character select actually has to answer.
+## The plan this cat's starting weapon is on, named before the run rather than
+## discovered during it.
+##
+## Choosing a survivor is choosing a route — every starting weapon has exactly
+## one final form and exactly one treasure that completes it — and the select
+## screen is the only moment where that choice is actually being made. It lives
+## in the detailed view rather than on the front of the dossier so the default
+## screen stays a portrait and four numbers.
+func _route_note(character: Dictionary) -> String:
+	var evolution := Evolutions.for_base(String(character["weapon_id"]))
+	if evolution.is_empty():
+		return ""
+	var treasure := Treasures.by_id(String(evolution.get("treasure_id", "")))
+	if treasure.is_empty():
+		return "성장 경로  ·  %s" % String(evolution["weapon_name"])
+	return "성장 경로  ·  %s    필요  %s" % [String(evolution["weapon_name"]), String(treasure["name"])]
+
+
 func _synergy_preview() -> String:
 	var first: Dictionary = character_catalog[selected_character_indices[0]]
 	var second: Dictionary = character_catalog[selected_character_indices[1]]

@@ -559,8 +559,12 @@ static func refresh_characters(main: Node) -> void:
 			portrait_bed.size = Vector2(160, 216)
 			portrait.position = Vector2(x + 24, panel.position.y + 56)
 			portrait.size = Vector2(144, 200)
-			body.text = "%s\n연결 특성  ·  %s" % [String(cat["description"]), main._chain_note(cat)]
-			place(body, Rect2(x + 192, panel.position.y + 224, 352, 40), 12)
+			# The detailed view is where the plan goes: which final form this
+			# starting weapon is on and what completes it. Choosing a cat is
+			# choosing that route, and this is the screen where it is chosen.
+			body.text = "%s\n%s\n연결 특성  ·  %s" % [
+				String(cat["description"]), main._route_note(cat), main._chain_note(cat)]
+			place(body, Rect2(x + 192, panel.position.y + 216, 352, 60), 12)
 		else:
 			portrait_bed.position = Vector2(x + 16, panel.position.y + 48)
 			portrait_bed.size = Vector2(160, 216)
@@ -589,6 +593,14 @@ static func refresh_characters(main: Node) -> void:
 	var pair_leash := CharacterCatalog.chain_length_for(
 		main.character_catalog[main.selected_character_indices[0]],
 		main.character_catalog[main.selected_character_indices[1]])
+	# Resonance is the one system nothing on this screen asks the pair to do, and
+	# a first-time player has no way to know it happens on its own. It rides the
+	# pair line in the detailed view — it is a fact about the two of them, and the
+	# default screen stays a portrait and four numbers.
+	# Rebuilt rather than appended: this runs on every refresh, and appending
+	# would grow the line a clause at a time as the cursor walks the roster.
+	main.character_synergy_label.text = ("%s    ·    두 무기가 모이면 자동 공명이 열립니다"
+		% main._synergy_preview()) if detailed else main._synergy_preview()
 	var leash_grade := "짧음" if pair_leash < 288.0 else ("보통" if pair_leash < 352.0 else "넓음")
 	screen.get_node("ChainPlate/ChainLength").text = "%s  ·  %d" % [leash_grade, roundi(pair_leash)]
 	for index in main.character_catalog.size():

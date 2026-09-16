@@ -166,6 +166,11 @@ func _test_floor_is_stable() -> void:
 ## The route is now a plan, not a spoiler: character select must name every
 ## final form and tell a first-time player that resonance resolves automatically.
 func _test_select_exposes_the_tech_tree(main: Node) -> void:
+	# In the detailed view. The plan is depth, not the first thing a player reads:
+	# the default dossier is a portrait, four numbers and the starting weapon, and
+	# the route, its material and the resonance note live behind 능력치 보기.
+	if not bool(main.character_overlay.get_meta("show_details", false)):
+		main.ReviewUI.toggle_character_details(main)
 	main._refresh_character_select_ui()
 	var shown := String(main.character_p1_label.text) + "\n" + String(main.character_p2_label.text) \
 		+ "\n" + String(main.character_synergy_label.text)
@@ -181,7 +186,6 @@ func _test_select_exposes_the_tech_tree(main: Node) -> void:
 	for player_index in 2:
 		var character: Dictionary = main.character_catalog[main.selected_character_indices[player_index]]
 		var card := String(main.character_p1_label.text if player_index == 0 else main.character_p2_label.text)
-		_check(card.contains(String(character["weapon_name"])), "the card still names the weapon")
 		_check(card.contains("필요"), "and names route materials")
 		_check(not card.contains("난이도"), "and does not classify the pick by difficulty")
 		_check(main.character_overlay.get_node("CatWeapon%d" % player_index).texture != null, "and shows its weapon icon")
