@@ -47,9 +47,11 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	seed(20260906)
 	var main := MainScene.instantiate()
 	root.add_child(main)
+	# After the scene, not before: main._ready() calls randomize() over any
+	# seed set earlier, so this is the line that actually makes the run repeat.
+	seed(20260906)
 	await process_frame
 	if not TestHarness.require_loaded(self, main, "FRAME_BUDGET_FAIL"):
 		return

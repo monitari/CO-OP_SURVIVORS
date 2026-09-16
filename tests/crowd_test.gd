@@ -28,9 +28,15 @@ func _run() -> void:
 	# ticks, so an unseeded draw occasionally put the whole stack on one side of
 	# a cell boundary and the settle measurement swung from 0.19 to 0.67 with no
 	# code change behind it.
-	seed(20260906)
 	var main := MainScene.instantiate()
 	root.add_child(main)
+	# After the scene is in the tree, not before: main._ready() calls randomize(),
+	# so this seed had never once taken effect and every reading below was an
+	# unseeded one. That is the whole of the flakiness — the stack fixture is
+	# jittered at random and the separation pass samples a rotating subset of each
+	# body's neighbours, so the settle measurement drifted run to run and this file
+	# failed about one run in five on unchanged code.
+	seed(20260906)
 	await process_frame
 	if not TestHarness.require_loaded(self, main, "CROWD_FAIL"):
 		return
@@ -268,6 +274,16 @@ func _clear(main: Node) -> void:
 			enemy.queue_free()
 	main.enemies.clear()
 	main.spatial_grid.rebuild(main.enemies)
+	# A body separates on every other pass while it is on screen and on every
+	# fourth while it is not — nobody can see a pile nobody is looking at. That
+	# makes "is the fixture on screen" an input to every separation measurement
+	# below, and this file drove _separate_crowd() by hand with whatever view
+	# rectangle the previous screen happened to leave behind. Depending on what
+	# ran before, the same fixture separated at half rate and a stack that should
+	# have opened out stayed a stack — the test failed about one run in five, on
+	# unchanged code. The fixtures all sit within ~700px of the origin.
+	if is_instance_valid(main.crowd_renderer):
+		main.crowd_renderer.view_rect = Rect2(-1400.0, -1400.0, 2800.0, 2800.0)
 	await process_frame
 
 

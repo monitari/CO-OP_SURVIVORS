@@ -11,9 +11,11 @@ func check(ok: bool, message: String) -> void:
 	if not ok: failures.append(message)
 
 func _run() -> void:
-	seed(620)
 	var main := Main.instantiate()
 	root.add_child(main)
+	# After the scene, not before: main._ready() calls randomize() over any
+	# seed set earlier, so this is the line that actually makes the run repeat.
+	seed(620)
 	await process_frame
 	if not Harness.require_loaded(self, main, "CRITIQUE_FAIL"): return
 	main._start_selected_run()
@@ -29,9 +31,27 @@ func _run() -> void:
 		director.encounter_timer = 0
 		director.encounters_run = rank - 1
 		var elapsed := rank * 300.0
-		var expected := director.encounter_size(elapsed) + 2 + director.PLANTER_MAX_ALIVE
+		# What is checked here is that a full field never truncates a scheduled
+		# fight — not a prediction of the tick's exact body count. The old formula
+		# tried for the latter and drifted twice: it counted PLANTER_MAX_ALIVE
+		# planters, which stopped spawning at the cap the day after it was written
+		# (scenery yields its capacity to combat, on purpose), and it did not count
+		# the boss's own cordon or the wave opener that can land on the same tick.
+		var scheduled := director.encounter_size(elapsed) + 1 + WaveDirector.BOSS_CORDON_COUNT + 1
 		var spawned := director.step(1.0 / 60, elapsed, Vector2.ZERO, main.enemies.size())
-		check(spawned.size() == expected, "full scheduled encounter at cap, rank %d (%d/%d)" % [rank, spawned.size(), expected])
+		var bosses := 0
+		var elites := 0
+		var planters := 0
+		for enemy in spawned:
+			if enemy.boss: bosses += 1
+			if enemy.elite: elites += 1
+			if enemy.scenery: planters += 1
+		check(spawned.size() >= scheduled,
+			"full scheduled encounter at cap, rank %d (%d, needs %d)" % [rank, spawned.size(), scheduled])
+		check(bosses == 1, "the boss itself arrives at the cap, rank %d (%d)" % [rank, bosses])
+		check(elites >= 1, "the scheduled elite arrives at the cap, rank %d (%d)" % [rank, elites])
+		check(planters == 0,
+			"scenery yields its capacity to a scheduled fight, rank %d (%d planters)" % [rank, planters])
 		for enemy in spawned: main._register_enemy(enemy)
 		check(main.enemies.size() == 620, "hard cap preserved for rank %d" % rank)
 		check(director.bosses_spawned == rank, "boss rank %d is not skipped" % rank)

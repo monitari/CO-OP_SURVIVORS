@@ -27,9 +27,11 @@ func _screen_offset(world_point: Vector2) -> Vector2:
 
 func _run() -> void:
 	var layered := OS.get_environment("THREAT_LAYER") != "off"
-	seed(20260916)
 	main = MainScene.instantiate()
 	root.add_child(main)
+	# After the scene, not before: main._ready() calls randomize() over any
+	# seed set earlier, so this is the line that actually makes the run repeat.
+	seed(20260916)
 	await process_frame
 	main.selected_character_indices[0] = 4 # scythe
 	main.selected_character_indices[1] = 9 # gravity

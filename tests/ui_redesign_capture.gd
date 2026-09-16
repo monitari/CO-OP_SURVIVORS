@@ -17,9 +17,11 @@ func _shot(name: String) -> void:
 		quit(1)
 
 func _run() -> void:
-	seed(90213)
 	var main := MainScene.instantiate()
 	root.add_child(main)
+	# After the scene, not before: main._ready() calls randomize() over any
+	# seed set earlier, so this is the line that actually makes the run repeat.
+	seed(90213)
 	await process_frame
 	if not Harness.require_loaded(self, main, "UI_REDESIGN_CAPTURE_FAIL"):
 		return
