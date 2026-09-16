@@ -564,7 +564,11 @@ static func refresh_characters(main: Node) -> void:
 			# choosing that route, and this is the screen where it is chosen.
 			body.text = "%s\n%s\n연결 특성  ·  %s" % [
 				String(cat["description"]), main._route_note(cat), main._chain_note(cat)]
-			place(body, Rect2(x + 192, panel.position.y + 216, 352, 60), 12)
+			# 392..444 in screen terms: the second stat row ends at 392 and the
+			# navigation buttons start at 448, so this is the whole of the room
+			# there is. Three lines of 11 fit it; three of 12 did not, and the
+			# box ran into 이전 / 다음.
+			place(body, Rect2(x + 192, panel.position.y + 216, 352, 52), 11)
 		else:
 			portrait_bed.position = Vector2(x + 16, panel.position.y + 48)
 			portrait_bed.size = Vector2(160, 216)
