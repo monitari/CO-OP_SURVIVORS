@@ -941,19 +941,14 @@ static func refresh_hud(main: Node) -> void:
 			Palette.P1 if slot == main.local_view_slot() else Palette.P2)
 		main.combat_hud.get_node("PlayerIdentity%d" % slot).text = ""
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
-		# A weapon a resonance is firing for is still carried and still levelling;
-		# it just is not attacking, and the ribbon is where that has to be legible.
-		var silenced: Array[bool] = []
-		for index in int(main.WEAPON_LOADOUT_CAP):
-			silenced.append(bool(main.resonance_system.is_bound(slot, index)))
-		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true, silenced)
-		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false, [])
+		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
+		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
 		main.combat_hud.get_node("P%dFrame" % (slot + 1)).hide()
 
 
 ## Explicit level captions distinguish equipment levels from item quantities.
 static func _refresh_carried_row(holder: Control, prefix: String, carried: Array,
-		is_weapon: bool, silenced: Array) -> void:
+		is_weapon: bool) -> void:
 	var index := 0
 	while holder.has_node("%s%d" % [prefix, index]):
 		var art: TextureRect = holder.get_node("%s%d" % [prefix, index])
@@ -964,13 +959,12 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 			continue
 		var entry: Dictionary = carried[index]
 		art.texture = Icons.weapon(String(entry["weapon_id"])) if is_weapon else Icons.upgrade(String(entry["id"]))
-		var resonating: bool = index < silenced.size() and bool(silenced[index])
-		art.modulate = Color(0.62, 0.78, 1.0, 0.72) if resonating else Color.WHITE
+		art.modulate = Color.WHITE
 		var tier: Label = art.get_node("Tier")
 		tier.text = str(int(entry.get("tier", 1)))
 		art.mouse_filter = Control.MOUSE_FILTER_PASS
-		art.tooltip_text = "%s    Lv.%d%s" % [String(entry.get("weapon_name", entry.get("name", "보물"))), int(entry.get("tier", 1)), "    공명에 사용 중" if resonating else ""]
-		tier.add_theme_color_override("font_color", Palette.GOLD if resonating else Palette.CREAM)
+		art.tooltip_text = "%s    Lv.%d" % [String(entry.get("weapon_name", entry.get("name", "보물"))), int(entry.get("tier", 1))]
+		tier.add_theme_color_override("font_color", Palette.CREAM)
 		holder.get_node("%sSlot%d/CooldownBorder" % [prefix, index]).refresh()
 		index += 1
 

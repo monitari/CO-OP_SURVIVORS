@@ -868,20 +868,6 @@ func clear_transients() -> void:
 	sustained_fields.clear()
 
 
-## One slot's persistent field, dropped without disturbing the survivor's other
-## weapons. Used when a resonance silences a weapon: the weapon keeps its slot
-## and stops casting, so an aura it was holding open has to come down with it.
-func clear_sustained_for_slot(player_index: int, weapon_slot: int) -> void:
-	for key: String in sustained_fields.keys():
-		var parts := key.split(":")
-		if parts.size() < 3 or int(parts[1]) != player_index or int(parts[2]) != weapon_slot:
-			continue
-		var field = sustained_fields[key]
-		if is_instance_valid(field):
-			field.queue_free()
-		sustained_fields.erase(key)
-
-
 func clear_sustained_for_player(player_index: int) -> void:
 	# Fusion may replace a frost aura or remove a lower weapon slot, invalidating
 	# every slot-key that follows it. Rebuild only this survivor's persistent

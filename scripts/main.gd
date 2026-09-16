@@ -793,11 +793,6 @@ func _physics_process(delta: float) -> void:
 
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
-			# A weapon a resonance is firing for keeps its slot and stops casting,
-			# so its timer is held rather than allowed to run far into the
-			# negative while it is silent.
-			if resonance_system.is_bound(player_index, weapon_slot):
-				continue
 			attack_timers[player_index][weapon_slot] -= delta
 
 	var midpoint := (players[0].position + players[1].position) * 0.5
@@ -807,8 +802,6 @@ func _physics_process(delta: float) -> void:
 	_profile("spawning")
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
-			if resonance_system.is_bound(player_index, weapon_slot):
-				continue
 			if attack_timers[player_index][weapon_slot] <= 0.0:
 				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
@@ -5262,26 +5255,22 @@ func _apply_team_magnet() -> void:
 	experience_system.magnet_radius = EXPERIENCE_MAGNET_BASE * team_magnet
 
 
-## Takes a resonance live and silences the two weapons that earned it.
+## Takes a resonance live.
 ##
-## Their sustained fields have to go with them: 절대영도 and the frost auras hold
-## a field alive between casts, and a weapon that has stopped casting would
-## otherwise leave its aura standing on the roof for the rest of the run.
+## Nothing is swept any more. This used to silence the two weapons that earned
+## the resonance, and their sustained fields had to be cleared with them —
+## 절대영도 and the frost auras hold a field alive between casts, so a weapon that
+## had stopped casting would have left its aura standing on the roof for the rest
+## of the run. The weapons keep casting now, so their fields are theirs to refresh
+## and clearing them here would only put a hole in an aura the survivor is
+## standing in.
 func _activate_resonance(resonance: Dictionary) -> void:
 	resonance_system.activate(resonance)
-	for side in ["a", "b"]:
-		var player_index := 0 if side == "a" else 1
-		var weapon_slot := int(resonance.get("weapon_%s_slot" % side, -1))
-		if weapon_slot < 0 or weapon_slot >= weapon_loadouts[player_index].size():
-			continue
-		weapon_controller.clear_sustained_for_slot(player_index, weapon_slot)
 
 
-## What the two silenced weapons lend the pair's move. Both owners' 공격 and both
+## What the two weapons behind the pair's move lend it. Both owners' 공격 and both
 ## weapons' tiers feed it, so a resonance is the thing their whole build is
-## pointed at rather than a flat effect bolted on top of it — and levelling a
-## weapon that has stopped attacking is still levelling the thing that attacks
-## in its place.
+## pointed at rather than a flat effect bolted on top of it.
 func _resonance_trade_power(resonance: Dictionary) -> float:
 	var total := 0.0
 	for side in ["a", "b"]:

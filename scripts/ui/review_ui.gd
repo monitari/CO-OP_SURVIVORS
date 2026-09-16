@@ -302,11 +302,7 @@ static func toggle_details(main: Node) -> void:
 		var weapon_names: Array[String] = []
 		for index in main.weapon_loadouts[slot].size():
 			var w: Dictionary = main.weapon_loadouts[slot][index]
-			# A weapon a resonance is firing for still has a level, and that level
-			# still feeds the resonance — this is the one readout with room to say
-			# both, so the HUD and the growth row can get away with just "공명".
-			var silenced: String = "    공명 전담" if main.resonance_system.is_bound(slot, index) else ""
-			weapon_names.append("%s Lv.%d%s" % [w["weapon_name"], w.get("tier", 1), silenced])
+			weapon_names.append("%s Lv.%d" % [w["weapon_name"], w.get("tier", 1)])
 		var treasure_names: Array[String] = []
 		for treasure: Dictionary in main.treasure_loadouts[slot]:
 			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])

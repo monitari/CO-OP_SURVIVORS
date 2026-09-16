@@ -1,7 +1,6 @@
 extends Control
 
 const SILVER := Color("d4dde7")
-const GOLD := Color("ffd36b")
 var game: Node
 var owner_slot := 0
 var item_slot := 0
@@ -9,7 +8,6 @@ var weapon := true
 var progress := 0.0
 var continuous := false
 var phase := 0.0
-var resonating := false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -21,18 +19,16 @@ func refresh() -> void:
 		return
 	var state: Dictionary = loadout[item_slot]
 	continuous = not weapon or String(state.get("weapon_id", "")) == "frost"
-	var bound: Dictionary = game.resonance_system.bound_resonance(owner_slot, item_slot) if weapon else {}
-	resonating = not bound.is_empty()
 	var art: TextureRect = get_parent().get_parent().get_node("%s%d" % ["Weapon" if weapon else "Treasure", item_slot])
 	var tier: Label = art.get_node("Tier")
 	tier.text = str(int(state.get("tier", 1)))
 	tier.add_theme_color_override("font_color", SILVER)
-	if resonating:
-		continuous = false
-		# The corner number stays the level; gold is what says it is resonating.
-		tier.add_theme_color_override("font_color", GOLD)
-		progress = 1.0 - float(bound.get("cooldown_remaining", 0.0)) / maxf(0.01, float(bound.get("cooldown", 1.0)))
-	elif weapon and not continuous:
+	# The ring is this weapon's own cooldown, always. It used to switch to the
+	# resonance's cooldown for a weapon a resonance was firing for, because that
+	# weapon had stopped attacking and its own timer meant nothing. Weapons keep
+	# attacking through a resonance now, so the ring showing anything but their
+	# own next shot would be the ring lying about when they fire.
+	if weapon and not continuous:
 		var timers: Array = game.attack_timers[owner_slot]
 		var remaining: float = float(timers[item_slot]) if item_slot < timers.size() else 0.0
 		progress = 1.0 - remaining / maxf(0.01, game._weapon_interval(owner_slot, item_slot))
@@ -57,7 +53,6 @@ func point_at(t: float) -> Vector2:
 	return corners[0]
 
 func _draw() -> void:
-	var tint := GOLD if resonating else SILVER
 	for i in 96:
 		var t := float(i) / 96.0
 		var strength := 1.0
@@ -65,4 +60,4 @@ func _draw() -> void:
 			strength = 0.25 + 0.75 * (1.0 - fposmod(phase - t, 1.0))
 		elif t > progress:
 			strength = 0.12
-		draw_line(point_at(t), point_at(t + 1.0 / 96.0), Color(tint, strength), 2.0, true)
+		draw_line(point_at(t), point_at(t + 1.0 / 96.0), Color(SILVER, strength), 2.0, true)

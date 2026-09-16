@@ -37,6 +37,7 @@ func _run() -> void:
 	await _test_weapon_cap(main)
 	await _test_independent_cooldowns(main)
 	_test_loadout_resonance(main)
+	await _test_a_resonance_does_not_stop_its_weapons(main)
 
 	if failures.is_empty():
 		print("MULTI_WEAPON_PASS: cap enforced, independent cooldowns, resonance reaches through a picked-up weapon")
@@ -120,6 +121,54 @@ func _test_independent_cooldowns(main: Node) -> void:
 	_check(is_instance_valid(enemy) and enemy.health < health_before, "the fast weapon fired repeatedly on its own short cooldown")
 	_check(main.attack_timers[0][1] > 25.0, "a slow weapon's independent timer is untouched by the fast weapon firing")
 	_check(main.attack_timers[0][2] > 25.0, "the third weapon's timer is likewise untouched")
+
+
+## A resonance used to take the two weapons that earned it out of service. That
+## is gone: they keep firing and the resonance fires as well.
+##
+## Checked by driving real ticks and counting casts rather than by reading a
+## flag, because the silencing lived in main's own weapon loop — a flag would
+## have gone on reporting the right answer while the loop skipped the slot.
+func _test_a_resonance_does_not_stop_its_weapons(main: Node) -> void:
+	main.resonance_system.active_resonances.clear()
+	# The phase lives in the dictionary with the counts: a GDScript lambda captures
+	# a local by value, so a plain String would have stayed "before" forever and
+	# the second half of this test would have counted nothing no matter what the
+	# weapon loop did.
+	var casts := {"phase": "before", "before": 0, "after": 0}
+	var counter := func(player_index: int, _weapon_id: String, _origin: Vector2,
+			_color: Color, _radius: float) -> void:
+		if player_index == 0:
+			var key: String = casts["phase"]
+			casts[key] = int(casts[key]) + 1
+	main.weapon_controller.attack_visual.connect(counter)
+	var enemy: ChaserEnemy = main.wave_director._acquire_enemy("chaser", 1.0, Vector2.ZERO, false, false)
+	enemy.position = main.players[0].position + Vector2(120.0, 0.0)
+	enemy.max_health = 1e9
+	enemy.health = 1e9
+	main._register_enemy(enemy)
+	main.spatial_grid.rebuild(main.enemies)
+	for tick in 120:
+		main._physics_process(1.0 / 60.0)
+	_check(int(casts["before"]) > 0, "P1's weapon fires at all (%d casts)" % int(casts["before"]))
+
+	# Bind slot 0 of both survivors to a live resonance, exactly as activating one
+	# does, and run the same number of ticks again.
+	casts["phase"] = "after"
+	var resonance: Dictionary = main.resonance_system.catalog[0].duplicate(true)
+	resonance["weapon_a_slot"] = 0
+	resonance["weapon_b_slot"] = 0
+	main._activate_resonance(resonance)
+	_check(main.resonance_system.is_bound(0, 0), "the fixture really did bind P1's first weapon")
+	for tick in 120:
+		main._physics_process(1.0 / 60.0)
+	_check(int(casts["after"]) > 0,
+		"a bound weapon keeps attacking (%d casts before, %d while resonating)"
+			% [int(casts["before"]), int(casts["after"])])
+	main.weapon_controller.attack_visual.disconnect(counter)
+	main.resonance_system.active_resonances.clear()
+	main._cull_enemy(enemy)
+	await main.get_tree().process_frame
 
 
 func _test_loadout_resonance(main: Node) -> void:

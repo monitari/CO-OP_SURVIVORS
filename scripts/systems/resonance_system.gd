@@ -9,22 +9,23 @@ extends Node
 ## problem by the late game), so three is the deliberate middle ground.
 const MAX_ACTIVE_RESONANCES := 3
 
-## Reaching a resonance used to cost nothing: the two enhanced weapons that
-## produced it kept firing exactly as before and the pair got a third attack for
-## free, which made the top of the tree an addition rather than a decision.
+## How hard the pair's move hits, against what the two weapons behind it do.
 ##
-## Activating one now takes the two weapons that earned it out of service. They
-## keep their slots — they are still carried gear, still on the HUD, still worth
-## levelling for what they lend the resonance — but they stop attacking on their
-## own, and the resonance attacks in their place. That is the whole trade, and
-## these two numbers are what pays for it: a resonance hits for more than the two
-## weapons ever did on their own and comes round faster than the catalogue says.
+## For a while a resonance took those two weapons out of service — they kept
+## their slots and their levels but stopped attacking, and the resonance attacked
+## in their place. These three numbers were priced as the payment for that: hit
+## harder than the two weapons did, come round faster than the catalogue says,
+## and keep rewarding levels spent on a weapon that had gone quiet.
+##
+## The silencing is gone (2026-09-16). The weapons fire, and the resonance fires
+## as well, so these no longer pay for anything — they are simply how strong the
+## pair's move is. They are left at the values the trade set, which means a
+## resonance is now straight upside; whether that is the right size for it is a
+## balance question, not a mechanical one.
 const TRADE_POWER := 1.65
 ## How much one weapon tier above the enhancement gate adds to the pair's move,
-## per side. Levelling a silenced weapon is therefore still worth doing — it is
-## the resonance that gets stronger. Raised with the growth rework: an enhanced
-## weapon's own cards now climb much faster than they did, and a resonance that
-## grew at the old rate would quietly become the weaker thing to have.
+## per side, so the resonance grows with the build that produced it rather than
+## sitting at a flat value while the weapons around it climb.
 const TRADE_TIER_BONUS := 0.15
 const COOLDOWN_SCALE := 0.78
 
@@ -201,26 +202,20 @@ func activate(resonance: Dictionary) -> void:
 	active_resonances.append(entry)
 
 
-## Whether this weapon slot is one of the two an active resonance is firing for.
-## A bound weapon keeps its slot and its tier and stops casting (see main's
-## weapon loop), so this is the one question both the attack loop and the HUD
-## ask about a carried weapon.
+## Whether this weapon slot already feeds an active resonance.
+##
+## Only the candidate search asks. A bound weapon used to stop attacking, and
+## this was the question the attack loop and the HUD asked about every carried
+## weapon; weapons keep firing through a resonance now. What is left is the rule
+## that one weapon cannot back two resonances at once — three may be active and a
+## survivor may carry three weapons, so without this a pair could run three
+## resonances off fewer weapons than earned them.
 func is_bound(player_index: int, weapon_slot: int) -> bool:
 	var key := "weapon_a_slot" if player_index == 0 else "weapon_b_slot"
 	for entry in active_resonances:
 		if int(entry.get(key, -1)) == weapon_slot:
 			return true
 	return false
-
-
-## The resonance, if any, this weapon slot is firing for — so the HUD can name
-## what a silenced weapon is doing instead of attacking.
-func bound_resonance(player_index: int, weapon_slot: int) -> Dictionary:
-	var key := "weapon_a_slot" if player_index == 0 else "weapon_b_slot"
-	for entry in active_resonances:
-		if int(entry.get(key, -1)) == weapon_slot:
-			return entry
-	return {}
 
 
 ## How much slower a resonance charges while the pair is not really a pair.
