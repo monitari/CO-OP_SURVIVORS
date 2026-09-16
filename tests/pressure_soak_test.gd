@@ -28,17 +28,26 @@ func _run() -> void:
 	# 28s, 51s, 66s and 46s of survival on four runs of the same build — a
 	# hundred-percent swing, which makes it useless for the one job it has
 	# (comparing before and after a change) and makes its assertions flaky
-	# around any threshold worth setting. Seeding narrows it to roughly 52-63s
-	# rather than removing it — the run is accelerated, so physics deltas still
-	# depend on how fast the frames actually come — but that is inside the band
-	# instead of straddling it.
+	# around any threshold worth setting.
+	#
+	# The seed only started taking effect on 2026-09-16: it was applied before the
+	# scene was built, and main._ready() calls randomize() over the top of it, so
+	# every run this file has ever reported was an unseeded one. Applied in the
+	# right place it is now exact — three consecutive runs of one build return the
+	# same 36.3s, 25.7s and 14 kills to the decimal.
 	var run_seed := int(OS.get_environment("CHAINBOUND_TEST_SEED")) if OS.has_environment("CHAINBOUND_TEST_SEED") else 20260905
-	seed(run_seed)
 	var simulation_speed := float(OS.get_environment("CHAINBOUND_TEST_SPEED")) if OS.has_environment("CHAINBOUND_TEST_SPEED") else 20.0
 	Engine.time_scale = maxf(1.0, simulation_speed)
 	var active_controls := OS.get_environment("CHAINBOUND_TEST_ACTIVE") == "1"
 	var main := MainScene.instantiate()
 	root.add_child(main)
+	# After the scene is in the tree, not before: main._ready() calls randomize(),
+	# which threw this seed away on every run. The instrument has described itself
+	# as seeded the whole time while actually measuring a different run each time —
+	# four readings of one unchanged build came out 31s, 33s, 37s and 47s, which is
+	# wide enough to read a regression into a build that has none. This is the
+	# order normal_speed_balance_test already uses.
+	seed(run_seed)
 	await process_frame
 	if not TestHarness.require_loaded(self, main, "PRESSURE_SOAK_FAIL"):
 		Engine.time_scale = 1.0

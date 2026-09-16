@@ -148,13 +148,22 @@ func _test_encounters_have_distinct_shapes(main: Node) -> void:
 	var siege: Array[ChaserEnemy] = []
 	director._run_encounter("ring_siege", 6.0, centre, 0, siege)
 	_check(siege.size() >= 12, "a siege arrives in numbers (%d)" % siege.size())
+	# One radius, whatever it is, and far enough out that the ring closes off
+	# screen and walks in. The number used to be written here as 640, which is
+	# inside the visible field — a siege that materialised in view rather than
+	# arriving. It is 920 now, in line with every other spawn distance, and
+	# pinning the literal made the test fail for the encounter being placed
+	# correctly.
 	var bearings: Array[float] = []
 	var radii_match := true
+	var siege_radius := (siege[0].global_position - centre).length()
 	for enemy in siege:
 		var offset := enemy.global_position - centre
 		bearings.append(offset.angle())
-		radii_match = radii_match and absf(offset.length() - 640.0) < 1.0
-	_check(radii_match, "a siege forms a circle at one radius")
+		radii_match = radii_match and absf(offset.length() - siege_radius) < 1.0
+	_check(radii_match, "a siege forms a circle at one radius (%.0f)" % siege_radius)
+	_check(siege_radius > 700.0,
+		"and closes it out of sight rather than in the pair's faces (%.0f)" % siege_radius)
 	_check(_angular_spread(bearings) > TAU * 0.9, "with no gap to walk out of")
 
 	var stampede: Array[ChaserEnemy] = []
