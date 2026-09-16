@@ -5,6 +5,7 @@ const Harness := preload("res://tests/test_harness.gd")
 const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
 const CharacterCatalog := preload("res://scripts/catalogs/character_catalog.gd")
+const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
 var failures: Array[String] = []
 
 
@@ -91,10 +92,16 @@ func _run() -> void:
 		_check(not previous.get_rect().intersects(confirm.get_rect())
 			and not next.get_rect().intersects(confirm.get_rect()),
 			"player %d button rows do not overlap" % slot)
+		# Against the template's own constant rather than a copy of its numbers:
+		# the rule being kept here is that every cell is the same cell, and a
+		# literal turns a layout change into a test failure that says nothing.
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var bed: Control = screen.get_node("CatStatBed%d_%d" % [slot, stat])
-			_check(bed.size == Vector2(80, 40),
-				"player %d stat %d keeps the shared cell template" % [slot, stat])
+			_check(bed.size == Vector2(EditorialUI.STAT_CELL, 40),
+				"player %d stat %d keeps the shared cell template (%s)" % [slot, stat, bed.size])
+			var value: Label = screen.get_node("CatStat%d_%d" % [slot, stat])
+			_check(bed.get_rect().encloses(value.get_rect()),
+				"player %d stat %d keeps its value inside the cell" % [slot, stat])
 	var left: Control = screen.get_node("CharacterPanel0")
 	var right: Control = screen.get_node("CharacterPanel1")
 	_check(right.position.x - (left.position.x + left.size.x) == 16.0,

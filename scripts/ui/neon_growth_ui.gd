@@ -85,6 +85,8 @@ const PARTNER_ALPHA := 0.78
 const PARTNER_FAN_X := 1120.0
 ## Overlay-local line the fan's cards stand on (the overlay sits at y=176).
 const PARTNER_FAN_BASE := 140.0
+## Clear space between the bottom of the partner's fan and the details shortcut.
+const PARTNER_BUTTON_GAP := 10.0
 
 
 static func _partner_card(card: Label, index: int, count: int, selected: bool, angle: float) -> void:
@@ -208,7 +210,9 @@ static func _install(main: Node) -> void:
 		caption.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.9))
 		caption.add_theme_constant_override("outline_size", 4)
 	var button := Button.new()
+	button.name = "Details"
 	button.text = "⌕  전체 능력치  TAB"
+	# y is measured against the fan every refresh; see _place_details_button.
 	button.position = Vector2(70, 200)
 	button.size = Vector2(160, 32)
 	button.add_theme_font_size_override("font_size", 12)
@@ -230,6 +234,7 @@ static func _partner(main: Node, slot: int) -> void:
 	var character: String = main.players[slot].character_name
 	panel.get_node("Heading").text = "%s의 선택    %d장 중 1" % [character, choices.size()]
 	panel.get_node("State").text = "✓ 선택 완료" if selected >= 0 else ("빌드 완성" if selected == -2 else "선택을 고민하는 중…")
+	_place_details_button(main, panel, slot)
 	var title: Label = panel.get_node("Title")
 	# The title is only spelled out when there is no fan to show it on.
 	title.visible = choices.is_empty() or index < 0 or index >= choices.size()
@@ -237,3 +242,25 @@ static func _partner(main: Node, slot: int) -> void:
 		title.text = "성장 완료"
 		return
 	title.text = main.level_card_labels[slot][index].get_node("CardTitle").text
+
+
+## Puts the details shortcut under the partner's fan, measured rather than
+## guessed.
+##
+## The fan's lowest point is not a constant: a hand of five cards is dealt
+## narrower and tilted harder than a hand of three, so the outer cards hang
+## lower. The button used to sit at a fixed height that cleared a three-card fan
+## and was overlapped by the corner of a wider one.
+static func _place_details_button(main: Node, panel: Control, slot: int) -> void:
+	var button: Button = panel.get_node("Details")
+	var lowest: float = PARTNER_FAN_BASE + (main.level_overlay as Control).position.y
+	for card in main.level_card_labels[slot]:
+		var partner_card := card as Control
+		if partner_card == null or not partner_card.visible:
+			continue
+		lowest = maxf(lowest, partner_card.global_position.y + partner_card.size.y * partner_card.scale.y)
+	button.position.y = lowest - panel.global_position.y + PARTNER_BUTTON_GAP
+	# The panel holds no art of its own — it is a caption and this button — so it
+	# grows to whatever the measured placement needs rather than standing at a
+	# height the fan can hang below.
+	panel.size.y = button.position.y + button.size.y

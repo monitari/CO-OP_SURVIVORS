@@ -5,6 +5,18 @@ const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 const MetaProgressionData := preload("res://scripts/systems/meta_progression.gd")
+## The survivor dossier's stat chips. Four across a 352px column, each holding an
+## icon and a line like "범위 118%".
+##
+## Sized from the longest line the roster can produce, not from a round number:
+## at 49px of text plus an 18px icon and real margins, four cells only fit that
+## column if the stride is 89 and the gap between them is 5. The previous 80/88
+## pair left the text 40px and silently cut the percent sign off every
+## three-digit stat.
+const STAT_CELL := 84.0
+const STAT_STRIDE := 89.0
+const STAT_ICON := 18.0
+
 const TitleLogo := preload("res://assets/ui/moonroof_title_v3.png")
 const TitleLyra := preload("res://assets/ui/title_lyra_fullbody_v1.png")
 const TitleVolta := preload("res://assets/ui/title_volta_fullbody_v1.png")
@@ -144,8 +156,12 @@ static func _title(main: Node) -> void:
 	ambience.title_logo.position = ambience.logo_origin
 	ambience.title_logo.size = Vector2(680, 300)
 	ambience.title_logo.scale = Vector2.ONE
+	# The two cats flank the menu plate (x 280..904) with the same 2px gap and the
+	# same 10px margin to the screen edge. The right one was at 924, which put it
+	# 8px past the screen's own right edge and made the pair visibly lopsided —
+	# 1184 - 268 - 10 is the number that mirrors the left one.
 	ambience.left_origin = Vector2(10, 108)
-	ambience.right_origin = Vector2(924, 108)
+	ambience.right_origin = Vector2(906, 108)
 	ambience.left_cat.position = ambience.left_origin
 	ambience.right_cat.position = ambience.right_origin
 	ambience.left_cat.size = Vector2(268, 476)
@@ -457,25 +473,28 @@ static func _characters(main: Node) -> void:
 			Rect2(x + 192, card.position.y + 88, 352, 32), 14, Palette.MUTED)
 		role.name = "CatRole%d" % slot
 		role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		# Four exact 80x40 cells form the default stat row. The second row uses
+		# Four cells of STAT_CELL form the default stat row. The second row uses
 		# the same template in detailed mode instead of hand-offset labels.
+		#
+		# The cell is sized from the longest thing it can ever hold rather than
+		# from the shortest. "범위 118%" is 49px of Jua at this size and the text
+		# box used to be 40px, so every survivor whose 위력, 공속, 범위 or 치명
+		# reached three digits had its percent sign cut off — which is to say the
+		# clipping fell exactly on the cats the number was worth reading for.
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
 			var column := stat % 4
 			var row := stat / 4
-			var stat_bed := plate(screen, Rect2(
-				x + 192 + column * 88,
-				card.position.y + 128 + row * 48,
-				80, 40), Palette.NIGHT_RAISED)
+			var cell_x := x + 192.0 + column * STAT_STRIDE
+			var cell_y := card.position.y + 128.0 + row * 48.0
+			var stat_bed := plate(screen, Rect2(cell_x, cell_y, STAT_CELL, 40), Palette.NIGHT_RAISED)
 			stat_bed.name = "CatStatBed%d_%d" % [slot, stat]
 			icon(screen, Icons.upgrade(String(entry["icon"])),
-				Rect2(x + 200 + column * 88,
-					card.position.y + 138 + row * 48,
-					20, 20)).name = "CatStatIcon%d_%d" % [slot, stat]
+				Rect2(cell_x + 6.0, cell_y + 11.0, STAT_ICON, STAT_ICON)
+			).name = "CatStatIcon%d_%d" % [slot, stat]
 			var value := label(screen, "", Rect2(
-				x + 224 + column * 88,
-				card.position.y + 132 + row * 48,
-				40, 32), 11)
+				cell_x + 6.0 + STAT_ICON + 4.0, cell_y + 4.0,
+				STAT_CELL - STAT_ICON - 16.0, 32), 11)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
 		place(body, Rect2(x + 240, card.position.y + 176, 304, 88), 14)
