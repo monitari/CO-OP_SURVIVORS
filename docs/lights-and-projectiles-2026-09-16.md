@@ -223,13 +223,14 @@ frame_budget, treasure, growth_curve, hybrid_fusion, expansion, encounter, boss_
 wave_and_scaling, level_up_card, debug_inspector, endless_rooftop, motion, unified_art,
 autonomy_flow, normal_speed_balance, cat_theme, icon_coverage, ui_nine_slice, rooftop_prototype.
 
-`crowd_test`는 **작업 전부터** 불안정하다. HEAD에서 10회 중 2회 실패했고(0.92 겹침, 그리고
-"a live run pulls a stack apart"), 작업 트리도 같은 비율이다. 이번 변경 때문이 아니다 —
-다만 위 5장의 첫 시도가 이 비율을 실제로 악화시켰고, 그래서 `view_rect` 갱신 범위를 좁혔다.
+`crowd_test`는 이 작업 시점에 다섯 번에 한 번 실패하고 있었다. 원인은 이 문서의 5장을 처음
+시도했을 때 실제로 악화시킨 `view_rect` 갱신 범위였고, 범위를 좁혀 해결했다. 남아 있던 근본 원인
+(적용된 적 없는 시드)은 같은 날 뒤이어 고쳤다 — 아래를 보라.
 
-작업 전부터 실패하던 것은 그대로다: fusion_test, review_regression_test(카메라-HUD 2건),
-critique_regression_test, presentation_test(계기 라벨·카드 잘림 2건), layout_test,
-neon_growth_test, run_shape_test, pacing_and_world_test, ux_flow_test, pressure_soak_test.
+**후속 (같은 날).** 상시 실패하던 검사 열 개를 하나씩 "갱신 / 삭제 / 진짜 버그"로 판정했다.
+자세한 것은 [레이아웃·검사 정리](test-triage-2026-09-16.md)에 있다. 지금 헤드리스 스위트
+58종이 모두 통과하며, 남은 빨간불은 `pressure_soak_test` 하나다 — 그것은 낡은 검사가 아니라
+사람이 판단할 밸런스 신호다.
 
 ## 재실행
 
