@@ -57,7 +57,10 @@ func _run() -> void:
 	Engine.time_scale = 1.0
 	if DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
-	print("INTEGRATION_ENV: cpu=%s display=%s gpu=%s" % [OS.get_processor_name(), DisplayServer.get_name(), RenderingServer.get_video_adapter_name()])
+	# PROJECTILE_LOOP=off hands every shot back its own physics callback, so the
+	# same scene can be measured with and without the controller's single loop.
+	HomingProjectile.driven_by_loop = OS.get_environment("PROJECTILE_LOOP") != "off"
+	print("INTEGRATION_ENV: cpu=%s display=%s gpu=%s loop=%s" % [OS.get_processor_name(), DisplayServer.get_name(), RenderingServer.get_video_adapter_name(), HomingProjectile.driven_by_loop])
 	for count in [0, 500, 1000, 2000]:
 		await _case(count)
 	# Mass release and re-acquire of every shot once a second, inside the real

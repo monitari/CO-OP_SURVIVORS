@@ -1,5 +1,11 @@
 class_name ChainPlayer
 extends Node2D
+
+## The game's one typeface, for the badge and the downed prompt drawn straight
+## onto the world. These used to take ThemeDB's built-in fallback, which put a
+## second typeface on screen next to every Jua-set HUD label.
+const UIFont := preload("res://assets/fonts/Jua-Regular.ttf")
+
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 var portrait: Texture2D
 
@@ -353,13 +359,13 @@ func _draw() -> void:
 	# shadow is the only thing saying where the cat is, so the label moves.
 	var badge_y := -radius - 22.0 if stand_height > 0.0 else radius + 13.0
 	draw_circle(Vector2(0.0, badge_y), 10.0, Color("07111f"))
-	draw_string(ThemeDB.fallback_font, Vector2(-22.0, badge_y + 6.0), display_name, HORIZONTAL_ALIGNMENT_CENTER, 44.0, 13, badge_color)
+	draw_string(UIFont, Vector2(-22.0, badge_y + 6.0), display_name, HORIZONTAL_ALIGNMENT_CENTER, 44.0, 13, badge_color)
 	if downed:
 		draw_line(Vector2(-10, -10), Vector2(10, 10), Color("ff5d8f"), 5.0, true)
 		draw_line(Vector2(10, -10), Vector2(-10, 10), Color("ff5d8f"), 5.0, true)
 		draw_arc(Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(revive_progress / 2.6, 0.0, 1.0), 28, Color("80ed99"), 4.0, true)
 		var down_text := "구조 중 %.0f%%" % (revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else "가까이 와서 구조    %.0f초" % bleedout_remaining
-		draw_string(ThemeDB.fallback_font, Vector2(-92.0, -43.0), down_text, HORIZONTAL_ALIGNMENT_CENTER, 184.0, 16, Color("ffcfdf"))
+		draw_string(UIFont, Vector2(-92.0, -43.0), down_text, HORIZONTAL_ALIGNMENT_CENTER, 184.0, 16, Color("ffcfdf"))
 		return
 	draw_circle(facing * (radius + 5.0), 2.5, Color.WHITE)
 	_draw_dash_state()

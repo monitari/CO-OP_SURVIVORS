@@ -38,6 +38,8 @@ var active_index := -1
 var in_pool := false
 ## Drawn by the controller's ProjectileRenderer instead of by this node.
 var batched := false
+## False hands every shot back its own physics callback, for a comparison run.
+static var driven_by_loop := true
 ## Ticks to wait before looking for a new target again after a search found
 ## nothing, or after this tick's search budget ran out.
 var retarget_wait := 0
@@ -85,7 +87,10 @@ func setup(start_direction: Vector2, initial_target: ChaserEnemy) -> void:
 	on_impact = Callable()
 	retarget_wait = 0
 	visible = true
-	set_physics_process(true)
+	# No callback of its own: WeaponController steps every live shot from one
+	# loop. See step(). The toggle exists so the same scene can be measured both
+	# ways, the way the batch renderer's can.
+	set_physics_process(not driven_by_loop)
 	_ensure_glow()
 	queue_redraw()
 
@@ -105,7 +110,19 @@ func _ensure_glow() -> void:
 		glow.queue_redraw()
 
 
+## The engine callback, kept only so a benchmark or a collision test can drive a
+## single shot by hand. The run never uses it — see step().
 func _physics_process(delta: float) -> void:
+	step(delta)
+
+
+## One tick of travel, steering and collision.
+##
+## Called by WeaponController's own physics callback rather than by one of its
+## own. Two thousand shots in the air meant two thousand separate trips from the
+## engine into GDScript every tick, purely to dispatch a body that mostly moves
+## a transform; the dispatch was costing about as much as the work.
+func step(delta: float) -> void:
 	if not active:
 		return
 	lifetime -= delta

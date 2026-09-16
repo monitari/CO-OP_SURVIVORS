@@ -15,6 +15,21 @@ extends Node2D
 ## Everything here is cosmetic. Nothing in this file may affect play.
 
 const MAX_PARTICLES := 260
+## Marks this field will accept between two steps.
+##
+## The cap above bounds what is *drawn*; this bounds what it costs to ask. A
+## dense late tick reports tens of thousands of hits — an area weapon landing on
+## a packed crowd, or one piercing shot crossing a hundred bodies — and every one
+## of them asked for sparks. Each request built a Dictionary and then, once the
+## field was full, shifted a 260-entry array down by one to make room for a mark
+## that the next request would immediately evict. Practically all of that work
+## was thrown away in the same tick it was done.
+##
+## So the field stops listening once it has taken a frame's worth. The marks it
+## already has are exactly as good as the ones it is refusing — they are the same
+## sparks from the same volley — and this file's rule has always been that losing
+## some of them under load is correct.
+const MAX_EMITTED_PER_STEP := 120
 
 ## Kinds, and what each one is for:
 ##   dust   a soft puff left under a moving survivor, so running reads as running
@@ -22,6 +37,13 @@ const MAX_PARTICLES := 260
 ##   ring   an expanding outline, for a dash afterimage or a pickup pop
 ##   mote   a slow rising fleck, for something good having just happened
 var particles: Array = []
+## Emitted since the last step, against MAX_EMITTED_PER_STEP.
+var emitted_this_step := 0
+## Where the next eviction writes once the field is full. Rotating over a list
+## that is appended to in time order and compacted in place keeps it pointed at
+## roughly the oldest mark, without the array shift that taking the literal
+## oldest one required.
+var _evict_at := 0
 
 
 func _ready() -> void:
@@ -30,6 +52,8 @@ func _ready() -> void:
 
 
 func emit_dust(at: Vector2, color: Color, drift: Vector2 = Vector2.ZERO) -> void:
+	if emitted_this_step >= MAX_EMITTED_PER_STEP:
+		return
 	_add({
 		"kind": "dust", "position": at, "velocity": drift, "color": color,
 		"age": 0.0, "life": 0.34, "size": randf_range(4.0, 7.5), "spin": 0.0,
@@ -37,6 +61,9 @@ func emit_dust(at: Vector2, color: Color, drift: Vector2 = Vector2.ZERO) -> void
 
 
 func emit_sparks(at: Vector2, color: Color, count: int = 4, speed: float = 190.0) -> void:
+	# Clamped before the loop rather than inside _add, so a refused spark costs
+	# one comparison instead of a Dictionary.
+	count = mini(count, MAX_EMITTED_PER_STEP - emitted_this_step)
 	for index in count:
 		var direction := Vector2.from_angle(randf() * TAU)
 		_add({
@@ -47,6 +74,8 @@ func emit_sparks(at: Vector2, color: Color, count: int = 4, speed: float = 190.0
 
 
 func emit_ring(at: Vector2, color: Color, radius: float, life: float = 0.3) -> void:
+	if emitted_this_step >= MAX_EMITTED_PER_STEP:
+		return
 	_add({
 		"kind": "ring", "position": at, "velocity": Vector2.ZERO, "color": color,
 		"age": 0.0, "life": life, "size": radius, "spin": 0.0,
@@ -54,6 +83,7 @@ func emit_ring(at: Vector2, color: Color, radius: float, life: float = 0.3) -> v
 
 
 func emit_motes(at: Vector2, color: Color, count: int = 6) -> void:
+	count = mini(count, MAX_EMITTED_PER_STEP - emitted_this_step)
 	for index in count:
 		_add({
 			"kind": "mote", "position": at + Vector2(randf_range(-18.0, 18.0), randf_range(-10.0, 10.0)),
@@ -64,6 +94,7 @@ func emit_motes(at: Vector2, color: Color, count: int = 6) -> void:
 
 
 func step(delta: float) -> void:
+	emitted_this_step = 0
 	if particles.is_empty():
 		return
 	var survivors: Array = []
@@ -78,6 +109,7 @@ func step(delta: float) -> void:
 		particle["velocity"] = velocity * maxf(0.0, 1.0 - delta * 6.0)
 		survivors.append(particle)
 	particles = survivors
+	_evict_at = 0
 	queue_redraw()
 
 
@@ -85,14 +117,22 @@ func clear_all() -> void:
 	if particles.is_empty():
 		return
 	particles.clear()
+	_evict_at = 0
 	queue_redraw()
 
 
 func _add(particle: Dictionary) -> void:
-	# The oldest mark is the one nobody is still looking at.
+	emitted_this_step += 1
+	# The oldest mark is the one nobody is still looking at. Overwritten in place
+	# rather than shifted out of the front: pop_front moves every entry after it,
+	# so a full field made each new mark cost the length of the whole field.
 	if particles.size() >= MAX_PARTICLES:
-		particles.pop_front()
-	particles.append(particle)
+		if _evict_at >= particles.size():
+			_evict_at = 0
+		particles[_evict_at] = particle
+		_evict_at += 1
+	else:
+		particles.append(particle)
 	queue_redraw()
 
 

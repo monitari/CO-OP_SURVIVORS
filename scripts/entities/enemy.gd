@@ -401,7 +401,8 @@ func step(players: Array[ChainPlayer], delta: float) -> void:
 		if hit_flash > 0.0:
 			hit_flash = maxf(0.0, hit_flash - delta / HIT_FLASH_TIME)
 			scale = Vector2.ONE * (1.0 + hit_flash * 0.22)
-			queue_redraw()
+			if visible:
+				queue_redraw()
 		return
 	contact_cooldown = maxf(0.0, contact_cooldown - delta)
 	if slow_timer > 0.0:
@@ -716,7 +717,13 @@ func take_damage(amount: float, source_player := -1, source_weapon := "") -> boo
 		dead = true
 		died.emit(self)
 		return true
-	queue_redraw()
+	# Only a body that draws itself — a boss, or the whole crowd with the batch
+	# renderer switched off. For everyone else the node is hidden and the health
+	# bar and hit tint are read off these fields as the batch is built, so the
+	# redraw would clear and rebuild a canvas item nobody looks at. A hit lands
+	# on a packed crowd thousands of times a second.
+	if visible:
+		queue_redraw()
 	return false
 
 

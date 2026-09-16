@@ -34,6 +34,31 @@ const STREAM_OFFSETS := [
 const SURGE_LIFE := 0.72
 ## Of that, the share spent gathering before the span floods.
 const SURGE_GATHER := 0.45
+## What the leash spends on the roof at each tension stage, as real light rather
+## than as light drawn along the rope.
+##
+## Overcharge is the game's central bargain — stand dangerously far apart and
+## hit 25% harder — and until now the whole of it was carried by the rope's own
+## colour and the speed of the beads running along it, which is a thing you have
+## to be looking at the rope to read. A leash that is genuinely lighting the
+## paving under itself is readable from the cat you *are* looking at, which is
+## the one being chased. Nothing at stage 0: a calm chain is not an event, and a
+## permanent light down the middle of the pair would flatten the roof between
+## them for the whole run.
+const TENSION_LIGHT: Array[float] = [0.0, 0.06, 0.17, 0.26]
+## And the one state that takes light instead of giving it. A burnt-out chain
+## costs 20% of the pair's damage until they close up again, and it reads here
+## as the rope having gone cold and taken the roof under it with it.
+const OVERLOAD_LIGHT := 0.15
+## Three lights down the span rather than one at the middle, so a chain at full
+## stretch is lit along its length instead of showing one bright spot with two
+## dark halves.
+const LIGHT_POINTS: Array[float] = [0.2, 0.5, 0.8]
+
+## The lights this layer holds on the roof. Owned rather than taken from
+## LightField's pool: the chain is a condition that lasts the whole run, and a
+## volley of casts must never be able to evict it.
+var _tension_lights: Array[PointLight2D] = []
 
 var head_a := Vector2.ZERO
 var head_b := Vector2.ZERO
@@ -72,6 +97,49 @@ func set_state(a: Vector2, b: Vector2, color: Color, tension_stage: int, is_ward
 	stage = clampi(tension_stage, 0, FLOW_SPEED.size() - 1)
 	warded = is_warded
 	overloaded = is_overloaded
+	_light_the_span()
+
+
+## The leash lighting the roof it is stretched over.
+func _light_the_span() -> void:
+	# Checked live, not only at creation: these lights belong to a node that
+	# lives for the whole session, so an A/B that rebuilt the scene around it
+	# would otherwise capture the "off" frame with the chain still lit.
+	if not LightField.enabled or not Moonlight.enabled:
+		for light in _tension_lights:
+			light.visible = false
+		return
+	if _tension_lights.is_empty():
+		for index in LIGHT_POINTS.size():
+			# Wide and weak: this is the roof under a rope catching light, not a
+			# lamp hanging over it, and three overlapping pools that each read as
+			# a disc would draw the eye off the fight and onto the chain.
+			var light := LightField.attach(self, tint, 190.0, TENSION_LIGHT[TENSION_LIGHT.size() - 1])
+			if light == null:
+				return
+			light.visible = false
+			_tension_lights.append(light)
+	# A warded chain has had tension taken out of the rules for its duration, so
+	# it reads as one steady bright thing rather than as whatever band the pair
+	# happen to be standing in.
+	var energy := TENSION_LIGHT[stage]
+	var subtract := false
+	if warded:
+		energy = TENSION_LIGHT[TENSION_LIGHT.size() - 1]
+	elif overloaded:
+		energy = OVERLOAD_LIGHT
+		subtract = true
+	var wanted := Light2D.BLEND_MODE_SUB if subtract else Light2D.BLEND_MODE_ADD
+	for index in _tension_lights.size():
+		var light := _tension_lights[index]
+		light.visible = energy > 0.0
+		if not light.visible:
+			continue
+		if light.blend_mode != wanted:
+			light.blend_mode = wanted
+		light.color = tint
+		light.energy = energy
+		light.position = point_at(LIGHT_POINTS[index])
 
 
 ## A resonance has fired. Light gathers out of both cats and floods the span.

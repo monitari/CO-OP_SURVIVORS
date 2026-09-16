@@ -1,5 +1,34 @@
 extends RefCounted
 ## Shared moonlit-cat UI tokens. Combat ownership and danger colours stay separate.
+
+## The one typeface in the game.
+##
+## Jua is bundled with its OFL licence rather than relying on an OS fallback, so
+## every machine renders the same rounded storybook voice. It used to be applied
+## only to the theme main.gd hands its HUD host, which meant everything drawn
+## outside that Control subtree — floating damage numbers, the P1/P2 badges over
+## the cats, the downed prompt — fell back to the engine's own Open Sans and the
+## screen carried two typefaces at once. `adopt()` puts it on ThemeDB as well,
+## which is what those non-Control draws and any un-themed Label actually read.
+const FAMILY := preload("res://assets/fonts/Jua-Regular.ttf")
+
+
+## Makes FAMILY the fallback for every font lookup in the process, themed or not.
+## Idempotent; call it before the first Control or draw_string.
+##
+## Two separate resolutions have to be pointed at it, because a Control does not
+## read the same one a bare draw_string does: `ThemeDB.fallback_font` is what an
+## explicit engine-font draw ends up with, while an un-themed Control asks the
+## default Theme. Setting only the first leaves every Label that is not under a
+## themed host — the floating damage numbers, most of all — in the engine face.
+static func adopt() -> Font:
+	if ThemeDB.fallback_font != FAMILY:
+		ThemeDB.fallback_font = FAMILY
+	var default_theme := ThemeDB.get_default_theme()
+	if default_theme != null and default_theme.default_font != FAMILY:
+		default_theme.default_font = FAMILY
+	return FAMILY
+
 const INK := Color("edf3fa")
 const PANEL := Color("101b30ed")
 const CREAM := Color("fff9ea")

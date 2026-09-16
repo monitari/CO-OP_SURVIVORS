@@ -248,6 +248,10 @@ var lobby_title: Label
 var lobby_p1_label: Label
 var lobby_p2_label: Label
 var threat_edge_indicator: Label
+## Points at an off-screen field drop, the way threat_edge_indicator points at an
+## off-screen elite. Every drop on the roof came off a named fight, and each one
+## times out, so "there is a box over there" is information with a clock on it.
+var item_edge_indicator: Label
 
 var elapsed := 0.0
 var kills := 0
@@ -346,6 +350,8 @@ var chain_ward_pulse_timer := 0.0
 ## in the scene — a couple of thousand of them — to find the few dozen that were
 ## projectiles.
 var enemy_shots: Array = []
+## Spent hostile shots, kept for reuse. See _acquire_enemy_shot.
+var enemy_shot_pool: Array[EnemyProjectile] = []
 var guard_remaining := 0.0
 var frenzy_remaining := 0.0
 var time_stop_remaining := 0.0
@@ -451,6 +457,10 @@ var resonance_vote_message := ""
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	get_tree().paused = false
+	# Before anything builds a Label or calls draw_string: this is what the
+	# world-space text (damage numbers, the badges over the cats) reads, and it
+	# is not covered by the theme the HUD host carries.
+	CatTheme.adopt()
 	randomize()
 	settings = SettingsScript.new() as GameSettings
 	settings.load_settings()
@@ -601,12 +611,29 @@ func _physics_process(delta: float) -> void:
 		modal_dim.queue_redraw()
 	for notice in notice_stack:
 		if is_instance_valid(notice): notice.visible = not modal
+	# A screen that interrupts a live fight freezes the tree and then *moves the
+	# camera*: growth, a chest and the pause menu all pull the view in on the
+	# pair and lift it. The crowd is drawn in batches culled against this
+	# rectangle and the bodies themselves are hidden nodes, so a view that walks
+	# past a stale rectangle walks into enemies nobody is drawing. The early
+	# returns below are what would otherwise leave it stale.
+	#
+	# Only those screens, and not every modal: the title, the lobby and
+	# character select have no fight behind them to keep drawn, and this value
+	# also decides how often the crowd separation runs on a given body — so
+	# writing it from a state that has no camera worth speaking of would change
+	# the separation rate for nothing.
+	if veil and is_instance_valid(crowd_renderer):
+		crowd_renderer.view_rect = _visible_world_rect()
 	if online.is_client():
 		online.client_tick(delta)
 		# The client's crowd arrives in snapshots rather than from a local tick,
 		# but it is drawn by the same batch renderer, which only rebuilds when it
 		# is told the crowd moved. Returning before this left a client's enemies
 		# frozen where the renderer first saw them.
+		# The received shots travel on this loop too: nothing else moves them now
+		# that they have no physics callback of their own.
+		_step_enemy_shots(delta)
 		crowd_renderer.view_rect = _visible_world_rect()
 		crowd_renderer.dirty = true
 		return
@@ -624,6 +651,7 @@ func _physics_process(delta: float) -> void:
 		# Both of these live above the dim, so a fading banner or an off-screen
 		# arrow would otherwise sit on top of the overlay panel.
 		threat_edge_indicator.visible = false
+		item_edge_indicator.visible = false
 		message_label.modulate.a = 0.0
 	# Checked before every other state: a showcase is on top of whatever opened
 	# it, and the run must not advance underneath it.
@@ -689,6 +717,7 @@ func _physics_process(delta: float) -> void:
 	_update_chain_integrity(delta)
 	_update_chain_visual()
 	_update_camera(delta)
+	# Again, now that this tick's camera move has happened.
 	crowd_renderer.view_rect = _visible_world_rect()
 
 	var cull_origin := (players[0].position + players[1].position) * 0.5
@@ -755,9 +784,11 @@ func _physics_process(delta: float) -> void:
 	flight_field.step(delta)
 	rooftop_occlusion.step()
 	_update_threat_indicator()
+	_update_item_indicator()
 	_profile("effects")
 	experience_system.step(players, delta)
 	field_items.step(players, delta)
+	_step_enemy_shots(delta)
 	_profile("pickups")
 
 	for player_index in 2:
@@ -965,14 +996,14 @@ func _create_players() -> void:
 	players.append(player_two)
 
 
-## Keep the rounded cat-storybook voice consistent on every machine. Jua is
-## bundled with its OFL licence instead of relying on an OS-specific fallback.
-const CatUIFont := preload("res://assets/fonts/Jua-Regular.ttf")
+## One typeface for the whole game, including the parts that are not Controls —
+## see CatTheme.FAMILY.
+const CatUIFont := CatTheme.FAMILY
 
 
 func _build_ui_theme_host() -> Control:
 	var theme := Theme.new()
-	theme.default_font = CatUIFont
+	theme.default_font = CatTheme.adopt()
 	theme.set_color("font_color", "Label", CatTheme.CREAM)
 	# Screens keep their own type scale; family and neutral ink are inherited.
 	var host := Control.new()
@@ -1359,6 +1390,7 @@ func _create_hud() -> void:
 		portrait.name = "ResultCat%d" % slot
 
 	threat_edge_indicator = _create_edge_indicator(layer, Color("ff5d8f"))
+	item_edge_indicator = _create_edge_indicator(layer, CHEST_POINTER_COLOR)
 	EditorialUI.apply(self)
 
 
@@ -1412,7 +1444,10 @@ func _create_lobby_slot(slot_position: Vector2, color: Color) -> Label:
 
 func _create_edge_indicator(parent: Node, color: Color) -> Label:
 	var label := Label.new()
-	label.size = Vector2(115.0, 34.0)
+	# Wide enough for the longest mark either pointer makes — "상자 128m 9초" —
+	# because _confine_label clips silently and a clipped countdown is worse
+	# than no countdown.
+	label.size = Vector2(158.0, 34.0)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", color)
@@ -2077,9 +2112,11 @@ func _start_selected_run() -> void:
 	for player in players:
 		player.field_move_multiplier = 1.0
 	# Cleared in place: the controller and its fields hold this same array.
+	# Parked rather than freed — the pool outlives a run, so the next one starts
+	# with its shots already built.
 	for shot in enemy_shots:
 		if is_instance_valid(shot):
-			(shot as EnemyProjectile).queue_free()
+			(shot as EnemyProjectile).release()
 	enemy_shots.clear()
 	rerolls_remaining = [REROLL_START, REROLL_START]
 	level_up_gap_remaining = 0.0
@@ -2246,16 +2283,8 @@ func _update_timed_items(delta: float) -> void:
 			_show_message("광란 진정", Color("8ecae6"))
 	if time_stop_remaining > 0.0:
 		time_stop_remaining = maxf(0.0, time_stop_remaining - delta)
-		# Walked backwards so shots that have already gone can be dropped on the
-		# way through; nothing else prunes this list except the weapons that
-		# empty it deliberately.
-		for index in range(enemy_shots.size() - 1, -1, -1):
-			var candidate: Variant = enemy_shots[index]
-			if not is_instance_valid(candidate):
-				enemy_shots.remove_at(index)
-				continue
-			var shot := candidate as EnemyProjectile
-			shot.frozen = time_stop_remaining > 0.0
+		# The freeze flag itself is written by _step_enemy_shots, which is the
+		# one place that walks this list.
 		if time_stop_remaining <= 0.0:
 			_show_message("시간이 다시 흐릅니다", Color("c77dff"))
 			feedback.play_cue("warning")
@@ -2365,13 +2394,85 @@ func _update_threat_indicator() -> void:
 	if nearest == null:
 		threat_edge_indicator.visible = false
 		return
-	var direction := rooftop_view.project_offset((nearest.global_position - centre) * world_camera.zoom).normalized()
-	var half := view * 0.5 - Vector2(80.0, 112.0)
-	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
-	threat_edge_indicator.position = view * 0.5 + direction * reach - threat_edge_indicator.size * 0.5
+	_place_edge_indicator(threat_edge_indicator, nearest.global_position, view, centre)
 	threat_edge_indicator.text = "%s %dm" % ["보스" if nearest.boss else "정예", int(nearest_distance / 10.0)]
 	threat_edge_indicator.add_theme_color_override("font_color", Color("fff275") if nearest.boss else Color("ff5d8f"))
 	threat_edge_indicator.visible = true
+
+
+## Gold rather than the threat pointer's pink, because the two share an edge and
+## a screen: one of them is something to run from.
+const CHEST_POINTER_COLOR := Color("ffd166")
+## Under this much life left, the pointer says how long the drop has instead of
+## only where it is — a box that expires while the pair is crossing to it is the
+## one way this pointer can make the run worse.
+const ITEM_POINTER_CLOCK := 9.0
+
+
+## The drop pointer. Same rule as the threat pointer — only what is off screen is
+## pointed at, because a box the pair can already see needs no arrow — and the
+## same edge placement, so the two read as one family of marks rather than as two
+## unrelated HUD pieces.
+func _update_item_indicator() -> void:
+	var view := rooftop_view.view_size
+	var centre := world_camera.position
+	var nearest: FieldItem = null
+	var nearest_distance := 0.0
+	for candidate in field_items.active_items:
+		var item := candidate as FieldItem
+		if not is_instance_valid(item) or not item.active:
+			continue
+		var offset := rooftop_view.project_offset((item.global_position - centre) * world_camera.zoom)
+		if absf(offset.x) < view.x * 0.5 - 40.0 and absf(offset.y) < view.y * 0.5 - 40.0:
+			continue
+		var distance := offset.length()
+		# A chest outranks every other drop at any distance: it is the one that
+		# hands out cards, and the pair should never trade it for a tuna tin
+		# that happened to land closer.
+		var better := nearest == null
+		if not better and item.item_id == "chest" and nearest.item_id != "chest":
+			better = true
+		elif not better and (item.item_id == "chest") == (nearest.item_id == "chest"):
+			better = distance < nearest_distance
+		if better:
+			nearest = item
+			nearest_distance = distance
+	if nearest == null:
+		item_edge_indicator.visible = false
+		return
+	_place_edge_indicator(item_edge_indicator, nearest.global_position, view, centre)
+	# Both pointers clamp to the same edge along their own bearing, so a chest
+	# and an elite in roughly the same direction land on top of each other. The
+	# drop is the one that moves: the threat mark is the one being read in a
+	# hurry.
+	if threat_edge_indicator.visible:
+		var gap := item_edge_indicator.position - threat_edge_indicator.position
+		if absf(gap.x) < item_edge_indicator.size.x and absf(gap.y) < item_edge_indicator.size.y:
+			var below := threat_edge_indicator.position.y + item_edge_indicator.size.y + 6.0
+			if below + item_edge_indicator.size.y > view.y - 40.0:
+				below = threat_edge_indicator.position.y - item_edge_indicator.size.y - 6.0
+			item_edge_indicator.position.y = below
+	var label := "상자" if nearest.item_id == "chest" else field_items.item_display_name(nearest.item_id)
+	if nearest.lifetime <= ITEM_POINTER_CLOCK:
+		item_edge_indicator.text = "%s %dm %d초" % [label, int(nearest_distance / 10.0), ceili(nearest.lifetime)]
+	else:
+		item_edge_indicator.text = "%s %dm" % [label, int(nearest_distance / 10.0)]
+	var tint: Color = field_items.item_color(nearest.item_id)
+	# The mark blinks with the drop it points at rather than on a clock of its
+	# own, so the arrow and the thing on the floor are visibly the same object.
+	if nearest.lifetime <= FieldItem.FADE_WARNING:
+		tint.a = 0.45 + absf(sin(nearest.lifetime * 6.0)) * 0.55
+	item_edge_indicator.add_theme_color_override("font_color", tint)
+	item_edge_indicator.visible = true
+
+
+## Puts `label` on the screen edge along the bearing to `at`, inset far enough
+## that the mark itself is never half off screen.
+func _place_edge_indicator(label: Label, at: Vector2, view: Vector2, centre: Vector2) -> void:
+	var direction := rooftop_view.project_offset((at - centre) * world_camera.zoom).normalized()
+	var half := view * 0.5 - Vector2(80.0, 112.0)
+	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
+	label.position = view * 0.5 + direction * reach - label.size * 0.5
 
 
 func _update_camera(delta: float) -> void:
@@ -2491,14 +2592,59 @@ func _on_encounter_started(encounter_id: String) -> void:
 
 
 func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float) -> void:
-	var projectile := EnemyProjectileScript.new() as EnemyProjectile
-	projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
+	var projectile := _acquire_enemy_shot()
 	projectile.setup(origin, direction, damage, players)
-	projectile.broken.connect(_on_enemy_shot_broken)
 	enemy_shots.append(projectile)
-	rooftop_view.world.add_child(projectile)
 	if online != null:
 		online.send_enemy_shot(origin, direction, projectile.speed)
+
+
+## Hostile shots are pooled like the friendly ones. A late field is a few hundred
+## in the air at once with a steady turnover, and every one of them used to be a
+## node built and thrown away.
+func _acquire_enemy_shot() -> EnemyProjectile:
+	if not enemy_shot_pool.is_empty():
+		var reused: EnemyProjectile = enemy_shot_pool.pop_back()
+		reused.pooled = false
+		return reused
+	var projectile := EnemyProjectileScript.new() as EnemyProjectile
+	projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
+	projectile.broken.connect(_on_enemy_shot_broken)
+	projectile.released.connect(_on_enemy_shot_released)
+	rooftop_view.world.add_child(projectile)
+	return projectile
+
+
+func _on_enemy_shot_released(shot: EnemyProjectile) -> void:
+	if shot.pooled:
+		return
+	shot.pooled = true
+	enemy_shot_pool.append(shot)
+
+
+## One tick for every hostile shot in the air, and the only thing that prunes
+## `enemy_shots`.
+##
+## The list used to be swept only inside the time-stop branch, which is to say
+## almost never: a shot that timed out or hit somebody freed its node and left a
+## dead reference behind, and over a full run that list grew without bound.
+## CrowdRenderer walks it every rendered frame and the AI companion walks it
+## every tick, so the cost of a run's accumulated misses was paid twice a frame,
+## forever.
+func _step_enemy_shots(delta: float) -> void:
+	var frozen := time_stop_remaining > 0.0
+	for index in range(enemy_shots.size() - 1, -1, -1):
+		var candidate: Variant = enemy_shots[index]
+		var shot := candidate as EnemyProjectile if is_instance_valid(candidate) else null
+		var finished := shot == null
+		if not finished:
+			shot.frozen = frozen
+			finished = shot.step(delta)
+		if finished:
+			# Swap-remove: walking backwards means the entry pulled in from the
+			# end has already been stepped this tick.
+			enemy_shots[index] = enemy_shots[enemy_shots.size() - 1]
+			enemy_shots.pop_back()
 
 
 func _on_player_attack_visual(player_index: int, weapon_id: String,
@@ -2889,6 +3035,13 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	kills += 1
 	_drop_experience(death_position, dropped_xp, dropped_grade, was_elite or defeated_boss)
 	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
+	# Only the named kills light the roof. An ordinary body dies several times a
+	# second in a late wave, and a light on each of them would fill the whole
+	# budget with flickers and leave nothing for the thing that earned one.
+	if defeated_boss or was_elite:
+		weapon_controller._spawn_reactive_light(death_position, enemy.enemy_color.lerp(Color("fff4cf"), 0.3),
+			240.0 if defeated_boss else 140.0, 0.5 if defeated_boss else 0.3,
+			0.38 if defeated_boss else 0.22, 1.9)
 	feedback.report_kill()
 	wave_director.release_enemy(enemy)
 	if defeated_boss:

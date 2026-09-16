@@ -2,7 +2,6 @@ class_name OnlineCoop
 extends Node
 
 const SessionScript := preload("res://scripts/systems/network_session.gd")
-const EnemyProjectileScript := preload("res://scripts/entities/enemy_projectile.gd")
 const FieldItemScript := preload("res://scripts/entities/field_item.gd")
 
 # Positional wire schema. Repeating eighteen Dictionary keys for every enemy was
@@ -368,8 +367,9 @@ func _client_growth_input() -> void:
 
 
 func _receive_enemy_shot(payload: Dictionary) -> void:
-	var projectile := EnemyProjectileScript.new() as EnemyProjectile
-	projectile.process_mode = Node.PROCESS_MODE_PAUSABLE
+	# Through the host's own pool and the host's own signal wiring, so a received
+	# shot is recycled and pruned by exactly the code a locally fired one is.
+	var projectile: EnemyProjectile = game._acquire_enemy_shot()
 	var no_targets: Array[ChainPlayer] = []
 	projectile.setup(Vector2(payload.get("origin", Vector2.ZERO)),
 		Vector2(payload.get("direction", Vector2.RIGHT)), 0.0, no_targets)
@@ -377,7 +377,6 @@ func _receive_enemy_shot(payload: Dictionary) -> void:
 	# Registered like a host shot: the crowd renderer draws every enemy shot from
 	# this list, and the friendly weapons that knock shots down read it too.
 	game.enemy_shots.append(projectile)
-	game.rooftop_view.world.add_child(projectile)
 
 
 func host_tick(delta: float) -> void:

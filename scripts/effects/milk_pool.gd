@@ -29,6 +29,13 @@ var source_weapon := ""
 const TICK_INTERVAL := 0.45
 const SPREAD_TIME := 0.28
 const FADE_TIME := 0.7
+## A pool of milk on a moonlit roof is a pale thing lying flat, and pale flat
+## things pick light up and hand some of it back. Kept very low on purpose:
+## this is the floor catching the moon, not a weapon announcing itself, and it
+## sits under the cats and the crowd where a bright light would wash out the
+## silhouettes the fight is read from.
+const POOL_LIGHT_ENERGY := 0.09
+var pool_light: PointLight2D
 
 
 func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: float,
@@ -44,6 +51,8 @@ func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: 
 	source_weapon = weapon_id
 	splash_seed = randf() * TAU
 	z_index = -1 # Under the cats and the enemies: it is the floor, not an effect.
+	if pool_light == null:
+		pool_light = LightField.attach(self, colour, radius * 1.2, POOL_LIGHT_ENERGY)
 	queue_redraw()
 
 
@@ -53,6 +62,13 @@ func _physics_process(delta: float) -> void:
 	if tick <= 0.0 and age >= SPREAD_TIME:
 		tick = TICK_INTERVAL
 		_soak()
+	if pool_light != null:
+		# Spreads with the splash and goes out with the puddle, so the lit patch
+		# of roof is always exactly the wet patch of roof.
+		var spread := _spread()
+		var fade := clampf((duration - age) / FADE_TIME, 0.0, 1.0)
+		pool_light.energy = POOL_LIGHT_ENERGY * spread * fade
+		pool_light.texture_scale = maxf(0.2, pool_radius * spread * 1.2 / 64.0)
 	queue_redraw()
 	if age >= duration:
 		queue_free()

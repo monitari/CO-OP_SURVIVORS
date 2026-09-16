@@ -12,34 +12,34 @@
 		"enemies": 620,
 		"game_over": false,
 		"main_phase_ms": {
-			"crowd_separation": 1.09462,
-			"effects": 0.009865,
-			"enemy_ai": 1.142775,
-			"grid_rebuild": 0.776345,
-			"hud": 0.289963333333333,
-			"pickups": 0.00236666666666667,
-			"players_chain_camera": 0.396943333333333,
-			"resonance": 0.011315,
-			"spawning": 0.00661166666666667,
-			"weapons": 0.00775833333333333
+			"crowd_separation": 1.09821166666667,
+			"effects": 0.0110933333333333,
+			"enemy_ai": 1.11687333333333,
+			"grid_rebuild": 0.661791666666667,
+			"hud": 0.278791666666667,
+			"pickups": 0.00263666666666667,
+			"players_chain_camera": 0.387785,
+			"resonance": 0.0108283333333333,
+			"spawning": 0.00652666666666667,
+			"weapons": 0.00699333333333333
 		},
 		"paused_ticks": 0,
 		"physics_process_cpu": {
-			"max_ms": 6.521,
-			"mean_ms": 3.75170666666667,
-			"p50_ms": 3.643,
-			"p99_ms": 5.814
+			"max_ms": 5.721,
+			"mean_ms": 3.59573833333334,
+			"p50_ms": 3.579,
+			"p99_ms": 4.676
 		},
 		"process_cpu": {
-			"max_ms": 2.384,
-			"mean_ms": 0.538353347135955,
-			"p50_ms": 0.078,
-			"p99_ms": 1.931
+			"max_ms": 1.963,
+			"mean_ms": 0.516182194616977,
+			"p50_ms": 0.075,
+			"p99_ms": 1.389
 		},
 		"synthetic_shots": 0,
-		"tick_interval_max_ms": 21.134,
-		"tick_interval_mean_ms": 16.6634516666666,
-		"tick_interval_p99_ms": 20.722,
+		"tick_interval_max_ms": 20.958,
+		"tick_interval_mean_ms": 16.663455,
+		"tick_interval_p99_ms": 20.704,
 		"ticks": 600
 	},
 	{
@@ -49,40 +49,40 @@
 		"burst_release_reacquire": {},
 		"cpu_samples": [
 			600,
-			210
+			305
 		],
 		"display": "headless",
 		"enemies": 620,
 		"game_over": false,
 		"main_phase_ms": {
-			"crowd_separation": 1.06656833333333,
-			"effects": 0.122351666666667,
-			"enemy_ai": 1.19491166666667,
-			"grid_rebuild": 0.684891666666667,
-			"hud": 0.281568333333333,
-			"pickups": 0.00225833333333333,
-			"players_chain_camera": 0.409223333333333,
-			"resonance": 0.0107616666666667,
-			"spawning": 0.006225,
-			"weapons": 0.00706333333333333
+			"crowd_separation": 1.07665333333333,
+			"effects": 0.123465,
+			"enemy_ai": 1.14599,
+			"grid_rebuild": 0.593571666666667,
+			"hud": 0.274623333333333,
+			"pickups": 0.00254,
+			"players_chain_camera": 0.35451,
+			"resonance": 0.0106516666666667,
+			"spawning": 0.00631166666666667,
+			"weapons": 0.00656333333333333
 		},
 		"paused_ticks": 0,
 		"physics_process_cpu": {
-			"max_ms": 28.869,
-			"mean_ms": 15.8077166666667,
-			"p50_ms": 16.033,
-			"p99_ms": 26.328
+			"max_ms": 18.753,
+			"mean_ms": 14.8904066666667,
+			"p50_ms": 15.547,
+			"p99_ms": 17.838
 		},
 		"process_cpu": {
-			"max_ms": 3.413,
-			"mean_ms": 1.68164285714286,
-			"p50_ms": 1.885,
-			"p99_ms": 3.185
+			"max_ms": 2.654,
+			"mean_ms": 1.50534754098361,
+			"p50_ms": 1.86,
+			"p99_ms": 2.3
 		},
 		"synthetic_shots": 500,
-		"tick_interval_max_ms": 33.029,
-		"tick_interval_mean_ms": 18.1452383333333,
-		"tick_interval_p99_ms": 28.268,
+		"tick_interval_max_ms": 22.633,
+		"tick_interval_mean_ms": 17.47047,
+		"tick_interval_p99_ms": 21.704,
 		"ticks": 600
 	},
 	{
@@ -92,40 +92,40 @@
 		"burst_release_reacquire": {},
 		"cpu_samples": [
 			600,
-			75
+			76
 		],
 		"display": "headless",
 		"enemies": 620,
 		"game_over": false,
 		"main_phase_ms": {
-			"crowd_separation": 1.073355,
-			"effects": 0.120966666666667,
-			"enemy_ai": 1.20145333333333,
-			"grid_rebuild": 0.688801666666667,
-			"hud": 0.28288,
-			"pickups": 0.002305,
-			"players_chain_camera": 0.408788333333333,
-			"resonance": 0.0109766666666667,
-			"spawning": 0.00625833333333333,
-			"weapons": 0.006755
+			"crowd_separation": 1.057085,
+			"effects": 0.124606666666667,
+			"enemy_ai": 1.157265,
+			"grid_rebuild": 0.590555,
+			"hud": 0.278523333333333,
+			"pickups": 0.00261,
+			"players_chain_camera": 0.3601,
+			"resonance": 0.0108933333333333,
+			"spawning": 0.006175,
+			"weapons": 0.00650666666666667
 		},
 		"paused_ticks": 0,
 		"physics_process_cpu": {
-			"max_ms": 47.662,
-			"mean_ms": 27.3256483333333,
-			"p50_ms": 28.156,
-			"p99_ms": 38.304
+			"max_ms": 38.575,
+			"mean_ms": 25.5957933333333,
+			"p50_ms": 26.907,
+			"p99_ms": 31.726
 		},
 		"process_cpu": {
-			"max_ms": 3.418,
-			"mean_ms": 2.64997333333333,
-			"p50_ms": 2.61,
-			"p99_ms": 3.343
+			"max_ms": 3.473,
+			"mean_ms": 2.63867105263158,
+			"p50_ms": 2.574,
+			"p99_ms": 3.287
 		},
 		"synthetic_shots": 1000,
-		"tick_interval_max_ms": 50.035,
-		"tick_interval_mean_ms": 29.2838616666667,
-		"tick_interval_p99_ms": 40.557,
+		"tick_interval_max_ms": 40.599,
+		"tick_interval_mean_ms": 27.4338216666667,
+		"tick_interval_p99_ms": 35.668,
 		"ticks": 600
 	},
 	{
@@ -141,34 +141,34 @@
 		"enemies": 620,
 		"game_over": false,
 		"main_phase_ms": {
-			"crowd_separation": 1.06932,
-			"effects": 0.119886666666667,
-			"enemy_ai": 1.18623166666667,
-			"grid_rebuild": 0.683448333333333,
-			"hud": 0.287566666666667,
-			"pickups": 0.00242166666666667,
-			"players_chain_camera": 0.368318333333333,
-			"resonance": 0.0115066666666667,
-			"spawning": 0.00659,
-			"weapons": 0.00700333333333333
+			"crowd_separation": 1.06086166666667,
+			"effects": 0.124913333333333,
+			"enemy_ai": 1.1972,
+			"grid_rebuild": 0.596935,
+			"hud": 0.284035,
+			"pickups": 0.00275333333333333,
+			"players_chain_camera": 0.366296666666667,
+			"resonance": 0.0114333333333333,
+			"spawning": 0.00632833333333333,
+			"weapons": 0.007165
 		},
 		"paused_ticks": 0,
 		"physics_process_cpu": {
-			"max_ms": 86.026,
-			"mean_ms": 50.229975,
-			"p50_ms": 51.838,
-			"p99_ms": 70.37
+			"max_ms": 76.439,
+			"mean_ms": 46.98501,
+			"p50_ms": 49.594,
+			"p99_ms": 58.239
 		},
 		"process_cpu": {
-			"max_ms": 5.003,
-			"mean_ms": 4.02273333333333,
-			"p50_ms": 3.941,
-			"p99_ms": 4.938
+			"max_ms": 6.913,
+			"mean_ms": 3.96842666666667,
+			"p50_ms": 3.886,
+			"p99_ms": 4.59
 		},
 		"synthetic_shots": 2000,
-		"tick_interval_max_ms": 88.131,
-		"tick_interval_mean_ms": 52.4009149999999,
-		"tick_interval_p99_ms": 72.624,
+		"tick_interval_max_ms": 78.932,
+		"tick_interval_mean_ms": 49.1070133333333,
+		"tick_interval_p99_ms": 61.438,
 		"ticks": 600
 	},
 	{
@@ -176,10 +176,10 @@
 		"active_min": 2000,
 		"burst_every": 60,
 		"burst_release_reacquire": {
-			"max_ms": 28.016,
-			"mean_ms": 24.1135,
-			"p50_ms": 24.279,
-			"p99_ms": 26.712
+			"max_ms": 23.038,
+			"mean_ms": 19.3484,
+			"p50_ms": 19.327,
+			"p99_ms": 21.129
 		},
 		"cpu_samples": [
 			600,
@@ -189,34 +189,34 @@
 		"enemies": 620,
 		"game_over": false,
 		"main_phase_ms": {
-			"crowd_separation": 1.07226166666667,
-			"effects": 0.122021666666667,
-			"enemy_ai": 1.21448333333333,
-			"grid_rebuild": 0.693278333333333,
-			"hud": 0.297268333333333,
-			"pickups": 0.00265333333333333,
-			"players_chain_camera": 0.374236666666667,
-			"resonance": 0.0121833333333333,
-			"spawning": 0.006995,
-			"weapons": 0.00702
+			"crowd_separation": 1.070845,
+			"effects": 0.127108333333333,
+			"enemy_ai": 1.17556166666667,
+			"grid_rebuild": 0.593973333333333,
+			"hud": 0.284938333333333,
+			"pickups": 0.00272333333333333,
+			"players_chain_camera": 0.379136666666667,
+			"resonance": 0.0118183333333333,
+			"spawning": 0.00635666666666667,
+			"weapons": 0.00694666666666667
 		},
 		"paused_ticks": 0,
 		"physics_process_cpu": {
-			"max_ms": 128.646,
-			"mean_ms": 52.5723266666666,
-			"p50_ms": 50.961,
-			"p99_ms": 93.89
+			"max_ms": 71.736,
+			"mean_ms": 43.6833433333333,
+			"p50_ms": 43.16,
+			"p99_ms": 68.38
 		},
 		"process_cpu": {
-			"max_ms": 7.755,
-			"mean_ms": 4.07429333333333,
-			"p50_ms": 3.926,
-			"p99_ms": 6.751
+			"max_ms": 6.443,
+			"mean_ms": 4.01312,
+			"p50_ms": 3.913,
+			"p99_ms": 4.894
 		},
 		"synthetic_shots": 2000,
-		"tick_interval_max_ms": 131.381,
-		"tick_interval_mean_ms": 55.22844,
-		"tick_interval_p99_ms": 104.245,
+		"tick_interval_max_ms": 77.603,
+		"tick_interval_mean_ms": 46.1580816666667,
+		"tick_interval_p99_ms": 72.456,
 		"ticks": 600
 	}
 ]

@@ -69,6 +69,10 @@ func _ready() -> void:
 ## one kind of node that carries that separately from where it is drawn. Working
 ## it back out of a drawn position stopped being possible the moment the floor
 ## gained a perspective.
+## Where the next eviction writes once the mark list is full; see flash().
+var _replace_at := 0
+
+
 func track(shot: HomingProjectile) -> void:
 	if shot == null or shot.flight_height <= 0.0 or not is_instance_valid(shot):
 		return
@@ -79,8 +83,15 @@ func track(shot: HomingProjectile) -> void:
 ## the point the shot was drawn at — the whole job of this mark is to say which
 ## piece of floor the hit belongs to.
 func flash(at: Vector2, color: Color, radius := 26.0) -> void:
+	# Overwritten in place rather than shifted out of the front. A volley can
+	# expire all at once -- every flame shot of a nova landing on the same tick
+	# -- and pop_front made each of those marks cost the length of the list.
 	if flashes.size() >= MAX_FLASHES:
-		flashes.pop_front()
+		if _replace_at >= flashes.size():
+			_replace_at = 0
+		flashes[_replace_at] = {"at": at, "color": color, "radius": radius, "age": 0.0}
+		_replace_at += 1
+		return
 	flashes.append({"at": at, "color": color, "radius": radius, "age": 0.0})
 
 
@@ -104,6 +115,7 @@ func step(delta: float) -> void:
 		if float(mark["age"]) < FLASH_LIFE:
 			burning.append(mark)
 	flashes = burning
+	_replace_at = 0
 	queue_redraw()
 	if glow != null:
 		glow.queue_redraw()
@@ -112,6 +124,7 @@ func step(delta: float) -> void:
 func clear_all() -> void:
 	flyers.clear()
 	flashes.clear()
+	_replace_at = 0
 	queue_redraw()
 	if glow != null:
 		glow.queue_redraw()

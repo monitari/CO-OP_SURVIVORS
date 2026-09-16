@@ -5,12 +5,25 @@ extends Node2D
 ## listens so the hit gets sparks and a cue: a shot that simply vanished would
 ## read as the weapon having missed it.
 signal broken(at: Vector2)
+## Emitted once when this shot leaves play, however it left — timed out, hit
+## somebody, or was knocked down. main listens and parks the node in its pool.
+signal released(shot: EnemyProjectile)
 
 var direction := Vector2.RIGHT
 var speed := 245.0
 var damage := 10.0
 var lifetime := 4.0
 var players: Array[ChainPlayer] = []
+## Live rather than freed. A shooter-heavy late wave fires a few hundred of
+## these a minute, and every one used to be a node allocation and a queue_free;
+## the list they were kept in was only ever swept while a time stop was running,
+## so in an ordinary run it grew for twenty-five minutes and everything that
+## walks it — the batch renderer every frame, the AI companion every tick —
+## walked thousands of dead references.
+var active := false
+## Set by main while the node sits in its pool, so a double release is a flag
+## test rather than a search.
+var pooled := false
 
 
 func setup(origin: Vector2, travel_direction: Vector2, projectile_damage: float, targets: Array[ChainPlayer]) -> void:
@@ -19,6 +32,10 @@ func setup(origin: Vector2, travel_direction: Vector2, projectile_damage: float,
 	damage = projectile_damage
 	players = targets
 	rotation = direction.angle()
+	lifetime = 4.0
+	frozen = false
+	active = true
+	visible = true
 
 
 ## Set by main while 멈춘 회중시계 is running. A time stop that froze the
@@ -26,25 +43,44 @@ func setup(origin: Vector2, travel_direction: Vector2, projectile_damage: float,
 var frozen := false
 
 
-func _physics_process(delta: float) -> void:
+## One tick of travel. Returns true once the shot has left play.
+##
+## Driven by main's own loop rather than by a per-node physics callback: the
+## callback is a separate trip from the engine into the script for every shot in
+## the air, and the body of it is four lines.
+func step(delta: float) -> bool:
+	if not active:
+		return true
 	if frozen:
-		return
+		return false
 	lifetime -= delta
 	if lifetime <= 0.0:
-		queue_free()
-		return
+		release()
+		return true
 	position += direction * speed * delta
 	for player in players:
 		if global_position.distance_to(player.global_position) <= 10.0 + player.radius:
 			player.hurt(damage)
-			queue_free()
-			return
+			release()
+			return true
+	return false
 
 
 ## Takes this shot out of the air.
 func shatter() -> void:
+	if not active:
+		return
 	broken.emit(global_position)
-	queue_free()
+	release()
+
+
+## Leaves play without a break effect. Idempotent.
+func release() -> void:
+	if not active:
+		return
+	active = false
+	visible = false
+	released.emit(self)
 
 
 ## Knocks every shot in `shots` inside the circle down, and prunes entries whose
@@ -59,7 +95,7 @@ static func break_within(shots: Array, point: Vector2, radius: float) -> int:
 			shots.remove_at(index)
 			continue
 		var shot := candidate as EnemyProjectile
-		if shot == null:
+		if shot == null or not shot.active:
 			shots.remove_at(index)
 			continue
 		if point.distance_squared_to(shot.global_position) > radius * radius:
@@ -82,7 +118,7 @@ static func break_along(shots: Array, from: Vector2, to: Vector2, width: float) 
 			shots.remove_at(index)
 			continue
 		var shot := candidate as EnemyProjectile
-		if shot == null:
+		if shot == null or not shot.active:
 			shots.remove_at(index)
 			continue
 		var at := shot.global_position

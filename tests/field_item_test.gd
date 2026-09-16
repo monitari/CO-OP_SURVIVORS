@@ -42,6 +42,7 @@ func _run() -> void:
 	_test_chest(main)
 	_test_drop_rates(main)
 	_test_table_integrity(main)
+	await _test_drop_pointer(main)
 
 	if failures.is_empty():
 		print("FIELD_ITEM_PASS: pickups, stronger golden collar, mixed chest loot, elite-only drops")
@@ -438,6 +439,50 @@ func _test_table_integrity(main: Node) -> void:
 	for roll in 300:
 		seen[main.field_items.roll_item_id()] = true
 	_check(seen.size() == table_ids.size(), "every drop type is actually reachable by the weighted roll (%d of %d)" % [seen.size(), table_ids.size()])
+
+
+## A drop is only ever left behind by a named fight, it times out in twenty-two
+## seconds, and the fight that produced it may well have carried the pair away
+## from it. So it gets the same edge pointer an off-screen elite gets, and for
+## the same reason: the thing it is pointing at is worth crossing a crowd for
+## and there is no other way to know it is there.
+func _test_drop_pointer(main: Node) -> void:
+	main.field_items.clear_all()
+	main._update_item_indicator()
+	_check(not main.item_edge_indicator.visible, "no drops, no pointer")
+	# Somewhere the camera is certainly not looking.
+	var far: Vector2 = main.players[0].global_position + Vector2(2400.0, -1800.0)
+	var chest: FieldItem = main.field_items.spawn_item(far, "chest")
+	main._update_item_indicator()
+	_check(main.item_edge_indicator.visible, "an off-screen chest is pointed at")
+	_check(String(main.item_edge_indicator.text).begins_with("상자"),
+		"the pointer names the box (%s)" % main.item_edge_indicator.text)
+	var view: Vector2 = main.rooftop_view.view_size
+	var mark: Rect2 = Rect2(main.item_edge_indicator.position, main.item_edge_indicator.size)
+	_check(Rect2(Vector2.ZERO, view).encloses(mark),
+		"the pointer stays wholly on screen (%s in %s)" % [mark, view])
+	# A chest already in view needs no arrow.
+	chest.position = main.players[0].global_position
+	main._update_item_indicator()
+	_check(not main.item_edge_indicator.visible, "a chest the pair can see is not pointed at")
+	# The clock appears only once the drop is genuinely about to go.
+	chest.position = far
+	chest.lifetime = FieldItem.ITEM_LIFETIME
+	main._update_item_indicator()
+	_check(not String(main.item_edge_indicator.text).contains("초"),
+		"a fresh drop is a place, not a countdown (%s)" % main.item_edge_indicator.text)
+	chest.lifetime = 4.0
+	main._update_item_indicator()
+	_check(String(main.item_edge_indicator.text).contains("초"),
+		"an expiring drop says how long is left (%s)" % main.item_edge_indicator.text)
+	# A chest outranks an ordinary drop even when the ordinary one is closer.
+	main.field_items.spawn_item(main.players[0].global_position + Vector2(1500.0, 0.0), "heal")
+	main._update_item_indicator()
+	_check(String(main.item_edge_indicator.text).begins_with("상자"),
+		"a chest outranks a nearer ordinary drop (%s)" % main.item_edge_indicator.text)
+	main.field_items.clear_all()
+	main._update_item_indicator()
+	await process_frame
 
 
 func _check(condition: bool, label: String) -> void:

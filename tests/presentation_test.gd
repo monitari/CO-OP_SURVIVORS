@@ -78,22 +78,26 @@ func _test_bursts() -> void:
 	field.free()
 
 
-## Reactive lights expire independently. A strong Node reference left in the
-## cap used to become an invalid freed instance when the next lightning cast
-## tried to evict it.
+## Cast lights are pooled and bounded. The ceiling is what keeps the roof from
+## sitting at a constant raised brightness with no dark left anywhere on it, and
+## a spent light has to go back to the pool rather than pile up.
 func _test_reactive_light_reuse(main: Node) -> void:
 	var controller: WeaponController = main.weapon_controller
 	controller.clear_transients()
-	for index in WeaponController.REACTIVE_LIGHT_CAP:
+	for index in LightField.MAX_LIGHTS * 3:
 		controller._spawn_reactive_light(Vector2(index * 20.0, 0.0), Color.WHITE, 48.0, 0.06, 0.2)
+	_check(controller.light_field.burning <= LightField.MAX_LIGHTS,
+		"the light budget holds under a burst of casts (%d burning)" % controller.light_field.burning)
+	_check(controller.light_field.get_child_count() <= LightField.MAX_LIGHTS,
+		"no light is allocated beyond the pool (%d nodes)" % controller.light_field.get_child_count())
 	await create_timer(0.12).timeout
 	await process_frame
+	_check(controller.light_field.burning == 0,
+		"spent lights return to the pool (%d still burning)" % controller.light_field.burning)
 	controller._spawn_reactive_light(Vector2.ZERO, Color.WHITE, 48.0, 0.06, 0.2)
-	_check(controller.reactive_lights.size() == 1,
-		"expired reactive lights are swept before the next cast (%d handles)" % controller.reactive_lights.size())
-	if not controller.reactive_lights.is_empty():
-		_check(controller.reactive_lights[0].get_ref() != null, "the retained reactive-light handle is live")
+	_check(controller.light_field.burning == 1, "the pool hands the next cast a light")
 	controller.clear_transients()
+	_check(controller.light_field.burning == 0, "clearing transients puts the roof back in the dark")
 
 
 func _test_death_spawns_a_burst(main: Node) -> void:

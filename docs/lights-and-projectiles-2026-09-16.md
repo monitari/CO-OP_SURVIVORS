@@ -1,0 +1,244 @@
+# 무기 광원 · 투사체 병목 · 렌더링 누락 — 2026-09-16
+
+여섯 가지를 처리했다. 화면 밖 상자 표시, 서체 통일, 무기 이펙트의 실제 광원,
+투사체 주변 병목, 적·적 탄환이 안 그려지던 버그, 그리고 에셋 스토어 사용 여부다.
+
+## 요약
+
+| 작업 | 결과 |
+|---|---|
+| 상자 위치 표시 | 정예 표시와 같은 가장자리 마크. 상자 우선, 만료 초읽기, 겹침 회피 |
+| 서체 통일 | 피해 숫자·고양이 이름표가 엔진 기본 서체였다. 다섯 화면 169개 노드가 한 서체 |
+| 무기 광원 | 로스터 24종 전부가 바닥에 빛을 던진다. 상한 14개, 프레임 비용 측정상 차이 없음 |
+| 투사체 병목 | 밀집 피드백 틱 **8.47ms → 0.77ms**. 적 탄환 목록의 무한 증가 제거 |
+| 렌더링 누락 | 성장 화면 카메라 푸시 중 **적 300마리 중 44마리가 안 그려지고 있었다** |
+| 에셋 스토어 | 쓰지 않았다. 필요한 것이 전부 코드로 그려지거나 이미 있는 자산이었다 |
+
+---
+
+## 1. 상자 위치도 정예처럼
+
+정예·보스를 가리키던 `_update_threat_indicator`의 가장자리 배치를 `_place_edge_indicator`로
+빼내고, 드랍용 표시를 같은 자리에 같은 방식으로 붙였다. 화면 밖에 있는 드랍만 가리키는 것도
+같다 — 이미 보이는 상자에 화살표를 그릴 이유는 없다.
+
+드랍은 정예·보스만 남기고 22초면 사라지므로, 표시에 두 가지가 더 붙는다.
+
+- **상자 우선.** 참치캔이 더 가까워도 상자를 가리킨다. 카드를 주는 쪽과 체력을 주는 쪽을
+  거리로 비교하게 두면 표시가 잘못된 결정을 돕는다.
+- **초읽기.** 남은 시간이 9초 아래로 내려가면 `상자 34m 6초`가 되고, 마지막 5초는 바닥의
+  드랍과 **같은 위상으로** 깜빡인다(`sin(lifetime * 6.0)`). 표시와 바닥의 물건이 눈에 같은
+  물체로 읽히게 하려는 것이다.
+
+두 표시가 같은 방향이면 가장자리에서 겹친다. 비켜서는 쪽은 드랍이다 — 위협 표시가 급히 읽는
+쪽이다. 마크 폭은 115 → 158px로 넓혔다(`_confine_label`은 말없이 자른다).
+
+검증: `field_item_test`에 화면 밖/안 전환, 상자 우선, 초읽기 등장 시점, 마크가 화면 안에 완전히
+들어오는지를 추가했다.
+
+## 2. 전체 UI 폰트 통일
+
+Jua는 `main._build_ui_theme_host()`가 만드는 Theme의 `default_font`로만 걸려 있었다. 그 Control
+하위가 아닌 글자는 전부 엔진 기본 서체로 나왔다:
+
+- **떠오르는 피해 숫자** (`FeedbackSystem.show_damage`가 만드는 Label은 `feedback` 노드의
+  자식이다)
+- **고양이 위의 `나`/`동료` 이름표와 다운 안내** (`player.gd`가 `ThemeDB.fallback_font`로
+  `draw_string`)
+
+즉 전투 중에는 항상 두 서체가 같이 떠 있었다.
+
+Control이 보는 서체와 `draw_string`이 보는 서체는 **서로 다른 경로**라서 둘 다 지정해야 한다.
+`CatTheme.adopt()`가 `ThemeDB.fallback_font`와 `ThemeDB.get_default_theme().default_font`를 모두
+잡고, `project.godot`의 `gui/theme/custom_font`도 함께 걸었다(에디터와 테스트 장면용).
+`ThemeDB.fallback_font`만 잡는 것으로는 피해 숫자가 고쳐지지 않는다 — 되돌리기 검증에서 확인했다.
+
+검증: `font_unity_test`가 로비·선택·전투·성장·일시정지·결과를 순회하며 보이는 Label/Button/
+RichTextLabel **169개**의 실제 해석 서체를 확인한다. 프로젝트 설정을 빼면 피해 숫자에서 실패한다.
+
+크기는 건드리지 않았다. 통일해야 했던 것은 **서체**였고, 13~22px의 폭은 화면별 정보 위계다.
+
+## 3. 무기 이펙트 광원
+
+기존에는 `ReactiveLight`(PointLight2D) 4개가 상한이었고, 그마저 **전투 플레어·번개·랜스**에서만
+났다. 유도·화염·냉기·낫·궤도·사슬·지뢰·중력·부메랑·우유와 융합 무기 12종은 바닥에 아무 빛도
+던지지 않았다.
+
+`LightField`(`scripts/effects/light_field.gd`)로 바꿨다.
+
+- **풀링·상한 14개.** 자리가 없으면 **가장 약한** 빛을 밀어낸다(가장 오래된 것이 아니라).
+  연사 무기의 희미한 맥동이 공명에 자리를 내주지, 그 반대가 되지 않는다.
+- **무기별 표(`WeaponController.CAST_LIGHT`).** `energy`·`life`·`reach`·`where`(시전자 / 조준선 /
+  사슬 중앙). 에너지 폭을 일부러 크게 벌렸다 — 유도 0.07, 초신성 0.26. 같게 주면 바닥이 고른
+  밝기로 떠오르고 아무것도 사건으로 읽히지 않는다.
+- **반경 상한 300px.** 처음엔 공격의 시각 반경 × 최대 1.6 × 2.2였고, 융합 무기 한 발이 화면
+  절반을 덮었다. 아래 캡처 비교에서 정한 숫자다.
+- **지속형은 풀을 쓰지 않는다.** 냉기 오라·우유 웅덩이·중력장·사슬은 조건이지 사건이라서,
+  자기 노드에 광원을 달고 그것과 함께 산다. 다음 탄환이 밀어낼 수 있으면 안 된다.
+
+세 가지가 새로 생겼다.
+
+- **중력장은 빛을 뺀다**(`BLEND_MODE_SUB`). 끌어당기는 동안 에너지가 깊어지고 반경이 좁아져,
+  바닥이 가운데로 갈수록 어두워진다. 게임에서 유일하게 빛을 빼는 것이라 붕괴로 읽힌다.
+- **사슬이 장력에 따라 바닥을 밝힌다.** 과충전(+25%)은 이 게임의 핵심 거래인데, 지금까지는
+  밧줄의 색과 구슬 속도로만 말했다 — 밧줄을 보고 있어야 읽히는 정보다. 3단계에서 밧줄 아래
+  옥상이 실제로 밝아진다(0 / 0.06 / 0.17 / 0.26). 과부하일 때는 반대로 **빛을 뺀다**.
+- **정예·보스 사망만** 빛을 남긴다. 잡몹은 후반에 초당 여러 마리가 죽으므로 광원 예산을
+  깜빡임으로 채우고 정작 자격 있는 것에 남는 게 없어진다.
+
+### 검증
+
+`tests/weapon_light_capture.gd`가 같은 장면을 켜고/끄고 두 번 찍는다(창 모드). 이 프로젝트가
+시각 변경을 판단하는 방식대로, 효과 자체가 아니라 **효과 주변**을 프레이밍했다.
+
+| 장면 | 평균 밝기 변화 | 6/255 넘게 바뀐 픽셀 |
+|---|---:|---:|
+| 소품 옆 시전 | +1.03% | 2.21% |
+| 사슬 한계 | +1.40% | 4.89% |
+| 지속형 셋(냉기·우유·중력) | **−3.07%** | 5.10% |
+| 후반 밀집 + 융합 2발 동시 | +3.00% | 16.48% |
+
+지속형 장면이 **어두워지는** 것이 중력장이다. 밀집 장면에서 적이 바닥에 묻히지 않는지를 눈으로
+확인했다(`.godot_runtime/weapon-light-crowd-on.png` / `-off.png`).
+
+프레임 비용(창 모드, 적 620, 2회 교차 측정):
+
+| | 프레임 평균 | p99 | draw call |
+|---|---:|---:|---:|
+| 광원 켬 | 3.47 / 3.44ms | 8.89 / 9.22ms | 378 / 377 |
+| 광원 끔 | 3.41 / 3.13ms | 9.03 / 8.43ms | 379 / 381 |
+
+측정 잡음 안이다. 군중이 MultiMesh 몇 장으로 그려지므로 광원이 덧그릴 대상 자체가 적다.
+
+`tests/weapon_light_test.gd`는 로스터 24종 전부에 표 항목이 있는지, 실제로 발사했을 때 빛이
+나는지, 상한과 "약한 것이 밀려난다" 규칙, 연사 무기가 중량 무기의 절반 미만인지, 토글이 실제로
+끄는지를 검사한다.
+
+## 4. 병목 개선 (투사체 관련)
+
+[2026-09-15 최적화](projectile-performance-2026-09-15.md)가 조회·재탐색·배치 렌더링·풀을 처리한
+뒤 남아 있던 것들이다.
+
+### 4-1. 적 탄환 목록이 계속 자랐다 — 실제 버그이자 병목
+
+`main.enemy_shots`를 정리하는 곳은 **시간 정지가 켜져 있는 동안의 블록 안**과, 탄을 떨어뜨리는
+무기들뿐이었다. 평소에 수명이 다하거나 명중한 탄은 `queue_free()`로 사라지면서 **죽은 참조를
+목록에 남겼다.** 25분 동안 한 번도 줄지 않는다.
+
+그 목록을 `CrowdRenderer._draw_shots`가 **매 렌더 프레임** 걷고, AI 동료가 **매 틱** 걷는다.
+
+이제 `_step_enemy_shots(delta)`가 매 틱 뒤에서부터 걸으며 swap-remove로 정리한다.
+
+### 4-2. 적 탄환 풀링, 그리고 노드 콜백 제거
+
+적 탄환은 풀링되지 않았다(생성 + `queue_free` 반복). 이제 `main`이 풀을 들고, `released` 신호로
+회수한다. LAN 클라이언트가 받은 탄도 같은 풀·같은 배선을 쓴다.
+
+아군·적 탄환 모두 **자기 물리 콜백을 버렸다.** 탄마다 `_physics_process`는 몸통이 네 줄인 일을
+위해 엔진에서 스크립트로 따로 건너오는 일이다. `WeaponController._physics_process`가
+`all_projectiles`를 생성 순서로 한 번 훑는다(반납은 활성 목록을 swap-remove하므로 활성 목록을
+걷다가는 아직 안 본 탄을 건너뛴다. 크기를 미리 잡는 것은, 어떤 탄의 착탄이 이번 틱에 만든 탄이
+다음 틱을 기다리게 하려는 것이다 — 엔진이 틱 시작 전에 콜백 목록을 만들던 것과 같다).
+
+실제 게임 장면(적 620, 600 물리 틱), 물리 CPU 평균/p99:
+
+| 탄환 | 노드 콜백 | 한 루프 |
+|---:|---:|---:|
+| 500 | 15.61 / 17.91ms | 15.39 / 17.18ms |
+| 1,000 | 26.85 / 29.84ms | 26.66 / 29.84ms |
+| 2,000 | 50.67 / 60.09ms | 49.39 / 56.69ms |
+
+작다(2,000개에서 평균 −2.5%, p99 −5.7%). 4.7의 콜백 디스패치가 생각보다 싸다.
+`PROJECTILE_LOOP=off`로 다시 비교할 수 있다.
+
+### 4-3. 진짜로 컸던 것 — 명중 피드백
+
+위 벤치마크의 남은 50ms는 명중 처리와 피드백이라고 이전 문서가 적어두었다. 그중 하나가
+`ParticleField`였다.
+
+밀집한 한 틱은 명중을 수만 번 보고한다(관통탄 하나가 백 마리를 지나가거나, 광역기가 군중에
+떨어지거나). 명중마다 `emit_sparks`가 불리고, 매번 Dictionary를 만든 다음, 필드가 꽉 차 있으면
+`particles.pop_front()`로 **260칸을 한 칸씩 당겼다** — 바로 다음 요청이 밀어낼 자리를 만들려고.
+사실상 전부 같은 틱에 버려지는 일이었다.
+
+- 스텝 사이에 받는 양에 상한을 뒀다(`MAX_EMITTED_PER_STEP = 120`). 거절은 Dictionary를 만들기
+  **전에** 일어난다. 이 파일의 규칙은 원래부터 "부하가 걸리면 일부를 잃는 것이 맞다"였다.
+- 꽉 찼을 때는 회전 인덱스로 **제자리 덮어쓰기**를 한다(O(1)).
+
+한 틱에 스파크 8,000개를 요청하는 조건, 240틱:
+
+| | 평균 | p99 | 최대 |
+|---|---:|---:|---:|
+| 기존 | 8.47ms | 9.37ms | 10.40ms |
+| 지금 | **0.77ms** | 0.88ms | 0.88ms |
+
+같은 `pop_front` 형태가 `FlightField.flash`에도 있었다(마크 90개). 노바 한 발이 한꺼번에
+만료되면 같은 비용이 난다. 같은 방식으로 고쳤다.
+
+### 4-4. 숨은 적이 매 명중마다 캔버스를 비우고 있었다
+
+`ChaserEnemy.take_damage`는 명중마다 `queue_redraw()`를 불렀다. 그런데 보스가 아닌 적은
+`CrowdRenderer`가 배치로 그리고 **노드는 숨겨져 있다.** 숨은 CanvasItem의 redraw 콜백도
+`canvas_item_clear`까지는 간다 — 아무도 보지 않는 캔버스를 매 프레임 비우고 있었다.
+
+이 파일은 이미 다른 곳에서 `if visible:`로 같은 것을 막고 있었다. 명중 경로와 화분(scenery)
+경로가 빠져 있었을 뿐이다.
+
+## 5. 적·적 탄환이 안 그려지던 버그
+
+**원인.** 군중과 적 탄환은 배치로 그려지고 노드는 숨겨진다. 배치는 `CrowdRenderer.view_rect`를
+140px 넓힌 사각형으로 컬링하는데, 그 사각형은 **돌아가는 물리 틱에서만** 갱신됐다.
+
+그런데 전투를 끊는 화면들은 트리를 얼린 다음 **카메라를 움직인다.** 성장 화면은 1.22배로 당기고
+화면을 200px 들어 올린다(`GROWTH_ZOOM`, `GROWTH_LIFT`). 시야는 움직이는데 컬링 사각형은 서 있으니,
+그 사이에 화면 안으로 들어온 몸들은 **배치에도 없고 자기 노드도 숨겨진 채**였다.
+
+카메라가 이미 벌어진 짝을 따라 축소돼 있을 때 특히 크다. 재현 조건(zoom 0.62, 적 300):
+**44마리와 탄환 4발이 아무도 안 그리는 상태.**
+
+**수정**
+
+- `CrowdRenderer._process`가 `dirty`뿐 아니라 **마지막으로 만든 컬링 사각형이 지금 시야를 품고
+  있는지**로도 다시 만든다. 시야가 그 안에 있는 동안은 갱신하지 않으므로 평소 비용은 그대로다.
+- `main`이 **살아 있는 전투를 덮는 화면에 한해** 이른 반환 전에 `view_rect`를 갱신한다.
+  모든 모달이 아니라 그 화면들만인 이유는, 이 값이 군중 분리의 갱신 빈도도 정하기 때문이다 —
+  카메라가 의미 없는 로비에서 쓰면 분리 빈도만 바뀐다(`crowd_test`가 이것을 잡았다).
+
+검증: `tests/frozen_view_render_test.gd`가 실제 성장 카메라 푸시를 태우고, 시야 안의 모든 적과
+탄환이 **자기가 그려지거나 이번 배치에 들어 있는지**를 프레임마다 확인한다. 수정 전 코드에서는
+위 숫자로 실패한다.
+
+## 6. 에셋 스토어
+
+쓰지 않았다. 이번 작업에서 필요했던 것은 광원 텍스처(코드 생성 그라디언트), 표시 마크(Label),
+그리고 이미 저장소에 있는 Jua 서체뿐이다. 외부 애드온 없이 실행된다는 README의 약속도 유지된다.
+
+## 회귀
+
+통과: runtime_smoke, font_unity, frozen_view_render, weapon_light, projectile_collision,
+projectile_integration_performance, attribute, coop_rework, weapon_identity, weapon_rework,
+multi_weapon, resonance_effects, resonance_mechanics, field_item, feature_integration,
+crowd_renderer, enemy_redraw, combat_readability, pause_freeze, online_state, showcase,
+frame_budget, treasure, growth_curve, hybrid_fusion, expansion, encounter, boss_pattern, dash,
+wave_and_scaling, level_up_card, debug_inspector, endless_rooftop, motion, unified_art,
+autonomy_flow, normal_speed_balance, cat_theme, icon_coverage, ui_nine_slice, rooftop_prototype.
+
+`crowd_test`는 **작업 전부터** 불안정하다. HEAD에서 10회 중 2회 실패했고(0.92 겹침, 그리고
+"a live run pulls a stack apart"), 작업 트리도 같은 비율이다. 이번 변경 때문이 아니다 —
+다만 위 5장의 첫 시도가 이 비율을 실제로 악화시켰고, 그래서 `view_rect` 갱신 범위를 좁혔다.
+
+작업 전부터 실패하던 것은 그대로다: fusion_test, review_regression_test(카메라-HUD 2건),
+critique_regression_test, presentation_test(계기 라벨·카드 잘림 2건), layout_test,
+neon_growth_test, run_shape_test, pacing_and_world_test, ux_flow_test, pressure_soak_test.
+
+## 재실행
+
+```powershell
+godot --headless --path . --script tests/font_unity_test.gd
+godot --headless --path . --script tests/frozen_view_render_test.gd
+godot --headless --path . --script tests/weapon_light_test.gd
+godot --headless --path . --script tests/field_item_test.gd
+godot --headless --path . --script tests/projectile_integration_performance_test.gd
+$env:PROJECTILE_LOOP = "off"   # 탄환마다 물리 콜백을 쓰던 경로로 비교
+godot --path . --script tests/weapon_light_capture.gd   # 창 모드, 켬/끔 4쌍
+```

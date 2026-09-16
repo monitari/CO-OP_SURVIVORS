@@ -33,6 +33,23 @@ var enemy_shots: Array = []
 var shatter_frozen := false
 var source_player := -1
 var source_weapon := ""
+## The light this field casts back onto the roof, for the two kinds that are a
+## condition rather than an event. It travels with the field and lives as long as
+## it does, which is why it is a child of this node instead of coming out of
+## LightField's pool: the pool is for casts, and a cast must never be able to
+## evict the cold ring a survivor is standing inside of.
+var sustained_light: PointLight2D
+## Frost is the one light in the game that is not warm. The aura is a cold ring
+## the survivor stands in the middle of, so it is lit with the moon's own colour
+## rather than the weapon's, and faintly: the art direction asks for area-effect
+## interiors to stay faint and their borders crisp, and a bright interior here
+## would flatten the ring that carries the reading.
+const FROST_LIGHT_ENERGY := 0.10
+## The collapse, on the other hand, takes light out of the floor instead of
+## adding it, so the roof goes darker toward the middle of the well. Nothing
+## else in the game subtracts, which is what makes it read as a collapse rather
+## than as one more glowing circle.
+const GRAVITY_LIGHT_ENERGY := 0.24
 const MAX_RENDER_RADIUS := 1800.0
 const ORBIT_FADE_IN := 0.24
 const ORBIT_FADE_OUT := 0.42
@@ -72,6 +89,8 @@ func configure_frost(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius:
 	duration = INF
 	z_index = 2
 	global_position = anchor.global_position
+	if sustained_light == null:
+		sustained_light = LightField.attach(self, Moonlight.MOON, radius * 1.15, FROST_LIGHT_ENERGY)
 	queue_redraw()
 
 
@@ -119,6 +138,7 @@ func configure_gravity(centre: Vector2, grid: EnemySpatialGrid, hit: float, radi
 		var travel := 0.0 if enemy.scenery else minf(pull, maxf(0.0, distance - 26.0)) * (0.22 if enemy.boss else 1.0)
 		pulls.append({"enemy": enemy, "start": enemy.global_position, "end": enemy.global_position.move_toward(centre, travel)})
 	z_index = 4
+	sustained_light = LightField.attach(self, tint, radius * 1.1, GRAVITY_LIGHT_ENERGY, true)
 	queue_redraw()
 
 
@@ -129,6 +149,10 @@ func _physics_process(delta: float) -> void:
 			if kind == Kind.ORBIT: queue_free()
 			return
 		global_position = anchor.global_position
+		# The aura's reach changes as the weapon levels and as the area attribute
+		# moves, and the light has to be the size of the ring it belongs to.
+		if kind == Kind.FROST and sustained_light != null:
+			sustained_light.texture_scale = maxf(0.2, effect_radius * 1.15 / 64.0)
 	if kind == Kind.ORBIT:
 		_update_orbit_fade()
 		# Every frame, not on a tick: a shard sweeping past an enemy between two
@@ -221,6 +245,11 @@ func _hit_scythe() -> void:
 func _step_gravity() -> void:
 	var progress := clampf(age / duration, 0.0, 1.0)
 	var eased := ease(progress, 2.2)
+	if sustained_light != null:
+		# Deepens and closes with the well: the dark spot is smallest and
+		# strongest at the instant everything it caught arrives in the middle.
+		sustained_light.energy = GRAVITY_LIGHT_ENERGY * eased
+		sustained_light.texture_scale = maxf(0.2, effect_radius * (1.1 - eased * 0.55) / 64.0)
 	for pull in pulls:
 		var enemy = pull.get("enemy")
 		if is_instance_valid(enemy) and not enemy.dead:

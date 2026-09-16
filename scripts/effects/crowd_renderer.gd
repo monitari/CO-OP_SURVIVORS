@@ -93,6 +93,18 @@ var enabled := true
 var threats_on_top := true
 ## Set by the owner whenever the crowd or the camera moved.
 var dirty := true
+## The cull rectangle the batches on screen were actually built against.
+##
+## `dirty` covers the running game, where the owner sets it every physics tick.
+## It cannot cover a frozen one: the growth screen, a chest and the pause menu
+## all stop the tree and then *move the camera* — they pull in on the pair and
+## lift the view — while no physics tick runs to raise the flag. Everything this
+## renderer draws is hidden at its node, so a view that has travelled past the
+## rectangle the last batch was culled against shows a band of nothing where
+## those bodies are. Rebuilding whenever the view leaves that rectangle covers
+## the frozen case without rebuilding for a camera that has merely drifted a
+## pixel inside it.
+var _built_cull := Rect2()
 
 var _shadows: MultiMeshInstance2D
 var _warnings: MultiMeshInstance2D
@@ -124,10 +136,12 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	# Only after a physics tick has moved something: on a high-refresh display
 	# most rendered frames have nothing new to batch.
-	if get_tree().paused or not dirty:
+	if dirty and not get_tree().paused:
+		dirty = false
+		refresh()
 		return
-	dirty = false
-	refresh()
+	if not _built_cull.encloses(view_rect):
+		refresh()
 
 
 ## Rebuilds every batch from the current crowd. Public so a paused capture or a
@@ -135,6 +149,7 @@ func _process(_delta: float) -> void:
 func refresh() -> void:
 	var snapshot := RooftopSpace.view_snapshot(stage)
 	var cull := view_rect.grow(CULL_MARGIN)
+	_built_cull = cull
 	var first_band := floori(cull.position.y / BAND)
 	var band_total := maxi(1, ceili(cull.size.y / BAND) + 1)
 	_ensure_bands(band_total)

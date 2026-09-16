@@ -10,10 +10,9 @@ const WeaponFieldScript := preload("res://scripts/effects/weapon_field.gd")
 const ChainStrikeScript := preload("res://scripts/effects/chain_strike.gd")
 const LanceStrikeScript := preload("res://scripts/effects/lance_strike.gd")
 const ReturningToyScript := preload("res://scripts/effects/returning_toy.gd")
-const ReactiveLightScript := preload("res://scripts/effects/reactive_light.gd")
+const LightFieldScript := preload("res://scripts/effects/light_field.gd")
 const TickerScript := preload("res://scripts/effects/resonance_ticker.gd")
 const ProjectileRendererScript := preload("res://scripts/effects/projectile_renderer.gd")
-const REACTIVE_LIGHT_CAP := 4
 
 signal cue_requested(cue_id: String)
 signal attack_visual(player_index: int, weapon_id: String, origin: Vector2, color: Color, radius: float)
@@ -50,10 +49,9 @@ var projectile_renderer: Node2D
 static func set_batching(enabled: bool) -> void:
 	batch_projectiles = enabled
 var sustained_fields: Dictionary = {}
-# Point lights free themselves after a fraction of a second. Keep weak handles
-# so the cap can sweep an expired entry without ever assigning a freed Object
-# back into a typed Node variable.
-var reactive_lights: Array[WeakRef] = []
+## Real light cast back onto the roof by whatever is being fired at it. Pooled
+## and capped; see LightField.
+var light_field: LightField
 ## Main's own list of live hostile shots, shared rather than copied. Four
 ## weapons are allowed to knock them down — the crescent that sweeps a sector,
 ## the tether that is a line between the pair, the ring of shards, and the mine
@@ -119,8 +117,9 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		cue_requested.emit("weapon_" + weapon_id)
 		var visual_radius := maxf(float(scaled.get("radius", 0.0)), float(scaled.get("width", 0.0)) * 2.0)
 		visual_radius = maxf(visual_radius, float(scaled.get("range", 0.0)) * 0.22)
-		attack_visual.emit(player_index, weapon_id, owner_player.global_position,
-			color, clampf(visual_radius, 52.0, 170.0))
+		visual_radius = clampf(visual_radius, 52.0, 170.0)
+		attack_visual.emit(player_index, weapon_id, owner_player.global_position, color, visual_radius)
+		_light_the_cast(weapon_id, owner_player.global_position, color, visual_radius)
 
 
 func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
@@ -752,22 +751,91 @@ func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radi
 	_spawn_reactive_light(center, primary.lerp(secondary, 0.25), minf(radius * 0.9, 190.0), minf(lifetime * 0.7, 0.24), 0.34)
 
 
-func _spawn_reactive_light(at: Vector2, color: Color, radius: float, lifetime: float, light_energy: float) -> void:
-	if not Moonlight.enabled:
+func _spawn_reactive_light(at: Vector2, color: Color, radius: float, lifetime: float, light_energy: float, falloff := 2.4) -> void:
+	if is_instance_valid(light_field):
+		light_field.flash(at, color, radius, lifetime, light_energy, falloff)
+
+
+## How much light each weapon throws onto the roof when it fires.
+##
+## `energy` is the peak the light reaches, `life` how long it burns, `reach` a
+## multiplier on the attack's own visual radius, and `where` says whether the
+## light belongs at the survivor or out where the attack actually lands: a lance
+## is a beam that leaves, a frost aura is a cold ring the cat is standing in the
+## middle of.
+##
+## The energies are spread deliberately wide. A homing bolt fires several times
+## a second and gets a pulse barely above nothing; a fused weapon on a long
+## cooldown gets four or five times that. Giving them the same light would raise
+## the roof to an even brightness and none of it would read as anything
+## happening — which is the failure mode the art direction names for halos, and
+## it is worse for real light because real light does not stop at the effect.
+##
+## The colours come from the weapon, so the rule the whole look rests on holds:
+## the roof is cold and the only warm things on it are the cats and their magic.
+const CAST_LIGHT := {
+	# Repeaters. Barely there on any one shot; what the player sees is the roof
+	# breathing under a stream of them.
+	"homing": {"energy": 0.07, "life": 0.13, "reach": 0.7, "where": "self"},
+	"boomerang": {"energy": 0.06, "life": 0.14, "reach": 0.7, "where": "self"},
+	"skipping_stone": {"energy": 0.07, "life": 0.14, "reach": 0.7, "where": "self"},
+	"orbit": {"energy": 0.08, "life": 0.20, "reach": 1.1, "where": "self"},
+	"chain": {"energy": 0.10, "life": 0.16, "reach": 1.3, "where": "chain"},
+	# Swings and sprays: a wider, softer wash, still short.
+	"scythe": {"energy": 0.13, "life": 0.17, "reach": 1.2, "where": "aim"},
+	"flame": {"energy": 0.16, "life": 0.22, "reach": 1.1, "where": "self", "falloff": 1.6},
+	"milk": {"energy": 0.09, "life": 0.24, "reach": 1.0, "where": "aim"},
+	"mine": {"energy": 0.10, "life": 0.18, "reach": 0.9, "where": "self"},
+	# Slow, heavy, aimed: these are events and are lit like events.
+	"lance": {"energy": 0.20, "life": 0.16, "reach": 1.4, "where": "aim"},
+	"lightning": {"energy": 0.22, "life": 0.14, "reach": 1.2, "where": "aim", "falloff": 3.2},
+	"gravity": {"energy": 0.12, "life": 0.30, "reach": 1.3, "where": "aim"},
+	"frost": {"energy": 0.08, "life": 0.26, "reach": 1.2, "where": "self", "falloff": 1.4},
+	# Fused weapons. The brightest thing a loadout can do on its own.
+	"starpiercer": {"energy": 0.23, "life": 0.18, "reach": 1.5, "where": "aim"},
+	"thunder_god": {"energy": 0.25, "life": 0.17, "reach": 1.5, "where": "aim", "falloff": 3.2},
+	"supernova": {"energy": 0.26, "life": 0.26, "reach": 1.6, "where": "self", "falloff": 1.6},
+	"absolute_zero": {"energy": 0.14, "life": 0.30, "reach": 1.4, "where": "self", "falloff": 1.4},
+	"black_moon": {"energy": 0.21, "life": 0.20, "reach": 1.4, "where": "aim"},
+	"stigmata": {"energy": 0.20, "life": 0.22, "reach": 1.2, "where": "chain"},
+	"celestial": {"energy": 0.18, "life": 0.24, "reach": 1.3, "where": "self"},
+	"judgement": {"energy": 0.24, "life": 0.20, "reach": 1.5, "where": "aim"},
+	"ruin_garden": {"energy": 0.16, "life": 0.22, "reach": 1.1, "where": "self"},
+	"event_horizon": {"energy": 0.18, "life": 0.34, "reach": 1.5, "where": "aim"},
+	"cream_tide": {"energy": 0.12, "life": 0.26, "reach": 1.1, "where": "aim"},
+}
+## No cast may light more roof than this, however wide the attack itself is.
+const CAST_LIGHT_MAX_REACH := 300.0
+## What a weapon with no entry gets. Every weapon in the roster has one; this is
+## for a resonance-spawned cast or anything added later, and it is deliberately
+## the quietest setting in the table rather than a bright default.
+const CAST_LIGHT_FALLBACK := {"energy": 0.08, "life": 0.16, "reach": 1.0, "where": "self"}
+
+
+## One light per cast, from the table above.
+func _light_the_cast(weapon_id: String, origin: Vector2, color: Color, visual_radius: float) -> void:
+	if not is_instance_valid(light_field):
 		return
-	for light_reference: WeakRef in reactive_lights.duplicate():
-		var light: Node = light_reference.get_ref()
-		if not is_instance_valid(light) or light.is_queued_for_deletion():
-			reactive_lights.erase(light_reference)
-	while reactive_lights.size() >= REACTIVE_LIGHT_CAP:
-		var oldest_reference: WeakRef = reactive_lights.pop_front()
-		var oldest: Node = oldest_reference.get_ref()
-		if is_instance_valid(oldest):
-			oldest.queue_free()
-	var light = ReactiveLightScript.new()
-	light.setup(at, color, radius, lifetime, light_energy)
-	add_child(light)
-	reactive_lights.append(weakref(light))
+	var entry: Dictionary = CAST_LIGHT.get(weapon_id, CAST_LIGHT_FALLBACK)
+	var at := origin
+	match String(entry.get("where", "self")):
+		"aim":
+			# Out where the attack lands rather than at the paw that threw it.
+			# Falls back to the survivor when the field is empty, which is also
+			# where the attack itself goes in that case.
+			var target := spatial_grid.nearest(origin, 620.0) if spatial_grid != null else null
+			if target != null:
+				at = origin.lerp(target.global_position, 0.62)
+		"chain":
+			at = _pair_midpoint()
+	# Capped as well as scaled. An attack's visual radius runs up to 170 and the
+	# table reaches 1.6 on top of that, which without a ceiling puts a pool of
+	# light most of a screen wide under a single cast — and a light that large
+	# stops being an event on the roof and becomes the roof's brightness. The
+	# on/off capture of a packed late screen is what this number is set from.
+	var reach := minf(visual_radius * float(entry["reach"]) * 1.5, CAST_LIGHT_MAX_REACH)
+	light_field.flash(at, color, reach,
+		float(entry["life"]), float(entry["energy"]), float(entry.get("falloff", 2.4)))
 
 
 ## The chain itself as a weapon, for 사슬 결계. Public because it is a field
@@ -781,11 +849,8 @@ func burn_chain(width: float, damage: float) -> void:
 func clear_transients() -> void:
 	for projectile in active_projectiles.duplicate():
 		projectile.release()
-	for light_reference: WeakRef in reactive_lights:
-		var light: Node = light_reference.get_ref()
-		if is_instance_valid(light):
-			light.queue_free()
-	reactive_lights.clear()
+	if is_instance_valid(light_field):
+		light_field.clear_all()
 	# Planted mines outlive the cast that placed them, so a restart or a test
 	# teardown has to sweep them or they detonate into the next run.
 	for child in get_children():
@@ -832,6 +897,10 @@ func clear_sustained_for_player(player_index: int) -> void:
 
 
 func _ready() -> void:
+	if light_field == null:
+		light_field = LightFieldScript.new() as LightField
+		light_field.name = "LightField"
+		add_child(light_field)
 	if batch_projectiles and projectile_renderer == null:
 		projectile_renderer = ProjectileRendererScript.new()
 		projectile_renderer.name = "ProjectileBatch"
@@ -840,6 +909,28 @@ func _ready() -> void:
 		# First child: pooled shots are created early and keep their slots, so
 		# every transient effect appended later already drew over them.
 		move_child(projectile_renderer, 0)
+
+
+## Every live shot's tick, in one callback.
+##
+## Each projectile used to carry its own `_physics_process`, so a screen holding
+## two thousand of them asked the engine to dispatch two thousand script calls a
+## tick before any of them had moved a pixel. Walking the creation-order list
+## here costs one array read per pooled shot and nothing per engine crossing.
+##
+## `all_projectiles` rather than the active list, and its size sampled up front,
+## for two reasons: releases swap-remove out of the active list and would move
+## an unvisited shot over a visited one mid-walk, and a shot spawned by another
+## shot's impact this tick must wait for the next one, exactly as it did when
+## the engine built the callback list before the tick began.
+func _physics_process(delta: float) -> void:
+	if not HomingProjectile.driven_by_loop:
+		return
+	var count := all_projectiles.size()
+	for index in count:
+		var shot := all_projectiles[index]
+		if shot.active:
+			shot.step(delta)
 
 
 func _acquire_projectile() -> HomingProjectile:
