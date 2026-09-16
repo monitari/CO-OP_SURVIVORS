@@ -186,6 +186,7 @@ static func card_model(main: Node, slot: int, option: Dictionary) -> Dictionary:
 		"body": UI.compact_growth_description(option) if tech else main._upgrade_preview(slot, option),
 		"icon": Icons.upgrade(main._option_icon_id(slot, option), main._option_weapon_id(slot, option)),
 		"fusion": main._fusion_partner_for_option(slot, option).get("texture"),
+		"fusion_name": String(main._fusion_partner_for_option(slot, option).get("name", "")),
 		"tech": tech,
 		"advice": "discouraged" if against else ("recommended" if bool(option.get("recommended", false)) else "neutral"),
 		"reason": String(option.get("discouragement_reason", reason)) if against else reason,

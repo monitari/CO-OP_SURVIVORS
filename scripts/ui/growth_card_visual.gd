@@ -117,6 +117,13 @@ static func paint(card: Label, model: Dictionary, tint: Color, selected: bool, w
 	fusion.visible = fusion.texture != null
 	fusion.position = Vector2(width - 45, 52)
 	fusion.size = Vector2(32, 32)
+	# The seal is an icon in a corner, and an icon on its own says "these two go
+	# together" without saying which two or what happens. It used to carry the
+	# sentence; that was lost when the chest and growth cards were collapsed onto
+	# this one component, and a mark nobody can interrogate is just decoration.
+	var partner := String(model.get("fusion_name", ""))
+	fusion.tooltip_text = "%s와(과) 합치면 무기가 강화됩니다" % partner if not partner.is_empty() else ""
+	fusion.mouse_filter = Control.MOUSE_FILTER_PASS if fusion.visible else Control.MOUSE_FILTER_IGNORE
 	var badge: Label = card.get_node("Recommendation")
 	var advice := String(model.get("advice", "neutral"))
 	badge.text = recommendation_text(advice, String(model.get("reason", "무난한 성장")))

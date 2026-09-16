@@ -79,8 +79,8 @@ func run() -> void:
 	await shot("three")
 	check(main.level_card_labels[0][1].size.x == 224, "three cards use large readable art")
 	check(main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료", "partner lock shown")
-	check(not main.combat_hud.get_node("P1Frame/PortraitPlaque").visible,
-		"portrait backing box is removed")
+	check(not main.combat_hud.has_node("P1Frame/PortraitPlaque"),
+		"portrait backing box is gone, not merely turned transparent")
 	check(not main.combat_hud.get_node("PlayerIdentity0").text.contains("개인 Lv."),
 		"personal level is removed from player identity")
 	check(not main.combat_hud.get_node("Carried0/WeaponSlot1").visible,

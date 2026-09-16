@@ -863,7 +863,11 @@ static func layout_carried(holder: Control, mirrored: bool) -> void:
 			index += 1
 
 
-## Native panels share menu geometry, with cream confined to portrait plaques.
+## Native panels share menu geometry. The survivor portrait used to sit on a
+## cream plaque of its own; the plaque lost its fill when the HUD went
+## translucent and what was left was a 40x40 panel drawing a 1px outline at a
+## third alpha over a dark roof — invisible, referenced by nothing, and still a
+## Control in the frame. The portrait stands on the frame itself now.
 static func _install_hud_frames(main: Node) -> void:
 	for slot in 2:
 		var x := 14.0 if slot == 0 else 874.0
@@ -876,8 +880,6 @@ static func _install_hud_frames(main: Node) -> void:
 		panel.add_theme_stylebox_override("panel", style)
 		preload("res://scripts/ui/neon_growth_ui.gd").trim(
 			panel, Palette.P1 if slot == 0 else Palette.P2)
-		var portrait := plate(panel, Rect2(6, 4, 40, 40), Color.TRANSPARENT)
-		portrait.name = "PortraitPlaque"
 		var paw := icon(panel, HudPaw, Rect2(374, 98, 12, 12))
 		paw.modulate = Palette.P1.darkened(0.22) if slot == 0 else Palette.P2.darkened(0.22)
 	# Its last line (chain status, y 77..97) is the bottom of what it holds; the

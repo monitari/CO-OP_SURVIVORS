@@ -30,10 +30,17 @@ func _run() -> void:
 	_check(main.p2_health_text_label.text.contains("/"), "P2 health value is written inside its bar")
 	_check(not main.help_label.visible, "the permanent controls strip stays off the play field")
 	_check(main.xp_bar.max_value == main.progression.required_experience, "the XP bar tracks the shared requirement on its own")
-	_check(main.xp_text_label.text.contains("공유 Lv.") and main.xp_text_label.text.contains("XP"),
-		"shared level and XP are explicitly named in the upper HUD")
-	_check(main.xp_bar.position.y < 130 and main.xp_bar.size.y <= 6,
-		"the shared XP meter stays thin and at the top of the play field")
+	# What the meter has to say, not where it sits. It used to be a 6px strip
+	# along the top of the play field and is now a full-width bar on the bottom
+	# edge; layout_test owns that geometry, and this pinning the old numbers made
+	# the two tests assert opposite things about the same bar. The part worth
+	# keeping is that the bar is readable as a number and not only as a colour —
+	# the pair share one level, and how far it is to the next one is a thing they
+	# plan around.
+	_check(main.xp_text_label.text.contains("LV.") and main.xp_text_label.text.contains("XP"),
+		"the shared meter names the level and the experience (%s)" % main.xp_text_label.text)
+	_check(main.xp_text_label.text.contains("/"),
+		"and how far it is to the next one (%s)" % main.xp_text_label.text)
 	for slot in 2:
 		var frame: Panel = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		var surface := frame.get_theme_stylebox("panel") as StyleBoxFlat

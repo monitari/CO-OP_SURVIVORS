@@ -211,30 +211,44 @@ func _test_growth_selection_exposes_route(main: Node) -> void:
 	_check(not shown.contains(" T7 + "), "and does not lay enhancement requirements out as a table")
 	_check(not shown.contains("미지의 합성") and not shown.contains("합성 재료"),
 		"and does not label an offered card as a hidden fusion material")
-	# It still has to say where the run is, or the screen is a card rack with no
-	# context: the title carries the shared level.
-	_check(shown.contains("LV."), "the screen still says what level this is")
-
-	for side: Array in main.level_card_labels:
-		for card: Label in side:
-			_check(card.has_node("FusionMark"), "every growth card has a conditional fusion seal")
-			_check(not card.get_node("FusionMark").visible,
-				"the fusion seal stays hidden before both ingredients are owned")
+	# The run's level, which is what stops the screen being a card rack with no
+	# context. It is not inside the growth overlay: the growth screen deliberately
+	# leaves the run showing underneath it, so the shared meter along the bottom of
+	# the play field is still the thing that carries it, and scoping this to
+	# level_overlay was looking at the wrong half of the screen.
+	main._update_hud()
+	_check(String(main.xp_text_label.text).contains("LV."),
+		"the screen still says what level this is (%s)" % main.xp_text_label.text)
 
 	var weapon: Dictionary = main.weapon_loadouts[1][0]
 	var evolution: Dictionary = main._selected_evolution_for_state(weapon)
 	var treasure := TreasureCatalog.by_id(String(evolution["treasure_id"]))
+	# The same card, dealt twice: once while the treasure is not carried and once
+	# after it is. Dealt for real both times — the seal is painted as a card is laid
+	# out, so asserting over a hand that was never dealt was reading marks left on
+	# the pooled Labels by whatever screen used them last.
+	var route_choices: Array[Dictionary] = [{
+		"id": "weapon_power", "weapon_slot": 0,
+		"title": "마력 증폭\n%s" % String(weapon["weapon_name"]),
+		"description": main._upgrade_preview(1, {"id": "weapon_power", "weapon_slot": 0}),
+	}]
+	main.p2_choices = route_choices
+	main._refresh_level_up_ui()
+	for slot in main.level_card_labels.size():
+		for index in main.level_card_labels[slot].size():
+			var card: Label = main.level_card_labels[slot][index]
+			_check(card.has_node("FusionMark"), "every growth card has a conditional fusion seal")
+			if not card.visible:
+				continue
+			_check(not card.get_node("FusionMark").visible,
+				"the fusion seal stays hidden before both ingredients are owned (slot %d card %d)" % [slot, index])
+
 	var visible_line: String = main._fusion_progress_line(1)
 	_check(visible_line.contains(String(treasure["name"])) and visible_line.contains(String(evolution["weapon_name"])),
 		"full stats names the selected tech's material and final form before pickup")
 
 	main._apply_upgrade(1, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
-	var revealed_choices: Array[Dictionary] = [{
-		"id": "weapon_power", "weapon_slot": 0,
-		"title": "마력 증폭\n%s" % String(weapon["weapon_name"]),
-		"description": main._upgrade_preview(1, {"id": "weapon_power", "weapon_slot": 0}),
-	}]
-	main.p2_choices = revealed_choices
+	main.p2_choices = route_choices
 	main._refresh_level_up_ui()
 	var mark := main.level_card_labels[1][0].get_node("FusionMark") as TextureRect
 	_check(mark.visible and mark.texture != null,
