@@ -167,9 +167,18 @@ func _run() -> void:
 	main.screen_shake_enabled = false
 	for frame in 120: main._update_camera(1.0 / 60.0)
 	main.world_camera.force_update_scroll()
+	# Through the same projection the picture is actually drawn with. The
+	# battlefield is rendered into EndlessRooftopView's shader, which tilts and
+	# foreshortens it, so the raw canvas transform is not where anything ends up
+	# on screen — it put the pair at y=726 on a 720px screen while they were
+	# plainly visible at 586. This is the mapping _update_threat_indicator uses to
+	# decide the same question for the off-screen pointer.
+	var view: Vector2 = main.rooftop_view.view_size
 	for actor in [boss, main.players[0], main.players[1]]:
-		var projected: Vector2 = main.world_camera.get_canvas_transform() * actor.global_position
-		check(projected.y > 205 and projected.y < 650, "camera protects actor from HUD")
+		var offset: Vector2 = (actor.global_position - main.world_camera.position) * main.world_camera.zoom
+		var projected: Vector2 = view * 0.5 + main.rooftop_view.project_offset(offset)
+		check(projected.y > 205 and projected.y < 650,
+			"camera protects actor from HUD (%s at y %.0f)" % [actor.name, projected.y])
 	if failures.is_empty(): print("REVIEW_PASS: safe inputs, mouse selection, full stats, caps, guaranteed fusion, marginal scoring, actual crit, art, camera")
 	else:
 		for failure in failures: push_error("REVIEW_FAIL: " + failure)

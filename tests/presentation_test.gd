@@ -299,13 +299,22 @@ func _test_layout(main: Node) -> void:
 	_check(main.p1_health_text_label.position == main.p1_health_bar.position
 		and main.p1_health_text_label.size == main.p1_health_bar.size,
 		"P1 health text is aligned inside its bar")
-	for pair in [[main.chain_distance_text_label, main.chain_bar], [main.chain_integrity_text_label, main.chain_integrity_bar], [main.xp_text_label, main.xp_bar]]:
+	# The two chain meters are thin strips in the shared panel at the top, with
+	# their captions on the line above.
+	for pair in [[main.chain_distance_text_label, main.chain_bar], [main.chain_integrity_text_label, main.chain_integrity_bar]]:
 		var caption: Label = pair[0]
 		var meter: ProgressBar = pair[1]
 		_check(is_equal_approx(caption.position.x, meter.position.x) and is_equal_approx(caption.size.x, meter.size.x),
 			"upper HUD labels align with their meter widths")
 		_check(caption.position.y + caption.size.y <= meter.position.y and meter.position.y < 130,
 			"meter labels stay above the thin top bars without overlapping their fill")
+	# The shared experience meter is the exception, and used to be checked by the
+	# same rule as the two above. It is no longer a strip at the top of the play
+	# field: it is a full-width bar on the bottom edge with the number written on
+	# it, the way the health bars carry theirs.
+	_check(main.xp_text_label.get_rect() == main.xp_bar.get_rect(),
+		"the shared experience value is written inside its own bar (%s vs %s)"
+			% [main.xp_text_label.get_rect(), main.xp_bar.get_rect()])
 	_check(main.level_overlay.position.y >= main.chain_integrity_bar.position.y + main.chain_integrity_bar.size.y,
 		"the level-up panel starts below the chain bars")
 	# The largest text on screen used to land on top of the two survivors.
@@ -326,9 +335,6 @@ func _test_layout(main: Node) -> void:
 	]
 	for label: Label in bounded_labels:
 		_check(label.clip_text, "%s clips text to its UI bounds" % label.name)
-	for player_cards: Array in main.level_card_labels:
-		for card: Label in player_cards:
-			_check(card.clip_text, "level-up cards clip text to their UI bounds")
 
 
 ## Every fixed-size HUD label is built with clip_text on, which cuts overflow
@@ -349,7 +355,19 @@ func _test_nothing_is_clipped(main: Node) -> void:
 	await process_frame
 	for slot in 2:
 		for index in 3:
-			_check_fits("P%d의 %d번 카드" % [slot + 1, index + 1], main.level_card_labels[slot][index])
+			var card: Label = main.level_card_labels[slot][index]
+			_check_fits("P%d의 %d번 카드" % [slot + 1, index + 1], card)
+			# Growth cards contain their body without clip_text, deliberately: a
+			# clipping Label clips its whole canvas item to the screen-space
+			# bounds of its rectangle, which cut the selection glow and the drop
+			# shadow off every card, straight across at the height of the highest
+			# corner of a tilted one. Trimming the overflowing lines keeps the
+			# body inside the card without clipping what is drawn around it. This
+			# used to be asserted as `clip_text` over the whole pooled array,
+			# before a hand had been dealt — so it was reading Labels that held
+			# no text and had never been painted.
+			_check(card.clip_text or card.text_overrun_behavior != TextServer.OVERRUN_NO_TRIMMING,
+				"P%d의 %d번 카드 keeps its body inside the card" % [slot + 1, index + 1])
 	main.level_up_active = false
 
 	main._end_run(true)
