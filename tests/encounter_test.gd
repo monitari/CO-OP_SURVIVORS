@@ -200,16 +200,17 @@ func _test_boss_telegraph_is_dodgeable() -> void:
 	_check(ChaserEnemy.BOSS_CHARGE_WINDUP >= 0.7, "the charge telegraph is readable too")
 
 
-## Fusion and resonance are supposed to be the end of a run, not the middle.
+## An enhancement is supposed to be the middle of a run, not the opening. The
+## cost used to be split across a weapon and a treasure; it is all in the weapon
+## now, so the count is the tiers alone — and the pair also has to survive to the
+## first boss before the resonance above it can be turned on at all.
 func _test_road_to_fusion_is_long() -> void:
-	var weapon_steps := EvolutionCatalog.EVOLUTION_TIER - 1
-	var treasure_steps := EvolutionCatalog.REQUIRED_TREASURE_TIER
-	var picks := weapon_steps + treasure_steps
-	_check(picks >= 10, "a fusion costs at least ten level-up picks (%d)" % picks)
-	_check(EvolutionCatalog.REQUIRED_TREASURE_TIER <= TreasureCatalog.MAX_TIER,
-		"the treasure a fusion needs can actually be taken that deep")
-	print("ENCOUNTER_METRICS: fusion costs %d picks (weapon T%d + treasure T%d)" % [
-		picks, EvolutionCatalog.EVOLUTION_TIER, EvolutionCatalog.REQUIRED_TREASURE_TIER
+	var picks := EvolutionCatalog.EVOLUTION_TIER - 1
+	_check(picks >= 6, "an enhancement costs at least six level-up picks (%d)" % picks)
+	_check(EvolutionCatalog.WEAPON_MAX_TIER > EvolutionCatalog.EVOLUTION_TIER,
+		"and the weapon still has somewhere to climb afterwards")
+	print("ENCOUNTER_METRICS: enhancement costs %d picks (weapon T%d), ceiling T%d" % [
+		picks, EvolutionCatalog.EVOLUTION_TIER, EvolutionCatalog.WEAPON_MAX_TIER
 	])
 
 

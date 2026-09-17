@@ -34,13 +34,13 @@ func _run() -> void:
 
 	_test_weapon_stages_escalate(main)
 	_test_route_focus(main)
-	_test_one_route_weapon_assigns_itself(main)
+	_test_every_weapon_asks_for_its_route(main)
 	_test_chest_respects_the_route_gate(main)
 	_test_evolution_keeps_growth(main)
 	_test_treasures_escalate(main)
 	_test_route_specials_are_never_dead(main)
 	await _test_overload_blast(main)
-	await _test_eclipse_afterimage(main)
+	await _test_chain_double_pulse(main)
 
 	if failures.is_empty():
 		print("GROWTH_CURVE_PASS: light openings, heavy finishes, route-priced cards, live route specials")
@@ -72,7 +72,7 @@ func _test_weapon_stages_escalate(main: Node) -> void:
 		"a starting weapon opens lighter than the old 0.68 scale")
 	var opening := _power_gain(main, homing)
 	var routed := homing.duplicate(true)
-	Techs.apply_to_state(routed, Techs.by_id("homing", "constellation"))
+	Techs.apply_to_state(routed, Techs.by_id("homing", "comet"))
 	routed["tier"] = Growth.TECH_UNLOCK_TIER
 	var route := _power_gain(main, routed)
 	var evolution: Dictionary = main._selected_evolution_for_state(routed)
@@ -94,26 +94,45 @@ func _test_route_focus(main: Node) -> void:
 		"a force route grows damage faster than a tempo route")
 	_check(Growth.rate_step(conductor) < Growth.rate_step(overload),
 		"a tempo route grows speed faster than a force route")
-	var balanced: Dictionary = main._build_weapon_state(_character("homing"))
-	Techs.apply_to_state(balanced, Techs.by_id("homing", "constellation"))
+	# The balanced third route is gone on purpose: a route that names all four
+	# axes specialises in nothing, so every route now leans on exactly two and
+	# away from exactly two.
+	var untyped: Dictionary = main._build_weapon_state(_character("homing"))
 	for axis in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
-		_check(is_equal_approx(Growth.focus(balanced, axis), 1.0), "a balanced route leans on nothing (%s)" % axis)
+		_check(is_equal_approx(Growth.focus(untyped, axis), 1.0),
+			"a weapon with no route yet leans on nothing (%s)" % axis)
+	for weapon_id in ["homing", "lightning", "scythe", "lance", "gravity", "chain"]:
+		for tech in Techs.for_weapon(weapon_id):
+			var probe: Dictionary = main._build_weapon_state(_character(weapon_id))
+			Techs.apply_to_state(probe, tech)
+			var favoured := 0
+			var reduced := 0
+			for axis in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
+				favoured += 1 if Growth.focus(probe, axis) > 1.0 else 0
+				reduced += 1 if Growth.focus(probe, axis) < 1.0 else 0
+			_check(favoured == 2 and reduced == 2,
+				"%s/%s leans on two axes and away from two (%d/%d)" % [weapon_id, tech["id"], favoured, reduced])
 	main.weapon_loadouts[0] = [overload]
 	var preview: String = main._upgrade_preview(0, {"id": "weapon_power", "weapon_slot": 0})
 	_check(preview.contains("테크 특화"), "a focused card says so on its face (%s)" % preview)
 
 
-func _test_one_route_weapon_assigns_itself(main: Node) -> void:
+## 사슬 used to be the one weapon with a single route, so it was assigned one
+## silently at Lv.3 and its owner never saw a route card at all. Every weapon
+## offers two now, so every weapon asks — there is no weapon whose direction is
+## decided for it.
+func _test_every_weapon_asks_for_its_route(main: Node) -> void:
 	var chain: Dictionary = main._build_weapon_state(_character("chain"))
-	_check(String(chain.get("tech_id", "")).is_empty(), "a one-route weapon also arrives untyped")
+	_check(String(chain.get("tech_id", "")).is_empty(), "the chain weapon arrives untyped")
 	main.weapon_loadouts[0] = [chain]
 	main.attack_timers[0] = [0.0]
 	while int(main.weapon_loadouts[0][0]["tier"]) < Growth.TECH_UNLOCK_TIER:
 		main._apply_upgrade(0, {"id": "weapon_rate", "weapon_slot": 0})
-	_check(not String(main.weapon_loadouts[0][0].get("tech_id", "")).is_empty(),
-		"reaching the unlock tier assigns a one-route weapon's only route")
-	for option in main._get_upgrade_choices(1):
-		_check(String(option["id"]) != "choose_tech", "and never asks the player to pick it")
+	_check(String(main.weapon_loadouts[0][0].get("tech_id", "")).is_empty(),
+		"reaching the unlock tier does not pick a route on the player's behalf")
+	var hand: Array[Dictionary] = main._get_upgrade_choices(1)
+	_check(hand.size() == 2 and hand.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech"),
+		"it is asked instead, with both routes on the table")
 
 
 func _test_chest_respects_the_route_gate(main: Node) -> void:
@@ -229,22 +248,26 @@ func _test_overload_blast(main: Node) -> void:
 	_check(beside.health < beside_before, "과부하's landing blast hits the body beside it")
 
 
-func _test_eclipse_afterimage(main: Node) -> void:
+## 팽팽한 사슬 is the 사슬 weapon's 속도 route, and what makes it one is that the
+## pulse runs twice. A route whose delivery is identical to the other one is a
+## stat preference wearing a route's name, so this measures the second pulse.
+func _test_chain_double_pulse(main: Node) -> void:
 	await _clear(main)
 	main.players[0].position = Vector2.ZERO
-	var state: Dictionary = main._build_weapon_state(_character("scythe"))
-	Techs.apply_to_state(state, Techs.by_id("scythe", "eclipse"))
+	main.players[1].position = Vector2(220, 0)
+	var state: Dictionary = main._build_weapon_state(_character("chain"))
+	Techs.apply_to_state(state, Techs.by_id("chain", "tether"))
 	state["tier"] = Growth.TECH_UNLOCK_TIER
 	main.weapon_loadouts[0] = [state]
-	main._apply_upgrade(0, {"id": "special_b", "weapon_slot": 0})
-	_check(float(main.weapon_loadouts[0][0].get("afterimage", 0.0)) > 0.0, "월식 잔상 grows the afterimage")
-	var target := _spawn(main, Vector2(90, 0))
+	main.attack_timers[0] = [0.0]
+	var target := _spawn(main, Vector2(110, 0))
 	main.spatial_grid.rebuild(main.enemies)
 	main.weapon_controller.perform_attack(0, 0, 1.0)
-	await create_timer(0.22).timeout
-	var after_sweep := target.health
-	await create_timer(0.5).timeout
-	_check(target.health < after_sweep, "the afterimage sweeps again after the first cut (%.0f → %.0f)" % [after_sweep, target.health])
+	await create_timer(0.05).timeout
+	var after_first := target.health
+	_check(after_first < target.max_health, "the first pulse lands")
+	await create_timer(0.4).timeout
+	_check(target.health < after_first, "the second pulse follows it (%.0f → %.0f)" % [after_first, target.health])
 
 
 func _check(condition: bool, label: String) -> void:

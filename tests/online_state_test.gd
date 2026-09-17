@@ -87,8 +87,10 @@ func _run() -> void:
 		Vector2.LEFT, Vector2(20, 30), true,
 	]])
 	_check(is_instance_valid(main.boss_enemy), "client creates the replicated boss")
-	_check(main.boss_bar.visible and is_equal_approx(main.boss_bar.value, 480.0),
-		"client shows the replicated boss health")
+	_check(main.boss_bar.visible and is_equal_approx(float(main.boss_bar.ratio), 480.0 / 600.0),
+		"client shows the replicated boss health (%.2f of the bar)" % main.boss_bar.ratio)
+	_check(String(main.boss_bar.health_text) == "480 / 600",
+		"and the replicated numbers (%s)" % main.boss_bar.health_text)
 	_check(main.boss_enemy.charge_windup > 0.0 and main.boss_enemy.boss_slam_windup > 0.0,
 		"client receives attack telegraph timers")
 	_check(main.boss_enemy.telegraph_direction == Vector2.LEFT,

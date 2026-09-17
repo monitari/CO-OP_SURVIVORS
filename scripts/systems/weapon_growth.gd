@@ -16,10 +16,10 @@ const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
 ##   FINAL    enhanced weapon         the largest steps in the run
 ##
 ## A tech is not a filter on which cards appear — every axis stays open — but it
-## decides what each axis is worth. A tech that names two axes grows those much
-## faster and the other two slower; one that names three leans less; a balanced
-## tech that names all four grows everything at the ordinary rate and pays for
-## its breadth with its delivery instead.
+## decides what each axis is worth. Every tech names exactly two of the four
+## axes: those two grow much faster and the other two slower. Techs used to name
+## anywhere from two to four, so "how much does this route lean?" was a third
+## thing to learn per weapon on top of what the route did.
 
 ## A weapon has to have been grown this far before its route can be chosen. The
 ## first cards teach what the weapon does; the tech decides what it becomes.
@@ -39,20 +39,19 @@ const RATE_GAIN := [0.05, 0.09, 0.11]
 const SPECIAL_SCALE := [0.8, 1.0, 1.35]
 const RATE_FLOOR := 0.32
 
-const FOCUS_NARROW := 1.3
-const OFF_NARROW := 0.75
-const FOCUS_WIDE := 1.15
-const OFF_WIDE := 0.85
+## What a route makes of one growth axis. Every route names exactly two of the
+## four axes (WeaponTechCatalog enforces the shape), so there is one pair of
+## numbers rather than a narrow pair and a wide pair: the two axes the route is
+## about grow at FOCUS_WEIGHT, the two it is not grow at OFF_WEIGHT.
+##
+## These are balance numbers and the player is never shown them. What the card
+## says is "화력 강화 효율 증가" / "공격 속도 성장 완만" — the meaning, not the
+## multiplier, so the two can be retuned without rewriting any text.
+const FOCUS_WEIGHT := 1.30
+const OFF_WEIGHT := 0.75
 ## Count-style specials (+1 shot, +1 chain) cannot be scaled by a fraction, so a
 ## focused one also sharpens the weapon's damage by this much per stage step.
 const FOCUS_INTEGER_DAMAGE := [0.04, 0.06, 0.08]
-
-## How much of the damage and cooldown a weapon was grown by before its
-## enhancement survives into the enhanced form. The enhancement used to reset a
-## weapon to the catalogue numbers, so every 화력 card taken before it was thrown
-## away the moment the pair reached the part of the tree they were playing for.
-const EVOLUTION_CARRY := 0.35
-
 
 static func base_id(state: Dictionary) -> String:
 	return String(state.get("base_weapon_id", state.get("weapon_id", "")))
@@ -81,19 +80,15 @@ static func tech(state: Dictionary) -> Dictionary:
 	return WeaponTechs.by_id(base_id(state), tech_id)
 
 
-## What the chosen tech makes of one growth axis: >1 on its own axes, <1 on the
-## others, 1.0 before a tech exists or for a tech that names all four.
+## What the chosen tech makes of one growth axis: FOCUS_WEIGHT on the two axes
+## the route names, OFF_WEIGHT on the two it does not, and a flat 1.0 for a
+## weapon that has not picked a route yet.
 static func focus(state: Dictionary, axis: String) -> float:
 	var chosen := tech(state)
 	if chosen.is_empty():
 		return 1.0
 	var axes: Array = chosen.get("upgrades", [])
-	if axes.size() >= 4:
-		return 1.0
-	var narrow := axes.size() <= 2
-	if axis in axes:
-		return FOCUS_NARROW if narrow else FOCUS_WIDE
-	return OFF_NARROW if narrow else OFF_WIDE
+	return FOCUS_WEIGHT if axis in axes else OFF_WEIGHT
 
 
 static func focus_label(state: Dictionary, axis: String) -> String:
@@ -127,12 +122,20 @@ static func integer_focus_damage(state: Dictionary, key: String) -> float:
 	return float(FOCUS_INTEGER_DAMAGE[stage(state)])
 
 
-## The enhanced numbers, carrying part of what the base weapon was grown by.
+## The enhanced numbers, carrying everything the base weapon was grown by.
 ## `base_damage` is the unscaled catalogue damage of the base weapon.
+##
+## The growth carries at 100%: whatever multiple of its opening damage the base
+## weapon had reached, the enhanced form opens at the same multiple of *its* own
+## catalogue damage, and the same for how far the cooldown had come down. There
+## used to be a 35% conversion here, which meant two thirds of every 화력 card
+## bought before Lv.7 evaporated at the exact moment the pair reached the part of
+## the tree they had been playing for — and no screen ever told them that was
+## going to happen. A conversion rate nobody can see is a tax, not a mechanic.
 static func carry_into_evolution(evolved: Dictionary, grown: Dictionary, base_damage: float, base_cooldown: float) -> void:
 	var opening := maxf(0.001, base_damage * OPENING_DAMAGE_SCALE)
 	var damage_ratio := maxf(1.0, float(grown.get("damage", opening)) / opening)
-	evolved["damage"] = float(evolved["damage"]) * (1.0 + (damage_ratio - 1.0) * EVOLUTION_CARRY)
+	evolved["damage"] = float(evolved["damage"]) * damage_ratio
 	if base_cooldown > 0.0 and evolved.has("cooldown"):
 		var rate_ratio := clampf(float(grown.get("cooldown", base_cooldown)) / base_cooldown, 0.1, 1.0)
-		evolved["cooldown"] = maxf(RATE_FLOOR, float(evolved["cooldown"]) * (1.0 - (1.0 - rate_ratio) * EVOLUTION_CARRY))
+		evolved["cooldown"] = maxf(RATE_FLOOR, float(evolved["cooldown"]) * rate_ratio)

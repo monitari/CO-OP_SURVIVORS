@@ -23,22 +23,18 @@ func _run() -> void:
 
 	_check(EvolutionCatalog.all_hybrid_evolutions().is_empty(), "weapon + weapon recipes are retired")
 	_check(EvolutionCatalog.all_fusions().size() == EvolutionCatalog.all_evolutions().size(),
-		"the enhancement catalogue contains only weapon + treasure paths")
+		"the enhancement catalogue holds exactly one entry per base weapon")
 
 	var base: Dictionary = main.weapon_loadouts[0][0]
 	var base_id := String(base["weapon_id"])
 	main.WeaponTechs.apply_to_state(base, main.WeaponTechs.for_weapon(base_id)[0])
-	var evolution: Dictionary = main._selected_evolution_for_state(base)
 	base["tier"] = EvolutionCatalog.EVOLUTION_TIER
-	var treasure := TreasureCatalog.build_state(TreasureCatalog.by_id(String(evolution["treasure_id"])))
-	treasure["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER
-	main.treasure_loadouts[0].append(treasure)
 	var ready: Dictionary = main._available_evolution(0, 0)
-	_check(not ready.is_empty(), "a maxed weapon and its treasure unlock enhancement")
+	_check(not ready.is_empty(), "reaching Lv.%d alone unlocks the enhancement" % EvolutionCatalog.EVOLUTION_TIER)
 	main.run_stats["weapon_damage"][0][base_id] = 420.0
 	var weapons_before: int = main.weapon_loadouts[0].size()
 	var treasures_before: int = main.treasure_loadouts[0].size()
-	main._apply_upgrade(0, {"id": "evolve_weapon", "weapon_slot": 0, "evolution": ready})
+	main._apply_pending_evolutions(0)
 	var enhanced: Dictionary = main.weapon_loadouts[0][0]
 	_check(main.weapon_loadouts[0].size() == weapons_before, "enhancement keeps the weapon slot")
 	_check(main.treasure_loadouts[0].size() == treasures_before, "enhancement keeps the treasure")

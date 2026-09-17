@@ -180,13 +180,18 @@ func _test_select_exposes_the_tech_tree(main: Node) -> void:
 		var evolution := EvolutionCatalog.for_base(String(character["weapon_id"]))
 		_check(shown.contains(String(evolution["weapon_name"])),
 			"select names the planned final form %s" % String(evolution["weapon_name"]))
-	_check(shown.contains("자동 공명"), "select explains automatic resonance")
+	# Resonance is no longer automatic, so what select promises is the condition
+	# rather than the outcome: reach Lv.7 on both sides and candidates open.
+	_check(shown.contains("공명"), "select explains what resonance needs")
 
 	# The starting weapon and route are both visible alongside the icon.
 	for player_index in 2:
 		var character: Dictionary = main.character_catalog[main.selected_character_indices[player_index]]
 		var card := String(main.character_p1_label.text if player_index == 0 else main.character_p2_label.text)
-		_check(card.contains("필요"), "and names route materials")
+		# 추천, not 필수 — treasures stopped gating enhancement, and the select
+		# screen is where a player would otherwise read a suggestion as a rule.
+		_check(card.contains("추천 보물"), "and names the routes' synergy treasures as recommendations")
+		_check(not card.contains("필요 보물"), "and never presents one as required")
 		_check(not card.contains("난이도"), "and does not classify the pick by difficulty")
 		_check(main.character_overlay.get_node("CatWeapon%d" % player_index).texture != null, "and shows its weapon icon")
 

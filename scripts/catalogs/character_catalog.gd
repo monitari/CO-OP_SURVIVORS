@@ -282,7 +282,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "별을 쫓는 러시안블루",
 			"weapon_id": "homing",
 			"weapon_name": "추적 성탄",
-			"tags": ["projectile", "tracking", "arcane"],
+			"tags": ["arcane", "tracking"],
 			"description": "밤하늘을 보고 앞발을 뻗으면 별똥이 알아서 목표를 찾아갑니다.",
 			"color": Color("43d9ff"),
 			# The roster's glass cannon: fastest cat, highest crit, and the
@@ -304,7 +304,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "번개 밟는 턱시도",
 			"weapon_id": "lightning",
 			"weapon_name": "연쇄 낙뢰",
-			"tags": ["lightning", "storm", "arc"],
+			"tags": ["lightning", "storm"],
 			"description": "정전기를 잔뜩 머금은 털이 가까운 것들을 차례로 타고 흐릅니다.",
 			"color": Color("b892ff"),
 			"health": 112.0,
@@ -322,7 +322,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "잿불 위의 치즈",
 			"weapon_id": "flame",
 			"weapon_name": "화염 성운",
-			"tags": ["fire", "projectile", "burst"],
+			"tags": ["fire", "projectile"],
 			"description": "따뜻한 자리를 독차지하려고 사방으로 불씨를 흩뿌립니다.",
 			"color": Color("ff8c42"),
 			"health": 138.0,
@@ -345,7 +345,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "서리 두른 하양이",
 			"weapon_id": "frost",
 			"weapon_name": "빙결 고리",
-			"tags": ["frost", "control", "aura"],
+			"tags": ["frost", "aura"],
 			"description": "숨을 뱉으면 주변이 얼어붙어 둘이 앉을 자리가 생깁니다.",
 			"color": Color("8ecae6"),
 			"health": 126.0,
@@ -364,7 +364,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "달그림자 삼색",
 			"weapon_id": "scythe",
 			"weapon_name": "월식 낫",
-			"tags": ["melee", "shadow", "arc"],
+			"tags": ["shadow", "melee"],
 			"description": "노리던 쪽으로 몸을 틀어 초승달 모양으로 크게 할큅니다.",
 			"color": Color("ef476f"),
 			# The shortest leash on the roster. Moro fights at claw range and
@@ -388,7 +388,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "사슬을 지키는 젖소",
 			"weapon_id": "chain",
 			"weapon_name": "결속 파동",
-			"tags": ["tether", "holy", "aura"],
+			"tags": ["holy", "chain"],
 			"description": "골골거리는 소리가 사슬을 타고 흘러 닿는 것을 모두 태웁니다.",
 			"color": Color("80ed99"),
 			# The anchor: twice Lyra's health, half her speed, and the longest
@@ -412,7 +412,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "궤도를 도는 노랑둥이",
 			"weapon_id": "orbit",
 			"weapon_name": "궤도 파편",
-			"tags": ["arcane", "aura", "control"],
+			"tags": ["arcane", "aura"],
 			"description": "장난감처럼 파편 몇 개를 계속 굴려 다가오는 것을 알아서 쳐냅니다.",
 			"color": Color("ffd166"),
 			"health": 129.0,
@@ -437,7 +437,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "빛을 꿰는 샴",
 			"weapon_id": "lance",
 			"weapon_name": "관통 광선",
-			"tags": ["projectile", "holy", "burst"],
+			"tags": ["holy", "pierce"],
 			"description": "노린 것을 한 줄로 세워 앞발 한 번에 전부 꿰뚫습니다.",
 			"color": Color("caffbf"),
 			"health": 95.0,
@@ -456,7 +456,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "결계를 놓는 고등어",
 			"weapon_id": "mine",
 			"weapon_name": "지뢰 결계",
-			"tags": ["control", "burst", "shadow"],
+			"tags": ["shadow", "control"],
 			"description": "지나가는 길목마다 발자국 결계를 묻어 두고 돌아섭니다.",
 			"color": Color("bdb2ff"),
 			"health": 137.0,
@@ -475,7 +475,7 @@ static func all_characters() -> Array[Dictionary]:
 			"title": "무너뜨리는 카오스",
 			"weapon_id": "gravity",
 			"weapon_name": "중력 붕괴",
-			"tags": ["arcane", "storm", "control"],
+			"tags": ["arcane", "control"],
 			"description": "멀리 몰려 있는 쪽을 골라 그 자리를 통째로 주저앉힙니다.",
 			"color": Color("ff7bd5"),
 			# Nova's identity is the pull, and not only the one the weapon casts:
@@ -496,7 +496,7 @@ static func all_characters() -> Array[Dictionary]:
 	# past — three passes from one cast, which is why the reach factor is high
 	# for what looks like a single projectile.
 	roster.append({"id": "echo", "name": "에코", "title": "메아리를 던지는 아비시니안", "weapon_id": "boomerang", "weapon_name": "생선 부메랑",
-		"tags": ["projectile", "tracking"], "description": "생선 장난감이 나갔다가 돌아오고, 멈추지 않고 반대편까지 지나갑니다.",
+		"tags": ["frost", "tracking"], "description": "생선 장난감이 나갔다가 돌아오고, 멈추지 않고 반대편까지 지나갑니다.",
 		"color": Color("d59356"), "health": 101.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.0, "chain": -10.0,
 		"might": 1.06, "area": 0.95, "haste": 0.98, "recovery": 0.1,
 		"weapon": {"damage": 39.0, "cooldown": 2.5, "range": 260.0, "count": 1, "reach": 2.3, "tier": 1}})
@@ -504,7 +504,7 @@ static func all_characters() -> Array[Dictionary]:
 	# lands on stands in it — the one weapon in the roster whose value is
 	# decided by where the pair chooses to fight rather than by what it hits.
 	roster.append({"id": "latte", "name": "라떼", "title": "우유를 나르는 노르웨이숲", "weapon_id": "milk", "weapon_name": "우유 흩뿌리기",
-		"tags": ["aura", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
+		"tags": ["frost", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
 		"color": Color("f2e2c4"), "health": 121.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
 		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
 		"weapon": {"damage": 15.0, "cooldown": 3.1, "range": 300.0, "count": 1, "radius": 74.0, "slow": 0.55, "reach": 7.4, "tier": 1}})

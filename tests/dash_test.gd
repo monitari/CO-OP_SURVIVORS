@@ -98,7 +98,11 @@ func _test_invulnerability(main: Node) -> void:
 	# And it must actually run out — otherwise the dash is a permanent shield.
 	player.invulnerability = 0.0
 	player.dash_timer = 0.0
-	_check(player.hurt(25.0), "damage lands again once the invulnerability ends")
+	# can_dodge = false on purpose: this is about the i-frames expiring, and
+	# 라이라 carries a 6% dodge, so a plain hurt() call failed this assertion
+	# roughly one run in sixteen for reasons that had nothing to do with the
+	# dash. Dodge has its own coverage in attribute_test.
+	_check(player.hurt(25.0, Vector2.INF, false), "damage lands again once the invulnerability ends")
 
 	# The window has to outlast the burst, or the last frames of the dash are
 	# spent unprotected inside whatever the player dashed through.

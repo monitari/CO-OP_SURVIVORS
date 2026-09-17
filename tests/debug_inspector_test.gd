@@ -101,13 +101,12 @@ func _run() -> void:
 	inspector._prepare_fusions()
 	for slot in 2:
 		var weapon: Dictionary = main.weapon_loadouts[slot][0]
-		var evolution: Dictionary = main._selected_evolution_for_state(weapon)
-		_check(int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER,
+		_check(int(weapon.get("tier", 1)) >= Evolutions.EVOLUTION_TIER,
 			"fusion shortcut raises P%d's base weapon through real upgrade steps" % (slot + 1))
-		_check(main._treasure_tier(slot, String(evolution["treasure_id"])) >= Evolutions.REQUIRED_TREASURE_TIER,
-			"fusion shortcut supplies P%d's recipe treasure" % (slot + 1))
-		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
-		_check(_has_fusion(choices), "fusion card is guaranteed for P%d" % (slot + 1))
+		# The shortcut buys tiers; Lv.7 does the rest by itself, so what it has
+		# to produce is an enhanced weapon rather than a card offering one.
+		_check(bool(weapon.get("evolved", false)),
+			"fusion shortcut leaves P%d holding the enhanced weapon" % (slot + 1))
 	_check(float(main.weapon_loadouts[0][0]["damage"]) > opening_damage,
 		"preparation does not fake the tier label; it applies weapon power")
 	_close_level_modal(main)
@@ -152,13 +151,6 @@ func _run() -> void:
 		for failure in failures:
 			push_error("DEBUG_INSPECTOR_FAIL: " + failure)
 		quit(1)
-
-
-func _has_fusion(choices: Array) -> bool:
-	for option: Dictionary in choices:
-		if String(option.get("id", "")) == "evolve_weapon":
-			return true
-	return false
 
 
 func _close_level_modal(main: Node) -> void:

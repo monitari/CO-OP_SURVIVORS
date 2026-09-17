@@ -57,15 +57,16 @@ func _test_fusion_takes_the_screen(main: Node) -> void:
 	var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
 	_check(not main.cinematic_active, "nothing is playing to begin with")
 
-	main._apply_upgrade(0, {"id": "evolve_weapon", "weapon_slot": 0, "evolution": evolution})
-	_check(main.showcase_queue.size() == 1, "a fusion queues a showcase")
-	_check(String(main.showcase_queue[0]["kind"]) == "fusion", "and it is the fusion one")
-	# Both ingredients and the result travel with it, or the screen has nothing
-	# to put on screen.
+	main.WeaponTechs.apply_to_state(weapon, main.WeaponTechs.for_weapon(String(weapon["weapon_id"]))[0])
+	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	main._apply_pending_evolutions(0)
+	_check(main.showcase_queue.size() == 1, "an enhancement queues a showcase")
+	_check(String(main.showcase_queue[0]["kind"]) == "fusion", "and it is the enhancement one")
+	# The weapon it grew from and what it became both travel with it, or the
+	# screen has nothing to put on screen.
 	var queued: Dictionary = main.showcase_queue[0]
 	_check(String(queued["base_weapon_id"]) == "homing", "the base weapon travels with it")
-	_check(String(queued["treasure_id"]) == String(evolution["treasure_id"]), "so does the treasure that paid for it")
-	_check(String(queued["weapon_id"]) == String(evolution["weapon_id"]), "and what they became")
+	_check(String(queued["weapon_id"]) == String(evolution["weapon_id"]), "and what it became")
 
 	var resumed := [false]
 	main._play_showcase_queue(func() -> void: resumed[0] = true)
@@ -123,11 +124,14 @@ func _test_the_three_modes_are_different_shapes() -> void:
 	chest.play_chest([{"label": "x", "detail": "피해 1 → 2", "advice": "recommended", "icon": null}])
 
 	_check(fusion.mode != resonance.mode and resonance.mode != chest.mode, "three distinct modes")
-	# A fusion ends as one thing; a resonance ends as two. That is the whole
-	# difference between them stated as data rather than as pixels.
-	_check(fusion.result_icon != null, "a fusion produces a single result")
+	# An enhancement ends as one thing; a resonance ends as two. That is the
+	# whole difference between them stated as data rather than as pixels.
+	_check(fusion.result_icon != null, "an enhancement produces a single result")
 	_check(resonance.result_icon == null, "a resonance does not — both weapons stay")
-	_check(fusion.sources.size() == 2 and resonance.sources.size() == 2, "both start from two")
+	# An enhancement starts from one weapon now rather than a weapon and the
+	# treasure that unlocked it, because nothing unlocks it any more.
+	_check(fusion.sources.size() == 1, "an enhancement starts from the one weapon it grew from")
+	_check(resonance.sources.size() == 2, "a resonance starts from two")
 	_check(chest.reward_icons.size() == 1, "a chest shows one icon per reward")
 	_check(chest.reward_cards.size() == 1
 		and chest.reward_cards[0].get_node("Recommendation").text.begins_with("👍"),
@@ -169,18 +173,6 @@ func _test_the_three_modes_are_different_shapes() -> void:
 ## they happened: the box opens, then whatever came out of it gets its moment.
 func _test_chest_opens_before_what_it_contained(main: Node) -> void:
 	main.showcase_queue.clear()
-	# Both survivors one pick from a fusion, so the chest is very likely to
-	# hand one out — and guaranteed to queue something either way.
-	for slot in 2:
-		var weapon: Dictionary = main.weapon_loadouts[slot][0]
-		if bool(weapon.get("evolved", false)):
-			continue
-		weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
-		var evolution := EvolutionCatalog.for_base(String(weapon["weapon_id"]))
-		var treasure_id := String(evolution["treasure_id"])
-		main._apply_upgrade(slot, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id(treasure_id)})
-		while main._treasure_tier(slot, treasure_id) < EvolutionCatalog.REQUIRED_TREASURE_TIER:
-			main._apply_upgrade(slot, {"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": main.treasure_loadouts[slot].size() - 1})
 	main.showcase_queue.clear()
 
 	main._on_field_item_collected("chest")

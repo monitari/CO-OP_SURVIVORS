@@ -16,6 +16,9 @@ const ProgressionScript := preload("res://scripts/systems/progression_system.gd"
 const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
+const BossHealthBarScript := preload("res://scripts/ui/boss_health_bar.gd")
+const EdgePointerScript := preload("res://scripts/ui/edge_pointer.gd")
+const ResonancePipsScript := preload("res://scripts/ui/resonance_pips.gd")
 const BurstFieldScript := preload("res://scripts/systems/burst_field.gd")
 const ChainArcScript := preload("res://scripts/effects/chain_arc.gd")
 const ChainFlowScript := preload("res://scripts/effects/chain_flow.gd")
@@ -207,7 +210,9 @@ var chain_distance_text_label: Label
 var chain_integrity_text_label: Label
 var chain_status_label: Label
 var resonance_status_label: Label
-var boss_bar: ProgressBar
+## 공명 drawn as its slots, under the label (see ResonancePips).
+var resonance_pips: Control
+var boss_bar: Control
 var boss_label: Label
 var boss_health_text_label: Label
 var help_label: Label
@@ -247,11 +252,11 @@ var lobby_overlay: ColorRect
 var lobby_title: Label
 var lobby_p1_label: Label
 var lobby_p2_label: Label
-var threat_edge_indicator: Label
+var threat_edge_indicator: Control
 ## Points at an off-screen field drop, the way threat_edge_indicator points at an
 ## off-screen elite. Every drop on the roof came off a named fight, and each one
 ## times out, so "there is a box over there" is information with a clock on it.
-var item_edge_indicator: Label
+var item_edge_indicator: Control
 
 var elapsed := 0.0
 var kills := 0
@@ -450,6 +455,9 @@ var attack_timers: Array = [[], []] ## attack_timers[player_index][weapon_slot],
 var p1_choices: Array[Dictionary] = []
 var p2_choices: Array[Dictionary] = []
 var resonance_candidates: Array[Dictionary] = []
+## Resonances the pair has already been told are possible, so the notice fires
+## once per pairing rather than on every level-up that keeps it true.
+var announced_resonance_ids: Dictionary = {}
 var resonance_votes: Array[int] = [-1, -1]
 var resonance_vote_message := ""
 
@@ -823,8 +831,8 @@ func _physics_process(delta: float) -> void:
 		chain_flow.surge()
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
-		boss_bar.value = boss_enemy.health
-		boss_health_text_label.text = "%d / %d" % [int(ceil(boss_enemy.health)), int(ceil(boss_enemy.max_health))]
+		boss_bar.report(boss_enemy.health, boss_enemy.max_health, bool(boss_enemy.boss_enraged))
+		boss_health_text_label.text = String(boss_bar.health_text)
 
 	_profile("resonance")
 	_update_hud()
@@ -1103,6 +1111,10 @@ func _create_hud() -> void:
 	resonance_status_label.add_theme_color_override("font_color", Color("e4c1f9"))
 	_confine_label(resonance_status_label)
 	layer.add_child(resonance_status_label)
+	resonance_pips = ResonancePipsScript.new() as Control
+	resonance_pips.position = Vector2(710.0, 125.0)
+	resonance_pips.size = Vector2(115.0, 6.0)
+	layer.add_child(resonance_pips)
 
 	boss_hud_panel = _make_hud_panel(layer, Vector2(378.0, 134.0), Vector2(524.0, 60.0))
 	boss_hud_panel.visible = false
@@ -1116,10 +1128,18 @@ func _create_hud() -> void:
 	boss_label.text = "폭주 청소 로봇"
 	boss_label.visible = false
 	layer.add_child(boss_label)
-	boss_bar = _create_bar(layer, Vector2(390.0, 164.0), Vector2(500.0, 22.0), Color("ef476f"))
+	# Drawn rather than themed: the one enemy the run is built around used to
+	# announce itself with the same widget as the XP meter (see BossHealthBar).
+	boss_bar = BossHealthBarScript.new() as Control
+	boss_bar.position = Vector2(390.0, 148.0)
+	boss_bar.size = Vector2(500.0, 38.0)
 	boss_bar.visible = false
+	layer.add_child(boss_bar)
+	# The name and the health number are painted by the bar itself now. Both
+	# labels stay as hidden stubs because the online snapshot, the pause screen
+	# and three tests still address them by name.
 	boss_health_text_label = _create_bar_text(layer, Vector2(390.0, 164.0), Vector2(500.0, 22.0), 14)
-	boss_health_text_label.size = boss_bar.size
+	boss_health_text_label.size = Vector2(500.0, 22.0)
 	boss_health_text_label.visible = false
 
 	xp_bar = _create_bar(layer, Vector2(20.0, 688.0), Vector2(1240.0, 24.0), Color("80ed99"))
@@ -1178,13 +1198,13 @@ func _create_hud() -> void:
 	resonance_title = Label.new()
 	resonance_title.position = Vector2(0.0, 25.0)
 	resonance_title.size = Vector2(920.0, 55.0)
-	resonance_title.text = "둘이 함께, 냥이 공명"
+	resonance_title.text = "공명핵 — 하나를 고르세요"
 	resonance_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	resonance_title.add_theme_font_size_override("font_size", 29)
 	resonance_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(resonance_title)
 	resonance_overlay.add_child(resonance_title)
-	_add_cat_caption(resonance_overlay, "두 고양이의 강화 무기가 공명합니다. 같은 기술에 투표하면 함께 발동!", Vector2(40, 72), Vector2(840, 25), 16)
+	_add_cat_caption(resonance_overlay, "보스가 남긴 공명핵으로 공명 하나를 켜고, 그 무기 칸은 그 공명에 묶입니다. 같은 숫자에 둘 다 확정하면 발현!", Vector2(40, 72), Vector2(840, 25), 16)
 
 	# Voting used to be a wall of text and two number keys, which reads as a
 	# quiz rather than a decision. It is now the same card grid as the level-up
@@ -1435,20 +1455,17 @@ func _create_lobby_slot(slot_position: Vector2, color: Color) -> Label:
 	return label
 
 
-func _create_edge_indicator(parent: Node, color: Color) -> Label:
-	var label := Label.new()
-	# Wide enough for the longest mark either pointer makes — "상자 128m 9초" —
-	# because _confine_label clips silently and a clipped countdown is worse
-	# than no countdown.
-	label.size = Vector2(158.0, 34.0)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 18)
-	label.add_theme_color_override("font_color", color)
-	_confine_label(label)
-	label.visible = false
-	_make_label_background(label, Color(0.02, 0.03, 0.07, 0.88))
-	parent.add_child(label)
-	return label
+## Both marks are the same drawn control (see EdgePointer): an arrowhead on the
+## bearing plus a pill that sizes itself to its own text. They used to be plain
+## Labels in a flat box, which meant the two most time-critical readings on the
+## HUD — which way, how far — were carried by a word and a number rather than by
+## a shape that points.
+func _create_edge_indicator(parent: Node, color: Color) -> Control:
+	var pointer := EdgePointerScript.new() as Control
+	pointer.accent = color
+	pointer.visible = false
+	parent.add_child(pointer)
+	return pointer
 
 
 func _create_bar(parent: Node, bar_position: Vector2, bar_size: Vector2, color: Color) -> ProgressBar:
@@ -2012,19 +2029,19 @@ func _refresh_character_select_ui() -> void:
 func _format_character_card(player_index: int) -> String:
 	var character := character_catalog[selected_character_indices[player_index]]
 	var tech_names: Array[String] = []
-	var material_names: Array[String] = []
+	var synergy_names: Array[String] = []
 	var evolution := Evolutions.for_base(String(character["weapon_id"]))
 	for tech in WeaponTechs.for_weapon(String(character["weapon_id"])):
-		var treasure := Treasures.by_id(String(tech["treasure_id"]))
+		var treasure := Treasures.by_id(String(tech["synergy_treasure_id"]))
 		tech_names.append(String(tech["name"]))
-		material_names.append(String(treasure.get("name", "보물")))
+		synergy_names.append(String(treasure.get("name", "보물")))
 	var playstyle := String(EditorialUI.PLAYSTYLE.get(
 		String(character["weapon_id"]), "자동 공격")).split("    ")[-1]
 	return "\n".join([
 		"무기    %s    %s" % [String(character["weapon_name"]), playstyle],
 		"테크 Lv.%d    %s" % [WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(tech_names)],
-		"필요 보물    %s" % " / ".join(material_names),
-		"최종    %s    자동 공명" % String(evolution.get("weapon_name", "최종 진화")),
+		"추천 보물    %s" % " / ".join(synergy_names),
+		"Lv.%d 진화    %s" % [Evolutions.EVOLUTION_TIER, String(evolution.get("weapon_name", "최종 진화"))],
 	])
 
 ## What this survivor does to the pair's leash, in plain language. The number
@@ -2045,19 +2062,23 @@ func _chain_note(character: Dictionary) -> String:
 ## The plan this cat's starting weapon is on, named before the run rather than
 ## discovered during it.
 ##
-## Choosing a survivor is choosing a route — every starting weapon has exactly
-## one final form and exactly one treasure that completes it — and the select
-## screen is the only moment where that choice is actually being made. It lives
-## in the detailed view rather than on the front of the dossier so the default
-## screen stays a portrait and four numbers.
+## Every starting weapon has exactly one final form, and it is reached at Lv.7
+## by growing the weapon and nothing else. Naming it here means a player picking
+## a cat can see where that cat ends up. It lives in the detailed view rather
+## than on the front of the dossier so the default screen stays a portrait and
+## four numbers.
 func _route_note(character: Dictionary) -> String:
 	var evolution := Evolutions.for_base(String(character["weapon_id"]))
 	if evolution.is_empty():
 		return ""
-	var treasure := Treasures.by_id(String(evolution.get("treasure_id", "")))
-	if treasure.is_empty():
-		return "성장 경로  ·  %s" % String(evolution["weapon_name"])
-	return "성장 경로  ·  %s    필요  %s" % [String(evolution["weapon_name"]), String(treasure["name"])]
+	var synergies: Array[String] = []
+	for tech in WeaponTechs.for_weapon(String(character["weapon_id"])):
+		var treasure := Treasures.by_id(String(tech["synergy_treasure_id"]))
+		var treasure_name := String(treasure.get("name", ""))
+		if not treasure_name.is_empty() and treasure_name not in synergies:
+			synergies.append(treasure_name)
+	return "Lv.%d 진화  ·  %s    추천 보물  %s" % [
+		Evolutions.EVOLUTION_TIER, String(evolution["weapon_name"]), " / ".join(synergies)]
 
 
 func _synergy_preview() -> String:
@@ -2405,9 +2426,15 @@ func _update_threat_indicator() -> void:
 	if nearest == null:
 		threat_edge_indicator.visible = false
 		return
+	# Nearness drives the arrow's size and the pill's glow, so "it is nearly on
+	# us" lands before the number is read. Measured against half the view, which
+	# is roughly the distance at which something off screen becomes urgent.
+	var nearness := 1.0 - clampf(nearest_distance / maxf(1.0, view.length()), 0.0, 1.0)
+	threat_edge_indicator.report(
+		"%s %dm" % ["보스" if nearest.boss else "정예", int(nearest_distance / 10.0)],
+		_edge_bearing(nearest.global_position, centre), nearness,
+		Color("fff275") if nearest.boss else Color("ff5d8f"), nearest.boss)
 	_place_edge_indicator(threat_edge_indicator, nearest.global_position, view, centre)
-	threat_edge_indicator.text = "%s %dm" % ["보스" if nearest.boss else "정예", int(nearest_distance / 10.0)]
-	threat_edge_indicator.add_theme_color_override("font_color", Color("fff275") if nearest.boss else Color("ff5d8f"))
 	threat_edge_indicator.visible = true
 
 
@@ -2451,6 +2478,13 @@ func _update_item_indicator() -> void:
 	if nearest == null:
 		item_edge_indicator.visible = false
 		return
+	var item_label := "상자" if nearest.item_id == "chest" else field_items.item_display_name(nearest.item_id)
+	var expiring: bool = nearest.lifetime <= ITEM_POINTER_CLOCK
+	var mark := "%s %dm %d초" % [item_label, int(nearest_distance / 10.0), ceili(nearest.lifetime)] 		if expiring else "%s %dm" % [item_label, int(nearest_distance / 10.0)]
+	var item_nearness := 1.0 - clampf(nearest_distance / maxf(1.0, view.length()), 0.0, 1.0)
+	item_edge_indicator.report(mark, _edge_bearing(nearest.global_position, centre),
+		item_nearness, field_items.item_color(nearest.item_id),
+		nearest.lifetime <= FieldItem.FADE_WARNING)
 	_place_edge_indicator(item_edge_indicator, nearest.global_position, view, centre)
 	# Both pointers clamp to the same edge along their own bearing, so a chest
 	# and an elite in roughly the same direction land on top of each other. The
@@ -2463,27 +2497,22 @@ func _update_item_indicator() -> void:
 			if below + item_edge_indicator.size.y > view.y - 40.0:
 				below = threat_edge_indicator.position.y - item_edge_indicator.size.y - 6.0
 			item_edge_indicator.position.y = below
-	var label := "상자" if nearest.item_id == "chest" else field_items.item_display_name(nearest.item_id)
-	if nearest.lifetime <= ITEM_POINTER_CLOCK:
-		item_edge_indicator.text = "%s %dm %d초" % [label, int(nearest_distance / 10.0), ceili(nearest.lifetime)]
-	else:
-		item_edge_indicator.text = "%s %dm" % [label, int(nearest_distance / 10.0)]
-	var tint: Color = field_items.item_color(nearest.item_id)
-	# The mark blinks with the drop it points at rather than on a clock of its
-	# own, so the arrow and the thing on the floor are visibly the same object.
-	if nearest.lifetime <= FieldItem.FADE_WARNING:
-		tint.a = 0.45 + absf(sin(nearest.lifetime * 6.0)) * 0.55
-	item_edge_indicator.add_theme_color_override("font_color", tint)
 	item_edge_indicator.visible = true
 
 
-## Puts `label` on the screen edge along the bearing to `at`, inset far enough
-## that the mark itself is never half off screen.
-func _place_edge_indicator(label: Label, at: Vector2, view: Vector2, centre: Vector2) -> void:
-	var direction := rooftop_view.project_offset((at - centre) * world_camera.zoom).normalized()
-	var half := view * 0.5 - Vector2(80.0, 112.0)
+## Which way the mark points, in screen space.
+func _edge_bearing(at: Vector2, centre: Vector2) -> Vector2:
+	var direction := rooftop_view.project_offset((at - centre) * world_camera.zoom)
+	return direction.normalized() if direction.length_squared() > 0.0001 else Vector2.RIGHT
+
+
+## Puts `pointer` on the screen edge along the bearing to `at`, inset far enough
+## that the mark — and the arrowhead outside it — is never half off screen.
+func _place_edge_indicator(pointer: Control, at: Vector2, view: Vector2, centre: Vector2) -> void:
+	var direction := _edge_bearing(at, centre)
+	var half := view * 0.5 - Vector2(96.0, 118.0)
 	var reach := minf(half.x / maxf(0.001, absf(direction.x)), half.y / maxf(0.001, absf(direction.y)))
-	label.position = view * 0.5 + direction * reach - label.size * 0.5
+	pointer.position = view * 0.5 + direction * reach - pointer.size * 0.5
 
 
 func _update_camera(delta: float) -> void:
@@ -2560,15 +2589,20 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		heavy_enemies.append(enemy)
 	if enemy.boss:
 		boss_enemy = enemy
-		boss_bar.max_value = enemy.max_health
-		boss_bar.value = enemy.health
+		boss_bar.reset(boss_name(enemy.boss_rank), enemy.boss_rank,
+			WaveDirectorScript.BOSS_COUNT, enemy.max_health)
 		boss_bar.visible = true
-		boss_label.visible = true
+		# The bar paints the name and the rank pips itself; the label stays for
+		# the callers that still read its text.
+		boss_label.visible = false
 		boss_label.text = "%s   %d/%d" % [
 			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
 		]
 		boss_health_text_label.text = "%d / %d" % [int(ceil(enemy.health)), int(ceil(enemy.max_health))]
-		boss_health_text_label.visible = true
+		# The bar prints the number itself, above the fill rather than across it.
+		# This label stays as a hidden stub because the online snapshot and two
+		# tests still read its text.
+		boss_health_text_label.visible = false
 		_show_message("%s 출현    철벽 포위   %d / %d" % [
 			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
 		], Color("ff5d8f"))
@@ -3079,6 +3113,11 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		chain_integrity = CHAIN_INTEGRITY_MAX
 		chain_overloaded = false
 		field_items.spawn_item(death_position, "chest")
+		# The first two bosses each leave a 공명핵, which is exactly the number
+		# of resonance slots. "How many resonances can we have?" is therefore
+		# answered by something the pair watched happen rather than by a rule.
+		if enemy.boss_rank <= ResonanceSystem.MAX_ACTIVE_RESONANCES:
+			_award_resonance_core()
 		feedback.play_music("moonlight" if enemy.boss_rank % 2 == 1 else "field")
 		feedback.play_cue("victory")
 		_show_message("%s 격파    남은 보스 %d    둘의 체력 +%d" % [
@@ -3294,12 +3333,8 @@ func _open_chest() -> Array[Dictionary]:
 	for reward_index in _roll_chest_reward_count():
 		var upgrade_candidates := _chest_upgrade_candidates()
 		var unlock_candidates := _chest_unlock_candidates()
-		var ready_fusions := upgrade_candidates.filter(func(candidate: Dictionary) -> bool:
-			return int(candidate["priority"]) >= 3)
 		var candidates: Array[Dictionary] = []
-		if not ready_fusions.is_empty():
-			candidates = ready_fusions
-		elif not unlock_candidates.is_empty() and (upgrade_candidates.is_empty() or randf() < _chest_new_gear_chance()):
+		if not unlock_candidates.is_empty() and (upgrade_candidates.is_empty() or randf() < _chest_new_gear_chance()):
 			candidates = unlock_candidates
 		else:
 			candidates = upgrade_candidates if not upgrade_candidates.is_empty() else unlock_candidates
@@ -3341,6 +3376,7 @@ func _open_chest() -> Array[Dictionary]:
 		option["discouragement_reason"] = advice_reason
 		var card: Dictionary = NeonGrowthUI.card_model(self, slot, option)
 		_apply_upgrade(slot, option)
+		_apply_pending_evolutions(slot)
 		results.append({
 			"label": "%s %s" % [player_label(slot), String(chosen["label"])],
 			"detail": detail,
@@ -3391,15 +3427,6 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 	for slot in 2:
 		for weapon_slot in weapon_loadouts[slot].size():
 			var state: Dictionary = weapon_loadouts[slot][weapon_slot]
-			var evolution := _available_evolution(slot, weapon_slot)
-			if not evolution.is_empty():
-				candidates.append({
-					"slot": slot, "priority": 3,
-					"option": {"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
-						"title": "최종 진화: %s" % String(evolution["weapon_name"])},
-					"label": "보물 강화 %s" % String(evolution["weapon_name"]),
-				})
-				continue
 			if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER or WeaponGrowthScript.needs_tech(state):
 				continue
 			# Titles are the growth hand's own, so a chest reward's card names the
@@ -3525,7 +3552,7 @@ func _advance_showcase_queue() -> void:
 	node.player_labels = [player_label(0), player_label(1)]
 	match String(entry["kind"]):
 		"fusion":
-			var second_icon := IconCatalog.weapon(String(entry["material_weapon_id"])) if entry.has("material_weapon_id") else IconCatalog.upgrade(String(entry["treasure_id"]))
+			var second_icon: Texture2D = IconCatalog.weapon(String(entry["material_weapon_id"])) if entry.has("material_weapon_id") else null
 			node.play_fusion(
 				IconCatalog.weapon(String(entry["base_weapon_id"])),
 				second_icon,
@@ -3739,8 +3766,6 @@ func _option_key(option: Dictionary) -> String:
 	var option_id := String(option["id"])
 	if option_id == "choose_tech":
 		return "choose_tech:%d:%s" % [int(option["weapon_slot"]), String((option["tech"] as Dictionary)["id"])]
-	if option_id == "evolve_weapon":
-		return "evolve_weapon:" + String((option["evolution"] as Dictionary)["weapon_id"])
 	if option_id == "unlock_weapon":
 		return "unlock_weapon:%s:%s" % [String((option["character"] as Dictionary)["id"]), String((option.get("tech", {}) as Dictionary).get("id", ""))]
 	if option_id == "unlock_treasure":
@@ -3766,9 +3791,11 @@ func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
 
 ## Treasures this player does not already carry, shuffled and capped. Mirrors
 ## _pick_unowned_characters so both halves of a build are offered the same way.
-## The fusion a weapon slot could perform right now, or an empty dictionary.
-## Both halves have to be satisfied: the weapon maxed, and the treasure it
-## wants carried deep enough.
+## The enhancement this weapon slot is owed right now, or an empty dictionary.
+## One condition: the weapon has reached Lv.7. The treasure half is gone — a
+## weapon no longer waits on a specific treasure at a specific depth, which was
+## a requirement decided by a route card six levels earlier and never stated
+## anywhere the player could act on it.
 func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 	var weapon: Dictionary = weapon_loadouts[slot][weapon_slot]
 	if bool(weapon.get("evolved", false)):
@@ -3777,45 +3804,58 @@ func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 		return {}
 	if String(weapon.get("tech_id", "")).is_empty():
 		return {}
-	var evolution := _selected_evolution_for_state(weapon)
-	if evolution.is_empty():
-		return {}
-	if _treasure_tier(slot, String(evolution["treasure_id"])) < Evolutions.REQUIRED_TREASURE_TIER:
-		return {}
-	return evolution
+	return _selected_evolution_for_state(weapon)
 
 
+## One enhanced form per weapon, whichever route it took. The route survives the
+## enhancement as delivery and growth weighting rather than as a separate entry
+## in the catalogue (see EvolutionCatalog.build_state).
 func _selected_evolution_for_state(weapon: Dictionary) -> Dictionary:
-	var base_id := String(weapon.get("base_weapon_id", weapon.get("weapon_id", "")))
-	var evolution := Evolutions.for_base(base_id)
-	return WeaponTechs.evolution_for(evolution, weapon) if not evolution.is_empty() else {}
+	return Evolutions.for_base(String(weapon.get("base_weapon_id", weapon.get("weapon_id", ""))))
 
 
-## Weapons still waiting on a route whose every route needs a treasure this
-## survivor does not carry: each one will need a slot of its own.
-func _untyped_weapons_without_material(slot: int) -> int:
-	var count := 0
-	for weapon: Dictionary in weapon_loadouts[slot]:
-		if bool(weapon.get("evolved", false)) or not String(weapon.get("tech_id", "")).is_empty():
+## Enhances every weapon that has just earned it, and reports what changed so the
+## caller can show it. Called after any upgrade that could have moved a weapon on
+## to Lv.7, because the enhancement is not a card any more: "you may now buy the
+## thing you have already paid for" was a card every player took every time, and
+## it displaced cards they might have actually weighed.
+func _apply_pending_evolutions(player_slot: int) -> Array[Dictionary]:
+	var enhanced: Array[Dictionary] = []
+	for weapon_slot in weapon_loadouts[player_slot].size():
+		var evolution := _available_evolution(player_slot, weapon_slot)
+		if evolution.is_empty():
 			continue
-		var covered := false
-		for route in WeaponTechs.for_weapon(WeaponGrowthScript.base_id(weapon)):
-			if _treasure_tier(slot, String(route["treasure_id"])) > 0:
-				covered = true
-				break
-		if not covered:
-			count += 1
-	return count
+		var base_state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
+		weapon_controller.clear_sustained_for_player(player_slot)
+		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(evolution, base_state)
+		_merge_weapon_damage_record(player_slot, String(base_state["weapon_id"]), String(evolution["weapon_id"]))
+		fusion_discovered = true
+		if not debug_run_tainted:
+			meta_progression.mark_discovered(String(evolution["weapon_id"]))
+		# The biggest single step in the tree used to be one line in the message
+		# banner, identical in weight to "+25% 피해". It gets the screen now.
+		_queue_showcase({
+			"kind": "fusion",
+			"base_weapon_id": String(base_state["weapon_id"]),
+			"weapon_id": String(evolution["weapon_id"]),
+			"name": String(evolution["weapon_name"]),
+		})
+		enhanced.append(evolution)
+	return enhanced
 
 
-func _missing_required_treasures(slot: int) -> Array[Dictionary]:
+## The treasures this survivor's chosen routes are built around and which they
+## do not yet carry. These are offered ahead of random discovery because they are
+## the ones this build can actually use — but nothing is reserved for them and
+## nothing breaks if the pair never takes one. They were 필수 until the
+## enhancement gate was removed; the difference between "your weapon will never
+## finish without this" and "this suits the route you picked" is the whole point
+## of the change, so the wording and the weighting both had to move with it.
+func _synergy_treasures(slot: int) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var seen: Dictionary = {}
 	for weapon: Dictionary in weapon_loadouts[slot]:
-		if bool(weapon.get("evolved", false)) or String(weapon.get("tech_id", "")).is_empty():
-			continue
-		var evolution := _selected_evolution_for_state(weapon)
-		var treasure_id := String(evolution.get("treasure_id", ""))
+		var treasure_id := String(weapon.get("tech_synergy_treasure_id", ""))
 		if treasure_id.is_empty() or seen.has(treasure_id) or _treasure_tier(slot, treasure_id) > 0:
 			continue
 		seen[treasure_id] = true
@@ -3911,7 +3951,6 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var loadout: Array = weapon_loadouts[slot]
 	var treasures: Array = treasure_loadouts[slot]
 	var pool: Array[Dictionary] = []
-	var route_materials: Array[Dictionary] = []
 	var choice_count := _growth_choice_count()
 
 	# A weapon grows untyped for its first few cards and then has to commit to a
@@ -3945,27 +3984,21 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			"title": String(treasure["name"]),
 		})
 	if treasures.size() < TREASURE_LOADOUT_CAP:
-		var needed := _missing_required_treasures(slot)
+		var suited := _synergy_treasures(slot)
 		var offered_ids: Dictionary = {}
-		for treasure in needed:
+		for treasure in suited:
 			offered_ids[String(treasure["id"])] = true
-			var material_option := {
+			pool.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
-				"title": "테크 필수: %s" % String(treasure["name"]),
-			}
-			pool.append(material_option)
-			route_materials.append(material_option)
-		# Keep some discovery in the hand after guaranteeing the route materials —
-		# but never by spending the slots those routes still need. Routes are
-		# chosen at TECH_UNLOCK_TIER now, so a survivor could fill all six slots
-		# before learning what a weapon required and be left with a weapon that
-		# could never be enhanced. Measured: a third fewer enhancements per run.
-		var open_slots := TREASURE_LOADOUT_CAP - treasures.size()
-		var discovery := open_slots > needed.size() + _untyped_weapons_without_material(slot)
-		for treasure in _pick_unowned_treasures(slot, maxi(3, needed.size()) + 3):
-			if not discovery:
-				break
-			if offered_ids.has(String(treasure["id"])) or offered_ids.size() >= maxi(3, needed.size()):
+				"title": "시너지 보물: %s" % String(treasure["name"]),
+			})
+		# Discovery is no longer rationed. The hand used to hold back unfamiliar
+		# treasures whenever a route still needed a specific one, because filling
+		# all six slots with the wrong treasures could leave a weapon that could
+		# never be enhanced at all. Nothing can strand a weapon now, so the pair
+		# gets to keep looking at treasures they have not seen.
+		for treasure in _pick_unowned_treasures(slot, maxi(3, suited.size()) + 3):
+			if offered_ids.has(String(treasure["id"])):
 				continue
 			offered_ids[String(treasure["id"])] = true
 			pool.append({
@@ -3991,17 +4024,6 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				"id": "special_" + key, "weapon_slot": weapon_slot,
 				"title": "%s\n%s" % [String(spec["title"]), weapon_name],
 			})
-	# A treasure enhancement is the biggest single step in the tree, so its card is added
-	# unconditionally whenever one is available rather than competing for a
-	# slot in the shuffle.
-	for weapon_slot in loadout.size():
-		var evolution := _available_evolution(slot, weapon_slot)
-		if evolution.is_empty():
-			continue
-		pool.append({
-			"id": "evolve_weapon", "weapon_slot": weapon_slot, "evolution": evolution,
-			"title": "최종 진화: %s" % String(evolution["weapon_name"]),
-		})
 	# A new weapon arrives untyped: its route is chosen at TECH_UNLOCK_TIER, once
 	# the survivor has seen what it does. Offering one card per route here used to
 	# flood the hand with three copies of the same weapon.
@@ -4012,10 +4034,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				"title": "신규 무기: %s" % String(character["weapon_name"]),
 			})
 	pool = pool.filter(func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option))
-	var ready_fusions: Array[Dictionary] = []
 	for option in pool:
-		if option["id"] == "evolve_weapon":
-			ready_fusions.append(option)
 		option["description"] = _upgrade_preview(slot, option)
 	# Keep the complete valid set for the guaranteed weapon-progress slot. The
 	# reroll freshness filter below may temporarily remove every weapon card.
@@ -4042,16 +4061,6 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	weighted.shuffle()
 	var choices: Array[Dictionary] = []
 	var chosen_keys: Array = []
-	for option in ready_fusions.slice(0, choice_count):
-		choices.append(option)
-		chosen_keys.append(_option_key(option))
-	for option in route_materials:
-		if choices.size() >= choice_count:
-			break
-		var key := _option_key(option)
-		if key not in chosen_keys:
-			choices.append(option)
-			chosen_keys.append(key)
 	for option in weighted:
 		if choices.size() >= choice_count:
 			break
@@ -4096,52 +4105,52 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 ## upgrade and, since 결속 파동 scales with tension, a damage one.
 const WEAPON_SPECIALS := {
 	"boomerang": {
-		"a": {"title": "장난감 바구니", "label": "발사 수", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "멀리 던지기", "label": "왕복 거리", "field": "range", "delta": 30.0},
+		"a": {"title": "장난감 바구니", "label": "발사 수", "primitive": "Count", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "멀리 던지기", "label": "왕복 거리", "primitive": "Range", "field": "range", "delta": 30.0},
 	},
 	"milk": {
-		"a": {"title": "한 통 더", "label": "웅덩이 수", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "흥건하게", "label": "웅덩이 크기", "field": "radius", "delta": 11.0},
+		"a": {"title": "한 통 더", "label": "웅덩이 수", "primitive": "Count", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "흥건하게", "label": "웅덩이 크기", "primitive": "Radius", "field": "radius", "delta": 11.0},
 	},
 	"homing": {
-		"a": {"title": "다중 유도", "label": "동시 발사", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "마력 추진", "label": "투사체 속도", "field": "speed", "delta": 46.0},
+		"a": {"title": "다중 유도", "label": "동시 발사", "primitive": "Count", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "마력 추진", "label": "투사체 속도", "primitive": "ProjectileSpeed", "field": "speed", "delta": 46.0},
 	},
 	"lightning": {
-		"a": {"title": "연쇄 전도", "label": "연쇄", "field": "jumps", "delta": 1, "integer": true},
-		"b": {"title": "확장 도체", "label": "첫 타격 사거리", "field": "range", "delta": 36.0},
+		"a": {"title": "연쇄 전도", "label": "연쇄", "primitive": "Chain", "field": "jumps", "delta": 1, "integer": true},
+		"b": {"title": "확장 도체", "label": "첫 타격 사거리", "primitive": "Range", "field": "range", "delta": 36.0},
 	},
 	"flame": {
-		"a": {"title": "불씨 범람", "label": "화염탄", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "열풍 추진", "label": "투사체 속도", "field": "speed", "delta": 36.0},
+		"a": {"title": "불씨 범람", "label": "화염탄", "primitive": "Count", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "열풍 추진", "label": "투사체 속도", "primitive": "ProjectileSpeed", "field": "speed", "delta": 36.0},
 	},
 	"frost": {
-		"a": {"title": "혹한 영역", "label": "반경", "field": "radius", "delta": 19.0},
-		"b": {"title": "동상", "label": "감속 배율", "field": "slow", "delta": -0.05, "floor": 0.34, "percent": true},
+		"a": {"title": "혹한 영역", "label": "반경", "primitive": "Radius", "field": "radius", "delta": 19.0},
+		"b": {"title": "동상", "label": "감속 배율", "primitive": "Slow", "field": "slow", "delta": -0.05, "floor": 0.34, "percent": true},
 	},
 	"scythe": {
-		"a": {"title": "긴 자루", "label": "사거리", "field": "range", "delta": 19.0},
-		"b": {"title": "보름베기", "label": "공격 각도", "field": "arc", "delta": 0.17, "cap": PI * 1.5, "degrees": true},
+		"a": {"title": "긴 자루", "label": "사거리", "primitive": "Range", "field": "range", "delta": 19.0},
+		"b": {"title": "보름베기", "label": "공격 각도", "primitive": "Area", "field": "arc", "delta": 0.17, "cap": PI * 1.5, "degrees": true},
 	},
 	"chain": {
-		"a": {"title": "넓은 파동", "label": "파동 폭", "field": "width", "delta": 9.0},
-		"b": {"title": "느슨한 족쇄", "label": "사슬 한계", "field": "chain_length", "delta": 30.0, "target": "run"},
+		"a": {"title": "넓은 파동", "label": "파동 폭", "primitive": "Area", "field": "width", "delta": 9.0},
+		"b": {"title": "느슨한 족쇄", "label": "사슬 한계", "primitive": "Range", "field": "chain_length", "delta": 30.0, "target": "run"},
 	},
 	"orbit": {
-		"a": {"title": "파편 증식", "label": "파편 수", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "확장 궤도", "label": "궤도 반경", "field": "radius", "delta": 14.0},
+		"a": {"title": "파편 증식", "label": "파편 수", "primitive": "Count", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "확장 궤도", "label": "궤도 반경", "primitive": "Radius", "field": "radius", "delta": 14.0},
 	},
 	"lance": {
-		"a": {"title": "장사정", "label": "사거리", "field": "range", "delta": 58.0},
-		"b": {"title": "분광", "label": "광선 수", "field": "beams", "delta": 1, "integer": true},
+		"a": {"title": "장사정", "label": "사거리", "primitive": "Range", "field": "range", "delta": 58.0},
+		"b": {"title": "분광", "label": "광선 수", "primitive": "Count", "field": "beams", "delta": 1, "integer": true},
 	},
 	"mine": {
-		"a": {"title": "다중 매설", "label": "매설 수", "field": "count", "delta": 1, "integer": true},
-		"b": {"title": "광역 결계", "label": "폭발 반경", "field": "radius", "delta": 14.0},
+		"a": {"title": "다중 매설", "label": "매설 수", "primitive": "Count", "field": "count", "delta": 1, "integer": true},
+		"b": {"title": "광역 결계", "label": "폭발 반경", "primitive": "Radius", "field": "radius", "delta": 14.0},
 	},
 	"gravity": {
-		"a": {"title": "사건 확대", "label": "붕괴 반경", "field": "radius", "delta": 22.0},
-		"b": {"title": "강한 인력", "label": "인력", "field": "pull", "delta": 45.0,
+		"a": {"title": "사건 확대", "label": "붕괴 반경", "primitive": "Radius", "field": "radius", "delta": 22.0},
+		"b": {"title": "강한 인력", "label": "인력", "primitive": "Force", "field": "pull", "delta": 45.0,
 			"extra_field": "cast_range", "extra_delta": 38.0},
 	},
 }
@@ -4342,15 +4351,13 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"choose_tech":
 			score = 65.0
 			reason = "성장 경로 결정"
-			# A route whose treasure is already carried is one step from
-			# enhancement; one whose treasure cannot fit never gets there.
-			var material_id := String((option["tech"] as Dictionary)["treasure_id"])
-			if _treasure_tier(slot, material_id) > 0:
-				score += 22.0
-				reason = "보유 보물로 진화 가능"
-			elif treasures.size() >= TREASURE_LOADOUT_CAP:
-				score -= 30.0
-				reason = "필수 보물 칸 없음"
+			# Both routes reach the same enhanced weapon, so the only thing left
+			# to prefer is whether this survivor already carries the treasure
+			# that route is built around.
+			var synergy_id := String((option["tech"] as Dictionary)["synergy_treasure_id"])
+			if _treasure_tier(slot, synergy_id) > 0:
+				score += 14.0
+				reason = "보유 보물과 시너지"
 		"weapon_power":
 			score = 50.0
 			reason = "주력 피해"
@@ -4428,30 +4435,24 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"unlock_weapon":
 			score = 44.0 + (WEAPON_LOADOUT_CAP - loadout.size()) * 4.0
 			reason = "공격 축 추가"
-		"evolve_weapon":
-			# Nothing else on the screen is close: a fusion reworks the attack and
-			# is the only route to resonance.
-			score = 200.0
-			reason = "보물 강화 — 최종 단계"
 
 	var marginal := UpgradeValue.gain(self, slot, option)
-	if marginal > 0.0 and upgrade_id != "evolve_weapon":
+	if marginal > 0.0:
 		score = 25.0 + minf(110.0, marginal * 220.0)
 		reason = "예상 화력 +%d%%" % maxi(1, roundi(marginal * 100.0))
 	elif upgrade_id in ["weapon_power", "weapon_rate"]:
 		score = 0.0
-	# Reward only treasures on an owned, unfinished fusion path.
+	# Reward a treasure this loadout can actually use, and prefer one that suits
+	# a route somebody already committed to.
 	if is_treasure:
 		if not UpgradeValue.benefits_loadout(loadout, effect_id):
 			score = 5.0
 			reason = "후속 무기 준비"
-		# A treasure that is the missing half of a fusion used to be worth a flat
-		# +20, which loses to a generic damage card at 50 — so the screen would
-		# recommend more damage to a pair standing one treasure tier away from
-		# reworking their whole weapon. The bonus now scales with how complete
-		# the path already is, which makes the last step before a fusion the
-		# strongest ordinary card in the pool without ever outranking the fusion
-		# card itself.
+		# This used to be a large bonus, because a treasure could be the missing
+		# half of an enhancement and the screen had to outrank a generic damage
+		# card to say so. Nothing gates an enhancement now, so what is left is a
+		# genuine preference — the same treasure is simply worth more on a weapon
+		# whose route it amplifies — and it is priced like one.
 		var path := _fusion_path_value(slot, effect_id)
 		if not path.is_empty():
 			score += float(path["value"])
@@ -4481,7 +4482,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
 		if int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER - 1 and not bool(weapon.get("evolved", false)):
 			score += 34.0
-			reason = "레벨 %d   보물 강화 준비" % Evolutions.EVOLUTION_TIER
+			reason = "다음 카드로 Lv.%d 진화" % Evolutions.EVOLUTION_TIER
 		elif int(weapon.get("tier", 1)) == WeaponGrowthScript.TECH_UNLOCK_TIER - 1 and String(weapon.get("tech_id", "")).is_empty():
 			# The card that opens the route decision is worth a little more than
 			# its numbers: every card after it is priced by the route.
@@ -4523,45 +4524,28 @@ func _route_lead_axis(slot: int, weapon_slot: int, route: Dictionary) -> String:
 	return "weapon_power"
 
 
-## A one-route weapon has nothing to choose, so reaching the gate chooses for it.
-## Returns whether a route was assigned.
-func _assign_only_route(state: Dictionary) -> bool:
-	if not WeaponGrowthScript.needs_tech(state):
-		return false
-	var techs := WeaponTechs.for_weapon(WeaponGrowthScript.base_id(state))
-	if techs.size() != 1:
-		return false
-	WeaponTechs.apply_to_state(state, techs[0])
-	return true
-
-
+## What a treasure is worth to this survivor beyond its own numbers, because one
+## of their weapons is on a route that treasure is built for.
+##
+## This used to score "how close is this treasure to unlocking an enhancement",
+## and the answer was worth a lot because an enhancement could not happen without
+## it. Nothing gates an enhancement now, so what is left is genuine synergy: a
+## 신속 treasure on a weapon that took the 속도 route is a better card than the
+## same treasure on a weapon that took the 화력 one, and that is a preference
+## rather than a requirement — hence a much smaller number than the old gate.
 func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 	var best := {}
 	var best_progress := -1.0
 	for weapon: Dictionary in weapon_loadouts[slot]:
-		# An untyped weapon has no material yet: its route decides which one.
-		if bool(weapon.get("evolved", false)) or String(weapon.get("tech_id", "")).is_empty():
+		if String(weapon.get("tech_synergy_treasure_id", "")) != treasure_id:
 			continue
-		var evolution := _selected_evolution_for_state(weapon)
-		if evolution.is_empty() or String(evolution.get("treasure_id", "")) != treasure_id:
-			continue
-		var treasure_tier := _treasure_tier(slot, treasure_id)
-		if treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER:
-			continue # this half is already done; the weapon is what is missing
-		var weapon_progress := minf(1.0, float(int(weapon.get("tier", 1))) / float(Evolutions.EVOLUTION_TIER))
-		var treasure_progress := float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
-		var progress := (weapon_progress + treasure_progress) * 0.5
+		# Deeper weapons make the synergy worth more, because the route they are
+		# committed to is the one the treasure is amplifying.
+		var progress := minf(1.0, float(int(weapon.get("tier", 1))) / float(Evolutions.EVOLUTION_TIER))
 		if progress <= best_progress:
 			continue
 		best_progress = progress
-		var weapon_tier := int(weapon.get("tier", 1))
-		var last_step: bool = (
-			treasure_tier + 1 >= Evolutions.REQUIRED_TREASURE_TIER
-			and weapon_tier >= Evolutions.EVOLUTION_TIER
-		)
-		best = {
-			"value": 24.0 + progress * 90.0 + (40.0 if last_step else 0.0),
-		}
+		best = {"value": 12.0 + progress * 26.0}
 	return best
 
 
@@ -4577,16 +4561,20 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 		if option.has("tech"):
 			WeaponTechs.apply_to_state(new_state, option["tech"] as Dictionary)
 		preview[slot].append(new_state)
-	elif option_id == "evolve_weapon":
-		# The only card that can actually open a resonance now that the gate is
-		# fusion: a tier bump on an unfused weapon never reaches it.
-		var fusing_slot := int(option["weapon_slot"])
-		preview[slot][fusing_slot] = Evolutions.build_state(option["evolution"], preview[slot][fusing_slot])
 	else:
 		var weapon_slot := int(option.get("weapon_slot", -1))
 		if weapon_slot < 0:
 			return ""
-		preview[slot][weapon_slot]["tier"] = int(preview[slot][weapon_slot].get("tier", 1)) + 1
+		var grown: Dictionary = preview[slot][weapon_slot]
+		grown["tier"] = int(grown.get("tier", 1)) + 1
+		# A tier card is the card that can open a resonance now: the seventh one
+		# enhances the weapon where it stands, so the preview has to enhance it
+		# too or it would promise nothing on the level that matters most.
+		if not bool(grown.get("evolved", false)) and int(grown["tier"]) >= Evolutions.EVOLUTION_TIER \
+				and not String(grown.get("tech_id", "")).is_empty():
+			var evolution := Evolutions.for_base(String(grown.get("base_weapon_id", grown["weapon_id"])))
+			if not evolution.is_empty():
+				preview[slot][weapon_slot] = Evolutions.build_state(evolution, grown)
 	for candidate in resonance_system.get_candidates_for_loadouts(preview[0], preview[1]):
 		if not known.has(String(candidate["id"])):
 			return String(candidate["name"])
@@ -4623,8 +4611,7 @@ func _growth_resonance_preview() -> Dictionary:
 			var state: Dictionary = preview[slot][weapon_index]
 			if bool(state.get("evolved", false)) or String(state.get("tech_id", "")).is_empty():
 				continue
-			var base := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
-			var evolution := WeaponTechs.evolution_for(base, state)
+			var evolution := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
 			if not evolution.is_empty():
 				preview[slot][weapon_index] = Evolutions.build_state(evolution, state)
 	var candidates := resonance_system.rank_candidates(
@@ -4636,17 +4623,16 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	var upgrade_id := String(option["id"])
 	if upgrade_id == "choose_tech":
 		var tech: Dictionary = option["tech"]
-		var material := Treasures.by_id(String(tech["treasure_id"]))
 		var state: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])].duplicate(true)
 		WeaponTechs.apply_to_state(state, tech)
-		var base := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
-		var evolution := WeaponTechs.evolution_for(base, state)
-		var material_id := String(tech["treasure_id"])
-		var material_state := " 보유" if _treasure_tier(slot, material_id) > 0 else (
-			" 칸 없음" if treasure_loadouts[slot].size() >= TREASURE_LOADOUT_CAP else "")
-		return "%s\n특화 %s +1    필수 %s%s\n완성    %s" % [
-			_tech_focus(tech), _tech_axes_text(state, tech), String(material.get("name", "보물")),
-			material_state, String(evolution.get("weapon_name", "최종 진화")),
+		var evolution := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
+		var synergy := Treasures.by_id(String(tech["synergy_treasure_id"]))
+		# 추천, never 필수 (§9). Both routes reach the same enhanced weapon at
+		# Lv.7, so the card can say so plainly and the choice stays about
+		# delivery rather than about a treasure the pair may never be offered.
+		return "%s\n특화 %s +1    추천 보물 %s\nLv.%d 진화    %s" % [
+			_tech_focus(tech), _tech_axes_text(state, tech), String(synergy.get("name", "없음")),
+			Evolutions.EVOLUTION_TIER, String(evolution.get("weapon_name", "최종 진화")),
 		]
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
@@ -4656,9 +4642,6 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		return "%s\n레벨 %d에 테크 선택    %s" % [
 			EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"),
 			WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(routes)]
-	if upgrade_id == "evolve_weapon":
-		var evolution: Dictionary = option["evolution"]
-		return "%s\n최종 단계    완성 후 공명 자동 판정" % String(evolution["description"])
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		return "%s
@@ -4679,7 +4662,10 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
 		tier_hint = "\n레벨 %d — 최대 강화" % Evolutions.WEAPON_MAX_TIER
 	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
-		tier_hint = "\n레벨 %d — 보물 강화 가능" % Evolutions.EVOLUTION_TIER
+		# The card that finishes the weapon says so on its face: it is the last
+		# ordinary upgrade before the slot changes shape, and taking it is the
+		# whole of the enhancement now.
+		tier_hint = "\n레벨 %d — 이 카드로 진화" % Evolutions.EVOLUTION_TIER
 	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
 		tier_hint = "\n레벨 %d — 테크 선택 가능" % WeaponGrowthScript.TECH_UNLOCK_TIER
 	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
@@ -4796,9 +4782,12 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 			_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
 		if selected_upgrade_indices[1] >= 0:
 			_apply_upgrade(1, p2_choices[selected_upgrade_indices[1]])
-		# Any fusion the two picks produced is shown before the run is handed
-		# back — including before the resonance vote, which is the next thing a
-		# pair who just fused might be looking at.
+		# A card that took a weapon to Lv.7 enhances it here, with no second card
+		# and no confirmation: the pair already paid for it.
+		for slot_index in 2:
+			_apply_pending_evolutions(slot_index)
+		# Any enhancement the two picks produced is shown before the run is
+		# handed back.
 		if showcase_queue.is_empty():
 			_after_personal_upgrade_choices()
 		else:
@@ -4827,32 +4816,34 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		weapon_loadouts[player_slot].append(new_state)
 		attack_timers[player_slot].append(0.2)
 		return
-	if upgrade_id == "evolve_weapon":
-		var weapon_slot := int(option["weapon_slot"])
-		var base_state: Dictionary = weapon_loadouts[player_slot][weapon_slot]
-		var evolution: Dictionary = option["evolution"]
-		weapon_controller.clear_sustained_for_player(player_slot)
-		weapon_loadouts[player_slot][weapon_slot] = Evolutions.build_state(evolution, base_state)
-		_merge_weapon_damage_record(player_slot, String(base_state["weapon_id"]), String(evolution["weapon_id"]))
-		fusion_discovered = true
-		if not debug_run_tainted:
-			meta_progression.mark_discovered(String(evolution["weapon_id"]))
-		# The biggest single step in the tree used to be one line in the message
-		# banner, identical in weight to "+25% 피해". It gets the screen now.
-		var showcase := {
-			"kind": "fusion",
-			"base_weapon_id": String(base_state["weapon_id"]),
-			"weapon_id": String(evolution["weapon_id"]),
-			"name": String(evolution["weapon_name"]),
-		}
-		showcase["treasure_id"] = String(evolution["treasure_id"])
-		_queue_showcase(showcase)
-		return
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
+		var treasure_id := String(treasure["id"])
+		# One slot per treasure, enforced where the slot is actually taken.
+		#
+		# Every path that offers a treasure already filters out the ones this
+		# survivor carries, so in principle this cannot fire. In principle is not
+		# where a six-slot inventory lives: a card dealt before a chest reward
+		# lands, a level-up resolved against a stale hand, or a loadout arriving
+		# from the host are all places where an id can show up twice, and the
+		# result is the same treasure eating two of six slots — which costs the
+		# player a build decision and reads as the inventory being broken.
+		# Deepening the copy they already have is what they wanted from the card
+		# anyway, so that is what a repeat does.
+		var carried_slot := -1
+		for index in treasure_loadouts[player_slot].size():
+			if String(treasure_loadouts[player_slot][index]["id"]) == treasure_id:
+				carried_slot = index
+				break
+		if carried_slot >= 0:
+			var owned: Dictionary = treasure_loadouts[player_slot][carried_slot]
+			if int(owned["tier"]) < Treasures.MAX_TIER:
+				owned["tier"] = int(owned["tier"]) + 1
+				_apply_attribute(player_slot, treasure_id, int(owned["tier"]))
+			return
 		var state := Treasures.build_state(treasure)
 		treasure_loadouts[player_slot].append(state)
-		_apply_attribute(player_slot, String(state["id"]), 1)
+		_apply_attribute(player_slot, treasure_id, 1)
 		return
 	if upgrade_id == "treasure_upgrade":
 		var carried: Dictionary = treasure_loadouts[player_slot][int(option["treasure_slot"])]
@@ -4879,8 +4870,6 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 				apply_special_to_state(state, key)
 	if upgrade_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
 		state["tier"] = mini(Evolutions.WEAPON_MAX_TIER, int(state.get("tier", 1)) + 1)
-		if _assign_only_route(state):
-			_show_message("%s    %s 테크 자동 선택" % [String(state["weapon_name"]), String(state["tech_name"])], Color("80ed99"))
 
 
 ## Applies the step of a treasure into `tier` and reports whether it handled the
@@ -4977,8 +4966,6 @@ func _option_icon_id(slot: int, option: Dictionary) -> String:
 
 
 func _option_weapon_id(slot: int, option: Dictionary) -> String:
-	if String(option.get("id", "")) == "evolve_weapon":
-		return String((option["evolution"] as Dictionary)["weapon_id"])
 	if String(option.get("id", "")) == "unlock_weapon":
 		return String((option["character"] as Dictionary)["weapon_id"])
 	var weapon_slot := int(option.get("weapon_slot", -1))
@@ -4994,16 +4981,6 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 	var option_id := String(option.get("id", ""))
 	if option_id in ["unlock_weapon", "unlock_treasure"]:
 		return {}
-	# A fusion card already names one concrete recipe. Prefer that recipe over
-	# any other valid future path the same weapon may also have.
-	if option_id == "evolve_weapon":
-		var chosen_evolution: Dictionary = option.get("evolution", {})
-		if chosen_evolution.has("treasure_id"):
-			var chosen_treasure_id := String(chosen_evolution["treasure_id"])
-			if _treasure_tier(slot, chosen_treasure_id) <= 0:
-				return {}
-			var chosen_treasure := Treasures.by_id(chosen_treasure_id)
-			return {"name": String(chosen_treasure["name"]), "texture": IconCatalog.upgrade(chosen_treasure_id)}
 	var treasure_id := ""
 	var weapon_id := ""
 	if option_id == "treasure_upgrade":
@@ -5015,21 +4992,21 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 		if weapon_slot >= 0 and weapon_slot < weapon_loadouts[slot].size():
 			weapon_id = String(weapon_loadouts[slot][weapon_slot]["weapon_id"])
 
+	# The seal names a *synergy*, never a requirement. It used to name the
+	# treasure a weapon had to have to enhance at all, which is a gate that no
+	# longer exists — and while it did, a card that said 필수 was read as an
+	# instruction rather than as a suggestion.
 	if not weapon_id.is_empty():
 		var state: Dictionary = weapon_loadouts[slot][int(option.get("weapon_slot", -1))]
-		var basic := _selected_evolution_for_state(state) if not String(state.get("tech_id", "")).is_empty() else {}
-		if not basic.is_empty():
-			var wanted_treasure := String(basic["treasure_id"])
-			if _treasure_tier(slot, wanted_treasure) > 0:
-				var treasure := Treasures.by_id(wanted_treasure)
-				return {"name": String(treasure["name"]), "texture": IconCatalog.upgrade(wanted_treasure)}
+		var synergy := String(state.get("tech_synergy_treasure_id", ""))
+		if not synergy.is_empty() and _treasure_tier(slot, synergy) > 0:
+			var treasure := Treasures.by_id(synergy)
+			if not treasure.is_empty():
+				return {"name": String(treasure["name"]), "texture": IconCatalog.upgrade(synergy)}
 
 	if not treasure_id.is_empty():
 		for owned: Dictionary in weapon_loadouts[slot]:
-			if bool(owned.get("evolved", false)) or String(owned.get("tech_id", "")).is_empty():
-				continue
-			var evolution := _selected_evolution_for_state(owned)
-			if String(evolution.get("treasure_id", "")) == treasure_id:
+			if String(owned.get("tech_synergy_treasure_id", "")) == treasure_id:
 				return {"name": String(owned["weapon_name"]), "texture": IconCatalog.weapon(String(owned["weapon_id"]))}
 	return {}
 
@@ -5055,21 +5032,17 @@ func _fusion_progress_line(slot: int) -> String:
 		var evolution := _selected_evolution_for_state(weapon)
 		if evolution.is_empty():
 			continue
-		var treasure_id := String(evolution["treasure_id"])
-		var treasure := Treasures.by_id(treasure_id)
 		var weapon_tier := int(weapon.get("tier", 1))
-		var treasure_tier := _treasure_tier(slot, treasure_id)
-		var progress := minf(1.0, float(weapon_tier) / float(Evolutions.EVOLUTION_TIER)) + float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER)
+		# One bar, one number. The line used to read "무기 5/7 + 보물 2/4 → 결과",
+		# which is two clocks the pair had to watch and only one of them was
+		# something they could reliably move.
+		var progress := minf(1.0, float(weapon_tier) / float(Evolutions.EVOLUTION_TIER))
 		if progress <= best_progress:
 			continue
 		best_progress = progress
-		var result_name := String(evolution["weapon_name"])
-		var partner_name := String(treasure.get("name", treasure_id))
-		var partner_tier := str(treasure_tier)
-		best = "%s %d/%d + %s %s/%d → %s" % [
+		best = "%s %d/%d → %s" % [
 			String(weapon["weapon_name"]), weapon_tier, Evolutions.EVOLUTION_TIER,
-			partner_name, partner_tier, Evolutions.REQUIRED_TREASURE_TIER,
-			result_name,
+			String(evolution["weapon_name"]),
 		]
 	if not fused.is_empty():
 		var done := "완료 " + "  ".join(fused)
@@ -5090,24 +5063,83 @@ func _finish_level_up() -> void:
 		level_up_gap_remaining = LEVEL_UP_GAP
 
 
+## Level-up no longer activates anything by itself. Matching tags make a
+## resonance *possible* and the pair is told so; the boss's core is what turns
+## one of them on. The old behaviour activated the top-ranked candidate the
+## moment the tags lined up, which meant the run's climactic mechanic arrived as
+## a banner during a menu the pair were already reading — no moment, and no say
+## in which of two possible resonances they got.
 func _after_personal_upgrade_choices() -> void:
+	_announce_new_resonance_candidates()
+	_finish_level_up()
+
+
+## A quiet notice in the bottom-right when a pairing first becomes possible, and
+## nothing at all when it has already been mentioned. This is the promise the
+## core later pays off, so it names the resonance and says what it is waiting on.
+func _announce_new_resonance_candidates() -> void:
+	if not resonance_system.has_free_slot():
+		return
+	for candidate in resonance_system.get_candidates_for_loadouts(weapon_loadouts[0], weapon_loadouts[1]):
+		var id := String(candidate["id"])
+		if announced_resonance_ids.has(id):
+			continue
+		announced_resonance_ids[id] = true
+		_show_message("공명 가능 — %s    다음 공명핵에서 선택" % String(candidate["name"]), Color("e4c1f9"))
+
+
+## A boss died and left a core. Opens the selection if there is anything to
+## spend it on, and otherwise holds it: a core is never consumed by a screen
+## that had nothing to offer.
+func _award_resonance_core() -> void:
+	resonance_system.grant_core()
+	_show_message("공명핵 획득", Color("fff275"))
+	_open_resonance_core_choice()
+
+
+func _open_resonance_core_choice() -> void:
+	if resonance_system.pending_cores <= 0 or not resonance_system.has_free_slot():
+		return
 	var candidates := resonance_system.get_candidates_for_loadouts(weapon_loadouts[0], weapon_loadouts[1])
 	resonance_candidates = resonance_system.rank_candidates(candidates)
 	if resonance_candidates.is_empty():
-		_finish_level_up()
+		# The core keeps. Telling the pair why is the whole point — a reward that
+		# silently does nothing is the failure this system was rebuilt to remove.
+		_show_message("공명핵 보관 중 — 두 사람이 진화 무기를 하나씩 갖추면 사용할 수 있습니다", Color("e4c1f9"))
 		return
-	var chosen: Dictionary = resonance_candidates[0]
+	if resonance_candidates.size() == 1:
+		# Nothing to decide, so nothing is asked (§13). A one-option screen is a
+		# confirmation dialog wearing a choice's clothes.
+		_commit_resonance_choice(resonance_candidates[0])
+		return
+	resonance_votes[0] = -1
+	resonance_votes[1] = -1
+	resonance_cursors[0] = 0
+	resonance_cursors[1] = 0
+	resonance_vote_message = ""
+	resonance_vote_active = true
+	resonance_overlay.visible = true
+	get_tree().paused = true
+	_refresh_resonance_vote_ui()
+
+
+## Spends the core on this resonance and gives it the screen.
+func _commit_resonance_choice(chosen: Dictionary) -> void:
 	_activate_resonance(chosen)
 	resonance_vote_active = false
 	resonance_overlay.visible = false
-	_show_message("테크 공명 자동 완성 — %s" % String(chosen["name"]), Color("fff275"))
+	get_tree().paused = false
+	_show_message("공명 발현 — %s" % String(chosen["name"]), Color("fff275"))
+	# Deliberately a different shape from the fusion showcase: a resonance is
+	# the pair's move, so the two weapons orbit and stay two rather than
+	# converging into one.
 	_queue_showcase({
 		"kind": "resonance",
 		"weapon_a_id": String(chosen.get("weapon_a_id", "")),
 		"weapon_b_id": String(chosen.get("weapon_b_id", "")),
 		"name": String(chosen["name"]),
 	})
-	_play_showcase_queue(_finish_level_up)
+	_play_showcase_queue(Callable())
 
 
 ## Both survivors browse the same three cards with the same controls the
@@ -5136,21 +5168,7 @@ func _handle_resonance_vote_input() -> void:
 	if resonance_votes[0] < 0 or resonance_votes[1] < 0:
 		return
 	if resonance_votes[0] == resonance_votes[1]:
-		var chosen := resonance_candidates[resonance_votes[0]]
-		_activate_resonance(chosen)
-		resonance_vote_active = false
-		resonance_overlay.visible = false
-		_show_message("공명 완성 — %s" % String(chosen["name"]), Color("fff275"))
-		# Deliberately a different shape from the fusion showcase: a resonance is
-		# the pair's move, so the two weapons orbit and stay two rather than
-		# converging into one.
-		_queue_showcase({
-			"kind": "resonance",
-			"weapon_a_id": String(chosen.get("weapon_a_id", "")),
-			"weapon_b_id": String(chosen.get("weapon_b_id", "")),
-			"name": String(chosen["name"]),
-		})
-		_play_showcase_queue(_finish_level_up)
+		_commit_resonance_choice(resonance_candidates[resonance_votes[0]])
 		return
 	# Only the disagreement is cleared, not the browsing position: both cursors
 	# stay where they were so the pair argues from where they actually are.
@@ -5174,11 +5192,34 @@ func _refresh_resonance_vote_ui() -> void:
 		for slot in 2:
 			var icon := card.get_node("Cat%d" % slot) as TextureRect
 			icon.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
+		# §14, §17. The card says who supplies what, because the rule that each
+		# survivor has to contribute a tag is the one a pair can fail without
+		# ever seeing why. Naming the two weapons alongside their tags turns
+		# "요구 태그: 화염 + 냉기" into something the pair can check against the
+		# loadout they are actually holding.
 		var requirements: Array = resonance["requires"]
-		card.text = "%s\n%s + %s\n\n%s" % [
-			String(resonance["name"]),
-			_tag_name(String(requirements[0])), _tag_name(String(requirements[1])),
-			String(resonance["description"]),
+		var contributed: Array[String] = []
+		var weapons: Array[String] = []
+		for slot in 2:
+			var weapon_slot := int(resonance.get("weapon_%s_slot" % ("a" if slot == 0 else "b"), -1))
+			if weapon_slot < 0 or weapon_slot >= weapon_loadouts[slot].size():
+				continue
+			var carried: Dictionary = weapon_loadouts[slot][weapon_slot]
+			var mine: Array[String] = []
+			for requirement in requirements:
+				if requirement in (carried["tags"] as Array):
+					mine.append(_tag_name(String(requirement)))
+			contributed.append("%s [%s]" % [player_label(slot), " ".join(mine)])
+			weapons.append(String(carried["weapon_name"]))
+		# Falls back to the bare requirement when the candidate did not come from
+		# a live pair of loadouts, which is what the codex and the theme tests
+		# hand in. The live path always has both.
+		var supply := "%s + %s" % [_tag_name(String(requirements[0])), _tag_name(String(requirements[1]))]
+		if contributed.size() == 2:
+			supply = "%s\n+\n%s" % [contributed[0], contributed[1]]
+		card.text = "%s\n%s\n\n%s\n\n%s" % [
+			String(resonance["name"]), supply,
+			" · ".join(weapons), String(resonance["description"]),
 		]
 
 		var pointed_by: Array[int] = []
@@ -5237,14 +5278,10 @@ func _resonance_pip_text(pointed_by: Array[int], locked_by: Array[int]) -> Strin
 	return "   ".join(parts)
 
 
+## One name per tag, held in the resonance system so the card, the codex and the
+## generated resonance names all read the same word for the same tag.
 func _tag_name(tag: String) -> String:
-	var names := {
-		"tracking": "추적", "lightning": "번개", "projectile": "투사체", "storm": "폭풍",
-		"arcane": "비전", "chain": "연쇄", "fire": "화염", "frost": "서리",
-		"shadow": "그림자", "tether": "결속", "aura": "오라", "melee": "근접",
-		"holy": "성휘", "control": "제어", "burst": "폭발", "arc": "호격"
-	}
-	return String(names.get(tag, tag))
+	return String(ResonanceSystem.TAG_NAMES.get(tag, tag))
 
 
 ## A weapon's own cooldown scaled by its owner's haste, floored so stacked
@@ -5356,13 +5393,22 @@ func _update_hud() -> void:
 			integrity_fill.bg_color = Color("fff275")
 		else:
 			integrity_fill.bg_color = Color("80ed99")
-	resonance_status_label.visible = not resonance_system.active_resonances.is_empty()
-	if resonance_system.active_resonances.is_empty():
-		resonance_status_label.text = ""
+	# The third column of the shared strip, always present so the row keeps its
+	# three-column shape from the first second of a run. Before either half
+	# exists it reads as empty slots, which is the truthful thing to show: the
+	# pair has two to fill and nothing in them yet.
+	var held_cores := resonance_system.pending_cores
+	var active_count := resonance_system.active_resonances.size()
+	if held_cores > 0:
+		# An unspent core is the pair owing themselves a decision, so it stays on
+		# the HUD until it is gone rather than being mentioned once and forgotten.
+		resonance_status_label.text = "공명핵 %d" % held_cores
+		resonance_status_label.add_theme_color_override("font_color", Color("fff275"))
 	else:
-		resonance_status_label.text = "공명 %d/%d" % [
-			resonance_system.active_resonances.size(), resonance_system.MAX_ACTIVE_RESONANCES
-		]
+		resonance_status_label.text = "공명 %d/%d" % [active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES]
+		resonance_status_label.add_theme_color_override("font_color", Color("e4c1f9"))
+	if resonance_pips != null:
+		resonance_pips.report(active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES, held_cores)
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
 	xp_text_label.text = ("LV.%d    초월 %d    XP %d / %d" % [

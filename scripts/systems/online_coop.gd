@@ -3,6 +3,7 @@ extends Node
 
 const SessionScript := preload("res://scripts/systems/network_session.gd")
 const FieldItemScript := preload("res://scripts/entities/field_item.gd")
+const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 
 # Positional wire schema. Repeating eighteen Dictionary keys for every enemy was
 # larger than the actual values and pushed tiny ENet chunks over the MTU.
@@ -552,17 +553,24 @@ func _sync_enemies(states: Array) -> void:
 			replica_enemies.erase(id)
 	game.enemies.assign(synced)
 	if is_instance_valid(game.boss_enemy) and game.boss_enemy in synced:
-		game.boss_bar.max_value = game.boss_enemy.max_health
-		game.boss_bar.value = game.boss_enemy.health
+		# The bar is drawn rather than themed now, so the client feeds it the same
+		# way the host does: name and rank once when the boss changes, health on
+		# every snapshot. Re-resetting on every snapshot would restart the
+		# lagging ghost each tick and the client would never see a damage burst.
+		if String(game.boss_bar.boss_name) != game.boss_name(game.boss_enemy.boss_rank):
+			game.boss_bar.reset(game.boss_name(game.boss_enemy.boss_rank),
+				game.boss_enemy.boss_rank, WaveDirectorScript.BOSS_COUNT, game.boss_enemy.max_health)
+		game.boss_bar.report(game.boss_enemy.health, game.boss_enemy.max_health,
+			bool(game.boss_enemy.boss_enraged))
 		game.boss_bar.visible = true
 		game.boss_label.text = "%s   %d/%d" % [
 			game.boss_name(game.boss_enemy.boss_rank), game.boss_enemy.boss_rank,
 			WaveDirector.BOSS_COUNT,
 		]
-		game.boss_label.visible = true
+		game.boss_label.visible = false
 		game.boss_health_text_label.text = "%d / %d" % [
 			int(ceil(game.boss_enemy.health)), int(ceil(game.boss_enemy.max_health))]
-		game.boss_health_text_label.visible = true
+		game.boss_health_text_label.visible = false
 	else:
 		game.boss_enemy = null
 		game._hide_boss_readout()

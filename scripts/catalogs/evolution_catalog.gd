@@ -3,25 +3,32 @@ extends RefCounted
 
 const Growth := preload("res://scripts/systems/weapon_growth.gd")
 
-## The middle rung of the tech tree: base weapon + treasure → enhanced weapon → resonance.
+## The middle rung of the tree: base weapon → enhanced weapon → resonance.
 ##
-## A weapon is enhanced when it is maxed out AND its owner carries the right treasure
-## deep enough. That is deliberately two commitments rather than one — the
-## treasure requirement is what makes the four treasure slots a build decision
-## instead of a stat shop, because picking 관통의 송곳 is also picking the enhancement
-## it unlocks. Character selection and every level-up expose both requirements.
+## There is exactly one condition and it is a number the player can already see:
+##
+##     무기 레벨 == 7
+##
+## The enhancement used to want a second thing as well — a specific treasure
+## carried to Lv.4, and *which* treasure depended on the route the weapon took at
+## Lv.3. That is three facts to hold (route → treasure → tier) before a weapon
+## can finish, none of them visible at the moment the route was picked, and the
+## failure mode was a pair reaching Lv.7 with the wrong four treasures and never
+## learning why their weapon had stopped. Treasures are synergy now (see
+## TreasureCatalog and §추천 보물 in the level-up card), never a gate.
+##
+## The enhancement is also not a card any more. A weapon that reaches Lv.7
+## enhances on the spot, because "you may now buy the thing you have already
+## paid for" is not a decision — it was a card every player took every time,
+## competing for a slot with cards they might actually have weighed.
 ##
 ## A fused weapon is not the base weapon with bigger numbers. Each one changes
 ## how the attack is delivered — a chain becomes a storm that hits everything at
 ## once, a cone becomes a full circle, a single mine becomes a ring of them —
 ## and only enhanced weapons can reach resonance.
 
-## Six weapon upgrades and four treasure picks stand between a starting
-## weapon and its enhancement. At T5/T3 the enhancement arrived while the pair was still
-## learning the run and resonance followed almost immediately after, which
-## left the whole top of the tree with nothing to be the climax of.
+## Six weapon upgrades stand between a starting weapon and its enhancement.
 const EVOLUTION_TIER := 7
-const REQUIRED_TREASURE_TIER := 4
 
 ## Where the numeric ladder actually stops, which is no longer where the
 ## enhancement happens. A weapon used to be finished the moment it enhanced: the
@@ -33,118 +40,143 @@ const REQUIRED_TREASURE_TIER := 4
 ## weapon's life rather than the end of it.
 const WEAPON_MAX_TIER := 12
 
+## Every enhanced weapon carries exactly two tags and they never overlap in
+## meaning: one says what it is made of, one says how it behaves. Four tags per
+## weapon (the old shape) meant a pair could not look at two weapons and predict
+## anything — almost every combination matched something, so resonance read as a
+## slot machine rather than as a consequence of what they had built.
+const PRIMARY_TAGS := ["fire", "frost", "lightning", "arcane", "shadow", "holy"]
+const BEHAVIOR_TAGS := ["projectile", "melee", "chain", "aura", "tracking", "control", "explosion", "storm", "pierce"]
+
 
 static func all_evolutions() -> Array[Dictionary]:
 	return [
 		{
 			"base_weapon_id": "homing",
-			"treasure_id": "pierce",
 			"weapon_id": "starpiercer",
+			"internal_id": "EVOLUTION_CONSTELLATION_CANNON",
 			"weapon_name": "성좌 관통포",
-			"tags": ["projectile", "tracking", "arcane", "burst"],
+			"primary_tag": "arcane",
+			"behavior_tag": "pierce",
 			"description": "유도탄이 관통 광선을 끌고 다니며 지나간 자리를 모두 꿰뚫습니다.",
 			"weapon": {"damage": 33.0, "cooldown": 0.72, "count": 3, "speed": 500.0, "range": 445.0, "width": 23.0, "reach": 1.0},
 		},
 		{
 			"base_weapon_id": "lightning",
-			"treasure_id": "haste",
 			"weapon_id": "thunder_god",
+			"internal_id": "EVOLUTION_THUNDER_GOD",
 			"weapon_name": "뇌신의 격노",
-			"tags": ["lightning", "storm", "arc", "burst"],
+			"primary_tag": "lightning",
+			"behavior_tag": "storm",
 			"description": "연쇄를 버리고 사거리 안의 모든 적을 동시에 내리칩니다.",
 			"weapon": {"damage": 27.0, "cooldown": 1.28, "range": 480.0, "reach": 2.05},
 		},
 		{
 			"base_weapon_id": "flame",
-			"treasure_id": "area",
 			"weapon_id": "supernova",
+			"internal_id": "EVOLUTION_SUPERNOVA",
 			"weapon_name": "초신성",
-			"tags": ["fire", "projectile", "burst", "aura"],
+			"primary_tag": "fire",
+			"behavior_tag": "explosion",
 			"description": "불씨를 흩뿌린 뒤 그 자리에서 거대한 2차 폭발을 일으킵니다.",
 			"weapon": {"damage": 25.0, "cooldown": 1.46, "count": 12, "speed": 325.0, "radius": 205.0, "reach": 2.4},
 		},
 		{
 			"base_weapon_id": "frost",
-			"treasure_id": "armor",
 			"weapon_id": "absolute_zero",
+			"internal_id": "EVOLUTION_ABSOLUTE_ZERO",
 			"weapon_name": "절대영도",
-			"tags": ["frost", "control", "aura", "burst"],
+			"primary_tag": "frost",
+			"behavior_tag": "aura",
 			"description": "상시 냉기를 두르고, 오라 안에서 이미 얼어붙은 적을 계속 파쇄합니다.",
 			"weapon": {"damage": 23.0, "cooldown": 1.78, "radius": 228.0, "slow": 0.14, "reach": 3.5},
 		},
 		{
 			"base_weapon_id": "scythe",
-			"treasure_id": "might",
 			"weapon_id": "black_moon",
+			"internal_id": "EVOLUTION_BLACK_MOON",
 			"weapon_name": "흑월참",
-			"tags": ["melee", "shadow", "arc", "burst"],
+			"primary_tag": "shadow",
+			"behavior_tag": "melee",
 			"description": "부채꼴을 버리고 몸 주위를 두 번 완전히 베어냅니다.",
 			"weapon": {"damage": 50.0, "cooldown": 1.15, "range": 238.0, "arc": 6.28, "reach": 1.05},
 		},
 		{
 			"base_weapon_id": "chain",
-			"treasure_id": "recovery",
 			"weapon_id": "stigmata",
+			"internal_id": "EVOLUTION_STIGMATA",
 			"weapon_name": "성흔의 사슬",
-			"tags": ["tether", "holy", "aura", "arcane"],
+			"primary_tag": "holy",
+			"behavior_tag": "chain",
 			"description": "사슬이 성흔으로 타오르며 적을 태우고 두 사람을 함께 회복시킵니다.",
 			"weapon": {"damage": 38.0, "cooldown": 1.08, "width": 82.0, "heal": 2.2, "reach": 1.5},
 		},
 		{
 			"base_weapon_id": "orbit",
-			"treasure_id": "amount",
 			"weapon_id": "celestial",
+			"internal_id": "EVOLUTION_CELESTIAL_RITE",
 			"weapon_name": "천구 의식",
-			"tags": ["arcane", "aura", "control", "holy"],
+			"primary_tag": "arcane",
+			"behavior_tag": "aura",
 			"description": "안팎으로 반대로 도는 두 겹의 궤도가 주변을 통째로 갈아냅니다.",
 			"weapon": {"damage": 17.0, "cooldown": 5.5, "count": 5, "radius": 104.0, "speed": 3.0, "reach": 3.0},
 		},
 		{
 			"base_weapon_id": "lance",
-			"treasure_id": "crit",
 			"weapon_id": "judgement",
+			"internal_id": "EVOLUTION_JUDGEMENT_LANCE",
 			"weapon_name": "심판의 창",
-			"tags": ["projectile", "holy", "burst", "arc"],
+			"primary_tag": "holy",
+			"behavior_tag": "projectile",
 			"description": "정면과 양 측면을 동시에 꿰뚫는 세 갈래 심판을 내립니다.",
 			"weapon": {"damage": 45.0, "cooldown": 1.28, "range": 530.0, "width": 34.0, "reach": 1.15},
 		},
 		{
 			"base_weapon_id": "mine",
-			"treasure_id": "thorns",
 			"weapon_id": "ruin_garden",
+			"internal_id": "EVOLUTION_RUIN_GARDEN",
 			"weapon_name": "파멸의 정원",
-			"tags": ["control", "burst", "shadow", "aura"],
+			"primary_tag": "shadow",
+			"behavior_tag": "control",
 			"description": "한 발이 아니라 결계 한 무리를 원형으로 심어 둘 주위를 밭으로 만듭니다.",
 			"weapon": {"damage": 34.0, "cooldown": 2.05, "count": 5, "radius": 84.0, "reach": 1.75},
 		},
 		{
 			"base_weapon_id": "boomerang",
-			"treasure_id": "projectile_speed",
 			"weapon_id": "skipping_stone",
+			"internal_id": "EVOLUTION_SKIPPING_STONE",
 			"weapon_name": "물수제비 물고기",
-			"tags": ["projectile", "tracking", "burst", "arc"],
+			"primary_tag": "frost",
+			"behavior_tag": "tracking",
 			"description": "장난감이 한 번 왕복하는 대신 사방으로 튕기며 계속 지나갑니다.",
 			"weapon": {"damage": 42.0, "cooldown": 1.95, "range": 320.0, "count": 3, "reach": 2.3},
 		},
 		{
 			"base_weapon_id": "milk",
-			"treasure_id": "magnet",
 			"weapon_id": "cream_tide",
+			"internal_id": "EVOLUTION_CREAM_TIDE",
 			"weapon_name": "크림 해일",
-			"tags": ["aura", "control", "holy", "storm"],
+			"primary_tag": "frost",
+			"behavior_tag": "control",
 			"description": "웅덩이가 아니라 밀려오는 해일이 되어 바닥을 통째로 덮습니다.",
 			"weapon": {"damage": 19.0, "cooldown": 2.6, "range": 360.0, "count": 7, "radius": 92.0, "slow": 0.45, "reach": 7.4},
 		},
 		{
 			"base_weapon_id": "gravity",
-			"treasure_id": "vitality",
 			"weapon_id": "event_horizon",
+			"internal_id": "EVOLUTION_EVENT_HORIZON",
 			"weapon_name": "사건의 지평선",
-			"tags": ["arcane", "storm", "control", "burst"],
+			"primary_tag": "arcane",
+			"behavior_tag": "storm",
 			"description": "끌어모은 자리를 한 번 더 무너뜨려 두 번 붕괴시킵니다.",
 			"weapon": {"damage": 27.0, "cooldown": 1.92, "radius": 216.0, "pull": 200.0, "reach": 3.0},
 		},
 	]
+
+
+## The two tags as a list, which is what resonance matching reads.
+static func tags_of(evolution: Dictionary) -> Array:
+	return [String(evolution["primary_tag"]), String(evolution["behavior_tag"])]
 
 
 static func all_hybrid_evolutions() -> Array[Dictionary]:
@@ -178,27 +210,32 @@ static func is_evolved(weapon_id: String) -> bool:
 ## The carried form. It keeps the slot the base weapon occupied and inherits the
 ## owning character's colour, so an enhanced weapon still reads as belonging to the
 ## survivor who built it.
+##
+## There is one enhanced form per weapon, not one per route. The route is not
+## thrown away by that — it still decides delivery (WeaponTechCatalog.BEHAVIORS
+## rides on `tech_id`, which is carried below) and which growth axes are
+## efficient — so a 혜성 추적 성좌 관통포 and a 무한 추적 성좌 관통포 remain
+## different weapons without the catalogue having to hold twice as many entries.
 static func build_state(evolution: Dictionary, base_state: Dictionary) -> Dictionary:
 	var state: Dictionary = (evolution["weapon"] as Dictionary).duplicate(true)
 	state["weapon_id"] = String(evolution["weapon_id"])
+	state["internal_id"] = String(evolution["internal_id"])
 	state["weapon_name"] = String(evolution["weapon_name"])
-	state["tags"] = (evolution["tags"] as Array).duplicate()
+	state["primary_tag"] = String(evolution["primary_tag"])
+	state["behavior_tag"] = String(evolution["behavior_tag"])
+	state["tags"] = tags_of(evolution)
 	state["color"] = base_state["color"]
 	state["source_character"] = base_state.get("source_character", "")
-	state["base_weapon_id"] = String(evolution.get("base_weapon_id", (evolution.get("weapon_ids", [""]) as Array)[0]))
-	state["recipe_weapon_ids"] = (evolution.get("weapon_ids", []) as Array).duplicate()
-	for key in ["tech_id", "tech_name", "tech_treasure_id", "tech_tag"]:
-		if evolution.has(key):
-			state[key] = evolution[key]
-		elif base_state.has(key):
+	state["base_weapon_id"] = String(evolution["base_weapon_id"])
+	for key in ["tech_id", "tech_name", "tech_internal_id", "tech_synergy_treasure_id"]:
+		if base_state.has(key):
 			state[key] = base_state[key]
 	state["evolved"] = true
 	# The enhancement does not stamp the weapon at the ceiling any more; it keeps
 	# the tier it climbed to, and the five rungs above EVOLUTION_TIER are what an
 	# enhanced weapon spends the last third of a run buying.
 	state["tier"] = maxi(EVOLUTION_TIER, int(base_state.get("tier", EVOLUTION_TIER)))
-	# Part of what the base weapon was grown by survives the enhancement, so the
-	# cards bought on the way are not thrown away at the moment the tree pays off.
+	# Everything the base weapon was grown by survives the enhancement in full.
 	if not bool(base_state.get("evolved", false)):
 		var catalogue := _base_catalogue_weapon(String(state["base_weapon_id"]))
 		if not catalogue.is_empty():

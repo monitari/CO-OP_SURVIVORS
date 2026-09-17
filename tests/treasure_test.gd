@@ -35,6 +35,7 @@ func _run() -> void:
 	await process_frame
 
 	_test_starts_empty(main)
+	_test_one_slot_per_treasure(main)
 	_test_cap(main)
 	_test_only_carried_are_offered(main)
 	_test_tier_cap(main)
@@ -44,7 +45,7 @@ func _run() -> void:
 	_test_catalog_has_icons(main)
 
 	if failures.is_empty():
-		print("TREASURE_PASS: four slots, deepening only what you carry, effects and shared effects land")
+		print("TREASURE_PASS: one slot per treasure, the cap, deepening only what you carry, effects and shared effects land")
 		quit(0)
 	else:
 		for failure in failures:
@@ -63,6 +64,34 @@ func _draw_ids(main: Node, player_index: int, draws: int) -> Dictionary:
 		for option in main._get_upgrade_choices(player_index):
 			seen[main._option_key(option)] = true
 	return seen
+
+
+## A treasure takes exactly one of the six slots, no matter how it arrives.
+##
+## Every path that offers a treasure filters out the ones a survivor already
+## carries, so a repeat should be unreachable — but the inventory is six slots
+## and the cost of being wrong is that one treasure eats two of them, which is a
+## build decision the player silently loses. The guard lives where the slot is
+## actually taken, and a repeat deepens the copy they have instead.
+func _test_one_slot_per_treasure(main: Node) -> void:
+	main.treasure_loadouts[0] = []
+	var treasure := TreasureCatalog.by_id("might")
+	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
+	_check(main.treasure_loadouts[0].size() == 1, "the first copy takes a slot")
+	var might_after_first: float = main.players[0].might
+
+	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
+	_check(main.treasure_loadouts[0].size() == 1,
+		"a second copy does not take another slot (%d slots)" % main.treasure_loadouts[0].size())
+	_check(int(main.treasure_loadouts[0][0]["tier"]) == 2, "it deepens the copy already carried instead")
+	_check(main.players[0].might > might_after_first, "and the deepening actually applies its step")
+
+	# A maxed treasure absorbs the repeat without going past its own ceiling.
+	main.treasure_loadouts[0][0]["tier"] = TreasureCatalog.MAX_TIER
+	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
+	_check(main.treasure_loadouts[0].size() == 1 and int(main.treasure_loadouts[0][0]["tier"]) == TreasureCatalog.MAX_TIER,
+		"a repeat on a maxed treasure changes nothing")
+	main.treasure_loadouts[0] = []
 
 
 func _test_starts_empty(main: Node) -> void:
