@@ -125,11 +125,42 @@ func _run() -> void:
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	var projectile = main.weapon_controller.active_projectiles.back()
 	check(projectile.remaining_hits >= 3, "comet actually emits piercing projectiles")
-	Techs.apply_to_state(homing, Techs.by_id("homing", "constellation"))
-	var before: int = main.weapon_controller.active_projectiles.size()
+	# 성좌 설계 — the balanced third homing route — is gone, so the echo that
+	# fires a weapon from the partner's position is tested on a route that still
+	# has it. 중력 폭풍 casts a second well at the other survivor's feet, and the
+	# damage still belongs to the cat who cast it.
+	var gravity: Dictionary = {}
+	for character: Dictionary in main.character_catalog:
+		if character["weapon_id"] == "gravity": gravity = main._build_weapon_state(character)
+	Techs.apply_to_state(gravity, Techs.by_id("gravity", "maelstrom"))
+	check(bool(Techs.BEHAVIORS["gravity"]["maelstrom"].get("echo", false)),
+		"중력 폭풍 is still the route that echoes to the partner")
+	main.players[0].global_position = Vector2(-600, 0)
+	main.players[1].global_position = Vector2(600, 0)
+	main.weapon_loadouts[0] = [gravity]
+	# queue_free() is deferred, so wells from the roster sweep above are still
+	# children of the controller this frame. Only the ones this cast adds count.
+	var existing: Dictionary = {}
+	for node in main.weapon_controller.get_children():
+		existing[node.get_instance_id()] = true
 	main.weapon_controller.perform_attack(0, 0, 1.0)
-	check(main.weapon_controller.active_projectiles.size() >= before + 2, "co-op route fires from both players")
-	check(main.weapon_controller.active_projectiles.back().source_player == 0, "ally echo keeps caster damage attribution")
+	# The echo is a second delivery, so one cast leaves two wells rather than
+	# one. Counting them is what actually distinguishes 중력 폭풍 from 핵붕괴;
+	# where each well lands depends on the bodies near each survivor, which is
+	# not what this check is about.
+	var wells := 0
+	for node in main.weapon_controller.get_children():
+		# Only the wells this cast made: the controller also parents the frost
+		# auras and orbit rings left over from the roster sweep above, and those
+		# belong to whoever cast them.
+		if existing.has(node.get_instance_id()):
+			continue
+		if not (node is Node2D) or not node.has_method("configure_gravity") or int(node.kind) != 3:
+			continue
+		wells += 1
+		check(int(node.source_player) == 0, "ally echo keeps caster damage attribution")
+	check(wells == 2, "co-op route fires from both players (%d wells from one cast)" % wells)
+	main.weapon_controller.clear_transients()
 	# Complete an actual shared level without requiring any P2 confirmation.
 	main.weapon_loadouts[0] = [main._build_weapon_state(main.character_catalog[0])]
 	main.progression.experience = main.progression.required_experience

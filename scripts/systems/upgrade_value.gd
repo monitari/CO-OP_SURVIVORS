@@ -73,12 +73,10 @@ static func output(w: Dictionary, a: Dictionary) -> float:
 		coverage *= (1.0 - pow(0.82, float(w["jumps"]))) / (1.0 - pow(0.82, float(base["jumps"])))
 	if id in ["homing", "flame", "starpiercer", "supernova"]:
 		coverage *= 1.0 + (float(a["pierce"]) + float(w.get("pierce_bonus", 0))) * 0.35
-	# Route specials that add a second hit: the overload blast and the eclipse
-	# afterimage. Priced as extra coverage so the scorer does not call them dead.
+	# The 과부하 blast is a second hit the route buys, priced as extra coverage
+	# so the scorer does not call it a dead card.
 	if w.has("splash"):
 		coverage *= 1.0 + float(w["splash"]) / 160.0
-	if w.has("afterimage"):
-		coverage *= 1.0 + float(w["afterimage"])
 	if id in ["homing", "flame", "orbit", "milk", "starpiercer", "supernova", "celestial", "cream_tide"]:
 		coverage *= float(a["duration"])
 	# Area is not a damage upgrade for homing or fixed-radius orbit shards.
@@ -110,11 +108,9 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 			var tech: Dictionary = option["tech"]
 			new_state["tech_id"] = String(tech["id"])
 			new_state["tech_name"] = String(tech["name"])
-			new_state["tech_treasure_id"] = String(tech["treasure_id"])
-			new_state["tech_tag"] = String(tech["tag"])
+			new_state["tech_internal_id"] = String(tech["internal_id"])
+			new_state["tech_synergy_treasure_id"] = String(tech["synergy_treasure_id"])
 		loadout.append(new_state)
-	elif id == "evolve_weapon":
-		loadout[index] = Evolutions.build_state(option["evolution"], loadout[index])
 	elif id in ["unlock_treasure", "treasure_upgrade"]:
 		var effect: String = main._option_icon_id(slot, option)
 		var next_tier := 1

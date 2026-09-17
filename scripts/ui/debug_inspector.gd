@@ -221,7 +221,7 @@ func _refresh() -> void:
 	var lines: Array[String] = []
 	lines.append("[font_size=20][color=#43d9ff][b]RUNTIME INSPECTOR[/b][/color][/font_size]  [color=#7f96ae]F10 닫기[/color]")
 	lines.append("[color=#94a8bd]F5 배속 2 → 5 → 0.15 → 1배      F6 레벨업[/color]")
-	lines.append("[color=#94a8bd]F7 보물 강화 준비      F8 완전 회복      F9 다음 보스[/color]")
+	lines.append("[color=#94a8bd]F7 즉시 진화      F8 완전 회복      F9 다음 보스[/color]")
 	lines.append("[color=#24384f]────────────────────────────────────────[/color]")
 	if game.debug_run_tainted:
 		lines.append("[color=#ff5d8f][b]DEBUG MUTATED[/b]  보상  발견 기록 저장 안 함[/color]")
@@ -322,7 +322,7 @@ func _player_report(slot: int) -> String:
 			var weapon: Dictionary = weapons[weapon_slot]
 			lines.append("무기  %s  T%d%s      피해 %.1f      발동 %.2fs" % [
 				String(weapon.get("weapon_name", weapon.get("weapon_id", "?"))),
-				int(weapon.get("tier", 1)), " [보물 강화]" if bool(weapon.get("evolved", false)) else "",
+				int(weapon.get("tier", 1)), " [진화]" if bool(weapon.get("evolved", false)) else "",
 				float(weapon.get("damage", 0.0)), float(game._weapon_interval(slot, weapon_slot)),
 			])
 			var path := _fusion_path_report(slot, weapon)
@@ -359,25 +359,18 @@ func _resonance_report() -> String:
 	return result
 
 
-func _fusion_path_report(slot: int, weapon: Dictionary) -> String:
+func _fusion_path_report(_slot: int, weapon: Dictionary) -> String:
 	if bool(weapon.get("evolved", false)):
 		return ""
 	var evolution := Evolutions.for_base(String(weapon.get("weapon_id", "")))
 	if evolution.is_empty():
-		return "      [color=#ff5d8f]↳ 보물 강화 경로 없음[/color]"
-	var treasure_id := String(evolution["treasure_id"])
-	var treasure := Treasures.by_id(treasure_id)
+		return "      [color=#ff5d8f]↳ 진화 경로 없음[/color]"
 	var weapon_tier := int(weapon.get("tier", 1))
-	var treasure_tier := 0
-	var carried_slot := _treasure_slot(slot, treasure_id)
-	if carried_slot >= 0:
-		treasure_tier = int(game.treasure_loadouts[slot][carried_slot].get("tier", 1))
-	var evolution_ready := weapon_tier >= Evolutions.EVOLUTION_TIER and treasure_tier >= Evolutions.REQUIRED_TREASURE_TIER
-	return "      [color=%s]↳ %s      무기 %d/%d + %s %d/%d%s[/color]" % [
+	var evolution_ready := weapon_tier >= Evolutions.EVOLUTION_TIER
+	return "      [color=%s]↳ %s      무기 %d/%d%s[/color]" % [
 		"#80ed99" if evolution_ready else "#8298ad", String(evolution["weapon_name"]),
 		weapon_tier, Evolutions.EVOLUTION_TIER,
-		String(treasure.get("name", treasure_id)), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
-		"  [준비 완료]" if evolution_ready else "",
+		"  [자동 진화]" if evolution_ready else "",
 	]
 
 
@@ -433,41 +426,29 @@ func _prepare_fusions() -> void:
 				var techs := WeaponTechs.for_weapon(base_id)
 				if not techs.is_empty():
 					WeaponTechs.apply_to_state(weapon, techs[0])
-			evolution = WeaponTechs.evolution_for(Evolutions.for_base(base_id), weapon)
+			evolution = Evolutions.for_base(base_id)
 			if not evolution.is_empty():
 				target_slot = weapon_slot
 				break
 		if target_slot < 0:
-			blocked.append("%s 보물 강화 가능한 기본 무기 없음" % game.player_label(slot))
+			blocked.append("%s 진화 가능한 기본 무기 없음" % game.player_label(slot))
 			continue
-		var treasure_id := String(evolution["treasure_id"])
-		var treasure_slot := _treasure_slot(slot, treasure_id)
-		if treasure_slot < 0 and game.treasure_loadouts[slot].size() >= int(game.TREASURE_LOADOUT_CAP):
-			blocked.append("%s 보물 슬롯 가득 참" % game.player_label(slot))
-			continue
+		# Lv.7 is the whole condition now, and reaching it enhances the weapon on
+		# the spot, so this only has to buy tiers — no treasure to find, no slot
+		# to make room for, and nothing that can block partway.
 		while int(game.weapon_loadouts[slot][target_slot].get("tier", 1)) < Evolutions.EVOLUTION_TIER:
 			game._apply_upgrade(slot, {"id": "weapon_power", "weapon_slot": target_slot})
-		if treasure_slot < 0:
-			var treasure := Treasures.by_id(treasure_id)
-			if treasure.is_empty():
-				blocked.append("%s 레시피 보물 누락" % game.player_label(slot))
-				continue
-			game.treasure_loadouts[slot].append(Treasures.build_state(treasure))
-			treasure_slot = game.treasure_loadouts[slot].size() - 1
-			game._apply_attribute(slot, treasure_id, 1)
-		while int(game.treasure_loadouts[slot][treasure_slot]["tier"]) < Evolutions.REQUIRED_TREASURE_TIER:
-			game.treasure_loadouts[slot][treasure_slot]["tier"] = int(game.treasure_loadouts[slot][treasure_slot]["tier"]) + 1
-			game._apply_attribute(slot, treasure_id, int(game.treasure_loadouts[slot][treasure_slot]["tier"]))
+		game._apply_pending_evolutions(slot)
 		prepared.append("%s %s" % [game.player_label(slot), String(evolution["weapon_name"])])
 	if prepared.is_empty():
-		notice = "보물 강화 준비 실패: %s" % ", ".join(blocked)
+		notice = "진화 준비 실패: %s" % ", ".join(blocked)
 		_refresh()
 		return
 	game.last_upgrade_choice_keys = [[], []]
 	var needed := maxi(0, int(game.progression.required_experience) - int(game.progression.experience))
 	game.progression.add_experience(needed)
 	game._begin_level_up()
-	notice = "보물 강화 준비 완료: %s%s" % [
+	notice = "진화 완료: %s%s" % [
 		", ".join(prepared), "    " + ", ".join(blocked) if not blocked.is_empty() else "",
 	]
 	_refresh()

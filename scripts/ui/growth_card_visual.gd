@@ -121,8 +121,12 @@ static func paint(card: Label, model: Dictionary, tint: Color, selected: bool, w
 	# together" without saying which two or what happens. It used to carry the
 	# sentence; that was lost when the chest and growth cards were collapsed onto
 	# this one component, and a mark nobody can interrogate is just decoration.
+	#
+	# It marks a synergy, not a recipe. While treasures gated enhancement the
+	# sentence said 합치면 무기가 강화됩니다, which was an instruction; nothing
+	# gates an enhancement now, so it describes a good fit instead.
 	var partner := String(model.get("fusion_name", ""))
-	fusion.tooltip_text = "%s와(과) 합치면 무기가 강화됩니다" % partner if not partner.is_empty() else ""
+	fusion.tooltip_text = "%s와(과) 시너지가 좋습니다" % partner if not partner.is_empty() else ""
 	fusion.mouse_filter = Control.MOUSE_FILTER_PASS if fusion.visible else Control.MOUSE_FILTER_IGNORE
 	var badge: Label = card.get_node("Recommendation")
 	var advice := String(model.get("advice", "neutral"))

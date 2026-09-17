@@ -603,7 +603,7 @@ static func refresh_characters(main: Node) -> void:
 	# default screen stays a portrait and four numbers.
 	# Rebuilt rather than appended: this runs on every refresh, and appending
 	# would grow the line a clause at a time as the cursor walks the roster.
-	main.character_synergy_label.text = ("%s    ·    두 무기가 모이면 자동 공명이 열립니다"
+	main.character_synergy_label.text = ("%s    ·    두 무기가 Lv.7에 이르면 공명 후보가 열립니다"
 		% main._synergy_preview()) if detailed else main._synergy_preview()
 	var leash_grade := "짧음" if pair_leash < 288.0 else ("보통" if pair_leash < 352.0 else "넓음")
 	screen.get_node("ChainPlate/ChainLength").text = "%s  ·  %d" % [leash_grade, roundi(pair_leash)]
@@ -678,8 +678,6 @@ static func growth_category(option: Dictionary) -> String:
 			return "보물 강화"
 		"unlock_weapon":
 			return "새 무기"
-		"evolve_weapon":
-			return "최종 진화"
 	return "무기 강화"
 
 
@@ -765,34 +763,54 @@ static func _hud(main: Node) -> void:
 		main.hud_portrait_icons[slot].size = Vector2(44, 44)
 		label(main.combat_hud, "%s" % main.player_label(slot), Rect2(x + 58, 11, 32, 20), 13, accent).name = "PlayerNumber%d" % slot
 		label(main.combat_hud, "", Rect2(x + 94, 9, 278, 24), 16, accent).name = "PlayerIdentity%d" % slot
+	# Three readings, three equal columns, one shape each. The strip used to hold
+	# two meters and a loose string ("공명 1/3") beside them, so the one reading
+	# that is a count of things the pair owns was the one you had to read rather
+	# than see — in a row that had already taught the eye to expect bars.
+	var strip_left := SHARED_LEFT + 18.0
+	var strip_width := SHARED_WIDTH - 36.0
+	var column := (strip_width - METER_GAP * 2.0) / 3.0
+	var columns: Array[float] = [
+		strip_left,
+		strip_left + column + METER_GAP,
+		strip_left + (column + METER_GAP) * 2.0,
+	]
 	for item in [main.chain_bar, main.chain_distance_text_label]:
-		item.position = Vector2(G.x(4.35), 57)
-		item.size = Vector2(G.w(1.6), 18)
+		item.position = Vector2(columns[0], SHARED_TOP + 43.0)
+		item.size = Vector2(column, 18)
 	for item in [main.chain_integrity_bar, main.chain_integrity_text_label]:
-		item.position = Vector2(G.x(6.0), 57)
-		item.size = Vector2(G.w(1.6), 18)
+		item.position = Vector2(columns[2], SHARED_TOP + 43.0)
+		item.size = Vector2(column, 18)
 	# Put text above thin meters so a full bright fill cannot wash out its label.
 	for caption: Label in [main.chain_distance_text_label, main.chain_integrity_text_label]:
-		caption.position.y = 53
+		caption.position.y = SHARED_TOP + 37.0
+		caption.add_theme_font_size_override("font_size", 13)
 	for meter: ProgressBar in [main.chain_bar, main.chain_integrity_bar]:
-		meter.position.y = 73
-		meter.size.y = 4
+		meter.position.y = SHARED_TOP + 60.0
+		meter.size.y = 6
 		meter.add_theme_stylebox_override("background", Palette.surface(Color("17263a99")))
 		var meter_fill := Palette.surface(Palette.GOLD)
 		meter_fill.set_border_width_all(0)
 		meter.add_theme_stylebox_override("fill", meter_fill)
-	place(main.chain_status_label, Rect2(G.x(4.35), 77, G.w(2), 20), 12, Palette.CREAM)
-	place(main.resonance_status_label, Rect2(G.x(6.4), 77, G.w(1.2), 20), 12, Palette.CREAM)
+	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 13, Palette.CREAM)
+	main.resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	main.resonance_status_label.visible = true
+	if main.resonance_pips != null:
+		main.resonance_pips.position = Vector2(columns[1], SHARED_TOP + 60.0)
+		main.resonance_pips.size = Vector2(column, 6)
+	place(main.chain_status_label, Rect2(strip_left, SHARED_TOP + 72.0, strip_width, 18), 12, Palette.MUTED)
+	main.chain_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Clear of the shared frame (8..104) rather than tucked against it: the boss
+	# bar paints its own name, rank pips and numbers in a strip above the fill,
+	# and that strip needs room that the frame's bottom edge was taking.
 	main.boss_label.add_theme_color_override("font_color", Color("f0cca2"))
-	place(main.boss_label, Rect2(G.x(3.9), 100, G.w(1.8), 22), 13, Palette.CREAM)
-	main.boss_bar.position = Vector2(G.x(5.8), 103)
-	main.boss_bar.size = Vector2(G.w(2.2), 16)
+	place(main.boss_label, Rect2(G.x(3.9), 128, G.w(1.8), 22), 13, Palette.CREAM)
+	main.boss_label.visible = false
+	main.boss_bar.position = Vector2(SHARED_LEFT, SHARED_TOP + 112.0)
+	main.boss_bar.size = Vector2(SHARED_WIDTH, 44.0)
 	main.boss_health_text_label.position = main.boss_bar.position
-	main.boss_health_text_label.size = main.boss_bar.size
+	main.boss_health_text_label.size = Vector2(500.0, 22.0)
 	main.boss_health_text_label.add_theme_font_size_override("font_size", 14)
-	main.boss_label.position.y = 130
-	main.boss_bar.position.y = 133
-	main.boss_health_text_label.position.y = 133
 	main.xp_bar.position = Vector2(0, 690)
 	main.xp_bar.size = Vector2(1280, 30)
 	main.xp_bar.add_theme_stylebox_override("background", Palette.surface(Color("17263a99")))
@@ -804,12 +822,12 @@ static func _hud(main: Node) -> void:
 	main.xp_text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# The clock is the page's centre line, so it is centred on the content span
 	# rather than snapped to a column edge — 48..1232 has its middle at 640.
-	place(main.hud_label, Rect2(590, 12, 100, 36), 24, Palette.CREAM)
+	place(main.hud_label, Rect2(590, SHARED_TOP + 2.0, 100, 34), 25, Palette.CREAM)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var wave_readout := label(main.combat_hud, "", Rect2(698, 22, 146, 24), 14, Palette.MUTED)
+	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 280.0, SHARED_TOP + 11.0, 146, 24), 14, Palette.MUTED)
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var objective_readout := label(main.combat_hud, "", Rect2(436, 22, 146, 24), 14, Palette.GOLD)
+	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 18.0, SHARED_TOP + 11.0, 160, 24), 14, Palette.GOLD)
 	objective_readout.name = "ObjectiveReadout"
 	# What each survivor carries, directly under their health bar: weapons on the
 	# first row, treasures on the second, only what has actually been picked up,
@@ -856,6 +874,14 @@ static func _hud(main: Node) -> void:
 
 
 
+## Space between the three readings in the shared HUD strip.
+const METER_GAP := 14.0
+## The shared strip's box. Everything in it — the clock, the two readouts, the
+## three meters and the boss bar under it — is placed from these, so the strip
+## can be nudged without three separate lists of magic numbers drifting apart.
+const SHARED_LEFT := 418.0
+const SHARED_TOP := 16.0
+const SHARED_WIDTH := 444.0
 const CARRIED_CELL := 30.0
 const CARRIED_PITCH := 33.0
 
@@ -900,7 +926,10 @@ static func _install_hud_frames(main: Node) -> void:
 		paw.modulate = Palette.P1.darkened(0.22) if slot == 0 else Palette.P2.darkened(0.22)
 	# Its last line (chain status, y 77..97) is the bottom of what it holds; the
 	# 116px box left an empty strip under it.
-	var shared := plate(main.combat_hud, Rect2(418, 8, 444, 96), Palette.HUD)
+	# y=16 rather than y=8: this frame wears the cat ears, and they stand ~14px
+	# proud of the panel — at 8 the tips were cut off by the top of the screen,
+	# which read as the HUD being clipped rather than as a decoration.
+	var shared := plate(main.combat_hud, Rect2(SHARED_LEFT, SHARED_TOP, SHARED_WIDTH, 98), Palette.HUD)
 	shared.name = "SharedFrame"
 	shared.z_index = -2
 	var shared_style := Palette.surface(Palette.HUD)

@@ -82,11 +82,17 @@ func _run() -> void:
 	# boss has to hand the run back, and only the last one may end it.
 	var first_boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2.ZERO, false, true, 1) as ChaserEnemy
 	main._register_enemy(first_boss)
-	_check(main.boss_bar.visible and main.boss_label.visible, "boss arrival exposes name and health bar")
-	_check(main.boss_label.text.contains("1/%d" % WaveDirector.BOSS_COUNT),
-		"the boss bar says which of the five this is (%s)" % main.boss_label.text)
-	_check(main.boss_health_text_label.visible and main.boss_health_text_label.text.contains("/"),
-		"boss health is written inside its bar")
+	# The bar paints its own name, rank pips and numbers now (see BossHealthBar),
+	# so what has to be true is that the bar carries them — not that three
+	# separate Labels are visible beside it.
+	_check(main.boss_bar.visible, "boss arrival exposes the health bar")
+	_check(String(main.boss_bar.boss_name) == main.boss_name(1),
+		"the bar carries the boss's name (%s)" % main.boss_bar.boss_name)
+	_check(int(main.boss_bar.rank) == 1 and int(main.boss_bar.rank_total) == WaveDirector.BOSS_COUNT,
+		"and which of the five this is, as pips (%d/%d)" % [main.boss_bar.rank, main.boss_bar.rank_total])
+	_check(String(main.boss_bar.health_text).contains("/"),
+		"boss health is written above its bar (%s)" % main.boss_bar.health_text)
+	_check(is_equal_approx(float(main.boss_bar.ratio), 1.0), "a fresh boss opens at a full bar")
 	first_boss.take_damage(999999.0)
 	_check(not main.run_won and not main.result_overlay.visible,
 		"defeating an early boss returns the pair to the run")

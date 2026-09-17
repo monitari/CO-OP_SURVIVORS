@@ -1,12 +1,18 @@
 extends Control
 
 const SILVER := Color("d4dde7")
+## A weapon slot feeding an active resonance is marked in gold. One weapon backs
+## at most one resonance (ResonanceSystem.is_bound), so with two slots and two
+## cores this is the pair's readout of what they have already spent — the same
+## fact the core-selection card states as 공명 슬롯 점유 여부.
+const GOLD := Color("fff275")
 var game: Node
 var owner_slot := 0
 var item_slot := 0
 var weapon := true
 var progress := 0.0
 var continuous := false
+var resonating := false
 var phase := 0.0
 
 func _ready() -> void:
@@ -21,8 +27,9 @@ func refresh() -> void:
 	continuous = not weapon or String(state.get("weapon_id", "")) == "frost"
 	var art: TextureRect = get_parent().get_parent().get_node("%s%d" % ["Weapon" if weapon else "Treasure", item_slot])
 	var tier: Label = art.get_node("Tier")
+	resonating = weapon and game.resonance_system.is_bound(owner_slot, item_slot)
 	tier.text = str(int(state.get("tier", 1)))
-	tier.add_theme_color_override("font_color", SILVER)
+	tier.add_theme_color_override("font_color", GOLD if resonating else SILVER)
 	# The ring is this weapon's own cooldown, always. It used to switch to the
 	# resonance's cooldown for a weapon a resonance was firing for, because that
 	# weapon had stopped attacking and its own timer meant nothing. Weapons keep
@@ -60,4 +67,4 @@ func _draw() -> void:
 			strength = 0.25 + 0.75 * (1.0 - fposmod(phase - t, 1.0))
 		elif t > progress:
 			strength = 0.12
-		draw_line(point_at(t), point_at(t + 1.0 / 96.0), Color(SILVER, strength), 2.0, true)
+		draw_line(point_at(t), point_at(t + 1.0 / 96.0), Color(GOLD if resonating else SILVER, strength), 2.0, true)

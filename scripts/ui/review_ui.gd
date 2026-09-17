@@ -308,7 +308,7 @@ static func toggle_details(main: Node) -> void:
 			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])
 		build_lines.append("무기  " + ("    ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
 		build_lines.append("보물  " + ("    ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
-		build_lines.append("보물 강화  " + main._fusion_progress_line(slot))
+		build_lines.append("진화  " + main._fusion_progress_line(slot))
 		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 		if main.level_up_active and not choices.is_empty():
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]

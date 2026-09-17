@@ -18,7 +18,7 @@ func _fused_dict(evolution: Dictionary) -> Dictionary:
 	return {
 		"evolved": true,
 		"tier": EvolutionCatalog.WEAPON_MAX_TIER,
-		"tags": evolution["tags"],
+		"tags": EvolutionCatalog.tags_of(evolution),
 		"weapon_name": evolution["weapon_name"],
 	}
 
@@ -72,14 +72,21 @@ func _run() -> void:
 	_check(not still_available.is_empty(), "activating one resonance does not block the rest while under the cap")
 
 	# Fill the cap with resonances this pair could never match anyway (they need
-	# fire/frost/melee tags lyra and volta do not have), so that an empty result
-	# can only be the cap talking — not the already-active-id filter, which
-	# would otherwise mask a broken cap entirely.
+	# fire/frost/melee tags the two fixtures do not have), so that an empty
+	# result can only be the cap talking — not the already-active-id filter,
+	# which would otherwise mask a broken cap entirely.
 	resonance.active_resonances.clear()
-	for unreachable_id in ["frost_shade", "sacred_flame_vow", "inferno_crescent"]:
-		for entry in resonance.catalog:
-			if String(entry["id"]) == unreachable_id:
-				resonance.activate(entry)
+	var unreachable: Array[String] = []
+	var pair_tags: Array = EvolutionCatalog.tags_of(evolutions[0]) + EvolutionCatalog.tags_of(evolutions[1])
+	for entry in resonance.catalog:
+		if unreachable.size() >= resonance.MAX_ACTIVE_RESONANCES:
+			break
+		var reachable := false
+		for tag in entry["requires"]:
+			reachable = reachable or (tag in pair_tags)
+		if not reachable:
+			unreachable.append(String(entry["id"]))
+			resonance.activate(entry)
 	_check(resonance.active_resonances.size() == resonance.MAX_ACTIVE_RESONANCES, "the cap test actually reached MAX_ACTIVE_RESONANCES")
 	var locked := resonance.get_candidates_for_loadouts(loadout_a, loadout_b)
 	_check(locked.is_empty(), "reaching MAX_ACTIVE_RESONANCES blocks all new candidates")
@@ -88,10 +95,46 @@ func _run() -> void:
 	var unfused := resonance.get_candidates_for_loadouts([_base_dict(characters[0], 3)], loadout_b)
 	_check(unfused.is_empty(), "a tier-3 weapon no longer reaches resonance on its own")
 
+	# §11. Tags alone never switch a resonance on: a core is what does that, and
+	# a run hands out exactly as many cores as there are slots.
+	resonance.active_resonances.clear()
+	resonance.pending_cores = 0
+	_check(not resonance.get_candidates_for_loadouts(loadout_a, loadout_b).is_empty(),
+		"a matching pair produces candidates")
+	_check(resonance.active_resonances.is_empty(),
+		"but merely producing candidates activates nothing")
+	resonance.grant_core()
+	_check(resonance.pending_cores == 1, "a boss core is held until it is spent")
+	resonance.activate(resonance.get_candidates_for_loadouts(loadout_a, loadout_b)[0])
+	_check(resonance.active_resonances.size() == 1 and resonance.pending_cores == 0,
+		"spending the core is what activates the resonance")
+
+	# §16. The catalogue cooldown is the cooldown the game uses. A global scale
+	# applied on activation made every number in the catalogue wrong.
+	resonance.active_resonances.clear()
+	var sample: Dictionary = resonance.catalog[0]
+	resonance.activate(sample)
+	_check(is_equal_approx(float(resonance.active_resonances[0]["cooldown"]), float(sample["cooldown"])),
+		"an activated resonance keeps its catalogue cooldown (%.2f vs %.2f)" % [
+			float(resonance.active_resonances[0]["cooldown"]), float(sample["cooldown"])])
+
+	# §15. Most of the catalogue is generated from element x behaviour, and the
+	# hand-written ones are the exception rather than the rule.
+	var uniques := 0
+	var templates := 0
+	for entry in resonance.catalog:
+		if String(entry["kind"]) == "unique":
+			uniques += 1
+		else:
+			templates += 1
+			_check(not String(entry.get("template", "")).is_empty(),
+				"%s is generated but names no template" % entry["id"])
+	_check(uniques > 0 and templates > 0, "the catalogue has both hand-made and generated resonances")
+
 	resonance.free()
 
 	if failures.is_empty():
-		print("RESONANCE_COVERAGE_PASS: all %d fused pairs resolve to a candidate" % (evolutions.size() * (evolutions.size() + 1) / 2))
+		print("RESONANCE_COVERAGE_PASS: all %d enhanced pairs resolve to a candidate, cores gate activation, cooldowns are per-resonance" % (evolutions.size() * (evolutions.size() + 1) / 2))
 		quit(0)
 	else:
 		for failure in failures:

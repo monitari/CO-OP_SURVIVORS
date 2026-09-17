@@ -187,14 +187,14 @@ func _test_loadout_resonance(main: Node) -> void:
 	# Every character pair already resolves to at least one resonance (that was
 	# the point of the catalog coverage pass), so the property worth proving
 	# here is not "zero becomes one" but "a bigger loadout strictly widens the
-	# reachable set": guided_thunder needs lightning, which moro simply does
-	# not have until volta's weapon is picked up.
+	# reachable set": 특이점 needs 폭풍, which 흑월참 simply does not have until
+	# volta's 뇌신의 격노 is picked up alongside it.
 	var solo_ids := _candidate_ids(main, [moro_weapon], [lyra_weapon])
 	var loadout_ids := _candidate_ids(main, [moro_weapon, volta_weapon], [lyra_weapon])
 
-	_check(not solo_ids.is_empty(), "two fused weapons resonate")
-	_check(not ("guided_thunder" in solo_ids), "moro's own weapon cannot reach guided_thunder — it needs a lightning tag")
-	_check("guided_thunder" in loadout_ids, "picking up volta's lightning weapon opens guided_thunder")
+	_check(not solo_ids.is_empty(), "two enhanced weapons resonate")
+	_check(not ("singularity" in solo_ids), "moro's own weapon cannot reach 특이점 — it needs a storm tag")
+	_check("singularity" in loadout_ids, "picking up volta's storm weapon opens 특이점")
 	_check(loadout_ids.size() > solo_ids.size(), "a three-weapon-capable loadout strictly widens the candidate set (%d -> %d)" % [solo_ids.size(), loadout_ids.size()])
 
 

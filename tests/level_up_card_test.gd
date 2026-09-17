@@ -128,14 +128,29 @@ func _stat_snapshot(main: Node) -> Array:
 			weapons.append("%s|%.3f|%.3f|%d" % [
 				String(weapon["weapon_id"]), float(weapon["damage"]), float(weapon["cooldown"]), int(weapon.get("tier", 1))
 			])
+		var treasures: Array = []
+		for treasure in main.treasure_loadouts[slot]:
+			treasures.append("%s@%d" % [String(treasure["id"]), int(treasure.get("tier", 1))])
 		var player: ChainPlayer = main.players[slot]
-		snapshot.append("%.2f|%.2f|%.3f|%.3f|%.3f|%d|%.3f|%.2f|%.2f|%s" % [
+		# The attributes, plus the two loadouts themselves.
+		#
+		# Listing attributes alone could never be complete: a card may move any
+		# of ~20 player and team fields, and the list here was missing crit,
+		# dodge, pierce, duration, thorns and every shared-treasure effect — so a
+		# hand where both survivors happened to take a 처형자의 표식 or a 질주
+		# 발톱 read as "nothing was applied" and failed the test at random. The
+		# loadouts close it structurally instead: a treasure card always changes
+		# treasure_loadouts and a weapon card always changes a weapon tier, so no
+		# card can be invisible here regardless of which field it touches.
+		snapshot.append("%.2f|%.2f|%.3f|%.3f|%.3f|%d|%.3f|%.2f|%.2f|%.3f|%.3f|%d|%.3f|%s" % [
 			player.move_speed, player.max_health,
 			player.might, player.area, player.projectile_speed, player.amount,
 			player.haste, player.armor, player.recovery,
-			"/".join(weapons)
+			player.crit_chance, player.dodge_chance, player.pierce, player.duration,
+			"/".join(weapons) + "#" + "/".join(treasures)
 		])
-	snapshot.append("%.3f|%.3f|%d" % [main.team_magnet, main.team_growth, main.team_luck])
+	snapshot.append("%.3f|%.3f|%d|%.2f" % [
+		main.team_magnet, main.team_growth, main.team_luck, main.chain_max_length])
 	return snapshot
 
 
@@ -180,14 +195,17 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	# The partner is already enhanced, so P1's enhancement is the card that completes the
 	# pair's resonance. Nothing short of an enhancement can do that any more, which is
 	# exactly what the recommendation has to be able to see.
-	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0],
+		main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0])
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER - 1
 	var partner: Dictionary = main.weapon_loadouts[1][0]
 	main.weapon_loadouts[1][0] = EvolutionCatalog.build_state(
 		EvolutionCatalog.for_base(String(partner["weapon_id"])), partner
 	)
-	var evolution := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
+	# The tier card that takes this weapon to Lv.7 is the one that completes the
+	# pair's resonance, because Lv.7 enhances on the spot.
 	var choices: Array[Dictionary] = [
-		{"id": "evolve_weapon", "weapon_slot": 0, "evolution": evolution, "title": "무기 진화"},
+		{"id": "weapon_power", "weapon_slot": 0, "title": "마력 증폭"},
 		{"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id("vitality"), "title": "생명의 결정"},
 		{"id": "unlock_treasure", "weapon_slot": -1, "treasure": TreasureCatalog.by_id("move"), "title": "경보의 장화"},
 	]

@@ -175,7 +175,7 @@ func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
 		"flame": _fire_flame_nova(player_index, scaled, damage, color)
 		"frost": play_cast_cue = _ensure_frost_aura(player_index, weapon_slot, scaled, damage, color)
 		"scythe": _swing_scythe(player_index, scaled, damage, color)
-		"chain": _fire_chain_pulse(scaled, damage)
+		"chain": _fire_chain_pulse(scaled, damage, 2 if bool(behavior.get("double_pulse", false)) else 1)
 		"orbit": _sweep_orbit(player_index, scaled, damage, color)
 		"lance": _fire_lance(player_index, scaled, damage, color)
 		"mine": _plant_mines(player_index, scaled, damage, color)
@@ -191,9 +191,6 @@ func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
 		"judgement": _fire_judgement(player_index, scaled, damage, color)
 		"ruin_garden": _plant_ruin_garden(player_index, scaled, damage, color)
 		"event_horizon": _collapse_event_horizon(player_index, scaled, damage, color)
-	var afterimage := float(scaled.get("afterimage", 0.0))
-	if afterimage > 0.0 and weapon_id in ["scythe", "black_moon"]:
-		_queue_afterimage(player_index, scaled, damage * afterimage, color)
 	return play_cast_cue
 
 
@@ -211,19 +208,6 @@ func _strike_lightning(origin: Vector2, state: Dictionary, damage: float, color:
 		_draw_ring(impact, splash, color.lightened(0.3), 7.0)
 	return true
 
-
-## 월식 잔상: the same sweep again a beat later, at a share of the damage.
-func _queue_afterimage(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var echo := state.duplicate()
-	if String(state["weapon_id"]) == "black_moon":
-		echo["arc"] = TAU
-	var source_player := current_source_player
-	var source_weapon := current_source_weapon
-	var ticker = TickerScript.new()
-	ticker.setup(0.24, 0.24, 1, func(_index: int) -> void:
-		if not players[player_index].downed:
-			_swing_scythe(player_index, echo, damage, color.lightened(0.3), source_player, source_weapon))
-	add_child(ticker)
 
 
 ## 생선 부메랑, and the fused form that throws several at once. `fan` is the
@@ -298,6 +282,14 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 	var m := damage_multiplier * ENDGAME_SCALE
 	var midpoint := _pair_midpoint()
 	_play_resonance_flare(midpoint, resonance)
+	# 고유 공명이 있으면 그것을, 없으면 템플릿을 (§15). Everything with a case
+	# below is hand-written because its two tags mean something together that the
+	# generic shape cannot say; everything else — every element × behaviour
+	# combination the roster can produce — runs through one of nine templates, so
+	# a new weapon never arrives owing twelve new hand-written effects.
+	if String(resonance.get("kind", "unique")) == "template":
+		_perform_template_resonance(resonance, source, midpoint, m)
+		return
 	match resonance_id:
 		"guided_thunder":
 			# Hunts the toughest body in reach and keeps striking it: one great
@@ -409,7 +401,7 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 				_damage_area(centre, 230.0, 36.0 * m)
 				_draw_ring(centre, 230.0, Color("ffd166"), 12.0)
 				_spawn_combat_flare(centre, Color("ff8c42"), Color("fff275"), 140.0, 0.32), 0.5)
-		"absolute_zero":
+		"glacial_prison":
 			# Near-total freeze around both survivors, then the frozen shatter.
 			for index in 2:
 				var at := players[index].global_position
@@ -534,6 +526,134 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 				-1, source)
 			add_child(well)
 			_draw_ring(midpoint, 420.0, Color("ff7bd5"), 4.0)
+
+
+## The generic resonance layer: nine shapes, six elements, one effect each time
+## they are combined.
+##
+## Every resonance that is not hand-written is an element and a behaviour, and
+## this is where that becomes something on the roof. The behaviour decides the
+## shape — where it lands and how it is delivered — and the element decides the
+## colour and the rider that goes on top of it. Neither half knows about the
+## other, which is the whole point: a thirteenth weapon tagged `holy` + `storm`
+## already has a resonance with all twelve of the others, and nobody had to write
+## one.
+##
+## The numbers are shared across all of them on purpose. A generic resonance is
+## deliberately a little weaker than a hand-made one at the same cooldown — the
+## hand-made ones are the combinations somebody thought were worth building
+## toward, and they should stay worth it.
+const TEMPLATE_DAMAGE := 26.0
+const TEMPLATE_RADIUS := 250.0
+const TEMPLATE_TICKS := 5
+const TEMPLATE_TICK_RATE := 0.3
+
+const ELEMENT_COLORS := {
+	"fire": Color("ff8c42"), "frost": Color("8ecae6"), "lightning": Color("b892ff"),
+	"arcane": Color("bdb2ff"), "shadow": Color("ef476f"), "holy": Color("fff275"),
+}
+
+
+func _perform_template_resonance(resonance: Dictionary, source: String, midpoint: Vector2, m: float) -> void:
+	var element := String(resonance.get("element", "arcane"))
+	var color: Color = ELEMENT_COLORS.get(element, Color("bdb2ff"))
+	var damage := TEMPLATE_DAMAGE * m
+	match String(resonance.get("template", "blast")):
+		"barrage":
+			# Both survivors scatter a spread of shots, so the volley comes from
+			# wherever the pair happen to be standing rather than from a point.
+			for index in 2:
+				_fire_flame_nova(index, {"count": 9, "speed": 470.0, "tech_pierce": 0, "style": "star"},
+					damage * 0.42, color)
+		"lance":
+			# The two survivors are the ends of the beam: it runs through the
+			# gap between them and out the far side, which is the one shape that
+			# is only available to a pair.
+			var span := players[1].global_position - players[0].global_position
+			var heading := span.normalized() if span.length() > 1.0 else Vector2.RIGHT
+			for direction in [heading, -heading]:
+				_lance_from(midpoint, direction, 620.0, 46.0, damage * 0.9, color)
+			_element_rider(source, element, midpoint, 300.0, damage, color)
+		"cleave":
+			for index in 2:
+				_swing_scythe(index, {"range": 280.0, "arc": TAU}, damage * 0.85, color)
+			_element_rider(source, element, midpoint, 300.0, damage, color)
+		"conduit":
+			# Runs along the leash rather than around a point, so it is the chain
+			# itself that does the damage for a moment.
+			_repeat(source, 0.36, TEMPLATE_TICKS, func(_tick: int) -> void:
+				_damage_along_chain(76.0, damage * 0.3, 1.0)
+				_draw_chain_pulse(players[0].global_position, players[1].global_position, 76.0))
+			_element_rider(source, element, midpoint, 280.0, damage, color)
+		"field":
+			_draw_ring(midpoint, TEMPLATE_RADIUS, color, 7.0)
+			_repeat(source, TEMPLATE_TICK_RATE, TEMPLATE_TICKS, func(_tick: int) -> void:
+				_damage_area(midpoint, TEMPLATE_RADIUS, damage * 0.34))
+			_element_rider(source, element, midpoint, TEMPLATE_RADIUS, damage, color)
+		"bombard":
+			# Aims at where the bodies actually are rather than at the pair, so
+			# it clears a pack the survivors are running away from.
+			for target in _cluster_targets(midpoint, 700.0, BOMBARDMENT_SHELLS):
+				var landing: Vector2 = target.global_position
+				_launch_seeker(midpoint, target, damage * 0.5, 520.0, color, "star",
+					func() -> void:
+						_in_scope(source, func() -> void:
+							_damage_area(landing, 150.0, damage * 0.6)
+							_spawn_combat_flare(landing, color, Color.WHITE, 120.0, 0.28)))
+			_element_rider(source, element, midpoint, 320.0, damage, color)
+		"snare":
+			_draw_ring(midpoint, TEMPLATE_RADIUS * 1.2, color, 6.0)
+			_slow_area(midpoint, TEMPLATE_RADIUS * 1.2, 2.8, 0.25)
+			_repeat(source, 0.4, 4, func(_tick: int) -> void:
+				_damage_area(midpoint, TEMPLATE_RADIUS * 1.2, damage * 0.3, 0.35))
+			_element_rider(source, element, midpoint, TEMPLATE_RADIUS * 1.2, damage, color)
+		"tempest":
+			# Four strikes that each pick their own ground, so it covers a field
+			# instead of hammering one crater.
+			_repeat(source, 0.34, 4, func(_tick: int) -> void:
+				var centre := _pair_midpoint()
+				for target in _nearest_per_quadrant(centre, 520.0):
+					if target == null:
+						continue
+					var at: Vector2 = (target as ChaserEnemy).global_position
+					_damage_area(at, 170.0, damage * 0.4)
+					_draw_ring(at, 170.0, color, 5.0))
+			_element_rider(source, element, midpoint, 360.0, damage, color)
+		_:
+			_damage_area(midpoint, TEMPLATE_RADIUS, damage)
+			_draw_ring(midpoint, TEMPLATE_RADIUS, color, 10.0)
+			_spawn_combat_flare(midpoint, color, Color.WHITE, 160.0, 0.34)
+			_element_rider(source, element, midpoint, TEMPLATE_RADIUS, damage, color)
+
+
+## What the element adds on top of the shape. One clause each, and the same
+## clause the generated description promises (ResonanceSystem.ELEMENT_RIDERS),
+## so the card and the effect cannot drift apart.
+func _element_rider(source: String, element: String, centre: Vector2, radius: float, damage: float, color: Color) -> void:
+	match element:
+		"fire":
+			_burn(source, _enemies_within(centre, radius), damage * 0.22, 4, color)
+		"frost":
+			_slow_area(centre, radius, 2.6, 0.35)
+			_draw_ring(centre, radius, color, 5.0)
+		"lightning":
+			for target in _nearest_enemies(centre, radius, 3):
+				_chain_lightning(centre, target, 3, damage * 0.3, color, 220.0)
+		"arcane":
+			var well = WeaponFieldScript.new()
+			well.configure_gravity(centre, spatial_grid, damage * 0.2, radius * 1.3, 240.0, color,
+				Callable(), -1, source)
+			add_child(well)
+		"shadow":
+			# Finishes what the shape started rather than adding a flat hit, so
+			# it reads as an execution and not as "a bit more damage".
+			for enemy in _enemies_within(centre, radius):
+				if enemy.health < enemy.max_health * 0.4:
+					enemy.take_damage(damage * 0.55, current_source_player, current_source_weapon)
+		"holy":
+			for player in players:
+				player.heal(6.0)
+			EnemyProjectile.break_within(enemy_shots, centre, radius)
 
 
 ## Damage bonus 열충격 붕괴 deals to bodies the frost is still holding.
@@ -1119,11 +1239,14 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: C
 const CHAIN_TENSION_BONUS := 0.6
 
 
-func _fire_chain_pulse(state: Dictionary, damage: float) -> void:
+## 팽팽한 사슬 sends a weaker pulse twice instead of one heavy one, which is what
+## makes it the 속도 route rather than a second copy of 결속의 맹세.
+func _fire_chain_pulse(state: Dictionary, damage: float, pulses := 1) -> void:
 	var width := float(state["width"])
-	_damage_along_chain(width, damage * (1.0 + chain_tension * CHAIN_TENSION_BONUS), 1.0)
-	EnemyProjectile.break_along(enemy_shots, players[0].global_position, players[1].global_position, width)
-	cue_requested.emit("chain_snap")
+	_repeat(current_source_weapon, 0.18, maxi(1, pulses), func(_tick: int) -> void:
+		_damage_along_chain(width, damage * (1.0 + chain_tension * CHAIN_TENSION_BONUS), 1.0)
+		EnemyProjectile.break_along(enemy_shots, players[0].global_position, players[1].global_position, width)
+		cue_requested.emit("chain_snap"))
 
 
 ## Shards riding a circle around their owner. The angle comes from run time

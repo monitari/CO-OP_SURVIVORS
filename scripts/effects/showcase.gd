@@ -67,14 +67,18 @@ func _init() -> void:
 
 ## Two ingredients become one weapon. `first` and `second` are the weapon and
 ## treasure that paid for it; `result` is what they became.
+## One weapon reaching its final form. `second` used to be the treasure that
+## unlocked it and is now optional, because nothing unlocks an enhancement any
+## more — it is the seventh level of the weapon itself.
 func play_fusion(first: Texture2D, second: Texture2D, result: Texture2D, display_name: String, tint: Color) -> void:
 	mode = Mode.FUSION
 	duration = FUSION_DURATION
 	accent = tint
 	headline = display_name
-	subtitle = "보물 강화 완성"
+	subtitle = "진화 완성"
 	_add_source(first)
-	_add_source(second)
+	if second != null:
+		_add_source(second)
 	result_icon = _add_icon(result, 160.0)
 	result_icon.modulate.a = 0.0
 

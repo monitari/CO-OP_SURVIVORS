@@ -73,16 +73,16 @@ func _run() -> void:
 	main.weapon_loadouts[0][0]["arc"] = PI * 1.5
 	check(not Value.has_effect(main, 0, {"id": "special_b", "weapon_slot": 0}), "capped arc excluded")
 	main.weapon_loadouts[0][0] = main._build_weapon_state(main.character_catalog[0])
-	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.by_id("homing", "constellation"))
-	main.weapon_loadouts[0][0]["tier"] = 7
-	var required: Dictionary = main.Treasures.build_state(main.Treasures.by_id("pierce"))
-	required["tier"] = 4
-	main.treasure_loadouts[0] = [required]
+	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.by_id("homing", "comet"))
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	main.treasure_loadouts[0] = []
+	# An enhancement is no longer a card that has to survive a reroll: reaching
+	# Lv.7 applies it directly, so what a reroll must never do is offer one.
+	main._apply_pending_evolutions(0)
+	check(bool(main.weapon_loadouts[0][0].get("evolved", false)), "Lv.7 enhances without a card")
 	for iteration in 40:
-		var found := false
 		for option in main._get_upgrade_choices(1):
-			found = found or option["id"] == "evolve_weapon"
-		check(found, "fusion guaranteed even across repeated rerolls")
+			check(String(option["id"]) != "evolve_weapon", "no reroll ever offers an enhancement card")
 	var power := {"id": "weapon_power", "weapon_slot": 0}
 	var power_step: float = main.WeaponGrowthScript.power_step(main.weapon_loadouts[0][0])
 	check(is_equal_approx(Value.gain(main, 0, power), power_step - 1.0),
@@ -137,7 +137,8 @@ func _run() -> void:
 	check(main.world_stage.z_index > main.FRIENDLY_EFFECT_Z_MAX and main.crowd_renderer.threats_on_top,
 		"enemy warnings stay above friendly rings")
 	var card: String = main._format_character_card(0)
-	check(card.contains("필요") and card.contains("자동 공명"), "character select exposes route materials and automatic resonance")
+	check(card.contains("추천 보물") and card.contains("Lv.%d 진화" % EvolutionCatalog.EVOLUTION_TIER),
+		"character select recommends treasures rather than requiring them, and names the Lv.7 enhancement")
 	check(not card.contains("난이도"), "character select removes difficulty labels")
 	# Route hands open once a weapon has grown to the unlock tier.
 	for slot in 2:

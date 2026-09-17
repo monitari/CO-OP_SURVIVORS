@@ -29,7 +29,7 @@ func _run() -> void:
 	await _test_automatic_resonance(main)
 
 	if failures.is_empty():
-		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive/tow, automatic tech resonance")
+		print("FEATURE_TEST_PASS: XP gems, enemy pool/archetypes, revive/tow, boss-core resonance")
 		quit(0)
 	else:
 		for failure in failures:
@@ -198,6 +198,9 @@ func _test_enemy_pool_and_archetypes(main: Node) -> void:
 		main.wave_director.release_enemy(sample)
 
 
+## Tags make a resonance possible; a boss core makes it real. This used to
+## activate the top-ranked candidate the moment the tags lined up, which meant
+## the run's climactic mechanic arrived as a banner in the middle of a menu.
 func _test_automatic_resonance(main: Node) -> void:
 	main.selected_characters[0] = main.character_catalog[0].duplicate(true)
 	main.selected_characters[1] = main.character_catalog[1].duplicate(true)
@@ -211,22 +214,37 @@ func _test_automatic_resonance(main: Node) -> void:
 			EvolutionCatalog.for_base(String(base["weapon_id"])), base
 		)
 	main.resonance_system.active_resonances.clear()
+	main.resonance_system.pending_cores = 0
+	main.announced_resonance_ids.clear()
 	main.showcase_queue.clear()
 	main.level_up_active = true
 	paused = true
 	main._after_personal_upgrade_choices()
-	_check(not main.resonance_candidates.is_empty(), "resonance candidates are generated")
+	_check(main.resonance_system.active_resonances.is_empty(),
+		"a matching pair does not switch a resonance on by levelling up")
+	_check(not main.announced_resonance_ids.is_empty(),
+		"but the pair is told the resonance is now possible")
 	_check(not main.resonance_vote_active and not main.resonance_overlay.visible,
-		"eligible tech pair skips the old vote screen")
-	_check(not main.resonance_system.active_resonances.is_empty(), "the best eligible resonance activates automatically")
-	_check(String(main.resonance_system.active_resonances[0]["id"]) == "guided_thunder", "tracking plus lightning selects guided thunder")
-	_check(main.cinematic_active, "automatic resonance still opens its showcase")
+		"and no screen is opened for it")
+
+	# The boss core is what turns one on.
+	var reachable: Array = main.resonance_system.get_candidates_for_loadouts(
+		main.weapon_loadouts[0], main.weapon_loadouts[1])
+	_check(not reachable.is_empty(), "resonance candidates are generated")
+	main._award_resonance_core()
+	if main.resonance_vote_active:
+		# More than one candidate, so the pair is asked; agree on the first.
+		_check(main.resonance_overlay.visible, "a contested core opens the selection screen")
+		main._commit_resonance_choice(main.resonance_candidates[0])
+	_check(main.resonance_system.active_resonances.size() == 1, "spending the core activates exactly one resonance")
+	_check(main.resonance_system.pending_cores == 0, "and consumes the core")
+	_check(main.cinematic_active, "an activated resonance opens its showcase")
 	for frame in 400:
 		if not main.cinematic_active:
 			break
 		await process_frame
 	_check(not main.cinematic_active, "the showcase ends on its own")
-	_check(not main.resonance_vote_active and not paused, "automatic resonance returns to combat")
+	_check(not main.resonance_vote_active and not paused, "activating a resonance returns to combat")
 	for resonance in main.resonance_system.catalog:
 		main.weapon_controller.perform_resonance(resonance, 1.0)
 	main.weapon_controller.clear_transients()
