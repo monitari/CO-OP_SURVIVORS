@@ -700,6 +700,13 @@ func _distance_to_segment(point: Vector2, from: Vector2, to: Vector2) -> float:
 
 
 func take_damage(amount: float, source_player := -1, source_weapon := "") -> bool:
+	var probe_started := FrameProbe.mark()
+	var killed := _probed_take_damage(amount, source_player, source_weapon)
+	FrameProbe.add(&"take_damage (incl)", probe_started)
+	return killed
+
+
+func _probed_take_damage(amount: float, source_player: int, source_weapon: String) -> bool:
 	if dead or not active:
 		return false
 	if archetype == "hedgehog": amount *= 0.72
@@ -736,6 +743,12 @@ func apply_slow(duration: float, multiplier: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:enemy", probe_started)
+
+
+func _probed_draw() -> void:
 	redraw_count += 1
 	# Every enemy gets the same footing shadow whether its body is a painted
 	# sprite or drawn by EnemyArt, which is the whole point of the rule living

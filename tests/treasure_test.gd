@@ -110,7 +110,29 @@ func _test_cap(main: Node) -> void:
 	for treasure_id in ["might", "armor", "recovery", "area", "haste", "move"]:
 		_unlock(main, 0, treasure_id)
 	_check(main.treasure_loadouts[0].size() == main.TREASURE_LOADOUT_CAP,
-		"six unlocks fill the inventory (%d)" % main.treasure_loadouts[0].size())
+		"unlocks fill the inventory and stop at the cap (%d of %d)"
+			% [main.treasure_loadouts[0].size(), main.TREASURE_LOADOUT_CAP])
+
+	# A repeated unlock is a stale card — dealt against a loadout that has since
+	# changed, or arriving from a chest that already granted this treasure — and
+	# it must never take a second slot. It deepens the copy on hand instead, so
+	# the card is not simply thrown away either.
+	var carried: Dictionary = main.treasure_loadouts[0][0]
+	var repeated_id := String(carried["id"])
+	var tier_before := int(carried["tier"])
+	var size_before: int = main.treasure_loadouts[0].size()
+	_unlock(main, 0, repeated_id)
+	_check(main.treasure_loadouts[0].size() == size_before,
+		"unlocking a carried treasure again takes no second slot (%d then %d)"
+			% [size_before, main.treasure_loadouts[0].size()])
+	_check(int(main.treasure_loadouts[0][0]["tier"]) == tier_before + 1,
+		"and pays a tier on the copy already held (Lv.%d then Lv.%d)"
+			% [tier_before, int(main.treasure_loadouts[0][0]["tier"])])
+	var ids: Dictionary = {}
+	for treasure in main.treasure_loadouts[0]:
+		var treasure_id := String((treasure as Dictionary)["id"])
+		_check(not ids.has(treasure_id), "no treasure appears twice in one inventory (%s)" % treasure_id)
+		ids[treasure_id] = true
 
 	# Sampled rather than drawn once: a single draw missing an unlock card
 	# proves nothing about whether the cap is enforced.
@@ -142,7 +164,10 @@ func _test_only_carried_are_offered(main: Node) -> void:
 func _test_tier_cap(main: Node) -> void:
 	var treasure: Dictionary = main.treasure_loadouts[0][0]
 	var treasure_id := String(treasure["id"])
-	for step in TreasureCatalog.MAX_TIER - 1:
+	# Stepped from wherever this treasure actually stands rather than from an
+	# assumed Lv.1: an earlier check in this file deepens it, and counting
+	# MAX_TIER-1 steps from there walked it straight past the cap.
+	while int(treasure["tier"]) < TreasureCatalog.MAX_TIER:
 		main._apply_upgrade(0, {"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": 0})
 	_check(int(treasure["tier"]) == TreasureCatalog.MAX_TIER,
 		"a treasure reaches its final tier (%d)" % int(treasure["tier"]))

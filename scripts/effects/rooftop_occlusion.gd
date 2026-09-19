@@ -18,6 +18,12 @@ func step() -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:rooftop_occlusion", probe_started)
+
+
+func _probed_draw() -> void:
 	if not is_instance_valid(prop_field):
 		return
 	var covers := prop_field.living_props()

@@ -23,6 +23,12 @@ func setup(from: Vector2, to: Vector2, width: float, color: Color) -> void:
 
 
 func _process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(delta)
+	FrameProbe.add(&"render_strikes", probe_started)
+
+
+func _probed_process(delta: float) -> void:
 	age += delta
 	queue_redraw()
 	if glow != null:
@@ -32,6 +38,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:lance_strike", probe_started)
+
+
+func _probed_draw() -> void:
 	if span.length_squared() <= 1.0:
 		return
 	var direction := span.normalized()

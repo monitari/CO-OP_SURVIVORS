@@ -104,6 +104,12 @@ func _dominant() -> Dictionary:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:item_state_veil", probe_started)
+
+
+func _probed_draw() -> void:
 	var dominant := _dominant()
 	if dominant.is_empty():
 		return

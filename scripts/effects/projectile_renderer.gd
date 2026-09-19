@@ -90,6 +90,12 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(_delta)
+	FrameProbe.add(&"render_projectiles", probe_started)
+
+
+func _probed_process(_delta: float) -> void:
 	refresh()
 
 

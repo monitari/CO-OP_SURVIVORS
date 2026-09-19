@@ -50,6 +50,12 @@ func clear_all() -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:burst_field", probe_started)
+
+
+func _probed_draw() -> void:
 	for burst in bursts:
 		var progress := clampf(float(burst["age"]) / float(burst["life"]), 0.0, 1.0)
 		var fade := 1.0 - progress

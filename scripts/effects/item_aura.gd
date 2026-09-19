@@ -14,6 +14,12 @@ func step(delta: float) -> void:
 	was_active = active
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:item_aura", probe_started)
+
+
+func _probed_draw() -> void:
 	if not is_instance_valid(game): return
 	for player in game.players:
 		if player.downed: continue

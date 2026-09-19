@@ -39,5 +39,11 @@ static func attach(host: Node2D, draw_callable: Callable, z_offset := 1) -> Glow
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:glow_layer", probe_started)
+
+
+func _probed_draw() -> void:
 	if painter.is_valid():
 		painter.call(self)

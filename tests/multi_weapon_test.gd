@@ -34,6 +34,7 @@ func _run() -> void:
 	await process_frame
 
 	_test_tag_translations(main)
+	_test_an_enhanced_weapon_is_never_offered_again(main)
 	await _test_weapon_cap(main)
 	await _test_independent_cooldowns(main)
 	_test_loadout_resonance(main)
@@ -61,6 +62,51 @@ func _test_tag_translations(main: Node) -> void:
 			if tag_name == String(tag) and not (String(tag) in untranslated):
 				untranslated.append(String(tag))
 	_check(untranslated.is_empty(), "every catalog tag has a display name: " + ", ".join(untranslated))
+
+## An enhancement renames the slot it happens in: the carried 유도탄 becomes
+## 성좌 관통포 and keeps only its base id. Every "which weapons does this survivor
+## not have" check therefore has to read base_weapon_id, and for a long time
+## _pick_unowned_characters read weapon_id instead — so the moment a weapon
+## enhanced, the level-up hand and the chest both started offering its base form
+## back as 신규 무기, and taking it gave the survivor the same weapon twice: one
+## enhanced, one at Lv.1, eating two of four slots.
+##
+## Checked from both ends, because either alone would pass a half-fix: the offer
+## side must not deal the card, and the apply side must refuse it if one arrives
+## anyway (from a stale hand, or a chest reward that landed first).
+func _test_an_enhanced_weapon_is_never_offered_again(main: Node) -> void:
+	var base: Dictionary = main.weapon_loadouts[0][0]
+	var base_id := String(base["weapon_id"])
+	var evolution := EvolutionCatalog.for_base(base_id)
+	_check(not evolution.is_empty(), "the starting weapon has an enhanced form to reach")
+	main.weapon_loadouts[0][0] = EvolutionCatalog.build_state(evolution, base)
+
+	var offered := 0
+	for draw in 30:
+		for character in main._pick_unowned_characters(0, main.character_catalog.size()):
+			if String(character["weapon_id"]) == base_id:
+				offered += 1
+	_check(offered == 0,
+		"an enhanced weapon's base form is never offered as new (saw %d in 30 draws)" % offered)
+
+	var size_before: int = main.weapon_loadouts[0].size()
+	var tier_before := int(main.weapon_loadouts[0][0].get("tier", 1))
+	var owner: Dictionary = {}
+	for character in main.character_catalog:
+		if String(character["weapon_id"]) == base_id:
+			owner = character
+	main._apply_upgrade(0, {"id": "unlock_weapon", "weapon_slot": -1, "character": owner})
+	_check(main.weapon_loadouts[0].size() == size_before,
+		"and unlocking it anyway takes no second slot (%d then %d)"
+			% [size_before, main.weapon_loadouts[0].size()])
+	_check(int(main.weapon_loadouts[0][0].get("tier", 1)) > tier_before,
+		"the stale card pays a tier on the weapon already carried instead")
+	_check(main.attack_timers[0].size() == main.weapon_loadouts[0].size(),
+		"attack_timers stays 1:1 with weapon_loadouts")
+
+	# Put the survivor back to an unenhanced starting weapon for the cap test.
+	main.weapon_loadouts[0][0] = base
+
 
 func _test_weapon_cap(main: Node) -> void:
 	_check(main.weapon_loadouts[0].size() == 1, "a run starts with exactly one weapon")

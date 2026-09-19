@@ -40,6 +40,12 @@ func setup_path(points: PackedVector2Array, width: float, color := Color("80ed99
 
 
 func _process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(delta)
+	FrameProbe.add(&"render_strikes", probe_started)
+
+
+func _probed_process(delta: float) -> void:
 	age += delta
 	queue_redraw()
 	if glow != null:
@@ -49,6 +55,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:chain_strike", probe_started)
+
+
+func _probed_draw() -> void:
 	if curve.size() > 2:
 		_draw_curved()
 		return

@@ -62,8 +62,14 @@ func run() -> void:
 	var lifted: Vector2 = rest + Vector2.UP.rotated(moving_card.rotation) * 24.0
 	check(moving_card.position.distance_to(lifted) < 1.0,
 		"cursor card eases upward along its own rotated axis")
-	var body_style := moving_card.get_theme_stylebox("normal") as StyleBoxFlat
-	check(body_style.content_margin_top >= 190, "frame decoration preserves the body below title and art")
+	# The body is its own node under the name and the subject line now, rather than
+	# the card's own text pushed down by a content margin.
+	var body: Control = moving_card.get_node("Body")
+	var title: Control = moving_card.get_node("CardTitle")
+	var art: Control = moving_card.get_node("Icon")
+	check(body.visible and body.position.y >= title.position.y + title.size.y
+		and body.position.y >= art.position.y + art.size.y,
+		"frame decoration preserves the body below title and art")
 	var settled := moving_card.position
 	main._refresh_level_up_ui()
 	check(moving_card.position.distance_to(settled) < 0.1, "unrelated refresh preserves settled card position")

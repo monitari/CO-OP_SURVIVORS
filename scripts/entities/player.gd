@@ -88,7 +88,13 @@ var might := 1.0 ## damage multiplier
 var area := 1.0 ## radius / range / arc / width multiplier
 var projectile_speed := 1.0 ## projectile travel speed multiplier
 var duration := 1.0 ## lifetime multiplier for projectiles and persistent weapon fields
-var amount := 0 ## extra projectiles per volley
+## Extra projectiles per volley. A float that accumulates in fractions and is
+## floored where it is read, because 분열의 화살통 used to hand out a whole extra
+## projectile on every one of its ten tiers: +10 shots on every count weapon in
+## the game, which on a weapon that fires one is eleven times the volley. The
+## ladder is fractional now, so the treasure is worth taking without being the
+## single largest source of things on screen.
+var amount := 0.0
 var haste := 1.0 ## cooldown multiplier, lower is faster
 var armor := 0.0 ## flat damage subtracted from every hit
 var recovery := 0.0 ## health per second regenerated while standing
@@ -141,7 +147,7 @@ func apply_character(character: Dictionary) -> void:
 	area = float(character.get("area", 1.0))
 	projectile_speed = float(character.get("projectile_speed", 1.0))
 	duration = float(character.get("duration", 1.0))
-	amount = int(character.get("amount", 0))
+	amount = float(character.get("amount", 0))
 	haste = float(character.get("haste", 1.0))
 	armor = float(character.get("armor", 0.0))
 	recovery = float(character.get("recovery", 0.0))
@@ -311,6 +317,12 @@ func revive() -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:player", probe_started)
+
+
+func _probed_draw() -> void:
 	var flash := invulnerability > 0.0 and int(invulnerability * 18.0) % 2 == 0
 	var color := Color.WHITE if flash else body_color
 	# Drawn before anything else, so the cat stands on the roof rather than

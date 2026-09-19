@@ -182,6 +182,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:chain_flow", probe_started)
+
+
+func _probed_draw() -> void:
 	if head_a.distance_squared_to(head_b) <= 1.0:
 		return
 	var drive := DRIVE[stage]

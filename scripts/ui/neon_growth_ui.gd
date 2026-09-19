@@ -7,6 +7,14 @@ const VIOLET := CardVisual.PARTNER
 const INK := CardVisual.INK
 const CARD_HOVER_LIFT := 24.0
 const CARD_HOVER_TIME := 0.18
+const ArcCaption := preload("res://scripts/ui/arc_caption.gd")
+## Overlay-local x the growth fan is centred on.
+const FAN_CENTER_X := 625.0
+## The row of actions under the fan: 다시 뽑기 and 전체 능력치, side by side.
+const ACTION_Y := 446.0
+const ACTION_SIZE := Vector2(232, 42)
+const DETAILS_SIZE := Vector2(196, 42)
+const ACTION_GAP := 12.0
 
 static func trim(parent: Control, tint: Color, selected := false, ears := false) -> void:
 	CardVisual.decorate(parent, tint, selected, ears, parent is Label or parent.name == "PartnerChoice", false)
@@ -44,7 +52,7 @@ static func refresh(main: Node) -> void:
 				_partner_card(card, index, count, selected, target_rotation)
 				continue
 			var spread := 226.0 if count <= 3 else (220.0 if count == 4 else 190.0)
-			var target_position := Vector2(625 + (index - middle) * spread - width * 0.5, 70 + absf(index - middle) * 5)
+			var target_position := Vector2(FAN_CENTER_X + (index - middle) * spread - width * 0.5, 70 + absf(index - middle) * 5)
 			if card.scale != Vector2.ONE:
 				# Coming back from the partner's small fan: deal it in fresh.
 				card.set_meta("neon_shown", false)
@@ -55,22 +63,23 @@ static func refresh(main: Node) -> void:
 			_set_saturation(card, 1.0)
 		var reroll: Button = main.level_overlay.get_node("Reroll%d" % slot)
 		reroll.visible = own and reroll.visible
-		reroll.position = Vector2(493, 444)
-		reroll.size = Vector2(264, 46)
-		reroll.add_theme_font_size_override("font_size", 21)
+		reroll.size = ACTION_SIZE
+		reroll.add_theme_font_size_override("font_size", 18)
 		for state in ["normal", "hover", "pressed"]:
 			reroll.add_theme_stylebox_override(state, surface(CYAN, state != "normal"))
 		trim(reroll, CYAN, true)
 	_partner(main, 1 - primary)
-	var hint: Label = main.level_overlay.get_node("NeonHint")
-	hint.text = "좋은 선택이 더 강한 고양이를 만든다."
-	hint.position.y = 500 if main.level_overlay.get_node("Reroll%d" % primary).visible else 456
+	_place_actions(main, primary)
+	var hint: Control = main.level_overlay.get_node("NeonHint")
+	hint.text = "좋은 선택이 더 강한 고양이를 만든다"
+	hint.color = Color("d9ecff")
 	var controls: Label = main.level_overlay.get_node("NeonControls")
 	controls.text = "A / D    W 확정    우클릭    상세 보기" if primary == 0 else "← / →    ↑ 확정    우클릭    상세 보기"
 	if main.last_input_gamepad[primary]:
 		controls.text = "LB / RB 이동    A 확정    B 취소"
 	if main.selected_upgrade_indices[primary] >= 0:
-		hint.text = "선택 완료    동료를 기다리는 중"
+		hint.text = "선택 완료  ·  동료를 기다리는 중"
+		hint.color = Color("8ff5d2")
 	# Compact health plaques leave the paused playfield open above the hand.
 	for slot in 2:
 		main.combat_hud.get_node("P%dFrame" % (slot + 1)).size.y = 76 if slot == main.local_view_slot() else 68
@@ -85,8 +94,6 @@ const PARTNER_ALPHA := 0.78
 const PARTNER_FAN_X := 1120.0
 ## Overlay-local line the fan's cards stand on (the overlay sits at y=176).
 const PARTNER_FAN_BASE := 140.0
-## Clear space between the bottom of the partner's fan and the details shortcut.
-const PARTNER_BUTTON_GAP := 10.0
 
 
 static func _partner_card(card: Label, index: int, count: int, selected: bool, angle: float) -> void:
@@ -180,8 +187,14 @@ static func card_model(main: Node, slot: int, option: Dictionary) -> Dictionary:
 	var tech := String(option["id"]) == "choose_tech"
 	var against := bool(option.get("discouraged", false))
 	var reason := String(option.get("recommendation_reason", "무난한 성장"))
+	var kind: String = {
+		"choose_tech": "tech", "unlock_weapon": "new_weapon",
+		"unlock_treasure": "new_treasure", "treasure_upgrade": "treasure",
+	}.get(String(option["id"]), "weapon")
 	return {
 		"category": UI.growth_category(option),
+		"kind": kind,
+		"sections": main._card_sections(slot, option),
 		"title": UI.growth_title(option),
 		"body": UI.compact_growth_description(option) if tech else main._upgrade_preview(slot, option),
 		"icon": Icons.upgrade(main._option_icon_id(slot, option), main._option_weapon_id(slot, option)),
@@ -210,19 +223,34 @@ static func _install(main: Node) -> void:
 		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		caption.add_theme_color_override("font_outline_color", Color(0.02, 0.04, 0.07, 0.9))
 		caption.add_theme_constant_override("outline_size", 4)
+	# The whole-build view sits beside 다시 뽑기 rather than under the partner's
+	# fan: both are things to do *about* this hand before choosing from it, and a
+	# player looking for either looks under their own cards, not at the corner
+	# where the partner's miniatures are.
 	var button := Button.new()
 	button.name = "Details"
-	button.text = "⌕  전체 능력치  TAB"
-	# y is measured against the fan every refresh; see _place_details_button.
-	button.position = Vector2(70, 200)
-	button.size = Vector2(160, 32)
-	button.add_theme_font_size_override("font_size", 12)
-	button.add_theme_stylebox_override("normal", surface(VIOLET.darkened(0.4)))
+	button.text = "⌕  전체 능력치   TAB"
+	button.size = DETAILS_SIZE
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", 15)
+	for state in ["normal", "hover", "pressed"]:
+		var style := surface(CYAN.darkened(0.35), state != "normal")
+		style.bg_color = Color("0b1a30") if state == "normal" else Color("12294a")
+		button.add_theme_stylebox_override(state, style)
+	button.add_theme_color_override("font_color", Color("b9d9f2"))
+	button.add_theme_color_override("font_hover_color", INK)
 	button.pressed.connect(func() -> void: main.ReviewUI.toggle_details(main))
-	panel.add_child(button)
-	var hint := UI.label(main.level_overlay, "", Rect2(300, 500, 650, 24), 14, Color("9abfe0"))
+	main.level_overlay.add_child(button)
+	# The line that used to sit under the reroll button, on top of the XP bar,
+	# now crowns the fan and bends with it (see arc_caption.gd).
+	var hint := ArcCaption.new()
 	hint.name = "NeonHint"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.position = Vector2(FAN_CENTER_X - 330.0, 0)
+	hint.size = Vector2(660, 60)
+	hint.apex = Vector2(330, 38)
+	hint.font_size = 21
+	hint.accent = CYAN
+	main.level_overlay.add_child(hint)
 	var controls := UI.label(main.level_overlay, "", Rect2(825, 518, 425, 24), 12, Color("b7d8ed"))
 	controls.name = "NeonControls"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -235,7 +263,7 @@ static func _partner(main: Node, slot: int) -> void:
 	var character: String = main.players[slot].character_name
 	panel.get_node("Heading").text = "%s의 선택    %d장 중 1" % [character, choices.size()]
 	panel.get_node("State").text = "✓ 선택 완료" if selected >= 0 else ("빌드 완성" if selected == -2 else "선택을 고민하는 중…")
-	_place_details_button(main, panel, slot)
+	_fit_partner_panel(main, panel, slot)
 	var title: Label = panel.get_node("Title")
 	# The title is only spelled out when there is no fan to show it on.
 	title.visible = choices.is_empty() or index < 0 or index >= choices.size()
@@ -245,23 +273,31 @@ static func _partner(main: Node, slot: int) -> void:
 	title.text = main.level_card_labels[slot][index].get_node("CardTitle").text
 
 
-## Puts the details shortcut under the partner's fan, measured rather than
-## guessed.
+## The row under the fan: 다시 뽑기 and 전체 능력치, centred together, or the
+## details button alone when there is nothing left to reroll.
+static func _place_actions(main: Node, primary: int) -> void:
+	var details: Button = main.level_overlay.get_node("Details")
+	var reroll: Button = main.level_overlay.get_node("Reroll%d" % primary)
+	var row := DETAILS_SIZE.x + ((ACTION_SIZE.x + ACTION_GAP) if reroll.visible else 0.0)
+	var left := FAN_CENTER_X - row * 0.5
+	if reroll.visible:
+		reroll.position = Vector2(left, ACTION_Y)
+		left += ACTION_SIZE.x + ACTION_GAP
+	details.position = Vector2(left, ACTION_Y)
+	details.visible = true
+
+
+## Sizes the partner's caption panel to their fan, measured rather than guessed.
 ##
 ## The fan's lowest point is not a constant: a hand of five cards is dealt
 ## narrower and tilted harder than a hand of three, so the outer cards hang
-## lower. The button used to sit at a fixed height that cleared a three-card fan
-## and was overlapped by the corner of a wider one.
-static func _place_details_button(main: Node, panel: Control, slot: int) -> void:
-	var button: Button = panel.get_node("Details")
+## lower. The panel holds no art of its own, so it grows to reach the bottom of
+## whatever fan is under it.
+static func _fit_partner_panel(main: Node, panel: Control, slot: int) -> void:
 	var lowest: float = PARTNER_FAN_BASE + (main.level_overlay as Control).position.y
 	for card in main.level_card_labels[slot]:
 		var partner_card := card as Control
 		if partner_card == null or not partner_card.visible:
 			continue
 		lowest = maxf(lowest, partner_card.global_position.y + partner_card.size.y * partner_card.scale.y)
-	button.position.y = lowest - panel.global_position.y + PARTNER_BUTTON_GAP
-	# The panel holds no art of its own — it is a caption and this button — so it
-	# grows to whatever the measured placement needs rather than standing at a
-	# height the fan can hang below.
-	panel.size.y = button.position.y + button.size.y
+	panel.size.y = lowest - panel.global_position.y

@@ -64,6 +64,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:lobby_ambience", probe_started)
+
+
+func _probed_draw() -> void:
 	# The moon used to be drawn on the full-screen backdrop at (screen - 82, 88),
 	# which is exactly where every overlay panel has its top-right corner: it
 	# came out as a beige sliver poking from behind the panel and cut by the HUD.

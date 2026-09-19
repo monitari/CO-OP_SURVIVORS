@@ -39,8 +39,15 @@ static func all_treasures() -> Array[Dictionary]:
 			"value": 0.09, "display": 100.0, "text": "공격력 +{v}%"},
 		{"id": "area", "name": "확장의 렌즈", "shared": false, "stat": "범위",
 			"value": 0.09, "display": 100.0, "text": "공격 범위 +{v}%"},
+		# Half a projectile per tier, accumulated on the survivor and floored where
+		# a volley is actually counted. At a whole one per tier this was +10 shots
+		# on every count weapon in the game by the end of a run — eleven times the
+		# volley of a weapon that fires one — and between that and uncapped 발사 수
+		# cards it was the main reason the late game became a wall of projectiles.
+		# The text says the cadence rather than the step, because "발사체 +0.50" is
+		# a number no player can act on.
 		{"id": "amount", "name": "분열의 화살통", "shared": false, "stat": "탄량",
-			"value": 1.0, "flat": true, "text": "발사체 +{v}"},
+			"value": 0.5, "flat": true, "text": "두 단계마다 발사체 +1"},
 		{"id": "haste", "name": "질풍의 태엽", "shared": false, "stat": "신속",
 			"value": 0.05, "display": 100.0, "text": "발동 간격 -{v}%"},
 		{"id": "projectile_speed", "name": "가속의 깃", "shared": false, "stat": "탄속",
@@ -74,8 +81,11 @@ static func all_treasures() -> Array[Dictionary]:
 			"value": 0.30, "flat": true, "display": 100.0, "text": "필드 아이템 확률 +{v}%"},
 		{"id": "magnet", "name": "인력의 나침반", "shared": true, "stat": "자석",
 			"value": 0.20, "flat": true, "display": 100.0, "text": "공유 획득 범위 +{v}%"},
+		# Halved with the 2026-09-19 pass; see main._recompute_team_effects for
+		# why. The card's own number has to move with the effect or the card
+		# starts lying about what it gives.
 		{"id": "growth", "name": "성장의 서", "shared": true, "stat": "성장",
-			"value": 0.10, "flat": true, "display": 100.0, "text": "공유 경험치 +{v}%"},
+			"value": 0.05, "flat": true, "display": 100.0, "text": "공유 경험치 +{v}%"},
 		{"id": "luck", "name": "행운의 주사위", "shared": true, "stat": "행운",
 			"value": 1.0, "flat": true, "text": "공유 행운 +{v}"},
 		{"id": "lifesteal", "name": "진홍 목방울", "shared": true, "stat": "흡혈",

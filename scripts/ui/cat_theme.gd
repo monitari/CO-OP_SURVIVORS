@@ -64,7 +64,7 @@ static func image_surface(active := false) -> StyleBoxFlat:
 	style.border_color = OVERLAY_EDGE
 	style.set_border_width_all(BORDER)
 	style.set_corner_radius_all(RADIUS + 4)
-	style.corner_detail = 12
+	style.corner_detail = corner_detail_for(RADIUS + 4)
 	style.set_content_margin_all(4.0)
 	return style
 
@@ -84,8 +84,20 @@ static func surface(tint: Color = PANEL, radius: int = RADIUS) -> StyleBoxFlat:
 	style.border_color = OUTLINE
 	style.set_border_width_all(BORDER)
 	style.set_corner_radius_all(radius)
-	style.corner_detail = 12
+	style.corner_detail = corner_detail_for(radius)
 	return style
+
+
+## Segments per rounded corner, in proportion to its radius.
+##
+## Every surface used twelve regardless of size. A 7px HUD socket corner split
+## twelve ways is segments a fraction of a pixel long, and each segment is
+## triangles for the fill, the border and the antialiasing feather — the twenty
+## HUD panels came to fifteen thousand primitives a frame (tests/
+## perf_bench_capture.gd, BENCH_LAYERS=1). At 0.6 segments per pixel of radius
+## the corner never strays from a true arc by more than a tenth of a pixel.
+static func corner_detail_for(radius: float) -> int:
+	return clampi(ceili(radius * 0.6), 3, 12)
 
 
 static func player_surface(slot: int, active := false, confirmed := false, dark := false) -> StyleBoxFlat:

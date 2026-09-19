@@ -64,6 +64,45 @@ func _run() -> void:
 	_check(inspector.readout.text.contains("RUNTIME INSPECTOR"), "panel renders live run telemetry")
 	_check(inspector.readout.text.contains(main.players[0].character_name), "telemetry identifies the selected survivor")
 
+	var target := main.wave_director._acquire_enemy("chaser", 1.0, Vector2.ZERO, false, false) as ChaserEnemy
+	target.position = main.players[0].global_position + Vector2(80.0, 0.0)
+	main._register_enemy(target)
+	main.spatial_grid.rebuild(main.enemies)
+	# Held by reference rather than read back as main.enemies[0]: the attack below
+	# is real damage, so the target can die and leave the array — and then the
+	# check that the damage landed is the line that crashes.
+	var health_before_visual_toggle: float = target.health
+	inspector._toggle_combat_visuals()
+	_check(not main.weapon_controller.visible and not main.flight_field.visible
+		and not main.crowd_renderer._warnings.visible,
+		"combat attack layers hide without hiding the crowd")
+	main.weapon_controller.perform_attack(0, 0, 1.0)
+	main.weapon_controller._physics_process(0.3)
+	_check(not is_instance_valid(target) or target.dead or target.health < health_before_visual_toggle,
+		"hiding combat visuals leaves attack damage and collision active")
+	inspector._toggle_combat_visuals()
+	_check(main.weapon_controller.visible and main.flight_field.visible,
+		"combat attack layers restore after the debug toggle")
+
+	# F11 and F12 already belonged to 전체화면 and 달빛 연출. The inspector borrows
+	# them, and the borrow only works because both halves agree: the inspector
+	# refuses them unless its panel is open, and main stands down for exactly that
+	# window. Either half alone is worse than neither — with only main yielding,
+	# the game's toggles are dead whenever the panel is closed too; with only the
+	# inspector gating, one press fires both features at once.
+	var moonlight_before: bool = Moonlight.enabled
+	var was_open: bool = inspector.is_open
+	inspector.is_open = false
+	main._input(_key_press(KEY_F12))
+	_check(Moonlight.enabled != moonlight_before,
+		"with the panel closed, F12 is still the game's 달빛 연출 key")
+	main._input(_key_press(KEY_F12))
+	inspector.is_open = was_open
+	moonlight_before = Moonlight.enabled
+	main._input(_key_press(KEY_F12))
+	_check(Moonlight.enabled == moonlight_before,
+		"with the panel open, main leaves F12 to the inspector")
+
 	var level_before := int(main.progression.level)
 	inspector._grant_level()
 	_check(main.level_up_active and int(main.progression.level) == level_before + 1,
@@ -159,6 +198,16 @@ func _close_level_modal(main: Node) -> void:
 	main.selected_upgrade_indices[0] = -1
 	main.selected_upgrade_indices[1] = -1
 	paused = false
+
+
+## A real key-down event, so the checks above go through the same action lookup
+## the game does rather than calling the toggle directly.
+func _key_press(keycode: Key) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.physical_keycode = keycode
+	event.pressed = true
+	return event
 
 
 func _check(condition: bool, label: String) -> void:

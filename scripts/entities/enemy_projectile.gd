@@ -134,6 +134,12 @@ static func break_along(shots: Array, from: Vector2, to: Vector2, width: float) 
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:enemy_projectile", probe_started)
+
+
+func _probed_draw() -> void:
 	draw_circle(Vector2.ZERO, 10.0, Color(1.0, 0.25, 0.35, 0.2))
 	draw_circle(Vector2.ZERO, 6.0, Color("ff5d8f"))
 	# Crow's thrown pebble: bright hostile outline remains the damage cue.

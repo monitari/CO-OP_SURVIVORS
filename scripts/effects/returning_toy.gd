@@ -27,6 +27,12 @@ const HIT_RADIUS := 22.0
 
 
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(&"toys", probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	if not is_instance_valid(anchor) or anchor.downed:
 		queue_free()
 		return
@@ -53,6 +59,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:returning_toy", probe_started)
+
+
+func _probed_draw() -> void:
 	var progress := age / LIFETIME
 	var alpha := minf(1.0, (1.0 - progress) * 5.0)
 	# A short trail behind whichever way it is currently travelling, so the

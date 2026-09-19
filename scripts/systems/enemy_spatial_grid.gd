@@ -266,22 +266,43 @@ static func _segment_distance_squared(point: Vector2, from: Vector2, segment: Ve
 	return (offset - segment * t).length_squared()
 
 
+## Every living body within `radius` of `origin`.
+##
+## Answered from the fine grid and the flat `positions` array, touching a node
+## only for a body that already passed the distance test there. It used to walk
+## the 192px buckets and read `is_instance_valid`, `dead` and `position` off every
+## body in every bucket the square touched — and in a packed crowd one 192px
+## bucket holds a hundred bodies or more. A 34px orbit-shard query was scanning
+## several hundred nodes to return a handful, thirteen shards a ring, every tick;
+## on the late-run benchmark the orbit ring alone cost a millisecond a tick.
+##
+## Same contract as before: the final test is against the live position, so a
+## body knocked about since the rebuild is judged where it is now. The prefilter
+## is padded by DRIFT_MARGIN for the same reason nearest() is.
 func query_radius(origin: Vector2, radius: float) -> Array[ChaserEnemy]:
 	var results: Array[ChaserEnemy] = []
-	if cells.is_empty(): return results
-	var minimum := _cell_of(origin - Vector2.ONE * radius).max(occupied_min)
-	var maximum := _cell_of(origin + Vector2.ONE * radius).min(occupied_max)
+	if _fine_width == 0 or bodies.is_empty():
+		return results
+	var size := fine_cell_size
+	var reach := radius + DRIFT_MARGIN
+	var reach_squared := reach * reach
 	var radius_squared := radius * radius
-	for x in range(minimum.x, maximum.x + 1):
-		for y in range(minimum.y, maximum.y + 1):
-			var bucket: Variant = cells.get(((x + KEY_OFFSET) << KEY_SHIFT) | (y + KEY_OFFSET))
-			if bucket == null:
-				continue
-			for body in bucket:
-				var enemy := bodies[body]
-				# Read live: weapons knock bodies around between rebuilds.
-				if is_instance_valid(enemy) and not enemy.dead and enemy.position.distance_squared_to(origin) <= radius_squared:
-					results.append(enemy)
+	var min_x := maxi(0, floori((origin.x - reach) / size) - _fine_min.x)
+	var max_x := mini(_fine_width - 1, floori((origin.x + reach) / size) - _fine_min.x)
+	var min_y := maxi(0, floori((origin.y - reach) / size) - _fine_min.y)
+	var max_y := mini(_fine_height - 1, floori((origin.y + reach) / size) - _fine_min.y)
+	for y in range(min_y, max_y + 1):
+		if _fine_row_counts[y] == 0:
+			continue
+		var row_start := y * _fine_width
+		for x in range(min_x, max_x + 1):
+			var body := _fine_heads[row_start + x]
+			while body >= 0:
+				if positions[body].distance_squared_to(origin) <= reach_squared:
+					var enemy := bodies[body]
+					if is_instance_valid(enemy) and not enemy.dead and enemy.position.distance_squared_to(origin) <= radius_squared:
+						results.append(enemy)
+				body = _fine_next[body]
 	return results
 
 

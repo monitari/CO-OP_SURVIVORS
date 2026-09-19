@@ -131,6 +131,12 @@ func clear_all() -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:flight_field", probe_started)
+
+
+func _probed_draw() -> void:
 	if batched and _shadow_mesh != null:
 		_draw_shadow_batch()
 		return

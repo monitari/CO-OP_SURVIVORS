@@ -350,7 +350,7 @@ func _test_nothing_is_clipped(main: Node) -> void:
 	main.progression.experience = main.progression.required_experience
 	main._begin_level_up()
 	_check(main.level_overlay.visible, "the level-up screen actually opened")
-	_check(String(main.level_card_labels[0][0].text).length() > 0, "the cards actually carry text")
+	_check(String((main.level_card_labels[0][0].get_node("Body") as RichTextLabel).get_parsed_text()).length() > 0, "the cards actually carry text")
 	await process_frame
 	await process_frame
 	for slot in 2:

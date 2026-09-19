@@ -23,6 +23,12 @@ func _ready() -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:cat_panel", probe_started)
+
+
+func _probed_draw() -> void:
 	if backdrop:
 		if veil_only:
 			# Lighter than it was: the growth screen no longer covers the roof, and
@@ -41,9 +47,9 @@ func _draw() -> void:
 
 
 func _paw(at: Vector2, scale_factor: float, tint: Color) -> void:
-	draw_circle(at, 7 * scale_factor, tint)
+	draw_circle(at, 7 * scale_factor, tint, true, -1.0, true)
 	for toe in [Vector2(-9, -6), Vector2(-4, -13), Vector2(5, -13), Vector2(11, -5)]:
-		draw_circle(at + toe * scale_factor, 3.4 * scale_factor, tint)
+		draw_circle(at + toe * scale_factor, 3.4 * scale_factor, tint, true, -1.0, true)
 
 
 func _draw_backdrop() -> void:

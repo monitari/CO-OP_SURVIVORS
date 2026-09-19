@@ -29,6 +29,34 @@ var update_remaining := 0.0
 var debug_speed_index := -1
 var base_time_scale := 1.0
 var notice := "F6~F9 명령은 진행 중인 런에서만 동작합니다."
+var combat_visuals_enabled := true
+
+## Whether the frame-cost readout is up (F11).
+##
+## The run already carried a per-phase timer for the headless performance tests
+## (main._profile), but nothing could read it while a person was playing — so
+## "the game feels bad right now" and "which phase of a tick is expensive" were
+## two separate investigations, and the second one only ever happened against a
+## scripted fixture rather than against the build that actually felt bad. This
+## turns the same counters on live and reports them over a rolling window.
+var performance_open := false
+## What main.profiling was before the readout took it over. The headless tests
+## drive that flag themselves, so it is restored rather than cleared.
+var profiling_was := false
+## The rolling window, rebuilt from main's accumulators on every refresh.
+var frame_sections: Array = []
+var frame_tick_ms := 0.0
+var frame_worst_ms := 0.0
+## FrameProbe's heaviest sections from the last window.
+var probe_rows: Array = []
+## Seconds of wall clock the current window has been collecting for. The window
+## is cleared and restarted every refresh, so a section's share is an average
+## over roughly UPDATE_INTERVAL of real play rather than over the whole run.
+var frame_window := 0.0
+## One physics tick's budget at the project's 60Hz. Sections are drawn as a
+## share of this rather than of each other, because what matters is whether the
+## tick fits in a frame, not which phase happens to be largest.
+const TICK_BUDGET_MS := 1000.0 / 60.0
 
 
 func configure(main_node: Node) -> void:
@@ -69,9 +97,21 @@ func _input(event: InputEvent) -> void:
 		toggle()
 		get_viewport().set_input_as_handled()
 		return
+	# Everything below needs the panel open, F11 and F12 included.
+	#
+	# Those two are the game's own 전체화면 and 달빛 연출 keys
+	# (InputBindings.toggle_fullscreen / toggle_moonlight), so the inspector can
+	# only borrow them while it is visibly up — and main has to stand down for
+	# exactly that window, because it reads them as actions and would otherwise
+	# fire its own toggle alongside this one. Gating here and yielding there is
+	# the whole agreement; see main._input.
 	if not is_open:
 		return
 	match key:
+		KEY_F11:
+			_toggle_performance()
+		KEY_F12:
+			_toggle_combat_visuals()
 		KEY_F5:
 			_cycle_speed()
 		KEY_F6:
@@ -93,9 +133,95 @@ func toggle() -> void:
 	is_open = not is_open
 	if not is_open:
 		_restore_time_scale()
+		_stop_performance()
 	else:
 		_refresh()
 	_sync_visibility()
+
+
+func _toggle_performance() -> void:
+	if performance_open:
+		_stop_performance()
+		notice = "프레임 계측 종료."
+		_refresh()
+		return
+	if not is_instance_valid(game):
+		return
+	performance_open = true
+	profiling_was = bool(game.profiling)
+	game.profiling = true
+	FrameProbe.enabled = true
+	_clear_window()
+	notice = "프레임 계측 중 — 계측 자체가 틱당 10여 마이크로초를 씁니다."
+	_refresh()
+
+
+func _toggle_combat_visuals() -> void:
+	combat_visuals_enabled = not combat_visuals_enabled
+	if is_instance_valid(game):
+		game.set_combat_visuals_enabled(combat_visuals_enabled)
+	notice = "공격 렌더링 %s" % ("켜짐" if combat_visuals_enabled else "꺼짐")
+	_refresh()
+
+
+func _stop_performance() -> void:
+	if not performance_open:
+		return
+	performance_open = false
+	if is_instance_valid(game):
+		game.profiling = profiling_was
+	frame_sections.clear()
+	FrameProbe.enabled = false
+	probe_rows.clear()
+
+
+## Empties main's accumulators so the next window starts clean. Called on every
+## refresh, which is what makes the readout a rolling average of the last
+## UPDATE_INTERVAL of play rather than of the whole session — a run-long average
+## would keep reporting a spike from two minutes ago.
+func _clear_window() -> void:
+	if not is_instance_valid(game):
+		return
+	game.profile_totals.clear()
+	game.profile_frames = 0
+	game.profile_frame_usec.clear()
+	frame_window = 0.0
+	FrameProbe.clear()
+
+
+## Reads main's accumulators into the shape the readout draws, then restarts the
+## window.
+func _sample_performance() -> void:
+	if not is_instance_valid(game):
+		return
+	var ticks: int = maxi(1, int(game.profile_frames))
+	var totals: Dictionary = game.profile_totals
+	var rows: Array = []
+	var tick_total := 0.0
+	for section: String in totals:
+		var per_tick := float(totals[section]) / float(ticks) / 1000.0
+		tick_total += per_tick
+		rows.append({"section": section, "ms": per_tick})
+	rows.sort_custom(func(first: Dictionary, second: Dictionary) -> bool:
+		return float(first["ms"]) > float(second["ms"]))
+	frame_sections = rows
+	frame_tick_ms = tick_total
+	# The worst tick in the window rather than the mean of the worst, because a
+	# phase that costs double on alternate frames averages away and is exactly
+	# what a player feels.
+	var worst := 0
+	for value: int in game.profile_frame_usec:
+		worst = maxi(worst, value)
+	frame_worst_ms = float(worst) / 1000.0
+	# Everything that ticks or draws in its own node, per physics tick — the
+	# part main's sections cannot see (FrameProbe).
+	var probe: Array = []
+	for section: StringName in FrameProbe.totals:
+		probe.append({"section": String(section), "ms": float(FrameProbe.totals[section]) / float(ticks) / 1000.0})
+	probe.sort_custom(func(first: Dictionary, second: Dictionary) -> bool:
+		return float(first["ms"]) > float(second["ms"]))
+	probe_rows = probe.slice(0, 8)
+	_clear_window()
 
 
 func _process(delta: float) -> void:
@@ -108,6 +234,12 @@ func _process(delta: float) -> void:
 	# not scaled game time, for its refresh cadence.
 	update_remaining -= delta / maxf(0.001, Engine.time_scale)
 	if update_remaining <= 0.0:
+		# The only place the window is closed and read. Everything else that
+		# refreshes the text — a command key, a new run — redraws the numbers
+		# this last took rather than taking a fresh sample from a window a few
+		# milliseconds long, which would report noise as a spike.
+		if performance_open:
+			_sample_performance()
 		update_remaining = UPDATE_INTERVAL
 		_refresh()
 
@@ -222,11 +354,15 @@ func _refresh() -> void:
 	lines.append("[font_size=20][color=#43d9ff][b]RUNTIME INSPECTOR[/b][/color][/font_size]  [color=#7f96ae]F10 닫기[/color]")
 	lines.append("[color=#94a8bd]F5 배속 2 → 5 → 0.15 → 1배      F6 레벨업[/color]")
 	lines.append("[color=#94a8bd]F7 즉시 진화      F8 완전 회복      F9 다음 보스[/color]")
+	lines.append("[color=#94a8bd]F11 프레임 계측 %s      F12 공격 렌더링 %s[/color]" % ["끄기" if performance_open else "켜기", "끄기" if combat_visuals_enabled else "켜기"])
 	lines.append("[color=#24384f]────────────────────────────────────────[/color]")
 	if game.debug_run_tainted:
 		lines.append("[color=#ff5d8f][b]DEBUG MUTATED[/b]  보상  발견 기록 저장 안 함[/color]")
 	lines.append("[color=#ffd166]%s[/color]" % notice)
 	lines.append("")
+	if performance_open:
+		lines.append(_performance_report())
+		lines.append("")
 	lines.append(_run_report())
 	if game.players.size() >= 2:
 		lines.append("")
@@ -270,6 +406,130 @@ func _speed_text(value: float) -> String:
 	while text.ends_with("0"):
 		text = text.left(-1)
 	return text.trim_suffix(".")
+
+
+## Where a frame actually goes, right now, in the build the player is playing.
+##
+## Three blocks, in the order a performance problem is usually read:
+##
+##   1. what the frame costs (render and physics, against the 60Hz budget)
+##   2. which phase of the physics tick it is going to (the bars)
+##   3. how many of the things that drive those phases are alive
+##
+## The third block is there because the first two say a phase is expensive and
+## never say why. A weapon phase at 6ms means nothing on its own; a weapon phase
+## at 6ms next to "투사체 340" is a diagnosis.
+func _performance_report() -> String:
+	var lines: Array[String] = []
+	lines.append("[font_size=16][color=#ffd166][b]프레임 계측[/b][/color][/font_size]")
+	var fps := Engine.get_frames_per_second()
+	var frame_ms := 1000.0 / maxf(1.0, float(fps))
+	lines.append("%s FPS %d[/color]      프레임 %.1fms      예산 %.1fms" % [
+		_budget_color(frame_ms, TICK_BUDGET_MS), fps, frame_ms, TICK_BUDGET_MS,
+	])
+	# The split before the breakdown, because it decides which breakdown is even
+	# worth reading. A simulation that measures 1.8ms inside a 7ms frame says the
+	# bars below are not where the time is going, and that is the most useful
+	# single thing this panel can say — the section timings alone cannot say it.
+	#
+	# Reported as the engine's own two monitors and nothing derived from them.
+	# Subtracting both from the frame time to get "everything else" looks like
+	# the obvious next line and is not sound: the monitors are sampled on their
+	# own schedule and the frame time is a smoothed average, so the difference is
+	# routinely negative and a clamped negative reads as a confident zero.
+	lines.append("[color=#dcecff]스크립트 _process %.2fms      _physics %.2fms[/color]  [color=#7f96ae]엔진 계측[/color]" % [
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+	])
+	lines.append("[color=#7f96ae]드로우 콜 %d      그린 오브젝트 %d      노드 %d      메모리 %.0fMB[/color]" % [
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0,
+	])
+	# The gap, named. main._profile only wraps main's *own* _physics_process, and
+	# every projectile, milk pool, weapon field and mine is a node with a
+	# _physics_process of its own that the engine calls directly — so they are
+	# invisible to the bars below however expensive they get. Measured at 620
+	# enemies with four weapons firing, main's sections came to 1.7ms of a 15ms
+	# frame and the effect nodes owned most of the rest. Reading the bars without
+	# this line sends you optimising the one part that was already fast.
+	var engine_physics := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	var untracked := engine_physics - frame_tick_ms
+	lines.append("[color=#94a8bd]main 틱 합계 %.2fms  (최악 %.2fms)[/color]      %s이펙트 노드 등 그 외 %.2fms[/color]" % [
+		frame_tick_ms, frame_worst_ms, _budget_color(untracked, TICK_BUDGET_MS * 0.5), maxf(0.0, untracked),
+	])
+	if frame_sections.is_empty():
+		lines.append("[color=#7f96ae]틱 표본을 모으는 중…[/color]")
+	for row: Dictionary in frame_sections:
+		var section_ms := float(row["ms"])
+		var share := clampf(section_ms / TICK_BUDGET_MS, 0.0, 1.0)
+		var filled := int(round(share * 24.0))
+		lines.append("%s%s[/color][color=#24384f]%s[/color]  [color=#dcecff]%-20s %5.2fms[/color]" % [
+			_budget_color(section_ms, TICK_BUDGET_MS * 0.34),
+			"█".repeat(filled), "░".repeat(24 - filled),
+			String(row["section"]), section_ms,
+		])
+	if not probe_rows.is_empty():
+		lines.append("[color=#94a8bd]노드별 (틱당, incl은 다른 항목에 포함됨)[/color]")
+		for row: Dictionary in probe_rows:
+			lines.append("%s%-26s %5.2fms[/color]" % [
+				_budget_color(float(row["ms"]), TICK_BUDGET_MS * 0.2), String(row["section"]), float(row["ms"])])
+	lines.append("[color=#24384f]────────────────────────────────────────[/color]")
+	lines.append(_population_report())
+	return "\n".join(lines)
+
+
+## How many of each kind of live thing there is. These are the inputs to every
+## per-phase cost above: the enemy loop is linear in the crowd, the weapon phase
+## is linear in what the weapons have left lying around, and the renderer pays
+## for all of it.
+func _population_report() -> String:
+	var counts := {"투사체": 0, "우유 웅덩이": 0, "무기 장판": 0, "지뢰": 0, "기타 이펙트": 0}
+	if is_instance_valid(game.weapon_controller):
+		for child in game.weapon_controller.get_children():
+			if child is HomingProjectile:
+				counts["투사체"] += 1
+			elif child is MilkPool:
+				counts["우유 웅덩이"] += 1
+			elif child is WeaponField:
+				counts["무기 장판"] += 1
+			elif child is ProximityMine:
+				counts["지뢰"] += 1
+			else:
+				counts["기타 이펙트"] += 1
+	var alive := 0
+	var offscreen := 0
+	var view: Rect2 = game._visible_world_rect()
+	for enemy in game.enemies:
+		var body := enemy as ChaserEnemy
+		if body == null or not is_instance_valid(body) or body.dead:
+			continue
+		alive += 1
+		if not view.has_point(body.global_position):
+			offscreen += 1
+	var lines: Array[String] = []
+	lines.append("[color=#dcecff]적 %d[/color] [color=#7f96ae](화면 밖 %d  상한 %d)[/color]      [color=#dcecff]경험치 %d[/color]      [color=#dcecff]적 탄 %d[/color]" % [
+		alive, offscreen, int(game.wave_director.enemy_cap),
+		game.experience_system.active_gems.size() if is_instance_valid(game.experience_system) else 0,
+		game.enemy_shots.size(),
+	])
+	var parts: Array[String] = []
+	for key: String in counts:
+		parts.append("%s %d" % [key, int(counts[key])])
+	lines.append("[color=#dcecff]%s[/color]" % "      ".join(parts))
+	return "\n".join(lines)
+
+
+## Opens a colour tag that goes amber then red as `value` approaches `budget`.
+## Returns only the opening tag; callers close it, because several of them wrap
+## more than one field in the same verdict.
+func _budget_color(value: float, budget: float) -> String:
+	if value >= budget:
+		return "[color=#ff5d8f]"
+	if value >= budget * 0.6:
+		return "[color=#ffd166]"
+	return "[color=#71ffcd]"
 
 
 func _run_report() -> String:

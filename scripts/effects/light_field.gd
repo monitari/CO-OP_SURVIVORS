@@ -159,8 +159,10 @@ static func _texture() -> GradientTexture2D:
 ## light would be the opposite of what it is; on SUB it takes the moonlight out
 ## of the floor it is pulling in, and the roof goes darker toward the middle of
 ## it. Nothing else in the game does this, which is the point.
-static func attach(host: Node2D, tint: Color, radius: float, strength: float, subtract := false) -> PointLight2D:
+static func attach(host: Node2D, tint: Color, radius: float, strength: float, subtract := false, minor := false) -> PointLight2D:
 	if not enabled or not Moonlight.enabled or strength <= 0.0:
+		return null
+	if minor and not _minor_slot_free():
 		return null
 	var light := PointLight2D.new()
 	light.texture = _texture()
@@ -170,4 +172,27 @@ static func attach(host: Node2D, tint: Color, radius: float, strength: float, su
 	light.texture_scale = maxf(0.2, radius / 64.0)
 	light.energy = clampf(strength, 0.0, MAX_ENERGY)
 	host.add_child(light)
+	if minor:
+		_minor_lights.append(light)
 	return light
+
+
+## Attached lights that are texture rather than information: the faint floor glow
+## under a puddle of milk, of which a late run can have thirty. A 2D light costs
+## every pixel it touches a pass through the lighting loop, and on the late-run
+## benchmark thirty-one lights were three quarters of a millisecond of GPU time
+## by themselves (tests/perf_bench_capture.gd, BENCH_LAYERS=1). The puddles past
+## this many simply do not light the floor; at an energy of 0.09 nobody can tell
+## which ones those are. Conditions that matter — a frost aura, a gravity well —
+## are not minor and are never refused.
+const MAX_MINOR_LIGHTS := 6
+static var _minor_lights: Array[PointLight2D] = []
+
+
+static func _minor_slot_free() -> bool:
+	var live: Array[PointLight2D] = []
+	for light in _minor_lights:
+		if is_instance_valid(light) and not light.is_queued_for_deletion():
+			live.append(light)
+	_minor_lights = live
+	return _minor_lights.size() < MAX_MINOR_LIGHTS

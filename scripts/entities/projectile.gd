@@ -270,6 +270,12 @@ func _find_nearest_enemy() -> ChaserEnemy:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:projectile", probe_started)
+
+
+func _probed_draw() -> void:
 	if batched:
 		return
 	paint_body(self, style, radius, projectile_color, shape_seed)

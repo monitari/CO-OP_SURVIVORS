@@ -120,7 +120,7 @@ static func gain(main: Node, slot: int, option: Dictionary) -> float:
 		match effect:
 			"might": a["might"] += step
 			"area": a["area"] += step
-			"amount": a["amount"] += roundi(step)
+			"amount": a["amount"] += step
 			"haste": a["haste"] = maxf(main.HASTE_FLOOR, a["haste"] - step)
 			"crit": a["crit"] = minf(main.CRIT_CAP, a["crit"] + step)
 			"pierce": a["pierce"] += roundi(step)

@@ -304,6 +304,12 @@ func _place_captions(centre: Vector2, reveal: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:showcase", probe_started)
+
+
+func _probed_draw() -> void:
 	var veil := _veil()
 	# A chest opens over the live rooftop, veiled as lightly as the growth and
 	# pause screens are; the fusion and resonance moments keep their dark stage.

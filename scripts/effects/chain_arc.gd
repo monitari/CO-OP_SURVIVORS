@@ -144,6 +144,12 @@ func local_points() -> PackedVector2Array:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:chain_arc", probe_started)
+
+
+func _probed_draw() -> void:
 	if head_a.distance_squared_to(head_b) <= 1.0:
 		return
 	var ground := ground_points()
@@ -217,14 +223,38 @@ func _draw_links(drawn: PackedVector2Array) -> void:
 		(face_on if link % 2 == 0 else edge_on).append(frame)
 	# Rings first, then the bars over them: each bar ends inside the hole of the
 	# ring on either side, so it reads as threaded through both.
+	#
+	# Eight commands for the whole chain, one per layer per kind of link. Each
+	# link used to stroke its own four layers, so a taut chain of thirty links
+	# was a hundred and twenty antialiased strokes and over a hundred draw calls
+	# every tick (tests/perf_bench_capture.gd). The widths are the same for every
+	# link — the size scale is the chain's, not the link's — so a layer can be
+	# one multiline, and neighbouring rings never overlap, so painting all the
+	# inks before all the shades looks exactly like painting link by link.
+	var s := size_scale
+	var face := [PackedVector2Array(), PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 	for frame in face_on:
-		_draw_face_link(frame, shade, metal, shine)
+		_face_link_segments(frame, face)
+	_stroke(face, [LINK_INK, shade, metal, Color(shine, 0.7)],
+		[(LINK_WIRE + 2.4) * s, LINK_WIRE * s, LINK_WIRE * 0.62 * s, 0.9 * s])
+	var edge := [PackedVector2Array(), PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
 	for frame in edge_on:
-		_draw_edge_link(frame, shade, metal, shine)
+		_edge_link_segments(frame, edge)
+	_stroke(edge, [LINK_INK, shade, metal, Color(shine, 0.65)],
+		[(LINK_WIRE + 3.4) * s, (LINK_WIRE + 1.0) * s, LINK_WIRE * 0.55 * s, 0.8 * s])
+
+
+func _stroke(layers: Array, colours: Array, widths: Array) -> void:
+	for index in layers.size():
+		var segments: PackedVector2Array = layers[index]
+		if not segments.is_empty():
+			draw_multiline(segments, colours[index], widths[index], true)
 
 
 ## A ring seen from above: an outlined oval with the floor showing through it.
-func _draw_face_link(frame: Transform2D, shade: Color, metal: Color, shine: Color) -> void:
+## One face-on ring's four layers, appended as segments to `layers` (ink, shade,
+## metal, shine) for _stroke.
+func _face_link_segments(frame: Transform2D, layers: Array) -> void:
 	var ring := PackedVector2Array()
 	for step in 17:
 		var angle := TAU * float(step) / 16.0
@@ -232,22 +262,28 @@ func _draw_face_link(frame: Transform2D, shade: Color, metal: Color, shine: Colo
 	# The half of the ring facing up the screen catches the moonlight. The first
 	# half of the loop runs along the frame's +y side.
 	var top := ring.slice(0, 9) if frame.y.y < 0.0 else ring.slice(8, 17)
-	var scale_factor := frame.x.length()
-	draw_polyline(ring, LINK_INK, (LINK_WIRE + 2.4) * scale_factor, true)
-	draw_polyline(ring, shade, LINK_WIRE * scale_factor, true)
-	draw_polyline(top, metal, LINK_WIRE * 0.62 * scale_factor, true)
-	draw_polyline(top.slice(2, 7), Color(shine, 0.7), 0.9 * scale_factor, true)
+	_path(layers[0], ring)
+	_path(layers[1], ring)
+	_path(layers[2], top)
+	_path(layers[3], top.slice(2, 7))
+
+
+## An open path as consecutive segments.
+static func _path(out: PackedVector2Array, path: PackedVector2Array) -> void:
+	for index in range(1, path.size()):
+		out.append(path[index - 1])
+		out.append(path[index])
 
 
 ## A ring turned side-on: a short rounded bar along the rope.
-func _draw_edge_link(frame: Transform2D, shade: Color, metal: Color, shine: Color) -> void:
+func _edge_link_segments(frame: Transform2D, layers: Array) -> void:
 	var scale_factor := frame.x.length()
 	var from := frame * Vector2(-LINK_HALF_LENGTH, 0.0)
 	var to := frame * Vector2(LINK_HALF_LENGTH, 0.0)
 	var lift := frame.y.normalized() * (0.8 * scale_factor)
 	if lift.y > 0.0:
 		lift = -lift
-	draw_line(from, to, LINK_INK, (LINK_WIRE + 3.4) * scale_factor, true)
-	draw_line(from, to, shade, (LINK_WIRE + 1.0) * scale_factor, true)
-	draw_line(from + lift, to + lift, metal, LINK_WIRE * 0.55 * scale_factor, true)
-	draw_line(from * 0.8 + to * 0.2 + lift * 1.6, from * 0.2 + to * 0.8 + lift * 1.6, Color(shine, 0.65), 0.8 * scale_factor, true)
+	layers[0].append_array(PackedVector2Array([from, to]))
+	layers[1].append_array(PackedVector2Array([from, to]))
+	layers[2].append_array(PackedVector2Array([from + lift, to + lift]))
+	layers[3].append_array(PackedVector2Array([from * 0.8 + to * 0.2 + lift * 1.6, from * 0.2 + to * 0.8 + lift * 1.6]))

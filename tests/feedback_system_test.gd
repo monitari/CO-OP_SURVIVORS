@@ -37,25 +37,21 @@ func _run() -> void:
 ## the counter has to actually reset every physics tick or the cap would only
 ## ever fire once for the whole run.
 func _test_damage_number_cap() -> void:
+	# Counted on the batched field rather than as Label children: a number is
+	# no longer a node (DamageNumberField), which is the whole point of it.
 	var feedback := FeedbackScript.new() as FeedbackSystem
 	root.add_child(feedback)
 	await process_frame
 
 	for i in feedback.MAX_DAMAGE_NUMBERS_PER_FRAME + 12:
 		feedback.show_damage(Vector2.ZERO, 10.0)
-	var labels := 0
-	for child in feedback.get_children():
-		if child is Label:
-			labels += 1
-	_check(labels == feedback.MAX_DAMAGE_NUMBERS_PER_FRAME, "a single tick caps spawned damage labels at %d (got %d)" % [feedback.MAX_DAMAGE_NUMBERS_PER_FRAME, labels])
+	var labels: int = feedback.live_damage_numbers()
+	_check(labels == feedback.MAX_DAMAGE_NUMBERS_PER_FRAME, "a single tick caps spawned damage numbers at %d (got %d)" % [feedback.MAX_DAMAGE_NUMBERS_PER_FRAME, labels])
 
 	feedback._physics_process(0.0) # simulate the next physics tick's reset
 	for i in feedback.MAX_DAMAGE_NUMBERS_PER_FRAME:
 		feedback.show_damage(Vector2.ZERO, 10.0)
-	labels = 0
-	for child in feedback.get_children():
-		if child is Label:
-			labels += 1
+	labels = feedback.live_damage_numbers()
 	_check(labels == feedback.MAX_DAMAGE_NUMBERS_PER_FRAME * 2, "the cap resets on the next physics tick instead of staying latched")
 
 	feedback.queue_free()

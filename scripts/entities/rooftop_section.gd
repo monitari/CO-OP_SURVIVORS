@@ -89,6 +89,12 @@ func far_limit() -> float:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:rooftop_section", probe_started)
+
+
+func _probed_draw() -> void:
 	_draw_paving()
 	_draw_gutters()
 

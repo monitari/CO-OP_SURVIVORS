@@ -182,6 +182,34 @@ func _test_gravity_casts_at_the_crowd(main: Node) -> void:
 	main.weapon_controller.perform_attack(0, 0, 1.0)
 	await create_timer(0.55).timeout
 	_check(underfoot.health < underfoot.max_health, "something already on top of the pair is still hit")
+
+	# ...and the well that hit it did not open on anybody.
+	#
+	# This is the weapon's worst failure and the hardest to see in code: the
+	# placement scores a candidate on how many bodies it would catch, and in a
+	# survivors game the densest cluster on the field is the one standing on the
+	# pair. So the well opened underfoot and dragged the rest of the crowd in
+	# after it — a pull weapon reliably pulling the fight onto its own owners.
+	# The crowd underfoot is still the right thing to answer, so the centre is
+	# pushed out to a ring rather than the candidate being discarded; what has to
+	# hold is that the centre is never on a survivor, whatever the crowd does.
+	await _clear_enemies(main)
+	for offset in [Vector2(6.0, 0.0), Vector2(-14.0, 9.0), Vector2(0.0, -20.0), Vector2(18.0, 22.0)]:
+		_spawn(main, main.players[0].global_position + offset)
+	for offset in [Vector2(0.0, 8.0), Vector2(11.0, -6.0), Vector2(-9.0, 14.0)]:
+		_spawn(main, main.players[1].global_position + offset)
+	main.spatial_grid.rebuild(main.enemies)
+	var swarmed: Vector2 = main.weapon_controller._gravity_centre(0, gravity)
+	var nearest := INF
+	for player in main.players:
+		nearest = minf(nearest, swarmed.distance_to(player.global_position))
+	_check(nearest >= main.weapon_controller.GRAVITY_MIN_STAND_OFF - 1.0,
+		"a crowd standing on both survivors still opens the well clear of them (%.0fpx from the nearer)" % nearest)
+	# And the ring is close enough that the well's own radius still reaches back
+	# over the bodies it was placed for — otherwise "clear of them" would just be
+	# a weapon that refuses to fire when it is needed.
+	_check(main.weapon_controller.GRAVITY_MIN_STAND_OFF < float(gravity["radius"]),
+		"the stand-off ring sits inside the collapse radius, so the crowd underfoot is still caught")
 	await _clear_enemies(main)
 
 

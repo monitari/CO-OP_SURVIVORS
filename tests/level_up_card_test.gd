@@ -31,6 +31,7 @@ func _run() -> void:
 	await process_frame
 
 	await _test_input_delay(main)
+	_test_hand_composition(main)
 	_test_recommendation_and_build_readout(main)
 	_test_luck_and_fan_hand(main)
 	await _test_cursor_and_deferred_apply(main)
@@ -47,22 +48,104 @@ func _run() -> void:
 		quit(1)
 
 
+## What a hand is made of.
+##
+## The pool used to be one flat shuffle in which every owned weapon had four
+## entries (화력 · 속도 · 특성 A · 특성 B) and every owned treasure one, against a
+## couple of new-weapon cards. A survivor with a full loadout was drawing three
+## cards from roughly twenty that all said "make what you already have bigger",
+## which is why the opening of a run read as a formality: the same weapon was
+## offered a damage card nearly every level and simply snowballed.
+##
+## Two properties replaced it and this is what holds them honest:
+##
+##   1. a weapon takes at most one slot in a hand, whatever its own axes offer
+##   2. while a slot is open, every hand carries one piece of gear the survivor
+##      has never held, so discovery does not depend on the shuffle
+##
+## Sampled over many draws, since both are claims about every hand rather than
+## about a lucky one.
+func _test_hand_composition(main: Node) -> void:
+	# Four weapons, deliberately grown past the route gate so each of them has
+	# several axes to offer and would have flooded the old pool.
+	while main.weapon_loadouts[0].size() < main.WEAPON_LOADOUT_CAP:
+		var candidates: Array = main._pick_unowned_characters(0, 1)
+		if candidates.is_empty():
+			break
+		main._apply_upgrade(0, {"id": "unlock_weapon", "weapon_slot": -1, "character": candidates[0]})
+	for weapon_slot in main.weapon_loadouts[0].size():
+		for step in 3:
+			var option := {"id": "weapon_power", "weapon_slot": weapon_slot}
+			if main.WeaponGrowthScript.needs_tech(main.weapon_loadouts[0][weapon_slot]):
+				var routes: Array = main.WeaponTechs.for_weapon(
+					String(main.weapon_loadouts[0][weapon_slot].get("base_weapon_id",
+						main.weapon_loadouts[0][weapon_slot]["weapon_id"])))
+				option = {"id": "choose_tech", "weapon_slot": weapon_slot, "tech": routes[0]}
+			main._apply_upgrade(0, option)
+
+	var worst_crowding := 0
+	var discovery_missing := 0
+	var draws := 40
+	for draw in draws:
+		main.last_upgrade_choice_keys[0] = []
+		var hand: Array = main._get_upgrade_choices(1)
+		var per_weapon: Dictionary = {}
+		var discovery := 0
+		for option in hand:
+			var id := String((option as Dictionary)["id"])
+			if id in ["unlock_weapon", "unlock_treasure"]:
+				discovery += 1
+				continue
+			var weapon_slot: int = int((option as Dictionary).get("weapon_slot", -1))
+			if weapon_slot < 0:
+				continue
+			per_weapon[weapon_slot] = int(per_weapon.get(weapon_slot, 0)) + 1
+			worst_crowding = maxi(worst_crowding, int(per_weapon[weapon_slot]))
+		if main.treasure_loadouts[0].size() < main.TREASURE_LOADOUT_CAP and discovery == 0:
+			discovery_missing += 1
+	_check(worst_crowding <= 1,
+		"no weapon takes more than one card in a hand (worst seen: %d in %d draws)"
+			% [worst_crowding, draws])
+	_check(discovery_missing == 0,
+		"every hand offers gear the survivor has never held while a slot is open (%d of %d draws did not)"
+			% [discovery_missing, draws])
+
+
 ## The bands themselves, driven by scores rather than by whatever the pool
-## happened to deal: a hand of three strong cards must star more than one, and
-## a hand of three weak ones must star none. Without this the checks above pass
-## on any implementation that simply never marks anything.
+## happened to deal. Four properties, and between them they rule out both ways
+## of passing the checks above by doing nothing useful — an implementation that
+## never marks anything, and one that marks everything.
+##
+##   1. nothing below the bar is starred
+##   2. the weakest card in a hand is never starred, so a hand is never entirely
+##      recommended
+##   3. at most half a hand carries a star
+##   4. a hand whose cards are all within ADVICE_MIN_SPREAD of each other is
+##      not starred at all — the screen declines to invent a right answer
+##
+## The bar is the absolute floor or a share of the best card, whichever is
+## higher, which is the rule main.gd applies.
 func _test_advice_bands(main: Node) -> void:
 	var choices: Array = main._get_upgrade_choices(1)
 	var best := -INF
+	var worst := INF
 	for option in choices:
 		best = maxf(best, float(option["recommendation_score"]))
+		worst = minf(worst, float(option["recommendation_score"]))
+	var bar: float = maxf(main.RECOMMEND_MIN_SCORE, best * main.RECOMMEND_RELATIVE)
+	var flat: bool = best - worst < main.ADVICE_MIN_SPREAD
+	var starred := 0
 	for option in choices:
 		var score := float(option["recommendation_score"])
-		var starred := bool(option["recommended"])
-		var expected: bool = score >= main.RECOMMEND_MIN_SCORE and score >= best * main.RECOMMEND_RELATIVE
-		_check(starred == expected,
-			"card scoring %.0f against a best of %.0f is starred exactly when it should be" % [score, best])
-	print("ADVICE_METRICS: best=%.0f floor=%.0f relative=%.2f" % [best, main.RECOMMEND_MIN_SCORE, main.RECOMMEND_RELATIVE])
+		if not bool(option["recommended"]):
+			continue
+		starred += 1
+		_check(not flat, "a hand of cards within a hair of each other stars none of them")
+		_check(score >= bar, "a starred card clears the bar (%.0f against %.0f)" % [score, bar])
+		_check(score > worst, "the weakest card in the hand is not the one starred")
+	_check(starred <= maxi(1, choices.size() / 2),
+		"at most half a hand is starred (%d of %d)" % [starred, choices.size()])
+	print("ADVICE_METRICS: best=%.0f worst=%.0f bar=%.0f starred=%d" % [best, worst, bar, starred])
 	_test_a_dead_card_is_marked_against(main)
 
 

@@ -39,6 +39,7 @@ func _run() -> void:
 	_test_evolution_keeps_growth(main)
 	_test_treasures_escalate(main)
 	_test_route_specials_are_never_dead(main)
+	_test_growth_has_a_ceiling(main)
 	await _test_overload_blast(main)
 	await _test_chain_double_pulse(main)
 
@@ -208,6 +209,89 @@ func _test_route_specials_are_never_dead(main: Node) -> void:
 					elif before.has(field) != after.has(field):
 						moved = true
 				_check(moved, "%s/%s special %s changes what the weapon casts" % [weapon_id, String(tech["id"]), key])
+
+
+## Growth rises, and it stops somewhere.
+##
+## Nothing here used to have a ceiling, and the compounding was the single worst
+## balance failure the game had: eleven 화력 cards on a focused route multiplied a
+## weapon's damage by thirty-five, 속도 cards drove every weapon in the roster
+## onto the same hard 0.25s floor whatever it had started at, and 발사 수 and 반경
+## cards simply added their delta forever. By the midpoint of a run the pair were
+## an order of magnitude past anything the wave scaling answers, the screen was a
+## wall of projectiles, and the frame rate went with it.
+##
+## Three ceilings, checked against a weapon grown the way a real run grows one.
+## The numbers are deliberately loose — this guards the shape, not a tuning pass.
+func _test_growth_has_a_ceiling(main: Node) -> void:
+	# Every ceiling is a share of the weapon's *own* catalogue entry, and a weapon
+	# grown this far has enhanced — so the entry to measure against is the
+	# enhanced form's, not the one the run started from. Comparing a 성좌 관통포
+	# against 유도 별탄's numbers would be measuring the enhancement, which is
+	# supposed to change them, rather than measuring the growth ladder.
+	for weapon_id in ["homing", "orbit", "milk"]:
+		var character := _character(weapon_id)
+		var opening: Dictionary = main._build_weapon_state(character)
+		var opening_damage: float = opening["damage"]
+
+		# Every card into 화력 on the route that focuses it — the worst case.
+		var powered := _grow(main, character, "weapon_power")
+		var multiple := float(powered["damage"]) / opening_damage
+		_check(multiple < 20.0,
+			"%s: pouring every card into 화력 stays under x20 (x%.1f)" % [weapon_id, multiple])
+		_check(multiple > 4.0,
+			"%s: and is still worth doing (x%.1f)" % [weapon_id, multiple])
+
+		# Every card into 속도, then the fastest the survivor could ever cast it.
+		var hastened := _grow(main, character, "weapon_rate")
+		var catalogue_cooldown: float = Growth.catalogue_cooldown(hastened)
+		main.weapon_loadouts[0] = [hastened]
+		main.attack_timers[0] = [0.0]
+		main.players[0].haste = main.HASTE_FLOOR
+		var interval: float = main._weapon_interval(0, 0)
+		main.players[0].haste = 1.0
+		_check(interval >= catalogue_cooldown * Growth.INTERVAL_MIN_RATIO - 0.001,
+			"%s: never casts faster than a third of its own catalogue interval (%.2fs of %.2fs)"
+				% [weapon_id, interval, catalogue_cooldown])
+		_check(interval < catalogue_cooldown * 0.75,
+			"%s: and 속도 cards still visibly speed it up (%.2fs of %.2fs)"
+				% [weapon_id, interval, catalogue_cooldown])
+
+		# Every card into the count special.
+		if opening.has("count"):
+			var multiplied := _grow(main, character, "special_a")
+			var baseline: Dictionary = main.UpgradeValue.baseline(multiplied)
+			var extra := float(multiplied.get("count", 0)) - float(baseline.get("count", 0))
+			_check(extra <= float(main.SPECIAL_CAP_BONUS["Count"]) + 0.01,
+				"%s: 발사 수 stops at the cap (+%.0f of +%d over its own %d)"
+					% [weapon_id, extra, int(main.SPECIAL_CAP_BONUS["Count"]), int(baseline.get("count", 0))])
+			_check(extra >= 1.0, "%s: and the card is worth taking at all (+%.0f)" % [weapon_id, extra])
+
+
+## One weapon grown to the tier ceiling with every card poured into `axis`,
+## taking the route that focuses it — which is what a player committed to a
+## weapon actually does.
+func _grow(main: Node, character: Dictionary, axis: String) -> Dictionary:
+	main.weapon_loadouts[0] = [main._build_weapon_state(character)]
+	main.attack_timers[0] = [0.0]
+	var routes: Array = Techs.for_weapon(String(character["weapon_id"]))
+	var chosen: Dictionary = routes[0]
+	for route in routes:
+		if axis in (route as Dictionary).get("upgrades", []):
+			chosen = route
+	for step in 40:
+		var state: Dictionary = main.weapon_loadouts[0][0]
+		if int(state.get("tier", 1)) >= EvolutionCatalog.WEAPON_MAX_TIER:
+			break
+		if Growth.needs_tech(state):
+			main._apply_upgrade(0, {"id": "choose_tech", "weapon_slot": 0, "tech": chosen})
+			continue
+		var option := {"id": axis, "weapon_slot": 0}
+		if not main.UpgradeValue.has_effect(main, 0, option):
+			option = {"id": "weapon_power", "weapon_slot": 0}
+		main._apply_upgrade(0, option)
+		main._apply_pending_evolutions(0)
+	return main.weapon_loadouts[0][0]
 
 
 func _spawn(main: Node, at: Vector2) -> ChaserEnemy:

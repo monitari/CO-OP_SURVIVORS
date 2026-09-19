@@ -95,6 +95,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:boss_health_bar", probe_started)
+
+
+func _probed_draw() -> void:
 	var bar_height := 20.0
 	var top := size.y - bar_height
 	var track := Rect2(0.0, top, size.x, bar_height)
@@ -134,7 +140,7 @@ func _draw() -> void:
 	for index in rank_total:
 		var filled := index < rank
 		var centre := Vector2(cursor + pip_gap * float(index), baseline - 5.0)
-		draw_circle(centre, 4.0 if filled else 3.0, PIP_ON if filled else PIP_OFF)
+		draw_circle(centre, 4.0 if filled else 3.0, PIP_ON if filled else PIP_OFF, true, -1.0, true)
 	if not health_text.is_empty():
 		draw_string(font, Vector2(size.x - 150.0, baseline), health_text,
 			HORIZONTAL_ALIGNMENT_RIGHT, 148.0, 14, Color("d9e6f5"))

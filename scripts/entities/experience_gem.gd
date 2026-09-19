@@ -49,6 +49,12 @@ func deactivate() -> void:
 
 
 func _process(_delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(_delta)
+	FrameProbe.add(&"gems", probe_started)
+
+
+func _probed_process(_delta: float) -> void:
 	# Valuable drops breathe and rotate gently; the silhouette still carries
 	# the grade when colour is hard to distinguish.
 	rotation += (0.55 + grade * 0.22) * _delta
@@ -59,6 +65,12 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:experience_gem", probe_started)
+
+
+func _probed_draw() -> void:
 	var colors := [Color("80ed99"), Color("43d9ff"), Color("ffd166"), Color("ff8fab")]
 	var names := [4, 6, 8, 10]
 	var radius := 6.0 + grade * 2.4

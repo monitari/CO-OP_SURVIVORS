@@ -106,6 +106,16 @@ func _run() -> void:
 				"growth cards keep their size while focus is shown by the border and the tilt")
 			_fit(card, "growth card")
 			_fit(card.get_node("CardTitle"), "growth title")
+			# The sectioned body is rich text, which has no visible-line count;
+			# what it has is the height its content needs.
+			var body: RichTextLabel = card.get_node("Body")
+			_check(body.visible and body.get_content_height() <= body.size.y + 1.0,
+				"growth card body fits (%d of %dpx): %s" % [body.get_content_height(), body.size.y, body.get_parsed_text()])
+			# And every phrase on it stays on its one line: the body is sized so
+			# nothing wraps, which is what keeps it reading as a block.
+			_check(body.get_line_count() == body.get_parsed_text().count("\n") + 1,
+				"growth card body does not wrap (%d lines for %d phrases): %s" % [
+					body.get_line_count(), body.get_parsed_text().count("\n") + 1, body.get_parsed_text()])
 	_check_icon_bounds(main.level_overlay)
 	main.fusion_discovered = true
 	# Every treasure description, not merely three randomly drawn short ones.

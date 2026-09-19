@@ -32,12 +32,39 @@ const OPENING_DAMAGE_SCALE := 0.62
 enum Stage { OPENING, ROUTE, FINAL }
 
 ## Damage multiplier per 화력 card is 1 + POWER_GAIN[stage] * focus.
-const POWER_GAIN := [0.16, 0.26, 0.30]
+##
+## These were [0.16, 0.26, 0.30] and they compounded into the single biggest
+## balance failure in the game. Eleven cards poured into 화력 on a focused route
+## multiplied a weapon's damage by **thirty-five**, and the 격노의 인장 treasure
+## multiplied that again — so a pair with one committed weapon was roughly
+## seventy times their opening output around the midpoint of a run, against
+## enemies that scale nothing like that. Everything after minute twelve was a
+## formality. The ladder still rises across the three stages, because a late
+## card should be worth more than an early one, but the whole staircase is much
+## shallower: the same eleven cards now land near ×8 instead of ×35.
+const POWER_GAIN := [0.12, 0.16, 0.19]
 ## Cooldown multiplier per 속도 card is 1 - RATE_GAIN[stage] * focus.
-const RATE_GAIN := [0.05, 0.09, 0.11]
+const RATE_GAIN := [0.04, 0.06, 0.07]
 ## Scales the continuous delta of a unique special (range, radius, slow...).
-const SPECIAL_SCALE := [0.8, 1.0, 1.35]
+const SPECIAL_SCALE := [0.70, 0.85, 1.00]
+## The absolute fastest any weapon may ever be cast, whatever it started at.
 const RATE_FLOOR := 0.32
+
+## And the floor that actually bites: no weapon may be brought below this share
+## of its own catalogue interval by 속도 cards.
+##
+## Without it every weapon converged on the same number. 속도 cards are
+## multiplicative and 질풍의 태엽 multiplies again, so 궤도 파편 (6.6s), 초신성
+## (2.02s) and 성좌 관통포 (1.12s) all ended a run pinned to the same hard 0.25s
+## floor — which erased the difference between a slow heavy weapon and a fast
+## light one, and is most of the reason the late game turns into a wall of
+## projectiles the renderer cannot keep up with. A weapon is now allowed to get
+## much faster and never allowed to stop being what it is.
+const RATE_MIN_RATIO := 0.45
+## The same rule after 질풍의 태엽 and 광란 are applied, which is where a weapon's
+## real interval is decided (see main._weapon_interval). Lower than the ratio
+## above, so haste is still worth carrying once the card ladder has bottomed out.
+const INTERVAL_MIN_RATIO := 0.33
 
 ## What a route makes of one growth axis. Every route names exactly two of the
 ## four axes (WeaponTechCatalog enforces the shape), so there is one pair of
@@ -51,7 +78,7 @@ const FOCUS_WEIGHT := 1.30
 const OFF_WEIGHT := 0.75
 ## Count-style specials (+1 shot, +1 chain) cannot be scaled by a fraction, so a
 ## focused one also sharpens the weapon's damage by this much per stage step.
-const FOCUS_INTEGER_DAMAGE := [0.04, 0.06, 0.08]
+const FOCUS_INTEGER_DAMAGE := [0.03, 0.04, 0.05]
 
 static func base_id(state: Dictionary) -> String:
 	return String(state.get("base_weapon_id", state.get("weapon_id", "")))
@@ -108,8 +135,26 @@ static func rate_step(state: Dictionary) -> float:
 	return 1.0 - float(RATE_GAIN[stage(state)]) * focus(state, "weapon_rate")
 
 
+## What this weapon's interval was in the catalogue, before anything was spent
+## on it. Stashed on the state when the weapon is built (main._build_weapon_state
+## and EvolutionCatalog.build_state) rather than looked up here, because the
+## catalogues preload this file and asking them back would close the loop.
+static func catalogue_cooldown(state: Dictionary) -> float:
+	return float(state.get("base_cooldown", state.get("cooldown", 1.0)))
+
+
+## The fastest this weapon may be cast from 속도 cards alone.
+static func cooldown_floor(state: Dictionary) -> float:
+	return maxf(RATE_FLOOR, catalogue_cooldown(state) * RATE_MIN_RATIO)
+
+
+## The fastest it may be cast once every other source has had its say.
+static func interval_floor(state: Dictionary) -> float:
+	return maxf(RATE_FLOOR * 0.78, catalogue_cooldown(state) * INTERVAL_MIN_RATIO)
+
+
 static func next_cooldown(state: Dictionary) -> float:
-	return maxf(RATE_FLOOR, float(state["cooldown"]) * rate_step(state))
+	return maxf(cooldown_floor(state), float(state["cooldown"]) * rate_step(state))
 
 
 static func special_scale(state: Dictionary, key: String) -> float:

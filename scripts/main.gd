@@ -39,6 +39,7 @@ const CatTheme := preload("res://scripts/ui/cat_theme.gd")
 const CatPanel := preload("res://scripts/ui/cat_panel.gd")
 const ItemStateVeilScript := preload("res://scripts/ui/item_state_veil.gd")
 const EditorialUI := preload("res://scripts/ui/editorial_ui.gd")
+const UIWrite := preload("res://scripts/ui/ui_write.gd")
 const NeonGrowthUI := preload("res://scripts/ui/neon_growth_ui.gd")
 const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
 const DebugInspectorScript := preload("res://scripts/ui/debug_inspector.gd")
@@ -60,15 +61,18 @@ const CHAIN_RESIST_RATIO := 0.70
 ## recomputing the interval.
 const RUN_LENGTH := WaveDirectorScript.RUN_LENGTH
 const DOWNED_TOW_SHARE := 0.88
-## Four weapons and four treasures was a build a survivor finished with a third
-## of the run still to play. Six of each is the same shape of decision — every
-## slot is still a commitment, and the pool of twelve weapons and twenty-odd
-## treasures still never fits — but it is also what makes a resonance affordable
-## now that one costs a weapon slot each side (see ResonanceSystem).
-const WEAPON_LOADOUT_CAP := 6
+## Four weapons and four treasures. Six of each was tried and the extra two
+## slots did not buy two more decisions — they bought permission to stop
+## deciding: a survivor could take every weapon that looked interesting and
+## still have room, so "which of these do I give a slot to" never actually got
+## asked. Four is small enough that the twelve weapons and twenty-six treasures
+## visibly do not fit, which is the whole point of having a loadout at all.
+## A weapon no longer keeps climbing for free either: a slot spent is depth not
+## taken somewhere else (see _score_upgrade_option's slot pressure).
+const WEAPON_LOADOUT_CAP := 4
 ## Treasures are the other half of a build. Attributes used to be unlimited
-## free-floating cards; a survivor now commits to six and deepens those.
-const TREASURE_LOADOUT_CAP := 6
+## free-floating cards; a survivor now commits to four and deepens those.
+const TREASURE_LOADOUT_CAP := 4
 ## What a weapon is worth before anyone has spent anything on it. What each card
 ## is worth after that depends on where the weapon is in its life and which tech
 ## it took — both live in WeaponGrowth, so the card pool, the preview, the chest
@@ -305,6 +309,7 @@ var camera_shake := 0.0
 var camera_focus := Vector2.ZERO
 var camera_written := Vector2.ZERO
 var screen_shake_enabled := true
+var combat_visuals_enabled := true
 var previous_chain_stage := 0
 var last_input_gamepad: Array[bool] = [false, false]
 var lobby_joined: Array[bool] = [false, false]
@@ -347,6 +352,7 @@ var _profile_at := 0
 var profile_frame_usec: PackedInt32Array = PackedInt32Array()
 var _profile_frame_at := 0
 var level_overlay_tween: Tween
+var resonance_overlay_tween: Tween
 var chain_ward_remaining := 0.0
 var chain_ward_pulse_timer := 0.0
 ## Live hostile shots. Kept as a list rather than found by walking the child
@@ -576,9 +582,18 @@ func _input(event: InputEvent) -> void:
 				_join_lobby_slot(0, -1, "키보드 WASD")
 			elif key in [KEY_UP, KEY_LEFT, KEY_DOWN, KEY_RIGHT]:
 				_join_lobby_slot(1, -1, "키보드 방향키")
+	# F11 and F12 are lent to the debug panel while it is open: it puts its frame
+	# metering and its combat-render toggle there, and both of those are read as
+	# raw keycodes rather than as actions — so without this the pair of them
+	# would fire together with 전체화면 and 달빛 연출 on the same press.
+	var debug_panel_open: bool = is_instance_valid(debug_inspector) and bool(debug_inspector.is_open)
 	if event.is_action_pressed("toggle_moonlight"):
+		if debug_panel_open:
+			return
 		_toggle_moonlight()
 		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("toggle_fullscreen") and debug_panel_open:
 		return
 	if event.is_action_pressed("toggle_fullscreen"):
 		_toggle_fullscreen()
@@ -600,6 +615,12 @@ func _profile(section: String) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(&"main (whole)", probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	if modal_input_guard > 0:
 		modal_input_guard -= 1
 		return
@@ -611,9 +632,13 @@ func _physics_process(delta: float) -> void:
 	var modal := (title_active or lobby_active or character_select_active or level_up_active
 		or resonance_vote_active or pause_active or game_over or cinematic_active)
 	modal_dim.visible = modal
-	# The growth screen, the pause menu and a showcase (a chest opening) show the
-	# run through; every other overlay replaces a screen there is nothing behind.
-	var veil := (level_up_active or pause_active or cinematic_active) and not (title_active or lobby_active or character_select_active or game_over)
+	# The growth screen, the resonance vote, the pause menu and a showcase (a
+	# chest opening) show the run through; every other overlay replaces a screen
+	# there is nothing behind. The resonance vote joined that list when it became
+	# a growth screen: it is a choice made about two cats standing in a fight, and
+	# blacking the fight out was the single biggest reason it read as a different
+	# game's menu.
+	var veil := (level_up_active or resonance_vote_active or pause_active or cinematic_active) and not (title_active or lobby_active or character_select_active or game_over)
 	if modal_dim.veil_only != veil:
 		modal_dim.veil_only = veil
 		modal_dim.queue_redraw()
@@ -948,6 +973,16 @@ func _toggle_moonlight() -> void:
 		_show_message("달빛 연출 %s" % ("켜짐" if Moonlight.enabled else "꺼짐"), Color("8ecae6"))
 
 
+func set_combat_visuals_enabled(enabled: bool) -> void:
+	combat_visuals_enabled = enabled
+	weapon_controller.visible = enabled
+	flight_field.visible = enabled
+	bursts.visible = enabled
+	particles.visible = enabled
+	crowd_renderer.attack_visuals_enabled = enabled
+	crowd_renderer.refresh()
+
+
 ## Everything the pass touches that is drawn once and kept, rather than redrawn
 ## every frame: the rooftop window, the actors, and the chain's halo material.
 func _apply_moonlight() -> void:
@@ -1189,68 +1224,56 @@ func _create_hud() -> void:
 	level_card_labels[0] = _create_level_cards(level_overlay)
 	level_card_labels[1] = _create_level_cards(level_overlay)
 
+	# The resonance vote is a growth screen. It is the same moment — the run is
+	# held, the pair are looking at cards, one of them is going to change what
+	# they have built — so it is now literally the same furniture: the same panel
+	# geometry, the same card component, the same fan, the same entrance, and the
+	# same paused fight showing through behind it (see the `veil` flag in
+	# _physics_process). It used to be a boxed-in window of wrapped text floating
+	# over a blacked-out screen, which read as a different game's menu and hid
+	# the two cats the choice is about.
 	resonance_overlay = CatPanel.new()
-	resonance_overlay.position = Vector2(180.0, 132.0)
-	resonance_overlay.size = Vector2(920.0, 500.0)
+	resonance_overlay.translucent = true
+	resonance_overlay.chromeless = true
+	resonance_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	resonance_overlay.position = Vector2(0.0, LEVEL_OVERLAY_Y)
+	resonance_overlay.size = Vector2(1280.0, LEVEL_OVERLAY_HEIGHT)
 	resonance_overlay.visible = false
 	layer.add_child(resonance_overlay)
 
 	resonance_title = Label.new()
-	resonance_title.position = Vector2(0.0, 25.0)
-	resonance_title.size = Vector2(920.0, 55.0)
-	resonance_title.text = "공명핵 — 하나를 고르세요"
+	resonance_title.position = Vector2(0.0, 4.0)
+	resonance_title.size = Vector2(1280.0, 40.0)
+	resonance_title.text = "공명핵 — 둘이 함께 하나를 고르세요"
 	resonance_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	resonance_title.add_theme_font_size_override("font_size", 29)
+	resonance_title.add_theme_font_size_override("font_size", 27)
 	resonance_title.add_theme_color_override("font_color", CatTheme.GOLD)
 	_confine_label(resonance_title)
 	resonance_overlay.add_child(resonance_title)
-	_add_cat_caption(resonance_overlay, "보스가 남긴 공명핵으로 공명 하나를 켜고, 그 무기 칸은 그 공명에 묶입니다. 같은 숫자에 둘 다 확정하면 발현!", Vector2(40, 72), Vector2(840, 25), 16)
+	_add_cat_caption(resonance_overlay, "보스가 남긴 공명핵으로 공명 하나를 켭니다. 같은 카드에 둘 다 확정하면 발현!", Vector2(240, 44), Vector2(800, 24), 15)
 
-	# Voting used to be a wall of text and two number keys, which reads as a
-	# quiz rather than a decision. It is now the same card grid as the level-up
-	# screen, and both survivors' cursors are drawn live on it — you can see
-	# what your partner is pointing at before either of you commits, which is
-	# the whole negotiation the mechanic is asking for.
+	# Both survivors read the same hand here, so there is one fan in the middle
+	# rather than the level-up screen's own-hand/partner-hand split. Each card
+	# carries both cursors on its badge strip, which is the negotiation the
+	# mechanic is asking for: you can see what your partner is pointing at before
+	# either of you commits.
 	resonance_cards = []
 	for index in RESONANCE_CARD_SLOTS:
-		var card := Label.new()
-		card.position = Vector2(
-			RESONANCE_CARD_MARGIN + (RESONANCE_CARD_WIDTH + RESONANCE_CARD_GAP) * index,
-			RESONANCE_CARD_Y
-		)
-		card.size = Vector2(RESONANCE_CARD_WIDTH, RESONANCE_CARD_HEIGHT)
-		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		card.add_theme_font_size_override("font_size", 16)
-		card.add_theme_color_override("font_color", CatTheme.CREAM)
-		_confine_label(card, true)
-		var style := CatTheme.surface(CatTheme.CARD)
-		style.set_border_width_all(CatTheme.BORDER)
-		style.set_content_margin_all(CatTheme.PADDING)
-		style.content_margin_top = 78.0
-		style.content_margin_bottom = 44.0
-		card.add_theme_stylebox_override("normal", style)
-		var skill_icon := _create_icon_rect(card, Vector2(83, 12), Vector2(70, 70))
-		skill_icon.name = "SkillIcon"
-		for slot in 2:
-			var cat_icon := _create_icon_rect(card, Vector2(18 if slot == 0 else 176, 20), Vector2(42, 42))
-			cat_icon.name = "Cat%d" % slot
-		var pips := Label.new()
-		pips.name = "Pips"
-		pips.position = Vector2(10.0, RESONANCE_CARD_HEIGHT - 38.0)
-		pips.size = Vector2(RESONANCE_CARD_WIDTH - 20.0, 28.0)
-		pips.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		pips.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		pips.add_theme_font_size_override("font_size", 15)
-		_confine_label(pips)
-		_make_label_background(pips, Color(0.03, 0.02, 0.06, 0.85))
-		card.add_child(pips)
+		var card := CardVisual.create_card()
+		# The two portraits flank the resonance's own icon. A resonance is the
+		# only thing in the game that belongs to both survivors at once, and the
+		# pair of cats either side of one symbol is what says that before anyone
+		# reads the tag line underneath.
+		for portrait_slot in 2:
+			var cat_icon := _create_icon_rect(card,
+				Vector2(8 if portrait_slot == 0 else RESONANCE_CARD_WIDTH - 50.0, 54.0),
+				Vector2(42.0, 42.0))
+			cat_icon.name = "Cat%d" % portrait_slot
 		resonance_overlay.add_child(card)
 		resonance_cards.append(card)
 
 	resonance_status = Label.new()
-	resonance_status.position = Vector2(40.0, 424.0)
+	resonance_status.position = Vector2(220.0, 452.0)
 	resonance_status.size = Vector2(840.0, 56.0)
 	resonance_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	resonance_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1258,6 +1281,16 @@ func _create_hud() -> void:
 	resonance_status.add_theme_color_override("font_color", Color("e4c1f9"))
 	_confine_label(resonance_status, true)
 	resonance_overlay.add_child(resonance_status)
+
+	var resonance_controls := Label.new()
+	resonance_controls.name = "ResonanceControls"
+	resonance_controls.position = Vector2(220.0, 512.0)
+	resonance_controls.size = Vector2(840.0, 24.0)
+	resonance_controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	resonance_controls.add_theme_font_size_override("font_size", 13)
+	resonance_controls.add_theme_color_override("font_color", Color("b7d8ed"))
+	_confine_label(resonance_controls)
+	resonance_overlay.add_child(resonance_controls)
 
 	character_overlay = CatPanel.new()
 	character_overlay.position = Vector2(70.0, 30.0)
@@ -1538,12 +1571,21 @@ const LEVEL_CARD_SLOTS := 6
 ## Where each hand's reroll button is parked before NeonGrowthUI places it.
 const LEVEL_HALF_X := [0.0, 640.0]
 
+## The resonance hand, laid out the way the growth hand is: one centred fan of
+## full-size growth cards. The numbers match NeonGrowthUI's three-card case on
+## purpose — the two screens are the same moment and a player should not have to
+## re-learn where to look.
 const RESONANCE_CARD_SLOTS := 3
-const RESONANCE_CARD_WIDTH := 236.0
-const RESONANCE_CARD_HEIGHT := 322.0
-const RESONANCE_CARD_GAP := 12.0
-const RESONANCE_CARD_Y := 100.0
-const RESONANCE_CARD_MARGIN := 18.0
+const RESONANCE_CARD_WIDTH := 224.0
+const RESONANCE_CARD_HEIGHT := 372.0
+const RESONANCE_CARD_SPREAD := 244.0
+const RESONANCE_CARD_Y := 88.0
+## How far the outermost card in the fan is tilted, in radians.
+const RESONANCE_CARD_TILT := 0.11
+## Height at the bottom of a resonance card kept clear of its body text: the
+## badge strip that carries the two cursors, plus the row of 선택 buttons
+## ReviewUI parks above it for mouse play.
+const RESONANCE_CARD_BUTTON_ROOM := 104.0
 
 ## One reroll for a whole run meant nobody ever spent it: a resource you can
 ## never get back is a resource you hoard. It now refills on a schedule, so
@@ -1553,11 +1595,7 @@ const REROLL_START := 2
 const REROLL_PER_LEVELS := 3
 const REROLL_CAP := 3
 
-## Extra shuffle entries each point of luck gives a build-defining option.
-## At one entry per point luck moved the odds by about two cards in a
-## hundred, which is not a stat worth a treasure slot.
-const LUCK_WEIGHT_PER_POINT := 2
-## Each point of shared luck also gives a visible chance at a fourth choice.
+## Each point of shared luck gives a visible chance at a fourth choice.
 ## The ceiling preserves the normal three-card hand as a possible outcome.
 const LUCK_FOURTH_CARD_CHANCE_PER_POINT := 0.07
 const LUCK_FOURTH_CARD_MAX_CHANCE := 0.60
@@ -2730,6 +2768,12 @@ func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) ->
 
 
 func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_on_enemy_damaged(enemy, amount)
+	FrameProbe.add(&"hit_feedback (incl)", probe_started)
+
+
+func _probed_on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	feedback.show_damage(enemy.global_position, amount, Color("fff4cf"))
 	# Sparks scale with the hit rather than being constant, so a chip and a
 	# critical do not look identical, and a screenful of swarm hits does not
@@ -3671,11 +3715,16 @@ const GROWTH_LIFT := 200.0
 
 
 func _pull_camera_for_growth() -> void:
-	if not is_instance_valid(world_camera) or not is_instance_valid(level_overlay):
+	_pull_camera_for_choice(level_overlay)
+
+
+## The same beat for any screen that holds the run to ask the pair something.
+## `panel` owns the tween because the tree is paused while it plays, and the
+## panel is the node that ignores that.
+func _pull_camera_for_choice(panel: Control) -> void:
+	if not is_instance_valid(world_camera) or not is_instance_valid(panel):
 		return
-	# Bound to the growth panel rather than to the camera: the tree is paused
-	# while this plays, and the panel is the node that ignores that.
-	var tween := level_overlay.create_tween()
+	var tween := panel.create_tween()
 	tween.set_parallel(true)
 	# Clamped rather than multiplied blind: back-to-back level-ups would
 	# otherwise each pull in another 22% on a view the run never got to reset.
@@ -3704,41 +3753,54 @@ func _pull_camera_for_growth() -> void:
 
 
 func _animate_level_overlay(opening: bool) -> void:
-	if not is_instance_valid(level_overlay):
-		return
+	level_overlay_tween = _animate_choice_panel(level_overlay, level_overlay_tween, opening,
+		func() -> bool: return level_up_active)
+
+
+func _animate_resonance_overlay(opening: bool) -> void:
+	resonance_overlay_tween = _animate_choice_panel(resonance_overlay, resonance_overlay_tween, opening,
+		func() -> bool: return resonance_vote_active)
+
+
+## Drops a choice panel in and lifts it back out. `still_open` is asked at the
+## end of the exit, because the run is already running again underneath by then
+## and a screen that reopened in the meantime must not be taken down.
+func _animate_choice_panel(panel: Control, running: Tween, opening: bool, still_open: Callable) -> Tween:
+	if not is_instance_valid(panel):
+		return null
 	# Killed rather than left running: queued level-ups can open a new screen
 	# while the previous one is still lifting out, and two tweens on the same
 	# properties fight each other into a stuck half-faded panel.
-	if level_overlay_tween != null and level_overlay_tween.is_valid():
-		level_overlay_tween.kill()
-	level_overlay.pivot_offset = level_overlay.size * 0.5
-	var tween := level_overlay.create_tween()
-	level_overlay_tween = tween
+	if running != null and running.is_valid():
+		running.kill()
+	panel.pivot_offset = panel.size * 0.5
+	var tween := panel.create_tween()
 	tween.set_parallel(true)
 	if opening:
-		level_overlay.modulate.a = 0.0
-		level_overlay.scale = Vector2(0.94, 0.9)
-		level_overlay.position.y = LEVEL_OVERLAY_Y + 26.0
-		tween.tween_property(level_overlay, "modulate:a", 1.0, LEVEL_OVERLAY_ENTER)
-		tween.tween_property(level_overlay, "scale", Vector2.ONE, LEVEL_OVERLAY_ENTER)\
+		panel.modulate.a = 0.0
+		panel.scale = Vector2(0.94, 0.9)
+		panel.position.y = LEVEL_OVERLAY_Y + 26.0
+		tween.tween_property(panel, "modulate:a", 1.0, LEVEL_OVERLAY_ENTER)
+		tween.tween_property(panel, "scale", Vector2.ONE, LEVEL_OVERLAY_ENTER)\
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		tween.tween_property(level_overlay, "position:y", LEVEL_OVERLAY_Y, LEVEL_OVERLAY_ENTER)\
+		tween.tween_property(panel, "position:y", LEVEL_OVERLAY_Y, LEVEL_OVERLAY_ENTER)\
 			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		return
-	tween.tween_property(level_overlay, "modulate:a", 0.0, LEVEL_OVERLAY_EXIT)
-	tween.tween_property(level_overlay, "scale", Vector2(0.96, 0.94), LEVEL_OVERLAY_EXIT)\
+		return tween
+	tween.tween_property(panel, "modulate:a", 0.0, LEVEL_OVERLAY_EXIT)
+	tween.tween_property(panel, "scale", Vector2(0.96, 0.94), LEVEL_OVERLAY_EXIT)\
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(level_overlay, "position:y", LEVEL_OVERLAY_Y - 18.0, LEVEL_OVERLAY_EXIT)\
+	tween.tween_property(panel, "position:y", LEVEL_OVERLAY_Y - 18.0, LEVEL_OVERLAY_EXIT)\
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	# The panel is only actually taken down once the exit has played; the run is
 	# already unpaused underneath it, which is what makes the lift-out read as
 	# handing control back rather than as a second pause.
 	tween.chain().tween_callback(func() -> void:
-		if not level_up_active:
-			level_overlay.visible = false
-			level_overlay.modulate.a = 1.0
-			level_overlay.scale = Vector2.ONE
-			level_overlay.position.y = LEVEL_OVERLAY_Y)
+		if not bool(still_open.call()):
+			panel.visible = false
+			panel.modulate.a = 1.0
+			panel.scale = Vector2.ONE
+			panel.position.y = LEVEL_OVERLAY_Y)
+	return tween
 
 
 ## Drains every banked level at once rather than one per call: the growth
@@ -3777,10 +3839,24 @@ func _option_key(option: Dictionary) -> String:
 
 ## Characters whose weapon this player does not already carry, shuffled and
 ## capped at `count` — the pool of "new tech" candidates a level-up can offer.
-func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
+##
+## Ownership is read off `base_weapon_id`, never off `weapon_id`, and that is the
+## whole fix for the duplicate-weapon bug. An enhancement renames the slot — the
+## 유도탄 a survivor has carried all run becomes 성좌 관통포, keeping its base id
+## and losing its old weapon_id — so a check against weapon_id stopped
+## recognising it the moment it enhanced, and the level-up hand and the chest
+## both started offering 유도탄 back as "신규 무기". Taking it gave the survivor
+## two slots of the same weapon, one enhanced and one at Lv.1.
+func _carried_weapon_ids(slot: int) -> Dictionary:
 	var owned_ids: Dictionary = {}
-	for weapon in weapon_loadouts[slot]:
+	for weapon: Dictionary in weapon_loadouts[slot]:
+		owned_ids[String(weapon.get("base_weapon_id", weapon["weapon_id"]))] = true
 		owned_ids[String(weapon["weapon_id"])] = true
+	return owned_ids
+
+
+func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
+	var owned_ids := _carried_weapon_ids(slot)
 	var candidates: Array[Dictionary] = []
 	for character in character_catalog:
 		if not owned_ids.has(String(character["weapon_id"])):
@@ -3900,7 +3976,14 @@ func _shared_tiers(treasure_id: String) -> float:
 func _recompute_team_effects() -> void:
 	team_overcharge = _shared_tiers("overcharge") * 0.06
 	team_greed = _shared_tiers("greed") * 0.30
-	team_growth = 1.0 + _shared_tiers("growth") * 0.10
+	# 성장의 서 was worth +10% shared XP a tier, so one carrier at its cap doubled
+	# the pair's experience and two carriers went past +150%. That is not a
+	# treasure, it is a second difficulty setting: the measured effect was the
+	# gap between level-ups halving, from roughly 16 seconds to under 11, which
+	# is the whole of "레벨업이 너무 쉬워진다". Worse, it compounds with itself —
+	# faster levels buy more cards, which buy more of everything, including this.
+	# Halved, so a maxed pair gains about 50% rather than 100%+.
+	team_growth = 1.0 + _shared_tiers("growth") * 0.05
 	team_luck = meta_progression.team_luck_bonus() + int(round(_shared_tiers("luck")))
 	team_lifesteal = _shared_tiers("lifesteal") * LIFESTEAL_PER_TIER
 	team_level_heal = _shared_tiers("catnip") * 0.04
@@ -3941,16 +4024,115 @@ func _growth_choice_count() -> int:
 	return count
 
 
-## Builds the pool of everything this level-up could offer: two generic
-## options, four per owned weapon (power/rate/special_a/special_b), and — if
-## the player has room under WEAPON_LOADOUT_CAP — a couple of "learn this
-## other character's weapon" candidates competing on equal footing in the
-## same shuffle, not guaranteed to appear every time.
+## Relative pull of each kind of card in the weighted part of a hand. Gear the
+## survivor already carries is deliberately not the heaviest entry here; see
+## _get_upgrade_choices for why.
+const GROWTH_WEIGHT_WEAPON := 3.0
+const GROWTH_WEIGHT_TREASURE := 2.2
+const GROWTH_WEIGHT_NEW_WEAPON := 3.0
+const GROWTH_WEIGHT_NEW_TREASURE := 3.0
+## What each point of shared luck adds to both discovery weights. Luck used to
+## buy extra copies of build-defining cards in a flat shuffle; the shuffle is
+## gone, so it leans the category draw instead and means the same thing.
+const LUCK_DISCOVERY_WEIGHT := 0.4
+
+
+## Every growth card one owned weapon could be offered right now. A weapon
+## contributes at most one of these to a hand (see _get_upgrade_choices), so
+## this is the set that one card is drawn from rather than four cards the hand
+## deals from directly.
+func _weapon_growth_options(slot: int, weapon_slot: int) -> Array[Dictionary]:
+	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
+	if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER or WeaponGrowthScript.needs_tech(state):
+		return []
+	var weapon_name := String(state["weapon_name"])
+	var options: Array[Dictionary] = []
+	if WeaponTechs.allows(state, "weapon_power"):
+		options.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
+	if WeaponTechs.allows(state, "weapon_rate"):
+		options.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전\n%s" % weapon_name})
+	for key: String in ["a", "b"]:
+		if not WeaponTechs.allows(state, "special_" + key):
+			continue
+		var spec := _special_spec(state, key)
+		if spec.is_empty():
+			continue
+		options.append({
+			"id": "special_" + key, "weapon_slot": weapon_slot,
+			"title": "%s\n%s" % [String(spec["title"]), weapon_name],
+		})
+	return options.filter(func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option))
+
+
+## Removes one option from `options` and returns it, preferring one the previous
+## hand did not already show. Returns an empty dictionary when nothing is left.
+func _draw_growth_option(options: Array, previous_keys: Array) -> Dictionary:
+	if options.is_empty():
+		return {}
+	var fresh: Array = []
+	for option in options:
+		if not (_option_key(option as Dictionary) in previous_keys):
+			fresh.append(option)
+	var picked: Dictionary = (fresh if not fresh.is_empty() else options).pick_random()
+	options.erase(picked)
+	return picked
+
+
+## Picks one non-empty bucket in proportion to its weight.
+func _pick_growth_bucket(buckets: Array) -> Dictionary:
+	var total := 0.0
+	for bucket: Dictionary in buckets:
+		if not (bucket["options"] as Array).is_empty():
+			total += float(bucket["weight"])
+	if total <= 0.0:
+		return {}
+	var roll := randf() * total
+	var last: Dictionary = {}
+	for bucket: Dictionary in buckets:
+		if (bucket["options"] as Array).is_empty():
+			continue
+		last = bucket
+		roll -= float(bucket["weight"])
+		if roll <= 0.0:
+			return bucket
+	return last
+
+
+## Deals one survivor's growth hand.
+##
+## This used to be a single flat shuffle over every valid card, and the bag it
+## shuffled was lopsided by construction: each owned weapon put up to four cards
+## into it (화력 · 속도 · 특성 A · 특성 B) and each owned treasure one, against two
+## new-weapon cards and a handful of new treasures. A survivor carrying four
+## weapons and four treasures was therefore drawing three cards out of roughly
+## twenty that all said "make what you already have bigger". The opening of a run
+## felt like a formality because of it — nearly every hand was a damage card for
+## the weapon that was already working, so the first weapon snowballed, levels
+## arrived faster for it, and the build decisions the loadout caps exist to force
+## were never actually put to the player.
+##
+## A hand is dealt by category now, and a category is a row of the build rather
+## than a pile of cards:
+##
+##   무기 성장   one card per owned weapon, drawn from that weapon's own axes
+##   보물 성장   one card per owned treasure that still has a tier to take
+##   신규 무기   only while a weapon slot is free
+##   신규 보물   only while a treasure slot is free
+##
+## One card per owned weapon is the load-bearing rule: a weapon can never take
+## more than one slot in a hand, so holding more gear no longer crowds discovery
+## out of the draw — it just means each piece is offered less often, which is
+## what a four-slot loadout should feel like.
+##
+## Two slots are then spoken for before the weighted draw runs. Tier progress is
+## the only road to an enhancement and from there to resonance, so a hand always
+## carries one weapon-growth card. And while a slot is still open, a hand always
+## carries one piece of gear the survivor has never held, so discovery is a
+## standing offer rather than something luck has to produce.
 func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var slot := player_index - 1
 	var loadout: Array = weapon_loadouts[slot]
 	var treasures: Array = treasure_loadouts[slot]
-	var pool: Array[Dictionary] = []
 	var choice_count := _growth_choice_count()
 
 	# A weapon grows untyped for its first few cards and then has to commit to a
@@ -3972,116 +4154,98 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 		_annotate_recommendations(slot, tech_choices)
 		return tech_choices
 
-	# Carried treasures can be deepened; the twelve that are not carried are
-	# only reachable while there is still a free slot. That gating is the whole
-	# point of the system — an unlimited stat pool has no decisions in it.
+	var previous_keys: Array = last_upgrade_choice_keys[slot]
+
+	# 무기 성장 — at most one card per weapon, and which of its axes is offered is
+	# itself part of the draw.
+	var weapon_growth: Array[Dictionary] = []
+	for weapon_slot in loadout.size():
+		var axes := _weapon_growth_options(slot, weapon_slot)
+		var axis := _draw_growth_option(axes, previous_keys)
+		if not axis.is_empty():
+			weapon_growth.append(axis)
+
+	# 보물 성장 — deepening what the survivor committed a slot to.
+	var treasure_growth: Array[Dictionary] = []
 	for treasure_slot in treasures.size():
 		var treasure: Dictionary = treasures[treasure_slot]
 		if int(treasure["tier"]) >= Treasures.MAX_TIER:
 			continue
-		pool.append({
+		var option := {
 			"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot,
 			"title": String(treasure["name"]),
-		})
+		}
+		if UpgradeValue.has_effect(self, slot, option):
+			treasure_growth.append(option)
+
+	# 신규 무기 — a new weapon arrives untyped: its route is chosen at
+	# TECH_UNLOCK_TIER, once the survivor has seen what it does.
+	var new_weapons: Array[Dictionary] = []
+	if loadout.size() < WEAPON_LOADOUT_CAP:
+		for character in _pick_unowned_characters(slot, 3):
+			new_weapons.append({
+				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
+				"title": "신규 무기: %s" % String(character["weapon_name"]),
+			})
+
+	# 신규 보물 — the ones a committed route is built around first, then whatever
+	# the survivor has not seen. Discovery is not rationed: nothing can strand a
+	# weapon any more, so there is no reason to hold unfamiliar treasures back.
+	var new_treasures: Array[Dictionary] = []
 	if treasures.size() < TREASURE_LOADOUT_CAP:
 		var suited := _synergy_treasures(slot)
 		var offered_ids: Dictionary = {}
 		for treasure in suited:
 			offered_ids[String(treasure["id"])] = true
-			pool.append({
+			new_treasures.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
 				"title": "시너지 보물: %s" % String(treasure["name"]),
 			})
-		# Discovery is no longer rationed. The hand used to hold back unfamiliar
-		# treasures whenever a route still needed a specific one, because filling
-		# all six slots with the wrong treasures could leave a weapon that could
-		# never be enhanced at all. Nothing can strand a weapon now, so the pair
-		# gets to keep looking at treasures they have not seen.
 		for treasure in _pick_unowned_treasures(slot, maxi(3, suited.size()) + 3):
 			if offered_ids.has(String(treasure["id"])):
 				continue
 			offered_ids[String(treasure["id"])] = true
-			pool.append({
+			new_treasures.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
 				"title": "새 보물: %s" % String(treasure["name"]),
 			})
-	for weapon_slot in loadout.size():
-		var state: Dictionary = loadout[weapon_slot]
-		if int(state.get("tier", 1)) >= Evolutions.WEAPON_MAX_TIER or WeaponGrowthScript.needs_tech(state):
-			continue
-		var weapon_name := String(state["weapon_name"])
-		if WeaponTechs.allows(state, "weapon_power"):
-			pool.append({"id": "weapon_power", "weapon_slot": weapon_slot, "title": "마력 증폭\n%s" % weapon_name})
-		if WeaponTechs.allows(state, "weapon_rate"):
-			pool.append({"id": "weapon_rate", "weapon_slot": weapon_slot, "title": "고속 시전\n%s" % weapon_name})
-		for key: String in ["a", "b"]:
-			if not WeaponTechs.allows(state, "special_" + key):
-				continue
-			var spec := _special_spec(state, key)
-			if spec.is_empty():
-				continue
-			pool.append({
-				"id": "special_" + key, "weapon_slot": weapon_slot,
-				"title": "%s\n%s" % [String(spec["title"]), weapon_name],
-			})
-	# A new weapon arrives untyped: its route is chosen at TECH_UNLOCK_TIER, once
-	# the survivor has seen what it does. Offering one card per route here used to
-	# flood the hand with three copies of the same weapon.
-	if loadout.size() < WEAPON_LOADOUT_CAP:
-		for character in _pick_unowned_characters(slot, 2):
-			pool.append({
-				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
-				"title": "신규 무기: %s" % String(character["weapon_name"]),
-			})
-	pool = pool.filter(func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option))
-	for option in pool:
-		option["description"] = _upgrade_preview(slot, option)
-	# Keep the complete valid set for the guaranteed weapon-progress slot. The
-	# reroll freshness filter below may temporarily remove every weapon card.
-	var all_valid_options: Array[Dictionary] = pool.duplicate()
+	var discovery_filter := func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option)
+	new_weapons.assign(new_weapons.filter(discovery_filter))
+	new_treasures.assign(new_treasures.filter(discovery_filter))
 
-	var previous_keys: Array = last_upgrade_choice_keys[slot]
-	var fresh_pool: Array[Dictionary] = []
-	for option in pool:
-		if not (_option_key(option) in previous_keys):
-			fresh_pool.append(option)
-	if fresh_pool.size() >= choice_count:
-		pool = fresh_pool
+	var luck_lean := maxf(0.0, float(team_luck)) * LUCK_DISCOVERY_WEIGHT
+	var buckets: Array = [
+		{"options": weapon_growth, "weight": GROWTH_WEIGHT_WEAPON},
+		{"options": treasure_growth, "weight": GROWTH_WEIGHT_TREASURE},
+		{"options": new_weapons, "weight": GROWTH_WEIGHT_NEW_WEAPON + luck_lean},
+		{"options": new_treasures, "weight": GROWTH_WEIGHT_NEW_TREASURE + luck_lean},
+	]
 
-	# Luck's one job: build-defining options — a new weapon, a new treasure, or
-	# a weapon's unique special rather than a flat number — get an extra entry
-	# in the shuffle per point, so they come up more often.
-	var weighted: Array[Dictionary] = pool.duplicate()
-	for extra in team_luck * LUCK_WEIGHT_PER_POINT:
-		for option in pool:
-			var option_id := String(option["id"])
-			if option_id in ["unlock_weapon", "unlock_treasure", "choose_tech", "special_a", "special_b"]:
-				weighted.append(option)
-
-	weighted.shuffle()
 	var choices: Array[Dictionary] = []
-	var chosen_keys: Array = []
-	for option in weighted:
-		if choices.size() >= choice_count:
+	# The weapon-progress slot.
+	var progress := _draw_growth_option(weapon_growth, previous_keys)
+	if not progress.is_empty():
+		choices.append(progress)
+	# The discovery slot, weighted between the two kinds of new gear so a
+	# survivor with both slots open does not always see the same one.
+	if choice_count > choices.size() and not (new_weapons.is_empty() and new_treasures.is_empty()):
+		var discovery_bucket := _pick_growth_bucket([buckets[2], buckets[3]])
+		if not discovery_bucket.is_empty():
+			var found := _draw_growth_option(discovery_bucket["options"] as Array, previous_keys)
+			if not found.is_empty():
+				choices.append(found)
+	while choices.size() < choice_count:
+		var bucket := _pick_growth_bucket(buckets)
+		if bucket.is_empty():
 			break
-		var key := _option_key(option)
-		if key in chosen_keys:
-			continue
-		choices.append(option)
-		chosen_keys.append(key)
+		var drawn := _draw_growth_option(bucket["options"] as Array, previous_keys)
+		if drawn.is_empty():
+			break
+		choices.append(drawn)
 
-	# Tier progress is the only route to resonance, so at least one weapon
-	# upgrade is always on the table. Without this the attribute cards dilute
-	# the pool badly enough (roughly 4 weapon options among 17) that a pair
-	# could go several levels without either weapon reaching tier 3.
-	if not _has_weapon_upgrade(choices) and not loadout.is_empty():
-		var weapon_options: Array[Dictionary] = []
-		for option in all_valid_options:
-			if int(option.get("weapon_slot", -1)) >= 0:
-				weapon_options.append(option)
-		if not weapon_options.is_empty():
-			weapon_options.shuffle()
-			choices[choices.size() - 1] = weapon_options[0]
+	for option in choices:
+		option["description"] = _upgrade_preview(slot, option)
+	choices.shuffle()
 
 	var choice_keys: Array = []
 	for option in choices:
@@ -4186,19 +4350,71 @@ func _special_current(spec: Dictionary, state: Dictionary) -> float:
 	return float(state.get(String(spec["field"]), 0.0))
 
 
+## How far a special may take its field, written once per primitive rather than
+## once per weapon.
+##
+## Nothing bounded these at all. A 반경 card added its delta forever, a 발사 수
+## card added another projectile forever, and both were then multiplied again by
+## 확장의 렌즈 and 분열의 화살통. That is where the late game went: 크림 해일
+## reached twelve pools of nearly three times their catalogue radius and covered
+## the entire screen, 성좌 관통포 put eighteen bolts in the air per cast, and the
+## frame rate went with them. A cap per primitive keeps every weapon's identity —
+## a 반경 weapon still roughly doubles its reach over a run — and takes away the
+## unbounded tail that made the last third of a run unreadable.
+##
+## Ratios are of the weapon's *own* catalogue value, so an enhanced form that
+## opens wider than its base weapon is allowed to stay wider.
+const SPECIAL_CAP_RATIO := {
+	"Radius": 1.85,
+	"Range": 1.85,
+	"Area": 1.85,
+	"ProjectileSpeed": 1.70,
+	"Force": 1.90,
+}
+## Counts cannot sensibly be a ratio — a weapon that fires one projectile would
+## be capped at one — so they cap on a bonus over the catalogue value instead.
+const SPECIAL_CAP_BONUS := {
+	"Count": 3,
+	"Chain": 3,
+}
+
+
+## The ceiling for one special on one weapon, or INF where it has none.
+## An explicit `cap` in the table always wins; 보름베기 stops at a full circle
+## for a reason that has nothing to do with its primitive.
+func _special_cap(spec: Dictionary, state: Dictionary) -> float:
+	if spec.has("cap"):
+		return float(spec["cap"])
+	# 느슨한 족쇄 moves the pair's leash, not a field on the weapon, so there is
+	# no catalogue value to take a share of.
+	if String(spec.get("target", "weapon")) == "run" or state.is_empty():
+		return INF
+	var primitive := String(spec.get("primitive", ""))
+	var field := String(spec["field"])
+	var baseline: Dictionary = UpgradeValue.baseline(state)
+	if not baseline.has(field):
+		return INF
+	if SPECIAL_CAP_BONUS.has(primitive):
+		return float(baseline[field]) + float(SPECIAL_CAP_BONUS[primitive])
+	if SPECIAL_CAP_RATIO.has(primitive):
+		return float(baseline[field]) * float(SPECIAL_CAP_RATIO[primitive])
+	return INF
+
+
 ## The value this special would move its field to, floors and caps applied.
 ## `growth_scale` is the weapon's stage and route (WeaponGrowth.special_scale); count
 ## specials always move by exactly their delta.
-func _special_next(spec: Dictionary, current: float, growth_scale := 1.0) -> float:
+func _special_next(spec: Dictionary, current: float, growth_scale := 1.0, state: Dictionary = {}) -> float:
 	var delta := float(spec["delta"])
 	if not bool(spec.get("integer", false)):
 		delta *= growth_scale
 	var moved := current + delta
 	if spec.has("floor"):
 		moved = maxf(minf(current, float(spec["floor"])), moved)
-	if spec.has("cap"):
+	var cap := _special_cap(spec, state)
+	if cap < INF:
 		# Never lets a cap pull a value that is already past it back down.
-		moved = minf(maxf(current, float(spec["cap"])), moved)
+		moved = minf(maxf(current, cap), moved)
 	return moved
 
 
@@ -4215,7 +4431,7 @@ func _special_has_room(slot: int, weapon_slot: int, key: String) -> bool:
 	if spec.is_empty():
 		return false
 	var current := _special_current(spec, state)
-	return not is_equal_approx(_special_next(spec, current, _special_scale(state, spec, key)), current)
+	return not is_equal_approx(_special_next(spec, current, _special_scale(state, spec, key), state), current)
 
 
 ## Applies a special to a weapon state dictionary in place. Takes the state
@@ -4227,7 +4443,7 @@ func apply_special_to_state(state: Dictionary, key: String) -> void:
 		return
 	var field := String(spec["field"])
 	var growth_scale := _special_scale(state, spec, key)
-	var next := _special_next(spec, float(state.get(field, 0.0)), growth_scale)
+	var next := _special_next(spec, float(state.get(field, 0.0)), growth_scale, state)
 	state[field] = int(round(next)) if bool(spec.get("integer", false)) else next
 	# Only where the weapon already reads the field: an enhanced gravity well has
 	# no cast range of its own, and inventing one would shrink its reach to 38px.
@@ -4240,7 +4456,7 @@ func apply_special_to_state(state: Dictionary, key: String) -> void:
 
 func _special_preview(spec: Dictionary, state: Dictionary, key := "") -> String:
 	var current := _special_current(spec, state)
-	var next := _special_next(spec, current, _special_scale(state, spec, key) if not key.is_empty() else 1.0)
+	var next := _special_next(spec, current, _special_scale(state, spec, key) if not key.is_empty() else 1.0, state)
 	var line := ""
 	if bool(spec.get("integer", false)):
 		line = "%s %d → %d" % [String(spec["label"]), int(round(current)), int(round(next))]
@@ -4256,36 +4472,60 @@ func _special_preview(spec: Dictionary, state: Dictionary, key := "") -> String:
 	return line
 
 
-func _has_weapon_upgrade(options: Array) -> bool:
-	for option in options:
-		if int(option.get("weapon_slot", -1)) >= 0:
-			return true
-	return false
-
-
 ## Rates only the three or four cards that were actually dealt. The score combines
 ## expected combat value, current survivability, run timing and the build graph:
 ## an option that creates a new tier-3 weapon pairing wins a large explicit
 ## bonus because it immediately unlocks a resonance vote.
-## How the screen advises. There used to be exactly one star, always, on
-## whichever card scored highest — which lies twice: it claims there is a right
-## answer when cards are within a hair of each other, and it claims the
-## best of three bad cards is good.
+## How the screen advises.
 ##
-## A card is now starred only if it clears an absolute bar *and* is close to the
-## best on offer, so a draw of three mediocre cards is honestly starred zero
-## times and a draw of two strong ones is starred twice. The opposite advice is
-## worth as much and was missing entirely: a card that does nothing for this
-## build is marked against, which is the difference between a player who reads
-## the screen and one who guesses.
-const RECOMMEND_MIN_SCORE := 42.0
-const RECOMMEND_RELATIVE := 0.80
-const DISCOURAGE_MAX_SCORE := 38.0
-const DISCOURAGE_RELATIVE := 0.60
+## A card is starred when it clears an absolute bar *and* stands close to the
+## best card in the hand; it is marked against when it is both clearly the worst
+## on offer and weak on its own terms. What changed is what those bars are
+## measuring.
+##
+## The scores they compare used to come off two different scales. Every option
+## started from a table of hand-tuned values, and then any option with a
+## projected damage gain *threw that value away* and took a number derived from
+## the gain alone. A treasure that measurably lifted the pair's output by 8%
+## therefore scored 25 + 0.08×220 ≈ 43 and lost to 아홉 목숨 리본's flat table
+## value of 58, while a weapon card worth 4% scored 34 and was marked against.
+## The screen was ranking "what this is worth to the build" against "what this
+## does to our damage" as though they were the same number, and the advice moved
+## with whichever scale a card happened to land on. The projected gain is a term
+## added to a card's standing value now (see _score_upgrade_option), so the two
+## halves are summed in one currency instead of replacing each other.
+##
+## The bars also stayed still while the loadout caps moved. Four weapons and four
+## treasures make a slot roughly half again as expensive as it was at six, and
+## the biggest thing the screen can tell a survivor is which cards spend one.
+const RECOMMEND_MIN_SCORE := 46.0
+const RECOMMEND_RELATIVE := 0.84
+const DISCOURAGE_MAX_SCORE := 34.0
+const DISCOURAGE_RELATIVE := 0.62
+## How far apart the best and worst card in a hand have to be before the screen
+## says anything at all. Below this the hand is a matter of taste, and a star on
+## the top of three cards within a hair of each other is exactly the false
+## certainty this pass exists to stop printing.
+const ADVICE_MIN_SPREAD := 9.0
+## At or below this a card is not weak, it is inert — a fire-rate upgrade on a
+## weapon already at the cooldown floor. Those are marked against on their own
+## merits rather than by comparison, since there is no hand in which taking one
+## is the right move.
+const DEAD_CARD_SCORE := 1.0
+## Score points one whole doubling of the pair's projected output is worth, and
+## the most any single card can collect from that term. The cap is what keeps a
+## 40% card from condemning the three ordinary cards next to it: past a point,
+## more damage stops being the thing that decides a run.
+const COMBAT_SCORE_PER_RATIO := 190.0
+const COMBAT_SCORE_CAP := 46.0
+## Below this the projected gain rounds to a number nobody should act on, so the
+## card keeps the phrase that says what it is *for* instead.
+const REASON_MIN_GAIN := 0.02
 
 
 func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
 	var best_score := -INF
+	var worst_score := INF
 	for option in choices:
 		var rating := _score_upgrade_option(slot, option)
 		option["recommendation_score"] = float(rating["score"])
@@ -4293,24 +4533,63 @@ func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
 		option["recommended"] = false
 		option["discouraged"] = false
 		best_score = maxf(best_score, float(rating["score"]))
+		worst_score = minf(worst_score, float(rating["score"]))
+	if choices.size() < 2:
+		return
 
+	# Ranked rather than filtered, because the two things the advice must never
+	# do are structural rather than numeric: the weakest card in a hand is never
+	# starred, and the strongest is never marked against, so a player is never
+	# told they lose whatever they pick. Walking from each end and stopping
+	# before the other guarantees both without a running tally.
+	var ranked: Array[int] = []
+	for index in choices.size():
+		ranked.append(index)
+	ranked.sort_custom(func(first: int, second: int) -> bool:
+		return float(choices[first]["recommendation_score"]) > float(choices[second]["recommendation_score"]))
+
+	# A card that provably cannot change anything is marked first and regardless
+	# of everything below, because that is a fact about the card rather than a
+	# comparison with the cards next to it. Doing it here and not in the ranked
+	# pass is the difference between a dead card being named and a dead card
+	# losing its mark to a merely mediocre one that happened to rank above it.
 	var discouraged := 0
-	for option in choices:
-		var score := float(option["recommendation_score"])
-		if score >= RECOMMEND_MIN_SCORE and score >= best_score * RECOMMEND_RELATIVE:
-			option["recommended"] = true
+	for rank in range(ranked.size() - 1, 0, -1):
+		var dead: Dictionary = choices[ranked[rank]]
+		if float(dead["recommendation_score"]) > DEAD_CARD_SCORE:
 			continue
-		# Never mark the whole hand against: a player forced to pick from three
-		# cards has to be told which of them is least bad, not that they lose
-		# whatever they do.
-		if discouraged >= choices.size() - 1:
+		dead["discouraged"] = true
+		dead["discouragement_reason"] = _discouragement_reason(slot, dead, float(dead["recommendation_score"]))
+		discouraged += 1
+
+	if best_score - worst_score < ADVICE_MIN_SPREAD:
+		return
+
+	var recommend_bar := maxf(RECOMMEND_MIN_SCORE, best_score * RECOMMEND_RELATIVE)
+	var discourage_bar := minf(DISCOURAGE_MAX_SCORE, best_score * DISCOURAGE_RELATIVE)
+	# At most half the hand carries a verdict either way. One star and two
+	# crosses on a three-card hand obeys both structural rules above and still
+	# reads as the screen telling the player they have already lost; the useful
+	# thing to say about three cards is which one, not which two not.
+	var verdict_cap := maxi(1, choices.size() / 2)
+	var recommended := 0
+	for rank in ranked.size() - 1:
+		var option: Dictionary = choices[ranked[rank]]
+		if recommended >= verdict_cap or float(option["recommendation_score"]) < recommend_bar:
+			break
+		option["recommended"] = true
+		recommended += 1
+	for rank in range(ranked.size() - 1, 0, -1):
+		var option: Dictionary = choices[ranked[rank]]
+		if discouraged >= verdict_cap:
+			break
+		if bool(option["discouraged"]) or bool(option["recommended"]):
 			continue
-		# Relative rank alone doesn't make a useful card harmful. Require a low
-		# absolute value too; a strong fusion must not condemn every other card.
-		if score <= DISCOURAGE_MAX_SCORE and score <= best_score * DISCOURAGE_RELATIVE:
-			option["discouraged"] = true
-			option["discouragement_reason"] = _discouragement_reason(slot, option, score)
-			discouraged += 1
+		if float(option["recommendation_score"]) > discourage_bar:
+			break
+		option["discouraged"] = true
+		option["discouragement_reason"] = _discouragement_reason(slot, option, float(option["recommendation_score"]))
+		discouraged += 1
 
 
 ## Why a card is marked against. Deliberately about this build rather than about
@@ -4319,13 +4598,27 @@ func _discouragement_reason(slot: int, option: Dictionary, score: float) -> Stri
 	var upgrade_id := String(option["id"])
 	if score <= 1.0:
 		return "지금은 효과 없음"
-	if upgrade_id in ["unlock_treasure", "treasure_upgrade"]:
+	if upgrade_id == "unlock_weapon":
+		# The cost of a new weapon is not that it is weak — it is Lv.1 in a
+		# loadout of four, and every card it takes afterwards is a card the
+		# weapons already working do not get. Which of those two the survivor is
+		# actually paying depends on how much room is left.
+		var free_weapon_slots: int = WEAPON_LOADOUT_CAP - int(weapon_loadouts[slot].size())
+		if free_weapon_slots <= 1:
+			return "마지막 무기 칸을 씁니다"
+		return "화력이 %d갈래로 갈립니다" % (weapon_loadouts[slot].size() + 1)
+	if upgrade_id == "unlock_treasure":
+		var new_effect := _option_icon_id(slot, option)
+		if not UpgradeValue.benefits_loadout(weapon_loadouts[slot], new_effect):
+			return "지금 무기와 맞지 않음"
+		if TREASURE_LOADOUT_CAP - treasure_loadouts[slot].size() <= 1:
+			return "마지막 보물 칸을 씁니다"
+		return "Lv.1부터 다시 쌓습니다"
+	if upgrade_id == "treasure_upgrade":
 		var effect := _option_icon_id(slot, option)
 		if not UpgradeValue.benefits_loadout(weapon_loadouts[slot], effect):
 			return "지금 무기와 맞지 않음"
 		return "성장이 느린 편"
-	if upgrade_id == "unlock_weapon":
-		return "칸을 나누게 됩니다"
 	return "다른 카드가 더 급합니다"
 
 
@@ -4433,14 +4726,31 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			score = 58.0 + (1.0 - health_ratio) * 34.0
 			reason = "치명타 1회 무효"
 		"unlock_weapon":
-			score = 44.0 + (WEAPON_LOADOUT_CAP - loadout.size()) * 4.0
+			# A new weapon is worth the most when the survivor has room to grow it
+			# and the least when it would take the last socket: at four slots the
+			# question is not "is another weapon good" — it is "is this one worth
+			# a quarter of the loadout".
+			var free_weapon_slots := WEAPON_LOADOUT_CAP - loadout.size()
+			score = 32.0 + float(free_weapon_slots) * 7.0
 			reason = "공격 축 추가"
 
+	# Projected damage is added to what the card is already worth rather than
+	# replacing it. It used to overwrite the score outright, which put the two
+	# halves of a card's value on separate scales and made the advice depend on
+	# which scale the card happened to land on (see _annotate_recommendations).
+	# Capped because past a point more damage stops being the thing that decides
+	# a run, and a single 40% card should not silently condemn the whole hand.
 	var marginal := UpgradeValue.gain(self, slot, option)
 	if marginal > 0.0:
-		score = 25.0 + minf(110.0, marginal * 220.0)
-		reason = "예상 화력 +%d%%" % maxi(1, roundi(marginal * 100.0))
+		score += minf(COMBAT_SCORE_CAP, marginal * COMBAT_SCORE_PER_RATIO)
+		# The score sums both halves; the *reason* only has room for one line, so
+		# it prints the projected number whenever that number is large enough to
+		# be worth reading and keeps the table's phrase when it is not.
+		if marginal >= REASON_MIN_GAIN:
+			reason = "예상 화력 +%d%%" % roundi(marginal * 100.0)
 	elif upgrade_id in ["weapon_power", "weapon_rate"]:
+		# A damage or cooldown card that measurably does nothing is not a weak
+		# card, it is a dead one, and the screen should say so outright.
 		score = 0.0
 	# Reward a treasure this loadout can actually use, and prefer one that suits
 	# a route somebody already committed to.
@@ -4456,9 +4766,19 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var path := _fusion_path_value(slot, effect_id)
 		if not path.is_empty():
 			score += float(path["value"])
-	if upgrade_id == "unlock_treasure":
-		# Slots are finite now, so committing one is worth more while several
-		# are open and less when it would spend the last of them on a whim.
+	if upgrade_id == "unlock_weapon":
+		# The same slot pressure the treasure half has always had, applied to the
+		# half where it matters more: a weapon taken at Lv.1 into the last socket
+		# also competes for every growth card the existing weapons still want.
+		var free_weapon_slots := WEAPON_LOADOUT_CAP - loadout.size()
+		if free_weapon_slots <= 1:
+			score -= 9.0
+			reason = "%s   마지막 칸" % reason
+		else:
+			reason = "%s   빈 칸 %d" % [reason, free_weapon_slots]
+	elif upgrade_id == "unlock_treasure":
+		# Committing a slot is worth more while several are open and less when it
+		# would spend the last of them on a whim.
 		var free_slots := TREASURE_LOADOUT_CAP - treasures.size()
 		score += 6.0 if free_slots > 1 else -8.0
 		reason = "%s   슬롯 %d칸" % [reason, free_slots]
@@ -4507,6 +4827,10 @@ func _build_weapon_state(character: Dictionary) -> Dictionary:
 	# Starting and newly learned weapons begin modestly; committing upgrade tiers
 	# overtakes the old curve, while a fusion replaces this scaled base entirely.
 	state["damage"] = float(state["damage"]) * BASE_WEAPON_DAMAGE_SCALE
+	# What this weapon's interval was before anything was spent on it. Every
+	# speed floor is a share of this, so a slow weapon stays slow however many
+	# 속도 cards it is handed (WeaponGrowth.RATE_MIN_RATIO).
+	state["base_cooldown"] = float((character["weapon"] as Dictionary).get("cooldown", 1.0))
 	state["weapon_id"] = character["weapon_id"]
 	state["base_weapon_id"] = character["weapon_id"]
 	state["weapon_name"] = character["weapon_name"]
@@ -4684,6 +5008,206 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	return "현재 능력을 강화합니다."
 
 
+## What a growth card says, split by role so the card can set each part apart
+## instead of printing one paragraph. `_upgrade_preview` is the same information
+## as a single line of text (tooltips, the fusion screen and the tests read it);
+## this is what the face of the card is built from.
+##
+##   name     the upgrade itself — "마력 증폭", a treasure, a route
+##   subject  what it applies to — the weapon, or the treasure's stat
+##   level    [from, to]; from 0 is a new piece of gear
+##   stats    rows of {label, from, to, post}: from is what the survivor has now,
+##            to is what they will have after taking the card. A treasure row is
+##            the running total rather than the step, since the total is what a
+##            player compares against the rest of their build.
+##   tags     short chips: {text, kind} with kind one of focus / off / evolve /
+##            tech / max / shared
+##   effect   one line of what the card does, in words
+##   synergy  what this pairs well with — set apart because it is advice about
+##            the build, not a property of the card
+##   note     small print: slots used, where a route leads
+## What a special does, in words, by the primitive it grows. The row above it
+## says how much; this says what the player will see change.
+const SPECIAL_EFFECTS := {
+	"Count": "한 번에 더 많이",
+	"Range": "더 멀리 닿는 공격",
+	"Radius": "더 넓은 영역",
+	"Area": "더 넓게 휩쓰는 공격",
+	"ProjectileSpeed": "더 빠르게 날아가는 투사체",
+	"Chain": "더 많은 적에게 연쇄",
+	"Slow": "적을 더 강하게 늦춤",
+	"Pierce": "더 많은 적을 꿰뚫음",
+	"Force": "적을 더 세게 밀쳐냄",
+}
+
+
+func _card_sections(slot: int, option: Dictionary) -> Dictionary:
+	var upgrade_id := String(option["id"])
+	var sections := {"name": "", "subject": "", "level": [], "stats": [], "tags": [],
+		"effect": "", "synergy": "", "note": ""}
+	match upgrade_id:
+		"choose_tech":
+			var tech: Dictionary = option["tech"]
+			var state: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])].duplicate(true)
+			var axes_text := _tech_axes_text(state, tech)
+			WeaponTechs.apply_to_state(state, tech)
+			var evolution := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
+			var synergy := Treasures.by_id(String(tech["synergy_treasure_id"]))
+			sections["name"] = String(tech["name"])
+			sections["subject"] = String(state["weapon_name"])
+			sections["effect"] = _tech_focus(tech)
+			sections["tags"] = [{"text": "특화 %s +1" % axes_text, "kind": "focus"}]
+			if not synergy.is_empty():
+				sections["synergy"] = "추천 보물 · %s" % String(synergy["name"])
+			sections["note"] = "Lv.%d 진화 → %s" % [Evolutions.EVOLUTION_TIER, String(evolution.get("weapon_name", "최종 진화"))]
+			return sections
+		"unlock_weapon":
+			var character: Dictionary = option["character"]
+			var routes: Array[String] = []
+			for route in WeaponTechs.for_weapon(String(character["weapon_id"])):
+				routes.append(String(route["name"]))
+			sections["name"] = String(character["weapon_name"])
+			sections["subject"] = "새 무기"
+			sections["level"] = [0, 1]
+			sections["effect"] = _spaced(String(EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격")))
+			sections["tags"] = [{"text": "Lv.%d 테크 선택" % WeaponGrowthScript.TECH_UNLOCK_TIER, "kind": "tech"}]
+			if not routes.is_empty():
+				sections["note"] = " / ".join(routes)
+			sections["note"] = _join_note(String(sections["note"]),
+				"무기 칸 %d/%d" % [weapon_loadouts[slot].size() + 1, WEAPON_LOADOUT_CAP])
+			return sections
+		"unlock_treasure", "treasure_upgrade":
+			var treasure: Dictionary
+			var tier := 0
+			if upgrade_id == "unlock_treasure":
+				treasure = option["treasure"]
+			else:
+				var carried: Dictionary = treasure_loadouts[slot][int(option["treasure_slot"])]
+				treasure = Treasures.by_id(String(carried["id"]))
+				tier = int(carried["tier"])
+			sections["name"] = String(treasure["name"])
+			sections["subject"] = "%s 보물" % String(treasure.get("stat", ""))
+			sections["level"] = [tier, tier + 1]
+			var row := _treasure_row(treasure, tier, tier + 1)
+			if row.is_empty():
+				sections["effect"] = _spaced(String(treasure["text"]))
+			else:
+				sections["stats"] = [row]
+			var tags: Array = []
+			if bool(treasure.get("shared", false)):
+				tags.append({"text": "팀 공유", "kind": "shared"})
+			if tier + 1 >= Treasures.MAX_TIER:
+				tags.append({"text": "최대 레벨", "kind": "max"})
+			sections["tags"] = tags
+			for owned: Dictionary in weapon_loadouts[slot]:
+				if String(owned.get("tech_synergy_treasure_id", "")) == String(treasure["id"]):
+					sections["synergy"] = "%s 시너지" % String(owned["weapon_name"])
+					break
+			if upgrade_id == "unlock_treasure":
+				sections["note"] = "보물 칸 %d/%d" % [treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP]
+			return sections
+
+	var state: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])]
+	var tier := int(state.get("tier", 1))
+	sections["subject"] = String(state["weapon_name"])
+	sections["level"] = [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
+	var tags: Array = []
+	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
+		tags.append({"text": "최대 강화", "kind": "max"})
+	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
+		tags.append({"text": "이 카드로 진화", "kind": "evolve"})
+	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
+		tags.append({"text": "테크 선택 가능", "kind": "tech"})
+	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
+	if not focus.is_empty():
+		tags.append({"text": focus, "kind": "focus" if focus == "테크 특화" else "off"})
+	sections["tags"] = tags
+	match upgrade_id:
+		"weapon_power":
+			sections["name"] = "마력 증폭"
+			sections["stats"] = [{"label": "피해", "from": "%.1f" % float(state["damage"]),
+				"to": "%.1f" % (float(state["damage"]) * WeaponGrowthScript.power_step(state)), "post": ""}]
+			sections["effect"] = "한 번에 더 큰 피해"
+		"weapon_rate":
+			sections["name"] = "고속 시전"
+			sections["stats"] = [{"label": "발동 간격", "from": "%.2f초" % float(state["cooldown"]),
+				"to": "%.2f초" % WeaponGrowthScript.next_cooldown(state), "post": ""}]
+			sections["effect"] = "더 자주 공격"
+		"special_a", "special_b":
+			var key := upgrade_id.substr(upgrade_id.length() - 1)
+			var spec := _special_spec(state, key)
+			sections["name"] = String(spec.get("title", "특성"))
+			if not spec.is_empty():
+				sections["stats"] = _special_rows(spec, state, key)
+				sections["effect"] = String(SPECIAL_EFFECTS.get(String(spec.get("primitive", "")), ""))
+	var partner := _fusion_partner_for_option(slot, option)
+	if not partner.is_empty():
+		sections["synergy"] = "%s 시너지" % String(partner["name"])
+	return sections
+
+
+## `_special_preview` as stat rows: the field itself, and for a focused integer
+## special the damage it adds on top.
+func _special_rows(spec: Dictionary, state: Dictionary, key: String) -> Array:
+	var current := _special_current(spec, state)
+	var next := _special_next(spec, current, _special_scale(state, spec, key), state)
+	var row := {"label": String(spec["label"]), "post": ""}
+	if bool(spec.get("integer", false)):
+		row["from"] = "%d" % int(round(current))
+		row["to"] = "%d" % int(round(next))
+	elif bool(spec.get("percent", false)):
+		row["from"] = "%.0f%%" % (current * 100.0)
+		row["to"] = "%.0f%%" % (next * 100.0)
+	elif bool(spec.get("degrees", false)):
+		row["from"] = "%.0f°" % rad_to_deg(current)
+		row["to"] = "%.0f°" % rad_to_deg(next)
+	else:
+		row["from"] = "%.0f" % current
+		row["to"] = "%.0f" % next
+	var rows: Array = [row]
+	if bool(spec.get("integer", false)):
+		var bonus := WeaponGrowthScript.integer_focus_damage(state, key)
+		if bonus > 0.0:
+			rows.append({"label": "추가 피해", "from": "", "to": "+%d%%" % roundi(bonus * 100.0), "post": ""})
+	return rows
+
+
+## A treasure's line as a before/after row of running totals. The catalog writes
+## each effect as a sentence with one {v} in it ("공격력 +{v}%"), so the row keeps
+## the sentence and puts the two totals where the number was. Empty for the
+## effects that carry no number (기사회생).
+func _treasure_row(treasure: Dictionary, from_tier: int, to_tier: int) -> Dictionary:
+	var treasure_id := String(treasure["id"])
+	if treasure_id == "amount":
+		# Half a projectile a tier, counted whole where a volley is fired.
+		return {"label": "발사체", "from": "+" + String.num(0.5 * from_tier, 1) if from_tier > 0 else "",
+			"to": "+" + String.num(0.5 * to_tier, 1), "post": "(정수만큼 발사)"}
+	var text := String(treasure["text"])
+	var pattern := RegEx.create_from_string("([+-]?)\\{v\\}(%p|%|초)?")
+	var found := pattern.search(text)
+	if found == null:
+		return {}
+	var unit_value := float(treasure["value"]) * float(treasure.get("display", 1.0))
+	var total := func(tier: int) -> String:
+		return found.get_string(1) + Treasures._number(unit_value * Treasures.effective_tiers(treasure_id, tier)) + found.get_string(2)
+	return {
+		"label": _spaced(text.substr(0, found.get_start()).strip_edges()),
+		"from": total.call(from_tier) if from_tier > 0 else "",
+		"to": total.call(to_tier),
+		"post": _spaced(text.substr(found.get_end()).strip_edges()),
+	}
+
+
+## The catalog separates clauses with runs of spaces, which read as a gap in a
+## sentence once the text is wrapped on a card.
+func _spaced(text: String) -> String:
+	return RegEx.create_from_string("\\s{2,}").sub(text, " · ", true)
+
+
+func _join_note(first: String, second: String) -> String:
+	return second if first.is_empty() else first + "  ·  " + second
+
+
 ## The names of the growth axes a route leans on, as the card and the lobby say
 ## them: "화력 · 연쇄" rather than a list of upgrade ids.
 func _tech_axes_text(state: Dictionary, tech: Dictionary) -> String:
@@ -4809,6 +5333,32 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		return
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
+		var weapon_id := String(character["weapon_id"])
+		# One slot per weapon, enforced where the slot is actually taken — the
+		# same rule treasures have had, for the same reason. The offer paths all
+		# filter out what the survivor carries, but they filter against a loadout
+		# read at the moment the card was dealt: a chest reward landing between
+		# the deal and the pick, a hand resolved after an enhancement renamed a
+		# slot, or a loadout arriving from the host can all present an id that is
+		# already carried. The old code appended regardless, which is how a
+		# survivor ended up with 성좌 관통포 in one slot and a fresh Lv.1 유도탄
+		# in another.
+		#
+		# A repeat pays a tier on the copy they already have instead. That is
+		# what the card was offering them anyway, and it means a stale card is
+		# never simply thrown away.
+		for carried_index in weapon_loadouts[player_slot].size():
+			var carried_weapon: Dictionary = weapon_loadouts[player_slot][carried_index]
+			if String(carried_weapon.get("base_weapon_id", carried_weapon["weapon_id"])) != weapon_id \
+					and String(carried_weapon["weapon_id"]) != weapon_id:
+				continue
+			if not WeaponGrowthScript.needs_tech(carried_weapon):
+				_apply_upgrade(player_slot, {"id": "weapon_power", "weapon_slot": carried_index})
+			return
+		# The cap is checked here too, not only where cards are offered, so no
+		# stale card can push a loadout past the number of sockets the HUD draws.
+		if weapon_loadouts[player_slot].size() >= WEAPON_LOADOUT_CAP:
+			return
 		var new_state := _build_weapon_state(character)
 		# Older callers (chest fixtures, saved tests) may still hand a route in.
 		if option.has("tech"):
@@ -4819,17 +5369,9 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
 		var treasure_id := String(treasure["id"])
-		# One slot per treasure, enforced where the slot is actually taken.
-		#
-		# Every path that offers a treasure already filters out the ones this
-		# survivor carries, so in principle this cannot fire. In principle is not
-		# where a six-slot inventory lives: a card dealt before a chest reward
-		# lands, a level-up resolved against a stale hand, or a loadout arriving
-		# from the host are all places where an id can show up twice, and the
-		# result is the same treasure eating two of six slots — which costs the
-		# player a build decision and reads as the inventory being broken.
-		# Deepening the copy they already have is what they wanted from the card
-		# anyway, so that is what a repeat does.
+		# One slot per treasure, enforced where the slot is actually taken; see
+		# the weapon half above for why the offer-side filter is not enough on
+		# its own.
 		var carried_slot := -1
 		for index in treasure_loadouts[player_slot].size():
 			if String(treasure_loadouts[player_slot][index]["id"]) == treasure_id:
@@ -4840,6 +5382,8 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 			if int(owned["tier"]) < Treasures.MAX_TIER:
 				owned["tier"] = int(owned["tier"]) + 1
 				_apply_attribute(player_slot, treasure_id, int(owned["tier"]))
+			return
+		if treasure_loadouts[player_slot].size() >= TREASURE_LOADOUT_CAP:
 			return
 		var state := Treasures.build_state(treasure)
 		treasure_loadouts[player_slot].append(state)
@@ -4889,7 +5433,7 @@ func _apply_attribute(player_slot: int, upgrade_id: String, tier := 1) -> bool:
 		"area":
 			player.area += step
 		"amount":
-			player.amount += roundi(step)
+			player.amount += step
 		"haste":
 			player.haste = maxf(HASTE_FLOOR, player.haste - step)
 		"projectile_speed":
@@ -5118,16 +5662,29 @@ func _open_resonance_core_choice() -> void:
 	resonance_cursors[1] = 0
 	resonance_vote_message = ""
 	resonance_vote_active = true
+	# Dealt in exactly as a growth hand is, over the paused fight, with the same
+	# view pull: this is the biggest choice the pair makes and it should arrive
+	# as a moment rather than as a window appearing.
+	modal_dim.visible = true
+	if not modal_dim.veil_only:
+		modal_dim.veil_only = true
+		modal_dim.queue_redraw()
+	for notice in notice_stack:
+		if is_instance_valid(notice):
+			notice.visible = false
 	resonance_overlay.visible = true
 	get_tree().paused = true
 	_refresh_resonance_vote_ui()
+	_animate_resonance_overlay(true)
+	_pull_camera_for_choice(resonance_overlay)
+	feedback.play_cue("level")
 
 
 ## Spends the core on this resonance and gives it the screen.
 func _commit_resonance_choice(chosen: Dictionary) -> void:
 	_activate_resonance(chosen)
 	resonance_vote_active = false
-	resonance_overlay.visible = false
+	_animate_resonance_overlay(false)
 	get_tree().paused = false
 	_show_message("공명 발현 — %s" % String(chosen["name"]), Color("fff275"))
 	# Deliberately a different shape from the fusion showcase: a resonance is
@@ -5179,48 +5736,65 @@ func _handle_resonance_vote_input() -> void:
 	_refresh_resonance_vote_ui()
 
 
+## What one resonance card says, in the shape CardVisual.paint reads. Built the
+## same way a growth card's model is, so the two screens cannot drift apart.
+##
+## The card names who supplies what, because "each survivor has to contribute a
+## tag" is the rule a pair can fail without ever seeing why — and naming the two
+## weapons next to their tags turns 요구 태그: 화염 + 냉기 into something they can
+## check against the loadout they are actually holding.
+func _resonance_card_model(resonance: Dictionary, badge: String, badge_color: Color) -> Dictionary:
+	var requirements: Array = resonance["requires"]
+	var contributed: Array[String] = []
+	var weapons: Array[String] = []
+	for slot in 2:
+		var weapon_slot := int(resonance.get("weapon_%s_slot" % ("a" if slot == 0 else "b"), -1))
+		if weapon_slot < 0 or weapon_slot >= weapon_loadouts[slot].size():
+			continue
+		var carried: Dictionary = weapon_loadouts[slot][weapon_slot]
+		var mine: Array[String] = []
+		for requirement in requirements:
+			if requirement in (carried["tags"] as Array):
+				mine.append(_tag_name(String(requirement)))
+		contributed.append("%s [%s]" % [player_label(slot), " ".join(mine)])
+		weapons.append(String(carried["weapon_name"]))
+	# Falls back to the bare requirement when the candidate did not come from a
+	# live pair of loadouts, which is what the codex and the theme tests hand in.
+	# The live path always has both.
+	# One line per survivor, each naming the weapon and the tag it brings, rather
+	# than a tag line and a separate weapon line. Same two facts, half the height
+	# — which is what leaves the description room to actually be read.
+	var supply := "%s + %s" % [_tag_name(String(requirements[0])), _tag_name(String(requirements[1]))]
+	if contributed.size() == 2 and weapons.size() == 2:
+		supply = "%s %s\n%s %s" % [contributed[0], weapons[0], contributed[1], weapons[1]]
+	elif contributed.size() == 2:
+		supply = "%s\n%s" % [contributed[0], contributed[1]]
+	return {
+		"category": "공명",
+		"title": String(resonance["name"]),
+		"body": "%s\n\n%s" % [supply, String(resonance["description"])],
+		"icon": IconCatalog.generated(String(resonance["id"]), "upgrade"),
+		"fusion": null,
+		"fusion_name": "",
+		"tech": false,
+		"compact": true,
+		# Clear of the two 선택 buttons ReviewUI parks above the badge strip.
+		"body_bottom": RESONANCE_CARD_BUTTON_ROOM,
+		"badge": badge,
+		"badge_color": badge_color,
+	}
+
+
 func _refresh_resonance_vote_ui() -> void:
+	var count := mini(resonance_cards.size(), resonance_candidates.size())
+	var middle := (count - 1) * 0.5
 	for index in resonance_cards.size():
 		var card: Label = resonance_cards[index]
-		if index >= resonance_candidates.size():
+		if index >= count:
 			card.visible = false
 			continue
 		card.visible = true
 		var resonance: Dictionary = resonance_candidates[index]
-		var skill_icon := card.get_node("SkillIcon") as TextureRect
-		skill_icon.texture = IconCatalog.generated(String(resonance["id"]), "upgrade")
-		for slot in 2:
-			var icon := card.get_node("Cat%d" % slot) as TextureRect
-			icon.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
-		# §14, §17. The card says who supplies what, because the rule that each
-		# survivor has to contribute a tag is the one a pair can fail without
-		# ever seeing why. Naming the two weapons alongside their tags turns
-		# "요구 태그: 화염 + 냉기" into something the pair can check against the
-		# loadout they are actually holding.
-		var requirements: Array = resonance["requires"]
-		var contributed: Array[String] = []
-		var weapons: Array[String] = []
-		for slot in 2:
-			var weapon_slot := int(resonance.get("weapon_%s_slot" % ("a" if slot == 0 else "b"), -1))
-			if weapon_slot < 0 or weapon_slot >= weapon_loadouts[slot].size():
-				continue
-			var carried: Dictionary = weapon_loadouts[slot][weapon_slot]
-			var mine: Array[String] = []
-			for requirement in requirements:
-				if requirement in (carried["tags"] as Array):
-					mine.append(_tag_name(String(requirement)))
-			contributed.append("%s [%s]" % [player_label(slot), " ".join(mine)])
-			weapons.append(String(carried["weapon_name"]))
-		# Falls back to the bare requirement when the candidate did not come from
-		# a live pair of loadouts, which is what the codex and the theme tests
-		# hand in. The live path always has both.
-		var supply := "%s + %s" % [_tag_name(String(requirements[0])), _tag_name(String(requirements[1]))]
-		if contributed.size() == 2:
-			supply = "%s\n+\n%s" % [contributed[0], contributed[1]]
-		card.text = "%s\n%s\n\n%s\n\n%s" % [
-			String(resonance["name"]), supply,
-			" · ".join(weapons), String(resonance["description"]),
-		]
 
 		var pointed_by: Array[int] = []
 		var locked_by: Array[int] = []
@@ -5229,28 +5803,46 @@ func _refresh_resonance_vote_ui() -> void:
 				locked_by.append(slot)
 			elif resonance_votes[slot] < 0 and resonance_cursors[slot] == index:
 				pointed_by.append(slot)
-		var pips: Label = card.get_node("Pips")
-		pips.text = _resonance_pip_text(pointed_by, locked_by)
-		pips.visible = not pips.text.is_empty()
-
-		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 		var attention := locked_by.size() + pointed_by.size()
+		# Ownership colours, read the same way the growth hand reads them: the
+		# local survivor is cyan and their partner is the warm orange, whichever
+		# physical slot each of them is sitting in.
 		var accent := Color("e4c1f9")
 		if locked_by.size() == 2:
-			accent = Color("fff275")
+			accent = CardVisual.CHEST
 		elif not locked_by.is_empty():
-			accent = CatTheme.P1 if locked_by[0] == 0 else CatTheme.P2
+			accent = CardVisual.CYAN if locked_by[0] == local_view_slot() else CardVisual.PARTNER
 		elif not pointed_by.is_empty():
-			accent = CatTheme.P1 if pointed_by[0] == 0 else CatTheme.P2
-		if locked_by.size() == 2:
-			style.bg_color = CatTheme.CARD.lerp(CatTheme.GOLD, 0.12)
-		elif not locked_by.is_empty() or not pointed_by.is_empty():
-			style.bg_color = CatTheme.CARD.lerp(accent, 0.10)
-		else:
-			style.bg_color = CatTheme.CARD
-		style.border_color = accent if attention > 0 else CatTheme.OUTLINE
-		style.set_border_width_all(CatTheme.BORDER_ACTIVE if attention > 0 else CatTheme.BORDER)
+			accent = CardVisual.CYAN if pointed_by[0] == local_view_slot() else CardVisual.PARTNER
+
+		var badge := _resonance_pip_text(pointed_by, locked_by)
+		var model := _resonance_card_model(resonance, badge, accent.lightened(0.25) if attention > 0 else Color("b7d8ed"))
+		CardVisual.paint(card, model, accent, attention > 0, RESONANCE_CARD_WIDTH, RESONANCE_CARD_HEIGHT)
+		for portrait_slot in 2:
+			var portrait := card.get_node_or_null("Cat%d" % portrait_slot) as TextureRect
+			if portrait == null:
+				continue
+			portrait.texture = IconCatalog.survivor(String(selected_characters[portrait_slot]["id"])) \
+				if selected_characters[portrait_slot] != null else null
+			# Dimmed unless that survivor is the one attending to this card, so
+			# the pair of portraits also reads as "whose cursor is here".
+			var attending: bool = portrait_slot in locked_by or portrait_slot in pointed_by
+			portrait.modulate = Color.WHITE if attending else Color(1, 1, 1, 0.45)
+
+		# The same standing fan as a three-card growth hand: pivot at the bottom
+		# centre so the cards lean out from one line, and the attended card lifts
+		# along its own axis rather than straight up.
+		card.size = Vector2(RESONANCE_CARD_WIDTH, RESONANCE_CARD_HEIGHT)
+		card.pivot_offset = Vector2(RESONANCE_CARD_WIDTH * 0.5, RESONANCE_CARD_HEIGHT)
+		var tilt: float = (index - middle) / maxf(1.0, middle) * RESONANCE_CARD_TILT
+		card.rotation = tilt
 		card.scale = Vector2.ONE
+		card.z_index = 8 if attention > 0 else 3
+		var rest := Vector2(
+			640.0 + (index - middle) * RESONANCE_CARD_SPREAD - RESONANCE_CARD_WIDTH * 0.5,
+			RESONANCE_CARD_Y + absf(index - middle) * 5.0)
+		card.position = rest + (Vector2.UP.rotated(tilt) * NeonGrowthUI.CARD_HOVER_LIFT if attention > 0 else Vector2.ZERO)
+		card.modulate = Color.WHITE
 
 	var waiting: Array[String] = []
 	for slot in 2:
@@ -5260,10 +5852,17 @@ func _refresh_resonance_vote_ui() -> void:
 	if waiting.size() == 1:
 		lines.append("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다" % waiting[0])
 	elif waiting.size() == 2:
-		lines.append("각자 기술을 고른 뒤 확정하세요")
+		lines.append("각자 공명을 고른 뒤 확정하세요")
 	if not resonance_vote_message.is_empty():
 		lines.append(resonance_vote_message)
 	resonance_status.text = "\n".join(lines)
+	# The same controls line the growth screen carries, in the same corner, so
+	# the two screens answer "what do I press" identically.
+	var controls: Label = resonance_overlay.get_node_or_null("ResonanceControls")
+	if controls != null:
+		controls.text = "나 A / D    W 확정    S 취소     동료 ← / →    ↑ 확정    ↓ 취소"
+		if last_input_gamepad[local_view_slot()]:
+			controls.text = "LB / RB 이동    A 확정    B 취소"
 
 
 ## The pips are the point of this screen: a hollow marker is "P2 is looking at
@@ -5322,9 +5921,14 @@ func _resonance_trade_power(resonance: Dictionary) -> float:
 
 
 func _weapon_interval(player_index: int, weapon_slot: int) -> float:
-	var base := float(weapon_loadouts[player_index][weapon_slot]["cooldown"])
+	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
 	var frenzy_rate := FRENZY_ATTACK_SPEED if frenzy_remaining > 0.0 else 1.0
-	return maxf(0.25, base * players[player_index].haste / frenzy_rate)
+	# The floor is a share of this weapon's own catalogue interval rather than a
+	# flat 0.25s. Under the flat floor every weapon in the game converged on the
+	# same cadence late in a run — a 6.6s orbit and a 1.1s star bolt both firing
+	# four times a second — which flattened the roster and buried the renderer.
+	return maxf(WeaponGrowthScript.interval_floor(state),
+		float(state["cooldown"]) * players[player_index].haste / frenzy_rate)
 
 
 func _tension_damage_multiplier() -> float:
@@ -5359,8 +5963,8 @@ func _update_hud() -> void:
 	p2_health_bar.value = players[1].health
 	p1_health_text_label.text = _player_health_text(0)
 	p2_health_text_label.text = _player_health_text(1)
-	p1_health_text_label.add_theme_color_override("font_color", Color("ffcfdf") if players[0].downed else Color("f4f8ff"))
-	p2_health_text_label.add_theme_color_override("font_color", Color("ffcfdf") if players[1].downed else Color("f4f8ff"))
+	UIWrite.font_color(p1_health_text_label, Color("ffcfdf") if players[0].downed else Color("f4f8ff"))
+	UIWrite.font_color(p2_health_text_label, Color("ffcfdf") if players[1].downed else Color("f4f8ff"))
 	chain_bar.value = tension * 100.0
 	chain_distance_text_label.text = "사슬 거리  %d%%" % int(round(tension * 100.0))
 	var chain_state := ""
@@ -5379,20 +5983,20 @@ func _update_hud() -> void:
 		chain_color = Color("8ecae6")
 	chain_status_label.text = chain_state
 	chain_status_label.visible = not chain_state.is_empty()
-	chain_status_label.add_theme_color_override("font_color", chain_color)
+	UIWrite.font_color(chain_status_label, chain_color)
 	var fill := chain_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if fill != null:
-		fill.bg_color = chain_color
+		UIWrite.bg_color(fill, chain_color)
 	chain_integrity_bar.value = chain_integrity
 	chain_integrity_text_label.text = "내구도  %d%%" % int(round(chain_integrity))
 	var integrity_fill := chain_integrity_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if integrity_fill != null:
 		if chain_overloaded:
-			integrity_fill.bg_color = Color("ff5d8f")
+			UIWrite.bg_color(integrity_fill, Color("ff5d8f"))
 		elif chain_integrity < 40.0:
-			integrity_fill.bg_color = Color("fff275")
+			UIWrite.bg_color(integrity_fill, Color("fff275"))
 		else:
-			integrity_fill.bg_color = Color("80ed99")
+			UIWrite.bg_color(integrity_fill, Color("80ed99"))
 	# The third column of the shared strip, always present so the row keeps its
 	# three-column shape from the first second of a run. Before either half
 	# exists it reads as empty slots, which is the truthful thing to show: the
@@ -5403,10 +6007,10 @@ func _update_hud() -> void:
 		# An unspent core is the pair owing themselves a decision, so it stays on
 		# the HUD until it is gone rather than being mentioned once and forgotten.
 		resonance_status_label.text = "공명핵 %d" % held_cores
-		resonance_status_label.add_theme_color_override("font_color", Color("fff275"))
+		UIWrite.font_color(resonance_status_label, Color("fff275"))
 	else:
 		resonance_status_label.text = "공명 %d/%d" % [active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES]
-		resonance_status_label.add_theme_color_override("font_color", Color("e4c1f9"))
+		UIWrite.font_color(resonance_status_label, Color("e4c1f9"))
 	if resonance_pips != null:
 		resonance_pips.report(active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES, held_cores)
 	xp_bar.max_value = progression.required_experience

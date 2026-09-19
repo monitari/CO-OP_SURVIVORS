@@ -227,6 +227,11 @@ static func build_state(evolution: Dictionary, base_state: Dictionary) -> Dictio
 	state["color"] = base_state["color"]
 	state["source_character"] = base_state.get("source_character", "")
 	state["base_weapon_id"] = String(evolution["base_weapon_id"])
+	# The enhanced form's own catalogue interval, which every speed floor is a
+	# share of. Read from the enhanced entry and not carried from the base
+	# weapon: an enhancement is allowed to change how often the weapon fires,
+	# and the floor has to follow what it became.
+	state["base_cooldown"] = float((evolution["weapon"] as Dictionary).get("cooldown", 1.0))
 	for key in ["tech_id", "tech_name", "tech_internal_id", "tech_synergy_treasure_id"]:
 		if base_state.has(key):
 			state[key] = base_state[key]

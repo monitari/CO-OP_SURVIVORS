@@ -36,6 +36,10 @@ const FADE_TIME := 0.7
 ## silhouettes the fight is read from.
 const POOL_LIGHT_ENERGY := 0.09
 var pool_light: PointLight2D
+## True when WeaponController's MilkPoolRenderer draws this puddle, in which
+## case the node draws nothing itself. A puddle made on its own — a capture, a
+## test — still draws the way it always did.
+var batched := false
 
 
 func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: float,
@@ -52,24 +56,24 @@ func configure(at: Vector2, spatial_grid: EnemySpatialGrid, hit: float, radius: 
 	splash_seed = randf() * TAU
 	z_index = -1 # Under the cats and the enemies: it is the floor, not an effect.
 	if pool_light == null:
-		pool_light = LightField.attach(self, colour, radius * 1.2, POOL_LIGHT_ENERGY)
+		pool_light = LightField.attach(self, colour, radius * 1.2, POOL_LIGHT_ENERGY, false, true)
+	_present()
 	queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(&"milk_pools", probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	age += delta
 	tick -= delta
 	if tick <= 0.0 and age >= SPREAD_TIME:
 		tick = TICK_INTERVAL
 		_soak()
-	if pool_light != null:
-		# Spreads with the splash and goes out with the puddle, so the lit patch
-		# of roof is always exactly the wet patch of roof.
-		var spread := _spread()
-		var fade := clampf((duration - age) / FADE_TIME, 0.0, 1.0)
-		pool_light.energy = POOL_LIGHT_ENERGY * spread * fade
-		pool_light.texture_scale = maxf(0.2, pool_radius * spread * 1.2 / 64.0)
-	queue_redraw()
+	_present()
 	if age >= duration:
 		queue_free()
 
@@ -94,11 +98,37 @@ func _spread() -> float:
 	return ease(clampf(age / SPREAD_TIME, 0.0, 1.0), -1.8)
 
 
+## The splash and the fade are node properties, not a redraw.
+##
+## The puddle used to rebuild its whole shape every physics tick — a 26-point
+## rim, an antialiased outline, a core and five droplets — only to scale it up
+## over the first quarter second and fade it over the last. At thirty puddles
+## that was the single most expensive thing drawn in a late run (2.1ms a tick,
+## tests/perf_bench_capture.gd). The shape never actually changes: it is drawn
+## once at full size and full strength, and the node's scale and alpha carry
+## the spread and the fade, the way ProximityMine carries its spin.
+##
+## The light is a child, so it rides the same scale; only its energy fades.
+func _present() -> void:
+	var spread := maxf(0.01, _spread())
+	scale = Vector2.ONE * spread
+	var fade := clampf((duration - age) / FADE_TIME, 0.0, 1.0)
+	modulate.a = fade
+	if pool_light != null:
+		pool_light.energy = POOL_LIGHT_ENERGY * spread * fade
+
+
 func _draw() -> void:
-	var reach := pool_radius * _spread()
-	if reach <= 1.0:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:milk_pool", probe_started)
+
+
+func _probed_draw() -> void:
+	if batched:
 		return
-	var alpha := minf(1.0, (duration - age) / FADE_TIME)
+	var reach := pool_radius
+	var alpha := 1.0
 	# An irregular rim rather than a circle: a spilled puddle that is a perfect
 	# disc reads as a targeting decal, which is exactly what this is not.
 	var rim := PackedVector2Array()

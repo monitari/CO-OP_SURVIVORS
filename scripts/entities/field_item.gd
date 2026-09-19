@@ -50,6 +50,12 @@ func step(delta: float) -> bool:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:field_item", probe_started)
+
+
+func _probed_draw() -> void:
 	var alpha := 1.0
 	if lifetime <= FADE_WARNING:
 		alpha = 0.45 + absf(sin(lifetime * 6.0)) * 0.55

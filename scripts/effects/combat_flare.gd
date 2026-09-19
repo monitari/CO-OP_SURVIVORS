@@ -22,19 +22,32 @@ func setup(effect_position: Vector2, first: Color, second: Color, effect_radius 
 
 
 func _process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(delta)
+	FrameProbe.add(&"render_flares", probe_started)
+
+
+func _probed_process(delta: float) -> void:
 	elapsed += delta
 	var progress := clampf(elapsed / lifetime, 0.0, 1.0)
 	scale = Vector2.ONE * lerpf(0.42, 1.16, ease(progress, -1.8))
 	rotation = progress * 0.55
 	modulate.a = 1.0 - ease(progress, 2.2)
-	queue_redraw()
-	if glow != null:
-		glow.queue_redraw()
+	# No redraw: the burst and its glow are drawn once in setup(), and the grow,
+	# the turn and the fade above are all node properties the child glow inherits.
+	# Both used to redraw every frame for a shape that never changes — four arcs
+	# a ring, eight spokes, a polygon per spoke — at several flares per tick.
 	if elapsed >= lifetime:
 		queue_free()
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:combat_flare", probe_started)
+
+
+func _probed_draw() -> void:
 	draw_circle(Vector2.ZERO, radius * 0.14, Color(primary, 0.2))
 	for ring_index in 3:
 		var ring_radius := radius * (0.42 + ring_index * 0.25)

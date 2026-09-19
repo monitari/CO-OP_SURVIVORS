@@ -47,6 +47,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:resonance_pips", probe_started)
+
+
+func _probed_draw() -> void:
 	var cell_width := (size.x - CELL_GAP * float(slots - 1)) / float(slots)
 	for index in slots:
 		var cell := Rect2(float(index) * (cell_width + CELL_GAP), size.y - CELL_HEIGHT,

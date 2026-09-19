@@ -4,6 +4,8 @@ extends Node2D
 ## the visible sweep/orbit/implosion is the hit, not decoration after a teleport.
 
 enum Kind { ORBIT, FROST, SCYTHE, GRAVITY }
+## Probe section per kind, so the profiler says which kind of field is costing.
+const KIND_PROBES: Array[StringName] = [&"field:orbit", &"field:frost", &"field:scythe", &"field:gravity"]
 
 var kind := Kind.ORBIT
 var anchor: ChainPlayer
@@ -20,10 +22,13 @@ var tick := 0.0
 var direction := Vector2.RIGHT
 var arc := PI
 var struck: Dictionary = {}
-## Orbit only: "<shard>:<enemy id>" -> the age at which that shard last hit that
-## enemy. Keyed by shard rather than by enemy because the whole point of a ring
-## of shards is that each one is its own blade.
-var shard_hits: Dictionary = {}
+## Orbit only: shard_hits[shard][enemy instance id] -> the age at which that
+## shard last hit that enemy. Kept per shard because the whole point of a ring of
+## shards is that each one is its own blade. It was one dictionary keyed by the
+## string "<shard>:<id>", which formatted a new string for every body near every
+## shard on every physics tick — a few hundred allocations a tick in a crowd, for
+## a lookup two integers can do.
+var shard_hits: Array[Dictionary] = []
 var pulls: Array[Dictionary] = []
 var finished_callback: Callable
 ## Hostile shots this field is allowed to knock down — the controller's own
@@ -53,6 +58,12 @@ const GRAVITY_LIGHT_ENERGY := 0.24
 const MAX_RENDER_RADIUS := 1800.0
 const ORBIT_FADE_IN := 0.24
 const ORBIT_FADE_OUT := 0.42
+## The frost aura's moving part — its turning arcs and drifting flakes — on a
+## canvas item of its own, so the two large filled discs underneath are drawn
+## once instead of every tick. See _present.
+var _frost_motion: DrawProxy
+## What the static layer was last drawn with; a change means drawing it again.
+var _drawn_key := ""
 
 
 func configure_orbit(p: ChainPlayer, grid: EnemySpatialGrid, hit: float, radius: float, shards: int, angular_speed: float, tint: Color, duration_scale := 1.0, owner := -1, weapon_id := "") -> void:
@@ -143,6 +154,12 @@ func configure_gravity(centre: Vector2, grid: EnemySpatialGrid, hit: float, radi
 
 
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(KIND_PROBES[kind], probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	age += delta
 	if kind in [Kind.ORBIT, Kind.FROST]:
 		if not is_instance_valid(anchor) or anchor.downed:
@@ -169,7 +186,7 @@ func _physics_process(delta: float) -> void:
 		_hit_scythe()
 	elif kind == Kind.GRAVITY:
 		_step_gravity()
-	queue_redraw()
+	_present()
 	if age >= duration:
 		if kind == Kind.GRAVITY:
 			_finish_gravity()
@@ -185,14 +202,17 @@ const ORBIT_REHIT := 0.45
 
 func _hit_orbit() -> void:
 	var phase := age * speed
+	while shard_hits.size() < count:
+		shard_hits.append({})
 	for shard in count:
 		var point := global_position + Vector2.from_angle(phase + TAU * float(shard) / count) * effect_radius
+		var hits: Dictionary = shard_hits[shard]
 		for enemy in spatial_grid.query_radius(point, 34.0):
 			if not is_instance_valid(enemy) or enemy.dead: continue
 			if point.distance_to(enemy.global_position) > 26.0 + enemy.radius: continue
-			var key := "%d:%d" % [shard, enemy.get_instance_id()]
-			if age - float(shard_hits.get(key, -ORBIT_REHIT)) < ORBIT_REHIT: continue
-			shard_hits[key] = age
+			var key := enemy.get_instance_id()
+			if age - float(hits.get(key, -ORBIT_REHIT)) < ORBIT_REHIT: continue
+			hits[key] = age
 			enemy.take_damage(damage, source_player, source_weapon)
 
 
@@ -265,18 +285,83 @@ func _finish_gravity() -> void:
 	if finished_callback.is_valid(): finished_callback.call()
 
 
+## Every field redrew itself every physics tick, which made weapon fields the
+## second most expensive thing drawn in a late run (1.0ms a tick for five of
+## them, tests/perf_bench_capture.gd). Two of the four kinds do not need it.
+##
+## An orbit ring turns as one piece — every shard and every trail sits at the
+## same phase offset — so it is drawn once at phase zero and the node's own
+## rotation turns it. A frost aura is two large filled discs that never change
+## until the weapon levels, with a few arcs and flakes turning over them; the
+## discs stay on this node and the motion moves to a child canvas item. The two
+## short-lived kinds, the scythe sweep and the collapsing well, change shape
+## every frame and still redraw.
+func _present() -> void:
+	match kind:
+		Kind.ORBIT:
+			rotation = age * speed
+			_redraw_if_changed()
+		Kind.FROST:
+			_redraw_if_changed()
+			if _frost_motion == null:
+				_frost_motion = DrawProxy.new()
+				_frost_motion.name = "FrostMotion"
+				_frost_motion.painter = _draw_frost_motion
+				add_child(_frost_motion)
+			_frost_motion.queue_redraw()
+		_:
+			queue_redraw()
+
+
+func _redraw_if_changed() -> void:
+	var key := "%.2f|%d|%s" % [_visible_radius(), count, color.to_html()]
+	if key != _drawn_key:
+		_drawn_key = key
+		queue_redraw()
+
+
+func _draw_frost_motion(canvas: CanvasItem) -> void:
+	var visible_radius := _visible_radius()
+	for ring in 3:
+		var start := age * (0.35 + ring * 0.1) + ring * 2.0
+		canvas.draw_arc(Vector2.ZERO, maxf(1.0, visible_radius - ring * 7.0), start, start + 1.25, 18, Color(color, 0.20 + ring * 0.07), 2.5, true)
+	for flake in 8:
+		var at := Vector2.from_angle(flake * TAU / 8.0 - age * 0.18) * visible_radius * (0.62 + (flake % 2) * 0.2)
+		canvas.draw_circle(at, 2.8, Color(color.lightened(0.4), 0.75))
+
+
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:weapon_field", probe_started)
+
+
+func _probed_draw() -> void:
 	match kind:
 		Kind.ORBIT:
 			var visible_radius := _visible_radius()
-			var phase := age * speed
+			# Drawn at phase zero; the node's rotation carries the spin (_present).
+			var phase := 0.0
+			# Five commands for the whole ring rather than four per shard; see
+			# BatchPaint. Halos first, then the ring and trails, then the stars
+			# over everything, which is the order each shard drew itself in.
 			draw_arc(Vector2.ZERO, visible_radius, 0, TAU, 48, Color(color, 0.18), 2.0, true)
+			var halos := BatchPaint.new()
+			var stars := BatchPaint.new()
+			var trails := PackedVector2Array()
+			var outlines := PackedVector2Array()
 			for shard in count:
 				var angle := phase + TAU * float(shard) / count
 				var point := Vector2.from_angle(angle) * visible_radius
-				draw_circle(point, 20.0, Color(color, 0.10))
-				draw_arc(Vector2.ZERO, visible_radius, angle - 0.42, angle, 10, Color(color, 0.42), 4.0, true)
-				_draw_star(point, 11.0, color)
+				halos.fill_circle(point, 20.0, Color(color, 0.10), 16)
+				BatchPaint.arc_segments(trails, Vector2.ZERO, visible_radius, angle - 0.42, angle, 10)
+				var star := _star_points(point, 11.0)
+				stars.fill_fan(point, star, color)
+				BatchPaint.loop_segments(outlines, star)
+			halos.flush(self)
+			draw_multiline(trails, Color(color, 0.42), 4.0, true)
+			stars.flush(self)
+			draw_multiline(outlines, Color.WHITE, 1.5, true)
 		Kind.FROST:
 			var visible_radius := _visible_radius()
 			# The aura's filled footprint is the damage rule; arcs are texture, not
@@ -285,12 +370,7 @@ func _draw() -> void:
 			# adaptive draw_circle tessellation can overflow at extreme radii.
 			draw_colored_polygon(_disc_points(visible_radius, 72), Color(color, 0.075))
 			draw_colored_polygon(_disc_points(visible_radius * 0.66, 64), Color(color.lightened(0.25), 0.045))
-			for ring in 3:
-				var start := age * (0.35 + ring * 0.1) + ring * 2.0
-				draw_arc(Vector2.ZERO, maxf(1.0, visible_radius - ring * 7.0), start, start + 1.25, 18, Color(color, 0.20 + ring * 0.07), 2.5, true)
-			for flake in 8:
-				var at := Vector2.from_angle(flake * TAU / 8.0 - age * 0.18) * visible_radius * (0.62 + (flake % 2) * 0.2)
-				draw_circle(at, 2.8, Color(color.lightened(0.4), 0.75))
+			# The turning arcs and flakes are drawn by _draw_frost_motion.
 		Kind.SCYTHE:
 			var visible_radius := _visible_radius()
 			var progress := clampf(age / duration, 0.0, 1.0)
@@ -319,12 +399,11 @@ func _draw() -> void:
 			draw_circle(Vector2.ZERO, 8.0 + progress * 18.0, Color(color, 0.18 + progress * 0.3))
 
 
-func _draw_star(at: Vector2, radius: float, tint: Color) -> void:
+func _star_points(at: Vector2, radius: float) -> PackedVector2Array:
 	var points := PackedVector2Array()
 	for index in 8:
 		points.append(at + Vector2.from_angle(index * TAU / 8.0) * (radius if index % 2 == 0 else radius * 0.42))
-	draw_colored_polygon(points, tint)
-	draw_polyline(points + PackedVector2Array([points[0]]), Color.WHITE, 1.5, true)
+	return points
 
 
 func _sector_points(inner_radius: float, outer_radius: float, start: float, finish: float, segments: int) -> PackedVector2Array:

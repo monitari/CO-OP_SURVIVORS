@@ -119,11 +119,14 @@ func _run() -> void:
 
 	# The two showcases that close the tech tree, driven straight rather than
 	# played out through a whole run.
+	# The enhancement showcase carries no treasure any more — a treasure used to
+	# be half of what unlocked it, and this payload still named one long after
+	# the gate was removed, which made this whole capture script fail on the
+	# missing key.
 	var fusion := EvolutionCatalog.for_base(String(main.weapon_loadouts[0][0]["weapon_id"]))
 	main._queue_showcase({
 		"kind": "fusion",
 		"base_weapon_id": String(main.weapon_loadouts[0][0]["weapon_id"]),
-		"treasure_id": String(fusion["treasure_id"]),
 		"weapon_id": String(fusion["weapon_id"]),
 		"name": String(fusion["weapon_name"]),
 	})
@@ -175,22 +178,54 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/level-up.png")
 
-	# A card carrying the fusion mark: P1 one weapon tier and one treasure tier
-	# away, so the screen has something to hint about.
-	var marked_tech: Dictionary = main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0]
+	# A card carrying the synergy mark: P1 on a route, holding the treasure that
+	# route is built around, so the screen has something to point at. The mark
+	# used to be a recipe — the treasure an enhancement required — and was shot
+	# by deepening it to a gate tier that no longer exists. Nothing gates an
+	# enhancement now, so carrying the treasure at all is the whole condition.
+	var marked_tech: Dictionary = main.WeaponTechs.for_weapon(
+		String(main.weapon_loadouts[0][0].get("base_weapon_id", main.weapon_loadouts[0][0]["weapon_id"])))[0]
 	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], marked_tech)
-	var marked: Dictionary = main._selected_evolution_for_state(main.weapon_loadouts[0][0])
-	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER - 1
+	var marked_treasure := String(marked_tech["synergy_treasure_id"])
 	main._apply_upgrade(0, {"id": "unlock_treasure", "weapon_slot": -1,
-		"treasure": TreasureCatalog.by_id(String(marked["treasure_id"]))})
-	while main._treasure_tier(0, String(marked["treasure_id"])) < EvolutionCatalog.REQUIRED_TREASURE_TIER - 1:
-		main._apply_upgrade(0, {"id": "treasure_upgrade", "weapon_slot": -1,
-			"treasure_slot": main.treasure_loadouts[0].size() - 1})
+		"treasure": TreasureCatalog.by_id(marked_treasure)})
 	main.p1_choices = main._get_upgrade_choices(1)
 	main._refresh_level_up_ui()
 	await _tick_physics(main, 2)
 	await RenderingServer.frame_post_draw
 	_save_viewport("res://.godot_runtime/level-up-fusion-mark.png")
+
+	# The resonance vote, which is the same screen as the growth hand above and
+	# has to be shot the same way to show it. Both survivors are given an
+	# enhanced weapon first, since that is the only state in which the core has
+	# anything to offer.
+	main.level_up_active = false
+	main.level_overlay.visible = false
+	main.get_tree().paused = false
+	for slot in 2:
+		var base: Dictionary = main.weapon_loadouts[slot][0]
+		if String(base.get("tech_id", "")).is_empty():
+			main.WeaponTechs.apply_to_state(base,
+				main.WeaponTechs.for_weapon(String(base.get("base_weapon_id", base["weapon_id"])))[0])
+		var evolution := EvolutionCatalog.for_base(String(base.get("base_weapon_id", base["weapon_id"])))
+		main.weapon_loadouts[slot][0] = EvolutionCatalog.build_state(evolution, base)
+	main.resonance_system.pending_cores = 0
+	main._award_resonance_core()
+	if main.resonance_vote_active:
+		# One cursor on each of two different cards, which is the state the
+		# screen exists for: a disagreement in progress, visible to both.
+		main.resonance_cursors[0] = 1
+		main.resonance_cursors[1] = 2
+		main._refresh_resonance_vote_ui()
+		await _tick_physics(main, 40)
+		await RenderingServer.frame_post_draw
+		_save_viewport("res://.godot_runtime/resonance-vote.png")
+		main.resonance_vote_active = false
+		main.resonance_overlay.visible = false
+		main.get_tree().paused = false
+	main.level_up_active = true
+	main.level_overlay.visible = true
 
 	# Give both survivors a few attributes so the build panel has something to
 	# show, then capture the hold-to-peek overlay.

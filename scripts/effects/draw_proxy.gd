@@ -26,5 +26,11 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:draw_proxy", probe_started)
+
+
+func _probed_draw() -> void:
 	if painter.is_valid():
 		painter.call(self)

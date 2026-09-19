@@ -120,6 +120,7 @@ var drawn_bodies := 0
 var drawn_instances := 0
 var drawn_bands := 0
 var drawn_warnings := 0
+var attack_visuals_enabled := true
 
 
 func _ready() -> void:
@@ -134,6 +135,12 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(_delta)
+	FrameProbe.add(&"render_crowd", probe_started)
+
+
+func _probed_process(_delta: float) -> void:
 	# Only after a physics tick has moved something: on a high-refresh display
 	# most rendered frames have nothing new to batch.
 	if dirty and not get_tree().paused:
@@ -288,7 +295,7 @@ func refresh() -> void:
 	_shadows.visible = _shadow_used > 0
 	if _shadow_used > 0:
 		_upload(_shadows, _shadow_data, _shadow_used)
-	_warnings.visible = _warning_used > 0
+	_warnings.visible = attack_visuals_enabled and _warning_used > 0
 	if _warning_used > 0:
 		_upload(_warnings, _warning_data, _warning_used)
 
@@ -303,6 +310,8 @@ const SHOT_PEBBLE := Color("f5c995")
 
 
 func _draw_shots(cull: Rect2) -> void:
+	if not attack_visuals_enabled:
+		return
 	var disc: PackedFloat32Array = _regions["_disc"]
 	for candidate in shots:
 		if not is_instance_valid(candidate):

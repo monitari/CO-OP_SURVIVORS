@@ -1,5 +1,6 @@
 extends Control
 ## Resolution-independent neon trim; decorative children never intercept input.
+const Palette := preload("res://scripts/ui/cat_theme.gd")
 var accent := Color("35dbff")
 var active := false
 var ears := false
@@ -20,6 +21,12 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:neon_frame", probe_started)
+
+
+func _probed_draw() -> void:
 	var pulse := 0.88 + sin(age * 2.0) * 0.12 if active else 0.65
 	for layer in range(4, 0, -1):
 		var glow := StyleBoxFlat.new()
@@ -27,14 +34,14 @@ func _draw() -> void:
 		glow.border_color = Color(accent, 0.035 * pulse)
 		glow.set_border_width_all(layer * 3)
 		glow.set_corner_radius_all(16 + layer)
-		glow.corner_detail = 12
+		glow.corner_detail = Palette.corner_detail_for(16 + layer)
 		draw_style_box(glow, Rect2(Vector2.ONE * -layer * 1.4, size + Vector2.ONE * layer * 2.8))
 	var edge := StyleBoxFlat.new()
 	edge.bg_color = Color.TRANSPARENT
 	edge.border_color = Color(accent.lightened(0.3), 0.95 if active else 0.7)
 	edge.set_border_width_all(2 if active else 1)
 	edge.set_corner_radius_all(14)
-	edge.corner_detail = 12
+	edge.corner_detail = Palette.corner_detail_for(14)
 	draw_style_box(edge, Rect2(Vector2.ZERO, size))
 	draw_line(Vector2(20, 4), Vector2(size.x * 0.38, 4), Color(accent, pulse), 2, true)
 	draw_line(Vector2(size.x * 0.62, size.y - 4), Vector2(size.x - 20, size.y - 4), Color(accent, pulse), 2, true)
@@ -45,10 +52,10 @@ func _draw() -> void:
 		var x := size.x * 0.5
 		var points := PackedVector2Array([Vector2(x - 37, 0), Vector2(x - 30, -20), Vector2(x - 15, -9), Vector2(x + 15, -9), Vector2(x + 30, -20), Vector2(x + 37, 0)])
 		draw_polyline(points, Color(accent, pulse), 3, true)
-		draw_circle(Vector2(x - 7, -3), 1.8, accent)
-		draw_circle(Vector2(x + 7, -3), 1.8, accent)
+		draw_circle(Vector2(x - 7, -3), 1.8, accent, true, -1.0, true)
+		draw_circle(Vector2(x + 7, -3), 1.8, accent, true, -1.0, true)
 
 func _paw(at: Vector2, factor: float) -> void:
-	draw_circle(at + Vector2(0, 3) * factor, 4 * factor, Color(accent, 0.75))
+	draw_circle(at + Vector2(0, 3) * factor, 4 * factor, Color(accent, 0.75), true, -1.0, true)
 	for toe in [Vector2(-6, -2), Vector2(-2, -6), Vector2(3, -6), Vector2(7, -2)]:
-		draw_circle(at + toe * factor, 2.4 * factor, Color(accent, 0.8))
+		draw_circle(at + toe * factor, 2.4 * factor, Color(accent, 0.8), true, -1.0, true)

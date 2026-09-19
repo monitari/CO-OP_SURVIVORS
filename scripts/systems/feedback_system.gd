@@ -309,6 +309,7 @@ const MUSIC_TRACKS := {
 var sound_enabled := true
 var music_enabled := true
 var damage_numbers_enabled := true
+var damage_numbers: DamageNumberField
 var damage_numbers_this_frame := 0
 
 var _cue_cooldowns: Dictionary = {}
@@ -376,11 +377,23 @@ func _make_limiter() -> AudioEffect:
 
 
 func _physics_process(_delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(_delta)
+	FrameProbe.add(&"feedback", probe_started)
+
+
+func _probed_physics_process(_delta: float) -> void:
 	damage_numbers_this_frame = 0
 	_flush_batched()
 
 
 func _process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_process(delta)
+	FrameProbe.add(&"feedback", probe_started)
+
+
+func _probed_process(delta: float) -> void:
 	for cue in _cue_cooldowns.keys():
 		var remaining: float = float(_cue_cooldowns[cue]) - delta
 		if remaining <= 0.0:
@@ -426,8 +439,18 @@ func play_item_cue(item_id: String) -> void:
 
 ## The impact class a weapon's hits belong to, as a cue id.
 static func impact_cue(weapon_id: String) -> String:
+	# Cached: this runs once per hit, a few hundred times a tick in a late run,
+	# and building "impact_" + family allocated a new string every time.
+	var cached: Variant = _impact_cues.get(weapon_id)
+	if cached != null:
+		return cached
 	var family: String = String(WEAPON_IMPACT.get(weapon_id, ""))
-	return "hit" if family.is_empty() else "impact_" + family
+	var cue := "hit" if family.is_empty() else "impact_" + family
+	_impact_cues[weapon_id] = cue
+	return cue
+
+
+static var _impact_cues: Dictionary = {}
 
 
 ## A hit landed. Reported rather than played, because a single area weapon can
@@ -514,25 +537,33 @@ func refresh_music() -> void:
 
 
 func show_damage(world_position: Vector2, amount: float, color: Color = Color.WHITE) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_show_damage(world_position, amount, color)
+	FrameProbe.add(&"damage_numbers (incl)", probe_started)
+
+
+func _probed_show_damage(world_position: Vector2, amount: float, color: Color) -> void:
 	if not damage_numbers_enabled:
 		return
 	if damage_numbers_this_frame >= MAX_DAMAGE_NUMBERS_PER_FRAME:
 		return
 	damage_numbers_this_frame += 1
-	var label := Label.new()
-	label.text = str(int(round(amount)))
-	label.position = world_position - Vector2(28.0, 34.0)
-	label.size = Vector2(56.0, 30.0)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 18)
-	label.add_theme_color_override("font_color", color)
-	label.z_index = 20
-	add_child(label)
-	var tween := create_tween()
-	tween.set_parallel(true)
-	tween.tween_property(label, "position", label.position + Vector2(0.0, -30.0), 0.48)
-	tween.tween_property(label, "modulate:a", 0.0, 0.48).set_delay(0.12)
-	tween.chain().tween_callback(label.queue_free)
+	# One batched field rather than a Label and a Tween per number; see
+	# DamageNumberField for what that was costing.
+	_number_field().add(world_position, str(int(round(amount))), color)
+
+
+## Numbers currently floating, for tests and the profiler.
+func live_damage_numbers() -> int:
+	return damage_numbers.live_count() if damage_numbers != null else 0
+
+
+func _number_field() -> DamageNumberField:
+	if damage_numbers == null:
+		damage_numbers = DamageNumberField.new()
+		damage_numbers.name = "DamageNumbers"
+		add_child(damage_numbers)
+	return damage_numbers
 
 
 ## A cue, as a stereo stream: the same note rendered twice a few cents apart,

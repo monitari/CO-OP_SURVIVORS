@@ -88,6 +88,12 @@ func screen_rect() -> Rect2:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:rooftop_prop", probe_started)
+
+
+func _probed_draw() -> void:
 	var shape := SHAPE[kind] as Vector3
 	var color := PALETTE[kind] as Color
 	RooftopSpace.cast_shadow(self, RooftopSpace.box_footprint(Vector2.ZERO, shape.x, shape.y), shape.z)

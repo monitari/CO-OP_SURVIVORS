@@ -33,6 +33,8 @@ var chain_visual_path := PackedVector2Array()
 var flight_field: FlightField
 var active_projectiles: Array[HomingProjectile] = []
 var projectile_pool: Array[HomingProjectile] = []
+## Draws every milk puddle in one batch; the puddle nodes only simulate.
+var milk_renderer: MilkPoolRenderer
 ## Every projectile this controller ever made, in creation order — which is also
 ## their child order, and so the order they used to draw in. The batch renderer
 ## walks this rather than the active list, because the active list is kept
@@ -95,7 +97,7 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	# replacing them, so a scaled copy is handed to the effect functions and the
 	# stored loadout entry keeps its unmodified base values.
 	var scaled := state.duplicate()
-	scaled["count"] = int(state.get("count", 1)) + owner_player.amount
+	scaled["count"] = int(state.get("count", 1)) + floori(owner_player.amount)
 	scaled["speed"] = float(state.get("speed", 0.0)) * owner_player.projectile_speed
 	scaled["radius"] = float(state.get("radius", 0.0)) * owner_player.area
 	scaled["range"] = float(state.get("range", 0.0)) * owner_player.area
@@ -156,13 +158,14 @@ func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
 		ring["count"] = int(scaled["count"]) + 3
 		_plant_ruin_garden(player_index, ring, damage, color)
 		return true
-	if weapon_id == "gravity":
-		if bool(behavior.get("collapse", false)):
-			_collapse_event_horizon(player_index, scaled, damage, color)
-			return true
-		if bool(behavior.get("self_gravity", false)):
-			_collapse_gravity_at(owner_player.global_position, current_source_player, scaled, damage, color)
-			return true
+	# There used to be a second branch here, `self_gravity`, which opened the well
+	# on the caster's own body. No route has set it for a long time; it is deleted
+	# rather than left dormant because it is exactly the behaviour a pull weapon
+	# must never have (see GRAVITY_MIN_STAND_OFF), and a dormant switch for it is
+	# an invitation to turn it back on.
+	if weapon_id == "gravity" and bool(behavior.get("collapse", false)):
+		_collapse_event_horizon(player_index, scaled, damage, color)
+		return true
 	if weapon_id == "boomerang" and bool(behavior.get("radial_toys", false)):
 		_throw_toy(player_index, scaled, damage, color, TAU / maxf(1.0, float(scaled["count"])))
 		return true
@@ -234,10 +237,24 @@ func _throw_toy(player_index: int, state: Dictionary, damage: float, color: Colo
 ## 우유 흩뿌리기. Scattered around the caster rather than aimed: where the milk
 ## lands is not a decision the weapon makes, which is why the survivor's own
 ## position is the only thing that decides whether a cast was worth anything.
+## How many milk puddles may be on the ground at once, across both survivors.
+##
+## A puddle lasts 4.6s times the owner's 지속 multiplier, and nothing ever retired
+## one early — so the number alive was cast rate times volume times lifetime, and
+## every one of those three grew without limit. A late 크림 해일 had well over a
+## hundred overlapping pools down: the weapon stopped being a patch of ground the
+## pair owns and became a filter over the whole screen, through which neither
+## survivor could read an enemy telegraph. The oldest puddle now makes way for
+## the newest, which is what the weapon was always doing in spirit — milk that
+## fell eight seconds ago is not where the fight is.
+const MILK_POOL_BUDGET := 30
+
+
 func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var origin := players[player_index].global_position
 	var spread := float(state["range"])
 	var count := maxi(1, int(state.get("count", 1)))
+	_retire_oldest_pools(count)
 	for index in count:
 		# The first one lands underfoot, so a cast is never entirely wasted by
 		# an unlucky scatter and the survivor always has one patch of ground
@@ -249,11 +266,36 @@ func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Col
 			var angle := TAU * (float(index) + randf() * 0.7) / float(count)
 			at = origin + Vector2.from_angle(angle) * spread * sqrt(randf_range(0.16, 1.0))
 		var pool := MilkPoolScript.new() as MilkPool
+		pool.batched = milk_renderer != null
 		pool.configure(at, spatial_grid, damage, float(state["radius"]),
 			float(state.get("slow", 0.55)), color, 4.6 * float(state.get("duration", 1.0)),
 			current_source_player, current_source_weapon)
 		add_child(pool)
 	cue_requested.emit("weapon_milk")
+
+
+## Retires the oldest puddles until `incoming` more of them will fit under
+## MILK_POOL_BUDGET. Oldest rather than furthest, so the ground the pair is
+## standing on right now is never the ground that gets taken away.
+##
+## Retired by bringing the puddle's own end forward rather than freeing it, so it
+## drains through the fade it would have ended with anyway. Freeing it outright
+## makes a patch of lit floor vanish between two frames, which reads as a glitch
+## at exactly the moment the screen is busiest. The same shape 결계 지뢰 already
+## used for its own cap (MINE_CAP_PER_PLAYER), which detonates its oldest rather
+## than deleting it.
+func _retire_oldest_pools(incoming: int) -> void:
+	var live: Array[MilkPool] = []
+	for child in get_children():
+		var pool := child as MilkPool
+		if pool != null and not pool.is_queued_for_deletion() and pool.duration - pool.age > MilkPool.FADE_TIME:
+			live.append(pool)
+	var over := live.size() + incoming - MILK_POOL_BUDGET
+	if over <= 0:
+		return
+	live.sort_custom(func(first: MilkPool, second: MilkPool) -> bool: return first.age > second.age)
+	for index in mini(over, live.size()):
+		live[index].duration = live[index].age + MilkPool.FADE_TIME
 
 
 ## Resonance now sits behind two fused weapons rather than two tier-3 base
@@ -1007,6 +1049,11 @@ func _ready() -> void:
 		light_field = LightFieldScript.new() as LightField
 		light_field.name = "LightField"
 		add_child(light_field)
+	if milk_renderer == null:
+		milk_renderer = MilkPoolRenderer.new()
+		milk_renderer.name = "MilkBatch"
+		milk_renderer.controller = self
+		add_child(milk_renderer)
 	if batch_projectiles and projectile_renderer == null:
 		projectile_renderer = ProjectileRendererScript.new()
 		projectile_renderer.name = "ProjectileBatch"
@@ -1030,6 +1077,12 @@ func _ready() -> void:
 ## shot's impact this tick must wait for the next one, exactly as it did when
 ## the engine built the callback list before the tick began.
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(&"projectiles", probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	if not HomingProjectile.driven_by_loop:
 		return
 	var count := all_projectiles.size()
@@ -1351,6 +1404,26 @@ func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary
 
 ## Preferred stand-off for the collapse, as a fraction of the cast range.
 const GRAVITY_STAND_OFF := 0.55
+## And the distance from either survivor inside which a well may never open,
+## whatever is standing there.
+##
+## This is the whole fix for the weapon's worst behaviour. The placement below
+## scores a candidate on how many bodies a well there would catch, and in a
+## survivors game the densest cluster on the field is almost always the one
+## already on top of the pair — so the well opened underfoot and *dragged the
+## rest of the crowd in after it*. A weapon whose entire job is to pull things
+## together was reliably pulling them onto the two people it belonged to. No
+## amount of scoring fixes that, because the score was not wrong about where the
+## bodies were.
+##
+## A candidate this close is pushed straight out to the ring rather than thrown
+## away. The distinction matters: the crowd standing on the pair is still the
+## right thing for the weapon to answer, and the well's radius comfortably
+## reaches back over them from here — so they are caught and dragged *off* the
+## survivors instead of onto them. Discarding those candidates instead would have
+## made the weapon quietly refuse to fire at the one moment a player most wants
+## it to.
+const GRAVITY_MIN_STAND_OFF := 160.0
 ## At most this many bodies are tried as the centre of the well. Every candidate
 ## is scored against every body in range, so an uncapped search would be
 ## quadratic in a crowd; a stride across the list samples the shape of it for a
@@ -1369,15 +1442,18 @@ const GRAVITY_SAMPLES := 20
 ##
 ## It now looks for the best place rather than the extreme one: how much a well
 ## there would actually catch, tempered by how well placed it is. A slightly
-## smaller cluster out in front of the pair beats a bigger one underfoot or one
-## sitting at the very edge of the cast. With nothing in range it falls back to a
-## point along the aim direction rather than snapping home, so the weapon never
-## behaves like the old version by accident.
+## smaller cluster out in front of the pair beats one sitting at the very edge of
+## the cast. With nothing in range it falls back to a point along the aim
+## direction rather than snapping home, so the weapon never behaves like the old
+## version by accident.
+##
+## Nothing inside GRAVITY_MIN_STAND_OFF of *either* survivor is eligible, and
+## that rule is absolute rather than a term in the score — see the constant.
 func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
 	var origin := players[player_index].global_position
 	var cast_range := float(state.get("cast_range", 520.0))
 	var radius := float(state["radius"])
-	var preferred := cast_range * GRAVITY_STAND_OFF
+	var preferred := maxf(GRAVITY_MIN_STAND_OFF, cast_range * GRAVITY_STAND_OFF)
 	var candidates := spatial_grid.query_radius(origin, cast_range + 45.0)
 	var stride := maxi(1, ceili(float(candidates.size()) / float(GRAVITY_SAMPLES)))
 	var radius_squared := radius * radius
@@ -1387,7 +1463,7 @@ func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
 		var enemy := candidates[index] as ChaserEnemy
 		if not is_instance_valid(enemy) or enemy.dead:
 			continue
-		var at := enemy.global_position
+		var at := _push_clear_of_survivors(enemy.global_position, origin)
 		var distance := origin.distance_to(at)
 		if distance > cast_range:
 			continue
@@ -1407,6 +1483,28 @@ func _gravity_centre(player_index: int, state: Dictionary) -> Vector2:
 	if best_score > 0.0:
 		return best
 	return origin + _aim_direction(player_index, cast_range) * preferred
+
+
+## `at`, moved out to the nearest point that is GRAVITY_MIN_STAND_OFF clear of
+## both survivors. Run once per survivor, nearest first, so a point wedged
+## between the two ends up outside both rings rather than pushed off one and
+## straight into the other. `away_from` breaks the tie when a candidate sits
+## exactly on a survivor and there is no direction to push along.
+func _push_clear_of_survivors(at: Vector2, away_from: Vector2) -> Vector2:
+	var moved := at
+	for pass_index in 2:
+		for player in players:
+			var centre := player.global_position
+			var offset := moved - centre
+			if offset.length_squared() >= GRAVITY_MIN_STAND_OFF * GRAVITY_MIN_STAND_OFF:
+				continue
+			var heading := offset.normalized()
+			if heading == Vector2.ZERO:
+				heading = (centre - away_from).normalized()
+			if heading == Vector2.ZERO:
+				heading = Vector2.RIGHT
+			moved = centre + heading * GRAVITY_MIN_STAND_OFF
+	return moved
 
 
 ## --- fused weapons -------------------------------------------------------

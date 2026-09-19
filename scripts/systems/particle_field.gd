@@ -29,7 +29,12 @@ const MAX_PARTICLES := 260
 ## already has are exactly as good as the ones it is refusing — they are the same
 ## sparks from the same volley — and this file's rule has always been that losing
 ## some of them under load is correct.
-const MAX_EMITTED_PER_STEP := 120
+##
+## It was 120, five times what the field can hold. A mark lives a fifth to a
+## third of a second and at most MAX_PARTICLES are alive, so past about twenty
+## new marks a tick each one arrives only to evict one still on screen — a
+## hundred dictionaries a tick built to replace sparks that looked the same.
+const MAX_EMITTED_PER_STEP := 24
 
 ## Kinds, and what each one is for:
 ##   dust   a soft puff left under a moving survivor, so running reads as running
@@ -137,6 +142,12 @@ func _add(particle: Dictionary) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:particle_field", probe_started)
+
+
+func _probed_draw() -> void:
 	for particle in particles:
 		var progress := clampf(float(particle["age"]) / float(particle["life"]), 0.0, 1.0)
 		var fade := 1.0 - progress

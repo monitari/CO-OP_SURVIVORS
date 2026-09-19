@@ -5,6 +5,7 @@ const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 const MetaProgressionData := preload("res://scripts/systems/meta_progression.gd")
+const UIWrite := preload("res://scripts/ui/ui_write.gd")
 ## The survivor dossier's stat chips. Four across a 352px column, each holding an
 ## icon and a line like "범위 118%".
 ##
@@ -99,19 +100,20 @@ static func apply(main: Node) -> void:
 	for wide in [main.title_overlay, main.lobby_overlay, main.character_overlay]:
 		wide.position = G.rect(0, 0).position
 		wide.size = Vector2(G.w(12), G.h(8))
-	for narrow in [main.resonance_overlay, main.pause_overlay, main.result_overlay]:
+	for narrow in [main.pause_overlay, main.result_overlay]:
 		narrow.position = G.rect(2, 0.5).position
 		narrow.size = Vector2(G.w(8), G.h(7))
 	# Results gained a permanent-upgrade row. It uses the eighth grid row while
 	# the two shorter dialogue screens keep their original seven-row plate.
 	main.result_overlay.position = G.rect(2, 0).position
 	main.result_overlay.size = Vector2(G.w(8), G.h(8))
-	# The growth screen is off the grid on purpose: it is a band across the whole
-	# bottom of the viewport, not a panel inside the page margins, and the run it
-	# interrupts stays visible above it. It keeps the vertical slide main
-	# animates it with, so only its width is set here.
-	main.level_overlay.position.x = 0.0
-	main.level_overlay.size = Vector2(G.VIEWPORT.x, main.LEVEL_OVERLAY_HEIGHT)
+	# The two choice screens are off the grid on purpose: each is a band across
+	# the whole bottom of the viewport, not a panel inside the page margins, and
+	# the run it interrupts stays visible above it. Both keep the vertical slide
+	# main animates them with, so only their width is set here.
+	for band in [main.level_overlay, main.resonance_overlay]:
+		band.position.x = 0.0
+		band.size = Vector2(G.VIEWPORT.x, main.LEVEL_OVERLAY_HEIGHT)
 	_title(main)
 	_lobby(main)
 	_characters(main)
@@ -697,42 +699,34 @@ static func compact_growth_description(option: Dictionary) -> String:
 		"피해의 0.6% 팀 회복\n초당 최대 +1.5")
 
 
+## The resonance vote is a growth screen now (see main._refresh_resonance_vote_ui),
+## so this pass places its captions the way the growth screen's are placed and
+## leaves the cards alone: they are full growth cards, fanned and painted every
+## refresh by CardVisual, and a layout pass that repositioned and restyled them
+## here would be a second opinion about a card the refresh is already drawing.
+## The footer rule is gone with the panel frame for the same reason — there is a
+## paused fight behind this screen and a horizontal line drawn across it reads as
+## a seam in the world rather than as a divider in a window.
 static func _resonance(main: Node) -> void:
 	var screen: Control = main.resonance_overlay
 	place(main.resonance_title,
-		Rect2(Palette.PADDING, 18, screen.size.x - Palette.PADDING * 2.0, 40),
-		Palette.TYPE_TITLE)
-	main.resonance_title.text = "함께 쓰는 필살기"
-	main.resonance_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		Rect2(0, 2, screen.size.x, 34), Palette.TYPE_TITLE, Palette.GOLD)
+	main.resonance_title.text = "함께 쓰는 필살기 — 하나를 고르세요"
+	main.resonance_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for child in screen.get_children():
-		if child is Label and String(child.text).begins_with("강화 무기"):
+		if child is Label and String(child.text).begins_with("보스가 남긴"):
 			child.name = "ResonanceSubtitle"
-			place(child, Rect2(Palette.PADDING, 58, screen.size.x - Palette.PADDING * 2.0, 24),
-				Palette.TYPE_CAPTION, Palette.MUTED)
-	for index in main.resonance_cards.size():
-		var card: Label = main.resonance_cards[index]
-		card.position = Vector2(main.RESONANCE_CARD_MARGIN
-			+ (main.RESONANCE_CARD_WIDTH + main.RESONANCE_CARD_GAP) * index,
-			main.RESONANCE_CARD_Y)
-		card.size = Vector2(main.RESONANCE_CARD_WIDTH, main.RESONANCE_CARD_HEIGHT)
-		card.add_theme_font_size_override("font_size", Palette.TYPE_BODY)
-		card.add_theme_color_override("font_color", Palette.INK)
-		var style := Palette.surface(Palette.CARD)
-		style.content_margin_left = Palette.PADDING
-		style.content_margin_right = Palette.PADDING
-		style.content_margin_top = 100
-		style.content_margin_bottom = 78
-		card.add_theme_stylebox_override("normal", style)
-		var pips: Label = card.get_node("Pips")
-		place(pips, Rect2(10, card.size.y - 38, card.size.x - 20, 28),
-			Palette.TYPE_CAPTION, Palette.CREAM)
-		pips.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		pips.add_theme_stylebox_override("normal", Palette.surface(Palette.NIGHT_RAISED))
-	place(main.resonance_status,
-		Rect2(Palette.PADDING, screen.size.y - 108, screen.size.x - Palette.PADDING * 2.0, 54),
+			place(child, Rect2(0, 36, screen.size.x, 22), Palette.TYPE_CAPTION, Palette.MUTED)
+			(child as Label).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	place(main.resonance_status, Rect2(300, 468, screen.size.x - 600.0, 44),
 		Palette.TYPE_BODY, Palette.MUTED)
 	main.resonance_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	footer(screen, "나 A / D 이동    W 확정    S 취소     동료 ← / → 이동    ↑ 확정    ↓ 취소")
+	# Bottom-right, where the growth screen's own controls line sits, and clear
+	# of the full-width XP bar the band is standing on.
+	var controls: Label = screen.get_node_or_null("ResonanceControls")
+	if controls != null:
+		place(controls, Rect2(825, 518, 425, 24), Palette.TYPE_CAPTION, Palette.MUTED)
+		controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 
 static func _hud(main: Node) -> void:
@@ -845,12 +839,23 @@ static func _hud(main: Node) -> void:
 			for index in cap:
 				var socket := plate(holder, Rect2(0, 0, CARRIED_CELL, CARRIED_CELL), Palette.NIGHT)
 				socket.name = "%sSlot%d" % [row, index]
-				var style := Palette.surface(Color("0b1628d9"), 7)
-				style.border_color = Palette.OUTLINE
+				# No border of its own: the cooldown ring traces this box's edge and
+				# is the border (see equipment_border.gd), so the two can no longer
+				# disagree at the corners.
+				var style := Palette.surface(Color("0b1628e6"), 8)
+				style.set_border_width_all(0)
 				socket.add_theme_stylebox_override("panel", style)
 				var art := icon(holder, null, Rect2(0, 0, CARRIED_CELL - 4, CARRIED_CELL - 4))
 				art.name = "%s%d" % [row, index]
-				var tier := label(art, "", Rect2(CARRIED_CELL - 23, CARRIED_CELL - 20, 19, 16), 13, Palette.CREAM)
+				# The level is a small chip hung on the corner rather than a number
+				# printed across the art.
+				var tier := label(art, "", Rect2(CARRIED_CELL - 20, CARRIED_CELL - 17, 16, 13), 10, Palette.CREAM)
+				var chip := Palette.surface(Color("08111fee"), 5)
+				chip.border_color = Color(Palette.OUTLINE, 0.9)
+				chip.content_margin_left = 2
+				chip.content_margin_right = 2
+				tier.add_theme_stylebox_override("normal", chip)
+				tier.z_index = 2
 				var border := preload("res://scripts/ui/equipment_border.gd").new()
 				border.name = "CooldownBorder"
 				border.game = main
@@ -859,11 +864,9 @@ static func _hud(main: Node) -> void:
 				border.weapon = weapon_row
 				border.size = Vector2(CARRIED_CELL, CARRIED_CELL)
 				socket.add_child(border)
-				tier.add_theme_color_override("font_outline_color", Color("080f20"))
-				tier.add_theme_constant_override("outline_size", 4)
 				tier.name = "Tier"
-				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-				tier.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+				tier.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+				tier.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		layout_carried(holder, slot == 1)
 	var alert := plate(main.combat_hud, Rect2(388, 650, 504, 46), Palette.NIGHT_PANEL)
 	alert.name = "TacticalAlert"
@@ -882,8 +885,8 @@ const METER_GAP := 14.0
 const SHARED_LEFT := 418.0
 const SHARED_TOP := 16.0
 const SHARED_WIDTH := 444.0
-const CARRIED_CELL := 30.0
-const CARRIED_PITCH := 33.0
+const CARRIED_CELL := 34.0
+const CARRIED_PITCH := 38.0
 
 
 ## Places a carried-equipment ribbon's cells. Mirrored for the survivor on the
@@ -966,8 +969,8 @@ static func refresh_hud(main: Node) -> void:
 		var health: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
 		var fill := health.get_theme_stylebox("fill") as StyleBoxFlat
 		var endangered: bool = main.players[slot].downed or main.players[slot].health <= main.players[slot].max_health * 0.25
-		fill.bg_color = Color("c65567") if endangered else (
-			Palette.P1 if slot == main.local_view_slot() else Palette.P2)
+		UIWrite.bg_color(fill, Color("c65567") if endangered else (
+			Palette.P1 if slot == main.local_view_slot() else Palette.P2))
 		main.combat_hud.get_node("PlayerIdentity%d" % slot).text = ""
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
 		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
@@ -987,13 +990,15 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 			index += 1
 			continue
 		var entry: Dictionary = carried[index]
-		art.texture = Icons.weapon(String(entry["weapon_id"])) if is_weapon else Icons.upgrade(String(entry["id"]))
+		UIWrite.texture(art, Icons.weapon(String(entry["weapon_id"])) if is_weapon else Icons.upgrade(String(entry["id"])))
 		art.modulate = Color.WHITE
 		var tier: Label = art.get_node("Tier")
 		tier.text = str(int(entry.get("tier", 1)))
 		art.mouse_filter = Control.MOUSE_FILTER_PASS
-		art.tooltip_text = "%s    Lv.%d" % [String(entry.get("weapon_name", entry.get("name", "보물"))), int(entry.get("tier", 1))]
-		tier.add_theme_color_override("font_color", Palette.CREAM)
+		UIWrite.tooltip(art, "%s    Lv.%d" % [String(entry.get("weapon_name", entry.get("name", "보물"))), int(entry.get("tier", 1))])
+		# The socket's own border sets the tier colour (gold while resonating) and
+		# refreshes itself every frame; writing CREAM here as well made the two
+		# fight over the same label once per tick, and each write re-shaped it.
 		holder.get_node("%sSlot%d/CooldownBorder" % [prefix, index]).refresh()
 		index += 1
 
@@ -1017,8 +1022,9 @@ static func _refresh_tactical_alert(main: Node) -> void:
 	alert.visible = not message.is_empty() and not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)
 	alert.get_node("Action").text = message
 	var style := alert.get_theme_stylebox("panel") as StyleBoxFlat
-	style.border_color = Color("f09a8b")
-	style.border_width_left = 4
+	UIWrite.border_color(style, Color("f09a8b"))
+	if style.border_width_left != 4:
+		style.border_width_left = 4
 
 
 static func _results(main: Node) -> void:

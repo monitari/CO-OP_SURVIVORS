@@ -49,13 +49,10 @@ func _run() -> void:
 	main.feedback.damage_numbers_enabled = true
 	main.feedback.show_damage(main.players[0].global_position, 123.0, Color.WHITE)
 	await process_frame
-	var numbers := 0
-	for child in main.feedback.get_children():
-		var label := child as Label
-		if label == null:
-			continue
-		numbers += 1
-		_check(_is_family(label.get_theme_font("font")), "floating damage number")
+	# Numbers are drawn by one batched field now, with the font it holds, rather
+	# than being Labels that inherit the theme's.
+	var numbers: int = main.feedback.live_damage_numbers()
+	_check(_is_family(DamageNumberField.UIFont), "floating damage number")
 	_check(numbers > 0, "a damage number was actually spawned to check")
 	_check(_is_family(main.players[0].UIFont), "the survivor badge drawn onto the world")
 	# Growth, pause and result.

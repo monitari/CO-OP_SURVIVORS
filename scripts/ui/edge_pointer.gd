@@ -72,6 +72,12 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:edge_pointer", probe_started)
+
+
+func _probed_draw() -> void:
 	var font := ThemeDB.fallback_font
 	var pill := Rect2(Vector2.ZERO, size)
 	var glow := 0.25 + 0.45 * closeness

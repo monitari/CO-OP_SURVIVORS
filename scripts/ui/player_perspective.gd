@@ -6,6 +6,15 @@ const UI := preload("res://scripts/ui/editorial_ui.gd")
 
 static func hud(main: Node) -> void:
 	var local: int = main.local_view_slot()
+	# Everything below is layout, and layout only changes when whose view this is
+	# changes — the local slot, or a player's relative label after an online
+	# role swap. It ran every physics tick regardless, repositioning and
+	# resizing both bars, both captions and both portraits and forcing a redraw of
+	# both survivors, sixty times a second, to put them exactly where they were.
+	var key := "%d|%s|%s" % [local, main.player_label(0), main.player_label(1)]
+	if main.combat_hud.get_meta("perspective_key", "") == key:
+		return
+	main.combat_hud.set_meta("perspective_key", key)
 	for slot in 2:
 		var own := slot == local
 		main.players[slot].display_name = main.player_label(slot)

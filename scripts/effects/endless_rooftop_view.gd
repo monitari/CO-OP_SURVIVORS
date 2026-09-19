@@ -57,6 +57,13 @@ var surface: SubViewport
 var world: Node2D
 var display: TextureRect
 var view_size := Vector2(1280, 720)
+## Frames the buffer is still drawn while the tree is paused. Resizing the
+## window resizes the buffer, and a resized render target starts out empty: with
+## updates switched off for the pause, the battlefield behind a pause menu or a
+## growth screen went black on the first resize and stayed black until the game
+## resumed. Two frames, because the first can land before the new size has
+## reached the renderer.
+var _paused_redraws := 0
 
 
 func _ready() -> void:
@@ -117,11 +124,15 @@ func _resize() -> void:
 	surface.size_2d_override = Vector2i((view_size * OVERSCAN).ceil())
 	surface.size_2d_override_stretch = true
 	display.size = view_size
+	_paused_redraws = 2
 
 
 func _process(_delta: float) -> void:
 	# Freeze the rendered battlefield too, including shader TIME animations.
-	surface.render_target_update_mode = SubViewport.UPDATE_DISABLED if get_tree().paused else SubViewport.UPDATE_ALWAYS
+	var frozen := get_tree().paused and _paused_redraws <= 0
+	if get_tree().paused and _paused_redraws > 0:
+		_paused_redraws -= 1
+	surface.render_target_update_mode = SubViewport.UPDATE_DISABLED if frozen else SubViewport.UPDATE_ALWAYS
 	# Planters used to be re-faced here by walking every node in the "enemies"
 	# group each frame. CrowdRenderer computes every body's upright correction
 	# as it batches the crowd, so there is nothing left to do per body here.

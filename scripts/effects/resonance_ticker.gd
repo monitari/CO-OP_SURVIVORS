@@ -25,6 +25,12 @@ func setup(first_delay: float, tick_interval: float, ticks: int, callback: Calla
 
 
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(&"resonance_tickers", probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	clock -= delta
 	while clock <= 0.0 and remaining > 0:
 		if not on_tick.is_valid():

@@ -58,6 +58,12 @@ func follow(focus: Vector2, coverage := VIEW_MARGIN) -> void:
 
 
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:arena_floor", probe_started)
+
+
+func _probed_draw() -> void:
 	var low := draw_origin - Vector2(draw_margin, draw_margin)
 	var high := draw_origin + Vector2(draw_margin, draw_margin)
 	draw_rect(Rect2(low, high - low), _lit(Color("23383e")))

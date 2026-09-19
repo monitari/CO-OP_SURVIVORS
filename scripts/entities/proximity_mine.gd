@@ -43,6 +43,12 @@ func configure(new_damage: float, new_radius: float, color: Color, new_owner := 
 
 
 func _physics_process(delta: float) -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_physics_process(delta)
+	FrameProbe.add(&"mines", probe_started)
+
+
+func _probed_physics_process(delta: float) -> void:
 	if spent:
 		return
 	age += delta
@@ -87,27 +93,50 @@ func force_detonate() -> void:
 ## Nothing here reads the clock: the turning comes from the node rotation and the
 ## breathing from its modulate, so a screenful of mines costs one draw each.
 func _draw() -> void:
+	var probe_started := FrameProbe.mark()
+	_probed_draw()
+	FrameProbe.add(&"draw:proximity_mine", probe_started)
+
+
+## Four commands rather than seventeen. The rune ring used to be drawn shape by
+## shape — a halo, six arcs and six dots interleaved, two triangle outlines, two
+## core discs — and every change of shape kind was a new draw call, about
+## thirty-three a mine with twenty mines allowed on the roof. The fills go
+## through one triangle list and each stroke colour through one multiline; the
+## layering is the same because nothing that swapped order overlaps.
+func _probed_draw() -> void:
 	if not armed:
-		draw_arc(Vector2.ZERO, 12.0, 0.0, TAU, 20, Color(mine_color, 0.4), 2.0, true)
+		var ring := PackedVector2Array()
+		BatchPaint.arc_segments(ring, Vector2.ZERO, 12.0, 0.0, TAU, 20)
+		draw_multiline(ring, Color(mine_color, 0.4), 2.0, true)
+		var spokes := PackedVector2Array()
 		for spoke in 3:
 			var angle := TAU * float(spoke) / 3.0
-			draw_line(Vector2.from_angle(angle) * 5.0, Vector2.from_angle(angle) * 11.0,
-				Color(mine_color, 0.3), 1.6, true)
+			spokes.append(Vector2.from_angle(angle) * 5.0)
+			spokes.append(Vector2.from_angle(angle) * 11.0)
+		draw_multiline(spokes, Color(mine_color, 0.3), 1.6, true)
 		return
 
-	draw_circle(Vector2.ZERO, 26.0, Color(mine_color, 0.09))
+	var under := BatchPaint.new()
+	under.fill_circle(Vector2.ZERO, 26.0, Color(mine_color, 0.09), 24)
 	# Outer rune ring: six notches on a broken circle.
+	var notches := PackedVector2Array()
 	for notch in 6:
 		var start := TAU * float(notch) / 6.0
-		draw_arc(Vector2.ZERO, 18.0, start + 0.16, start + TAU / 6.0 - 0.16, 6,
-			Color(mine_color, 0.62), 2.4, true)
-		draw_circle(Vector2.from_angle(start) * 18.0, 2.4, Color(mine_color.lightened(0.35), 0.9))
+		BatchPaint.arc_segments(notches, Vector2.ZERO, 18.0, start + 0.16, start + TAU / 6.0 - 0.16, 6)
+		under.fill_circle(Vector2.from_angle(start) * 18.0, 2.4, Color(mine_color.lightened(0.35), 0.9), 8)
+	under.flush(self)
+	draw_multiline(notches, Color(mine_color, 0.62), 2.4, true)
 	# Inner sigil: two counter-set triangles around a bright core.
+	var sigil := PackedVector2Array()
 	for flip in 2:
 		var offset := PI * float(flip)
-		var points := PackedVector2Array()
+		var corners := PackedVector2Array()
 		for corner in 3:
-			points.append(Vector2.from_angle(offset + TAU * float(corner) / 3.0) * 11.0)
-		draw_polyline(points + PackedVector2Array([points[0]]), Color(mine_color, 0.72), 2.0, true)
-	draw_circle(Vector2.ZERO, 6.0, Color(mine_color, 0.9))
-	draw_circle(Vector2.ZERO, 3.0, Color(mine_color.lightened(0.7), 1.0))
+			corners.append(Vector2.from_angle(offset + TAU * float(corner) / 3.0) * 11.0)
+		BatchPaint.loop_segments(sigil, corners)
+	draw_multiline(sigil, Color(mine_color, 0.72), 2.0, true)
+	var core := BatchPaint.new()
+	core.fill_circle(Vector2.ZERO, 6.0, Color(mine_color, 0.9), 16)
+	core.fill_circle(Vector2.ZERO, 3.0, Color(mine_color.lightened(0.7), 1.0), 12)
+	core.flush(self)
