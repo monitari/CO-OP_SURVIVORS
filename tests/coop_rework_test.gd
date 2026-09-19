@@ -168,13 +168,13 @@ func _run() -> void:
 	main.level_up_input_delay = 0
 	main._handle_level_up_input()
 	check(main.selected_upgrade_indices[1] >= 0, "AI automatically locks a growth choice")
-	# Both hands stay on screen — the waiting side is dimmed, not removed, so a
-	# survivor can see what their partner is about to take while they decide.
+	# The active hand stays full size; the AI partner is represented by one
+	# readable summary instead of a tiny overlapping hand.
 	var picked: int = main.selected_upgrade_indices[1]
 	check(main.level_overlay.get_node("PartnerChoice/Title").text == main.level_card_labels[1][picked].get_node("CardTitle").text and main.level_card_labels[0][0].visible,
-		"my hand and the partner's chosen card stay on screen")
-	check(main.level_card_labels[1][picked].modulate.r < main.level_card_labels[0][0].modulate.r,
-		"the side whose turn it is not is dimmed")
+		"my hand and the partner's chosen growth summary stay on screen")
+	check(not main.level_card_labels[1][picked].visible,
+		"the partner's full card does not overlap the active hand")
 	main._select_upgrade(1, 0)
 	check(not main.level_up_active or main.cinematic_active, "AI growth cannot block the run")
 	# Local two-player focus handoff and reset back to a human P2.
@@ -183,11 +183,11 @@ func _run() -> void:
 	main._begin_level_up()
 	main._select_upgrade(1, 0)
 	check(main.focused_growth_slot() == 1
-		and main.level_card_labels[1][0].modulate.r > main.level_card_labels[0][0].modulate.r,
+		and main.level_card_labels[1][0].visible and not main.level_card_labels[0][0].visible,
 		"local focus passes to P2")
 	main._cancel_growth_choice(0)
 	check(main.focused_growth_slot() == 0
-		and main.level_card_labels[0][0].modulate.r > main.level_card_labels[1][0].modulate.r,
+		and main.level_card_labels[0][0].visible and not main.level_card_labels[1][0].visible,
 		"local P1 can revise before P2 confirms")
 	main._begin_lobby()
 	check(not main.ai_companion, "lobby reset releases AI mode")

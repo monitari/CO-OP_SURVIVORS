@@ -21,14 +21,15 @@ func _run() -> void:
 	var host: Control = main.hud_layer.get_node("ThemeHost")
 	_check(main.lobby_title.get_theme_font("font") == host.theme.default_font,
 		"Korean font theme reaches labels, not an empty sibling")
-	_check(String(host.theme.default_font.resource_path).ends_with("Jua-Regular.ttf"),
+	_check(String(host.theme.default_font.resource_path).ends_with("MemomentKkukkukk.ttf"),
 		"the bundled rounded Korean font drives the UI on every machine")
-	_check(main.lobby_overlay.has_node("LobbyAmbience/TitleLogo"), "lobby uses the large title asset")
+	_check(main.lobby_overlay.has_node("LobbyAmbience/SceneBackdrop"),
+		"LAN lobby shares the new title background")
+	_check(main.lobby_overlay.has_node("LobbyBrandLockup"),
+		"LAN lobby shares the image title lockup")
 	var ambience: Control = main.lobby_overlay.get_node("LobbyAmbience")
-	var logo: TextureRect = ambience.get_node("TitleLogo")
-	var logo_y := logo.position.y
-	for frame in 8: await process_frame
-	_check(not is_equal_approx(logo.position.y, logo_y), "the title has a restrained idle animation")
+	_check((ambience.get_node("SceneBackdrop") as TextureRect).texture.resource_path.ends_with(
+		"moonroof_scrapbook_backdrop_v2.png"), "LAN lobby uses the high-resolution scrapbook rooftop")
 	_check(not main.lobby_title.visible, "the old duplicate text title is removed")
 	for panel in [main.lobby_overlay, main.character_overlay, main.level_overlay,
 		main.resonance_overlay, main.pause_overlay, main.result_overlay]:
@@ -178,7 +179,7 @@ func _check(ok: bool, context: String) -> void:
 func _check_icon_bounds(node: Node) -> void:
 	if node is TextureRect and node.get_parent() is Control:
 		var parent: Control = node.get_parent()
-		if parent.size.x > 0 and parent.size.y > 0:
+		if parent.size.x > 0 and parent.size.y > 0 and not node.has_meta("decorative_overhang"):
 			_check(Rect2(Vector2.ZERO, parent.size).encloses(node.get_rect()),
 				"icon %s stays inside parent (%s vs %s)" % [node.name, node.get_rect(), parent.size])
 	for child in node.get_children():

@@ -48,7 +48,7 @@ func _run() -> void:
 			"player HUD uses the current theme with compact geometry")
 		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).text.contains("개인 Lv."),
 			"player identity omits the redundant personal level")
-	_check(main.chain_distance_text_label.text.contains("사슬 거리"), "the distance bar names what it measures")
+	_check(main.chain_distance_text_label.text.contains("거리"), "the distance bar names what it measures")
 	_check(main.chain_integrity_text_label.text.contains("내구도"), "the integrity bar names what it measures")
 
 	main.players[0].position = Vector2(-main.chain_max_length * 0.43, 0.0)
@@ -103,6 +103,11 @@ func _run() -> void:
 	main._register_enemy(final_boss)
 	final_boss.take_damage(999999.0)
 	_check(main.run_won and main.result_overlay.visible and paused, "the final boss opens a persistent victory result")
+	_check(main.result_overlay.has_node("ResultRetry") and main.result_overlay.has_node("ResultMenu"),
+		"the result offers direct retry and main-menu actions")
+	_check((main.result_overlay.get_node("ResultRetry") as Button).text.contains("ENTER")
+		and (main.result_overlay.get_node("ResultMenu") as Button).text.contains("ESC"),
+		"result actions advertise their keyboard controls")
 
 	if failures.is_empty():
 		print("UX_FLOW_PASS: HUD, chain states, overcharge cost, telegraphs, pause/settings, boss victory")

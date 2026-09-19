@@ -11,7 +11,7 @@ static func install(main: Node) -> void:
 		Palette.CARD.lerp(Palette.P1, 0.045))
 	host_section.name = "HostLanSection"
 	UI.label(host_section, "LAN 방 만들기", Rect2(16, 8, 196, 26),
-		Palette.TYPE_BODY, Palette.P1)
+		Palette.TYPE_BODY, Palette.P1_INK)
 	UI.label(host_section, "이 PC에서 방을 열고 친구를 기다립니다", Rect2(16, 34, 298, 42),
 		Palette.TYPE_CAPTION, Palette.MUTED)
 	var host := Review.button(host_section, "LAN 방 만들기   [H]", Rect2(318, 18, 200, 58),
@@ -23,7 +23,7 @@ static func install(main: Node) -> void:
 		Palette.CARD.lerp(Palette.P2, 0.045))
 	join_section.name = "JoinLanSection"
 	UI.label(join_section, "LAN 참가", Rect2(16, 8, 180, 26),
-		Palette.TYPE_BODY, Palette.P2)
+		Palette.TYPE_BODY, Palette.P2_INK)
 	var address := LineEdit.new()
 	address.name = "LanAddress"
 	address.placeholder_text = "호스트 IP 입력"
@@ -55,8 +55,8 @@ static func _style_lan_button(button: Button, accent: Color) -> void:
 	button.add_theme_stylebox_override("normal", Palette.button_surface("normal", accent, true))
 	button.add_theme_stylebox_override("hover", Palette.button_surface("hover", accent, true))
 	button.add_theme_stylebox_override("pressed", Palette.button_surface("pressed", accent, true))
-	button.add_theme_color_override("font_color", Palette.CREAM)
-	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_color", Palette.INK)
+	button.add_theme_color_override("font_hover_color", Palette.INK)
 
 
 static func _install_exit_confirm(main: Node) -> void:
@@ -75,7 +75,7 @@ static func _install_exit_confirm(main: Node) -> void:
 	var panel := UI.plate(layer, Rect2(368, 198, 448, 232), Palette.PANEL)
 	panel.name = "ExitPanel"
 	UI.label(panel, "LAN 방에서 나갈까요?", Rect2(24, 24, 400, 40),
-		Palette.TYPE_HEADING, Palette.CREAM).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		Palette.TYPE_HEADING, Palette.INK).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var copy := UI.label(panel,
 		"연결과 현재 참가 상태를 정리하고\n메인 메뉴로 돌아갑니다.",
 		Rect2(32, 76, 384, 56), Palette.TYPE_BODY, Palette.MUTED)

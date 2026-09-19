@@ -7,15 +7,15 @@ const G := preload("res://scripts/ui/layout_grid.gd")
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
 const DETAILS_WIDTH := 608.0
-const PAUSE_ITEM_COUNT := 8
+const PAUSE_ITEM_COUNT := 9
 const PAUSE_SLOTS := [
 	Rect2(20, 80, 340, 44), Rect2(20, 188, 340, 44), Rect2(20, 242, 340, 44),
 	Rect2(20, 296, 340, 44), Rect2(20, 350, 340, 44), Rect2(20, 188, 340, 44),
-	Rect2(20, 242, 340, 44), Rect2(20, 134, 340, 44),
+	Rect2(20, 242, 340, 44), Rect2(20, 134, 340, 44), Rect2(20, 404, 340, 44),
 ]
 
 static func pause_neighbor(index: int, direction: String, settings := false) -> int:
-	var order := [0, 7, 1, 2, 3, 4] if settings else [0, 7, 5, 6]
+	var order := [0, 7, 1, 2, 3, 4, 8] if settings else [0, 7, 5, 6]
 	var step := -1 if direction in ["up", "left"] else 1
 	return int(order[wrapi(order.find(index) + step, 0, order.size())])
 
@@ -23,6 +23,9 @@ static func pause_neighbor(index: int, direction: String, settings := false) -> 
 static func button(parent: Control, caption: String, rect: Rect2, action: Callable) -> Button:
 	var b := Button.new()
 	b.text = caption
+	# Fire on the press rather than waiting for release. This keeps a deliberate
+	# click reliable even when hover feedback animates or restyles the control.
+	b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	b.position = rect.position
 	b.size = rect.size
 	b.focus_mode = Control.FOCUS_NONE # Menus use explicit two-player cursors.
@@ -50,8 +53,14 @@ static func refresh_title(main: Node) -> void:
 		var hit: Button = main.title_overlay.get_node("TitleHit%d" % index)
 		var row: Label = main.title_rows[index]
 		hit.visible = index < rows.size()
-		hit.position = row.position
-		hit.size = row.size
+		# The visual card nudges right when focused. Its hit box stays over the
+		# union of both positions, otherwise mouse-enter moves the button out from
+		# under the pointer before the release event can arrive.
+		var stable_position := row.position
+		if main.title_mode == "menu" and main.title_cursor == index:
+			stable_position.x -= UI.TITLE_MENU_NUDGE
+		hit.position = stable_position - Vector2(16, 8)
+		hit.size = row.size + Vector2(32, 16)
 	if main.title_overlay.has_node("TitleMetaBack"):
 		main.title_overlay.get_node("TitleMetaBack").visible = main.title_mode == "meta"
 
@@ -76,7 +85,7 @@ static func install(main: Node) -> void:
 	var exit_panel := UI.plate(exit_layer, Rect2(346, 208, 448, 224), Palette.PANEL)
 	exit_panel.name = "ExitPanel"
 	UI.label(exit_panel, "캐릭터 선택을 나갈까요?", Rect2(24, 24, 400, 40),
-		Palette.TYPE_HEADING, Palette.CREAM).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		Palette.TYPE_HEADING, Palette.INK).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var exit_copy := UI.label(exit_panel,
 		"현재 준비 상태를 취소하고\n메인 메뉴로 돌아갑니다.",
 		Rect2(32, 76, 384, 52), Palette.TYPE_BODY, Palette.MUTED)
@@ -122,8 +131,8 @@ static func install(main: Node) -> void:
 		# The same half-page card the select screen draws, so the buttons sit
 		# under their own survivor rather than near them.
 		var x := 24.0 + slot * 576.0
-		button(main.character_overlay, "‹  이전", Rect2(x + 16, 448, 260, 40), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
-		button(main.character_overlay, "다음  ›", Rect2(x + 284, 448, 260, 40), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
+		button(main.character_overlay, "◀  이전", Rect2(x + 16, 448, 260, 40), func() -> void: choose_cat(main, slot, -1)).name = "CharacterPrevious%d" % slot
+		button(main.character_overlay, "다음  ▶", Rect2(x + 284, 448, 260, 40), func() -> void: choose_cat(main, slot, 1)).name = "CharacterNext%d" % slot
 		var accent := Palette.P1 if slot == 0 else Palette.P2
 		var confirm := button(main.character_overlay, "준비하기", Rect2(x + 16, 496, 528, 40), func() -> void:
 			if main.lobby_input_cooldown > 0.0: return
@@ -169,9 +178,15 @@ static func install(main: Node) -> void:
 					main.resonance_votes[slot] = index
 					main.resonance_cursors[slot] = index
 					main._refresh_resonance_vote_ui())
-	var result_menu := button(main.result_overlay, "메인 메뉴로", Rect2((G.w(8) - 300.0) * 0.5, 582, 300, 34), func() -> void:
-		main.get_tree().paused = false
-		main.get_tree().reload_current_scene())
+	var action_width := 300.0
+	var action_left: float = (main.result_overlay.size.x - action_width * 2.0 - 16.0) * 0.5
+	var retry := button(main.result_overlay, "같은 조합으로 재도전    ENTER / A", Rect2(action_left, 568, action_width, 42), func() -> void:
+		main._retry_same_pair())
+	retry.name = "ResultRetry"
+	for state in ["normal", "hover", "pressed"]:
+		retry.add_theme_stylebox_override(state, Palette.button_surface(state, Palette.GOLD, true))
+	var result_menu := button(main.result_overlay, "메인 메뉴    ESC / B", Rect2(action_left + action_width + 16.0, 568, action_width, 42), func() -> void:
+		main._return_to_main_menu())
 	result_menu.name = "ResultMenu"
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
 	settings.hide()
@@ -183,7 +198,7 @@ static func install(main: Node) -> void:
 	button(main.pause_overlay, "전체 능력치    TAB / X", Rect2(G.w(8) - 236, 24, 220, 36), func() -> void: toggle_details(main)).name = "PauseDetails"
 	var snapshot := UI.plate(main.pause_overlay, Rect2(16, 370, G.w(8) - G.GUTTER * 2.0, 104), Palette.CARD)
 	snapshot.name = "RunSnapshot"
-	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1)
+	UI.label(snapshot, "이번 산책", Rect2(18, 10, 180, 22), 15, Palette.P1_INK)
 	for index in 4:
 		var x := 18 + index * 182
 		UI.label(snapshot, ["생존 시간", "공유 성장", "처치", "사슬 내구"][index], Rect2(x, 38, 168, 20), 13, Palette.MUTED)
@@ -210,7 +225,7 @@ static func install(main: Node) -> void:
 		header.name = "DetailHeader%d" % slot
 		UI.icon(header, null, Rect2(12, 8, 56, 56)).name = "Portrait"
 		UI.icon(header, null, Rect2(80, 14, 44, 44)).name = "Weapon"
-		UI.label(header, "", Rect2(138, 10, 402, 27), 20, Palette.P1 if slot == 0 else Palette.P2).name = "Name"
+		UI.label(header, "", Rect2(138, 10, 402, 27), 22, Palette.owner_ink(slot)).name = "Name"
 		UI.label(header, "", Rect2(138, 39, 402, 23), 14, Palette.MUTED).name = "WeaponName"
 		_detail_card(main.details_overlay, x, 146, "might", "공격", "Offense%d" % slot)
 		_detail_card(main.details_overlay, x + 288, 146, "vitality", "생존", "Survival%d" % slot)
@@ -220,7 +235,7 @@ static func install(main: Node) -> void:
 		# with its real treasure and final-form names visible from the start.
 		var build := UI.plate(main.details_overlay, Rect2(x, 384, 560, 116), Palette.CARD)
 		build.name = "Build%d" % slot
-		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 14, Palette.GOLD)
+		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 16, Palette.GOLD_INK)
 		UI.label(build, "", Rect2(16, 32, 528, 78), 14, Palette.INK).name = "Value"
 	UI.label(main.details_overlay, "선택은 창을 닫은 뒤 확정합니다", Rect2(24, 505, 360, 24), 14, Palette.MUTED).name = "DetailFooter"
 
@@ -234,7 +249,7 @@ static func _detail_card(parent: Control, x: float, y: float, icon_id: String, t
 	var card := UI.plate(parent, Rect2(x, y, 272, 112), Palette.CARD)
 	card.name = node_name
 	UI.icon(card, Icons.upgrade(icon_id), Rect2(14, 12, 30, 30))
-	UI.label(card, title, Rect2(52, 13, 214, 26), 15, Palette.GOLD)
+	UI.label(card, title, Rect2(52, 13, 214, 26), 17, Palette.GOLD_INK)
 	var value := UI.label(card, "", Rect2(14, 43, 244, 62), 13, Palette.INK)
 	value.name = "Value"
 	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -258,21 +273,27 @@ static func refresh_pause(main: Node) -> void:
 	heading.text = "설정" if main.pause_settings else "잠시 쉬어가기"
 	if main.restart_pending:
 		heading.text = "게임을 종료할까요?" if main.pending_quits else "메뉴로 돌아갈까요?"
-	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음", "음악", "메인 메뉴로", "게임 종료", "돌아가기" if main.pause_settings else "설정"]
-	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled, main.feedback.sound_enabled, main.feedback.music_enabled]
-	var order := [0, 7, 1, 2, 3, 4] if main.pause_settings else [0, 7, 5, 6]
+	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "메인 메뉴로", "게임 종료", "돌아가기" if main.pause_settings else "설정", "큰 글자"]
+	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled]
+	var order := [0, 7, 1, 2, 3, 4, 8] if main.pause_settings else [0, 7, 5, 6]
 	for index in PAUSE_ITEM_COUNT:
 		var button: Button = screen.get_node("PauseAction%d" % index)
 		button.visible = index < 2 if main.restart_pending else index in order
 		button.position = PAUSE_SLOTS[index].position
 		button.size = PAUSE_SLOTS[index].size
 		button.text = names[index]
-		if index in [1, 2, 3, 4]:
+		if index in [1, 2]:
 			button.text += "        " + ("켜짐" if states[index] else "꺼짐")
+		elif index == 3:
+			button.text += "        %d%%" % roundi(main.feedback.sound_volume * 100.0)
+		elif index == 4:
+			button.text += "        %d%%" % roundi(main.feedback.music_volume * 100.0)
+		elif index == 8:
+			button.text += "        " + ("켜짐" if main.settings.large_text_enabled else "꺼짐")
 		if main.restart_pending and index < 2:
 			button.position = Vector2(20, 100 + index * 60)
 			button.text = "취소" if index == 0 else "종료" if main.pending_quits else "메뉴로 돌아가기"
-		button.add_theme_stylebox_override("normal", Palette.button_surface("hover" if index == main.pause_cursor else "normal", Palette.P1, index == main.pause_cursor))
+		button.add_theme_stylebox_override("normal", Palette.button_surface("hover" if index == main.pause_cursor else "normal", Palette.GOLD, index == main.pause_cursor))
 	var details: Button = screen.get_node("PauseDetails")
 	details.visible = not main.restart_pending and not main.pause_settings
 	details.position = Vector2(20, 302)

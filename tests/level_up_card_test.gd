@@ -368,14 +368,15 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	_check(main.level_up_active, "the screen stays open while one player is still choosing")
 	_check(not main.level_overlay.get_node("Reroll0").visible and main.level_overlay.get_node("Reroll1").visible,
 		"only the active player's reroll remains after focus passes")
-	# A confirmed hand stays on screen, dimmed apart from the card that was
-	# taken: the pair reads each other's fans now instead of taking turns with
-	# the screen, so removing the locked hand would hide half the negotiation.
+	# The partner's unreadably small fan is replaced by one summary note. It
+	# carries the chosen title and state without covering the active hand.
 	for index in main.p1_choices.size():
 		var locked_card: Label = main.level_card_labels[0][index]
-		_check(locked_card.visible and locked_card.scale.x < 1.0 and main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료", "the confirmed hand moves to the partner's small fan")
-		if index != main.selected_upgrade_indices[0]:
-			_check(locked_card.modulate.r < 1.0, "everything but the taken card dims without transparency")
+		_check(not locked_card.visible, "the partner's full cards do not overlap the active hand")
+	_check(main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료",
+		"the partner summary shows that their choice is locked")
+	_check(not main.level_overlay.get_node("PartnerChoice/Title").text.is_empty(),
+		"the partner summary names the chosen growth")
 
 	await _tap(main, "p1_select_cancel")
 	_check(main.selected_upgrade_indices[0] == -1, "a locked player can back out while the partner is still choosing")

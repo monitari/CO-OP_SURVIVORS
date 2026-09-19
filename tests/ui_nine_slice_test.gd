@@ -21,21 +21,18 @@ func _run() -> void:
 	await process_frame
 	if not Harness.require_loaded(self, main, "UI_NINE_SLICE_FAIL"):
 		return
-	_check(main.title_rows[0].get_rect() == Rect2(392, 352, 400, 64),
-		"title screen gives the primary play action its own hero slot")
-	_check(main.title_overlay.get_node("TitleAmbience/TitleLogo").texture.resource_path.ends_with(
-		"moonroof_title_v3.png"), "title screen uses the matching v3 logo")
+	_check(main.title_rows[0].size.y > main.title_rows[1].size.y
+		and main.title_rows[0].size.x > main.title_rows[1].size.x,
+		"title screen gives the primary play action the largest card")
 	_check(CatPanel.BACKDROP_ART.resource_path.ends_with("moonroof_backdrop_v3.png"),
 		"menu screens use the v3 rooftop")
-	_check(main.title_overlay.get_node("TitleAmbience").motion_enabled == false,
-		"title logo and full-body cats stay still")
-	_check(main.title_overlay.get_node("TitleAmbience/LeftCat").texture.resource_path.ends_with(
-		"title_lyra_fullbody_v1.png"), "title uses the generated Lyra full-body asset")
-	_check(main.title_overlay.get_node("TitleAmbience/RightCat").texture.resource_path.ends_with(
-		"title_volta_fullbody_v1.png"), "title uses the generated Volta full-body asset")
-	_check(main.title_rows[1].size == Vector2(280, 56)
-		and main.title_rows[2].size == Vector2(280, 56),
-		"title utility actions share one compact template; got %s / %s" % [
+	_check(main.title_overlay.get_node("TitleAmbience/SceneBackdrop").texture.resource_path.ends_with(
+		"moonroof_scrapbook_backdrop_v2.png"), "title uses the high-resolution scrapbook rooftop")
+	_check(main.title_overlay.get_node("SnapshotCollage").get_child_count() == 4,
+		"title uses four independent square character snapshots")
+	_check(main.title_rows[1].size == main.title_rows[2].size
+		and main.title_rows[3].size == main.title_rows[4].size,
+		"title utility actions share one template per tier; got %s / %s" % [
 			main.title_rows[1].size, main.title_rows[2].size])
 	main.title_mode = "modes"
 	main._refresh_title_ui()

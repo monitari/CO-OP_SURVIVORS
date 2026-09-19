@@ -16,6 +16,9 @@ func _initialize() -> void:
 func _run() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SETTINGS_SAVE))
+	_check(int(ProjectSettings.get_setting("display/window/size/window_width_override")) == 1920
+		and int(ProjectSettings.get_setting("display/window/size/window_height_override")) == 1080,
+		"the project opens at 1920x1080 by default")
 	var meta := MetaScript.new() as MetaProgression
 	meta.save_path = SAVE
 	_check(meta.points == 0, "a fresh profile starts empty")
@@ -47,6 +50,9 @@ func _run() -> void:
 	var settings := SettingsScript.new() as GameSettings
 	settings.settings_path = SETTINGS_SAVE
 	settings.sound_enabled = false
+	settings.sound_volume = 0.25
+	settings.music_volume = 0.50
+	settings.large_text_enabled = true
 	settings.fullscreen_enabled = true
 	settings.window_size_index = 2
 	_check(settings.save_settings() == OK, "settings report a successful save")
@@ -55,6 +61,10 @@ func _run() -> void:
 	loaded_settings.load_settings()
 	_check(not loaded_settings.sound_enabled and loaded_settings.fullscreen_enabled,
 		"audio and fullscreen settings persist together")
+	_check(is_equal_approx(loaded_settings.sound_volume, 0.25)
+		and is_equal_approx(loaded_settings.music_volume, 0.50)
+		and loaded_settings.large_text_enabled,
+		"volume levels and the large-text preference persist")
 	_check(loaded_settings.window_size_index == 2,
 		"1920x1080 window preference persists with display settings")
 
@@ -73,6 +83,19 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	var pause_action := main.pause_overlay.get_node("PauseAction1") as Button
+	main.settings.large_text_enabled = false
+	main._apply_accessibility_text_scale()
+	var normal_text_size := pause_action.get_theme_font_size("font_size")
+	main.settings.large_text_enabled = true
+	main._apply_accessibility_text_scale()
+	_check(pause_action.get_theme_font_size("font_size") > normal_text_size,
+		"large-text mode increases menu text without compounding")
+	main._apply_accessibility_text_scale()
+	_check(pause_action.get_theme_font_size("font_size") > normal_text_size,
+		"reapplying large-text mode keeps one stable scale")
+	main.settings.large_text_enabled = false
+	main._apply_accessibility_text_scale()
 	main.meta_progression.save_path = SAVE
 	main.meta_progression.ranks.clear()
 	main.meta_progression.points = 8

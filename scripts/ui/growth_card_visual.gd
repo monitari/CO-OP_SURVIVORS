@@ -15,13 +15,20 @@ const CARD_SIZE := Vector2(224, 348)
 ## value they will have after the card are both coloured, in different hues, so
 ## the eye finds the pair first and can tell which is which without reading the
 ## arrow between them.
-const VALUE_NOW := Color("a9d8ff")
-const VALUE_NEXT := Color("7dffc0")
-const VALUE_ARROW := Color("5d7b96")
-const TEXT_LABEL := Color("9fb6cc")
-const TEXT_EFFECT := Color("d7e4f1")
-const TEXT_NOTE := Color("7892ab")
-const SYNERGY := Color("ffd27a")
+##
+## The card is paper now, so these are inks: the same hues as the old neon set,
+## dark enough to read on cream.
+const VALUE_NOW := Color("2f5f93")
+const VALUE_NEXT := Color("16804d")
+const VALUE_ARROW := Color("a0929a")
+const TEXT_LABEL := Color("6e6170")
+const TEXT_EFFECT := Color("3b3140")
+const TEXT_NOTE := Color("968895")
+const SYNERGY := Color("9a6a12")
+## Text on the card face.
+const PAPER_INK := Palette.INK
+## Where the photograph starts, and the white border around it.
+const PHOTO_INSET := 10.0
 ## What kind of card it is, told apart by colour before a word is read: the chip
 ## at the top of the card wears it.
 const KIND_COLORS := {
@@ -43,18 +50,51 @@ const TAG_COLORS := {
 const BADGE_HEIGHT := 34.0
 const BADGE_GAP := 8.0
 ## The smallest a card body is set before a phrase is broken over two lines.
-const BODY_SMALLEST := 11
+const BODY_SMALLEST := 13
 
 
+## A polaroid: bright paper cut out with an ink edge, lifted off the page by a
+## hard shadow. The one in focus is outlined in its owner's ink and lifted
+## further; the tape and marker ring are the trim's (see neon_frame.gd).
 static func surface(tint: Color, selected := false) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("09182f")
-	style.border_color = tint
-	style.set_border_width_all(2 if selected else 1)
-	style.set_corner_radius_all(14)
-	style.shadow_color = Color(tint, 0.3 if selected else 0.12)
-	style.shadow_size = 12 if selected else 6
+	var style := Palette.paper(Palette.PAPER_LIGHT, selected)
+	style.border_color = ink_of(tint) if selected else Palette.INK_LINE
+	# Selection is drawn by NeonTrim outside the card. Keeping this edge thin
+	# prevents the card's own border from eating into the icon and copy.
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(3)
 	return style
+
+
+## `colour` darkened until it reads as text on paper. The card palette was
+## chosen for a night background; this keeps its hues and loses its glow.
+static func ink_of(colour: Color) -> Color:
+	var ink := colour
+	while ink.get_luminance() > 0.36:
+		ink = ink.darkened(0.12)
+	return ink
+
+
+## The photograph a card's art sits in: night sky inside the polaroid's white
+## border. Created on demand so every card built from create_card gets one.
+static func _photo(card: Control, rect: Rect2) -> Panel:
+	var photo := card.get_node_or_null("Photo") as Panel
+	if photo == null:
+		photo = Panel.new()
+		photo.name = "Photo"
+		photo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(photo)
+		card.move_child(photo, 0)
+		var style := StyleBoxFlat.new()
+		style.bg_color = Palette.PHOTO_NIGHT
+		style.border_color = Color(Palette.INK_LINE, 0.55)
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(2)
+		photo.add_theme_stylebox_override("panel", style)
+	photo.visible = true
+	photo.position = rect.position
+	photo.size = rect.size
+	return photo
 
 
 static func decorate(card: Control, tint: Color, selected := false, ears := false, paws := true, apply_surface := true) -> void:
@@ -67,6 +107,7 @@ static func decorate(card: Control, tint: Color, selected := false, ears := fals
 		frame = Frame.new()
 		frame.name = "NeonTrim"
 		card.add_child(frame)
+	frame.z_index = 10
 	frame.accent = tint
 	frame.active = selected
 	frame.ears = ears
@@ -176,17 +217,19 @@ static func paint(card: Label, model: Dictionary, tint: Color, selected: bool, w
 	# The strip takes the colour of what it says: green for a card worth taking,
 	# red for one to pass on, and a quiet slate for everything in between — a
 	# neutral card no longer wears the same border as a starred one.
-	var strip := surface(tint.darkened(0.3))
-	strip.set_corner_radius_all(9)
-	strip.shadow_size = 0
+	# A slip of coloured paper glued along the polaroid's bottom margin, where a
+	# caption would be written.
+	var strip := StyleBoxFlat.new()
+	strip.set_corner_radius_all(2)
+	strip.set_border_width_all(1)
 	if advice == "neutral" and not model.has("badge"):
-		strip.bg_color = Color("0d1d33")
-		strip.border_color = Color("2c4561")
+		strip.bg_color = Palette.PAPER_SHADE.lerp(Palette.PAPER_LIGHT, 0.35)
+		strip.border_color = Color(Palette.INK_LINE, 0.22)
 	else:
-		strip.bg_color = Color(badge_color.darkened(0.78), 0.92)
-		strip.border_color = Color(badge_color, 0.55)
+		strip.bg_color = Palette.PAPER_LIGHT.lerp(badge_color, 0.34)
+		strip.border_color = Color(ink_of(badge_color), 0.45)
 	badge.add_theme_stylebox_override("normal", strip)
-	badge.add_theme_color_override("font_color", badge_color)
+	badge.add_theme_color_override("font_color", ink_of(badge_color))
 	decorate(card, tint, selected, false, true, false)
 
 
@@ -210,6 +253,10 @@ static func _paint_flat(card: Label, model: Dictionary, tint: Color, selected: b
 	style.content_margin_bottom = float(model.get("body_bottom", 56))
 	card.add_theme_stylebox_override("normal", style)
 	card.add_theme_font_size_override("font_size", 13 if tech else (16 if width > 190 else 14))
+	card.add_theme_color_override("font_color", TEXT_EFFECT)
+	# The hand's line box is taller than its letters (a deep descent), so lines
+	# are pulled together to keep a resonance's full sentence on the card.
+	card.add_theme_constant_override("line_spacing", -3)
 	card.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	# Not clip_text: a clipping Label clips its whole canvas item to the
 	# screen-space bounds of its rectangle, which cut the selection glow and the
@@ -227,8 +274,9 @@ static func _paint_flat(card: Label, model: Dictionary, tint: Color, selected: b
 	var icon: TextureRect = card.get_node("Icon")
 	icon.texture = model.get("icon") as Texture2D
 	var art := 80.0 if tech else (106.0 if height > 330 else 86.0)
-	icon.position = Vector2((width - art) * 0.5, 45)
+	icon.position = Vector2((width - art) * 0.5, 30)
 	icon.size = Vector2.ONE * art
+	_photo(card, Rect2(PHOTO_INSET, PHOTO_INSET, width - PHOTO_INSET * 2.0, art + 30.0))
 	var title: Label = card.get_node("CardTitle")
 	title.text = String(model.get("title", ""))
 	title.position = Vector2(13, 123 if tech else (155 if height > 330 else 132))
@@ -236,8 +284,8 @@ static func _paint_flat(card: Label, model: Dictionary, tint: Color, selected: b
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 21 if width > 190 else 17)
-	title.add_theme_color_override("font_color", Palette.INK)
+	title.add_theme_font_size_override("font_size", 22 if width > 190 else 18)
+	title.add_theme_color_override("font_color", PAPER_INK)
 
 
 ## A growth card in sections, top to bottom:
@@ -275,13 +323,14 @@ static func _paint_sections(card: Label, model: Dictionary, tint: Color, selecte
 	var icon: TextureRect = card.get_node("Icon")
 	icon.texture = model.get("icon") as Texture2D
 	var art := (64.0 if tech else 80.0) if tall else (54.0 if tech else 62.0)
-	icon.position = Vector2((width - art) * 0.5, 40)
+	icon.position = Vector2((width - art) * 0.5, 24)
 	icon.size = Vector2.ONE * art
+	_photo(card, Rect2(PHOTO_INSET, PHOTO_INSET, width - PHOTO_INSET * 2.0, art + 24.0))
 
 	var font := card.get_theme_font("font")
 	var title: Label = card.get_node("CardTitle")
 	title.text = String(sections.get("name", model.get("title", "")))
-	var title_y := 40.0 + art + 4.0
+	var title_y := PHOTO_INSET + art + 24.0 + 4.0
 	title.position = Vector2(12, title_y)
 	title.size = Vector2(width - 24, 28)
 	# One line, always. The name is a few words; the weapon it applies to moved
@@ -291,8 +340,8 @@ static func _paint_sections(card: Label, model: Dictionary, tint: Color, selecte
 	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", _fitting_size(font,
-		[[[title.text, 0, INK]]], title.size.x - 4.0, 20 if wide else 17, 13))
-	title.add_theme_color_override("font_color", Palette.INK)
+		[[[title.text, 0, INK]]], title.size.x - 4.0, 21 if wide else 18, 13))
+	title.add_theme_color_override("font_color", PAPER_INK)
 
 	var subject: RichTextLabel = card.get_node("Subject")
 	subject.visible = true
@@ -306,7 +355,7 @@ static func _paint_sections(card: Label, model: Dictionary, tint: Color, selecte
 
 	var rule: ColorRect = card.get_node("Rule")
 	rule.visible = true
-	rule.color = Color(tint, 0.28)
+	rule.color = Color(Palette.INK_LINE, 0.18)
 	rule.position = Vector2(22, title_y + 52)
 	rule.size = Vector2(width - 44, 1)
 
@@ -341,18 +390,23 @@ static func _paint_sections(card: Label, model: Dictionary, tint: Color, selecte
 static func _paint_chip(category: Label, text: String, color: Color, width: float, font_size: int) -> void:
 	category.text = text
 	category.add_theme_font_size_override("font_size", font_size)
-	category.add_theme_color_override("font_color", color.lightened(0.25))
+	category.add_theme_color_override("font_color", Palette.INK)
 	category.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var chip_width := category.get_theme_font("font").get_string_size(
 		text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 26.0
 	chip_width = minf(width - 70.0, chip_width)
-	category.size = Vector2(chip_width, 21)
-	category.position = Vector2((width - chip_width) * 0.5, 12)
+	# A strip of coloured tape across the top edge holding the photo on. It
+	# overhangs the card and leans a little, like tape put on by hand.
+	category.size = Vector2(chip_width, 22)
+	category.position = Vector2((width - chip_width) * 0.5, -10)
+	category.pivot_offset = category.size * 0.5
+	category.rotation = -0.035
+	category.set_meta("decorative_overhang", true)
 	var chip := StyleBoxFlat.new()
-	chip.bg_color = Color(color.darkened(0.72), 0.95)
-	chip.border_color = Color(color, 0.6)
+	chip.bg_color = Color(Palette.PAPER_LIGHT.lerp(color, 0.62), 0.93)
+	chip.border_color = Color(ink_of(color), 0.35)
 	chip.set_border_width_all(1)
-	chip.set_corner_radius_all(10)
+	chip.set_corner_radius_all(1)
 	category.add_theme_stylebox_override("normal", chip)
 
 
@@ -364,7 +418,7 @@ static func _subject_line(sections: Dictionary, tint: Color) -> Array:
 	var line: Array = []
 	var subject := String(sections.get("subject", ""))
 	if not subject.is_empty():
-		line.append([subject, 0, tint.lightened(0.45)])
+		line.append([subject, 0, ink_of(tint)])
 	var level: Array = sections.get("level", [])
 	if level.size() == 2:
 		if not line.is_empty():
@@ -399,7 +453,8 @@ static func _body_lines(sections: Dictionary) -> Array:
 			if not line.is_empty():
 				line.append(["  ", -1, TEXT_EFFECT])
 			var color: Color = TAG_COLORS.get(String(tag.get("kind", "")), TEXT_EFFECT)
-			line.append([" %s " % String(tag["text"]), -1, color, Color(color.darkened(0.7), 0.95)])
+			# Dark text over a highlighter stroke.
+			line.append([" %s " % String(tag["text"]), -1, ink_of(color), Color(Palette.PAPER_LIGHT.lerp(color, 0.45), 0.95)])
 		lines.append(line)
 	var synergy := String(sections.get("synergy", ""))
 	if not synergy.is_empty():

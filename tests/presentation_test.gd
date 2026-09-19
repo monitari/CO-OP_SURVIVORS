@@ -388,8 +388,8 @@ func _test_nothing_is_clipped(main: Node) -> void:
 	# Naming the tail explicitly: this is the line that went missing, and it is
 	# the only thing on screen telling the pair how to leave the finished run.
 	var text: String = main.result_label.text
-	_check(text.ends_with("ENTER / A  메인 메뉴로"),
-		"the result screen ends with the action it actually performs")
+	_check(text.ends_with("ESC / B 메인 메뉴") and text.contains("ENTER / A 같은 조합 재도전"),
+		"the result screen names both replay and main-menu actions")
 
 
 func _check_fits(name: String, label: Label) -> void:

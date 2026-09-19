@@ -109,11 +109,15 @@ func run() -> void:
 	main.selected_upgrade_indices.assign([0, -1])
 	main._refresh_level_up_ui()
 	check(main.level_card_labels[1][5].visible and main.level_card_labels[1][5].scale == Vector2.ONE
-		and main.level_card_labels[0][0].visible and main.level_card_labels[0][0].scale.x < 0.6
-		and main.level_card_labels[0][0].modulate.a < 1.0,
-		"client sees own hand full size and the partner's as a small see-through fan")
-	check(main.level_card_labels[0][0].material == null and main.level_card_labels[0][1].material != null,
-		"only the partner's taken card keeps its colour")
+		and not main.level_card_labels[0][0].visible
+		and main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료",
+		"client sees own hand full size and the partner's choice as a summary")
+	check(not main.level_overlay.get_node("PartnerChoice/Title").text.is_empty()
+		and not main.level_overlay.get_node("PartnerChoice/Summary").text.is_empty(),
+		"partner summary names the choice and its reason")
+	var partner_icon := main.level_overlay.get_node("PartnerChoice/PartnerIcon") as TextureRect
+	check(partner_icon.visible and partner_icon.texture != null,
+		"compact partner summary keeps the chosen item icon visible")
 	await shot("client")
 	main.online.session.role = NetworkSession.Role.OFFLINE
 	main.ai_companion = false

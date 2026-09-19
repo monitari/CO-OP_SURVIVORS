@@ -3,6 +3,7 @@ extends RefCounted
 const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const LobbyAmbience := preload("res://scripts/ui/lobby_ambience.gd")
+const Polaroid := preload("res://scripts/ui/polaroid.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 const MetaProgressionData := preload("res://scripts/systems/meta_progression.gd")
 const UIWrite := preload("res://scripts/ui/ui_write.gd")
@@ -18,9 +19,13 @@ const STAT_CELL := 84.0
 const STAT_STRIDE := 89.0
 const STAT_ICON := 18.0
 
-const TitleLogo := preload("res://assets/ui/moonroof_title_v3.png")
-const TitleLyra := preload("res://assets/ui/title_lyra_fullbody_v1.png")
-const TitleVolta := preload("res://assets/ui/title_volta_fullbody_v1.png")
+const ScrapbookBackdrop := preload("res://assets/ui/moonroof_scrapbook_backdrop_v2.png")
+const TitleLogo := preload("res://assets/ui/moonroof_title_scrapbook_v4.png")
+const SnapshotIgnisNeve := preload("res://assets/ui/title_snapshot_ignis_neve_v1.png")
+const SnapshotTeraNova := preload("res://assets/ui/title_snapshot_tera_nova_v1.png")
+const SnapshotSquad := preload("res://assets/ui/title_snapshot_squad_v1.png")
+const SnapshotPrank := preload("res://assets/ui/title_snapshot_prank_v1.png")
+const CombatFont := preload("res://assets/fonts/MemomentKkukkukk.ttf")
 const HudPaw := preload("res://assets/ui/frames/hud_paw.svg")
 const PLAYSTYLE := {
 	"homing": "유도 별탄    단일 적 추적", "lightning": "연쇄 번개    적 사이로 전이",
@@ -84,7 +89,7 @@ static func footer(parent: Control, text: String) -> Label:
 	parent.add_child(rule)
 	var item := label(parent, text,
 		Rect2(Palette.PADDING, parent.size.y - 38.0, parent.size.x - Palette.PADDING * 2.0, 30.0),
-		Palette.TYPE_CAPTION, Palette.MUTED)
+		15, Palette.NIGHT_MUTED)
 	item.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	item.name = "ControlFooter"
 	return item
@@ -103,10 +108,10 @@ static func apply(main: Node) -> void:
 	for narrow in [main.pause_overlay, main.result_overlay]:
 		narrow.position = G.rect(2, 0.5).position
 		narrow.size = Vector2(G.w(8), G.h(7))
-	# Results gained a permanent-upgrade row. It uses the eighth grid row while
-	# the two shorter dialogue screens keep their original seven-row plate.
-	main.result_overlay.position = G.rect(2, 0).position
-	main.result_overlay.size = Vector2(G.w(8), G.h(8))
+	# Results need wider player summaries and permanent-upgrade cards. Ten grid
+	# columns keep their 13px labels readable while staying inside the viewport.
+	main.result_overlay.position = G.rect(1, 0).position
+	main.result_overlay.size = Vector2(G.w(10), G.h(8))
 	# The two choice screens are off the grid on purpose: each is a band across
 	# the whole bottom of the viewport, not a panel inside the page margins, and
 	# the run it interrupts stays visible above it. Both keep the vertical slide
@@ -132,57 +137,58 @@ static func _reink(node: Node) -> void:
 		_reink(child)
 
 
-## Storefront composition: the logo and mascots are the hero, the primary play
-## action is centred beneath them, and four utility actions form a quiet 2x2 row.
+## Where the five main-menu cards sit (overlay-local). Hand-placed like paper
+## laid on a desk — each card a few pixels off the line and turned a degree or
+## so — but with one fixed 12px gap, so the stack reads as deliberate rather
+## than misaligned. The two least-used actions are the smaller cards.
+const TITLE_MENU_SLOTS := [
+	Rect2(40, 222, 372, 72),
+	Rect2(56, 306, 336, 56), Rect2(46, 374, 336, 56),
+	Rect2(60, 442, 288, 48), Rect2(50, 502, 288, 48),
+]
+const TITLE_MENU_TILT := [-0.022, 0.017, -0.013, 0.021, -0.017]
+## How far the card under the cursor slides out of the stack.
+const TITLE_MENU_NUDGE := 14.0
+## The marker-pen fill of the card under the cursor.
+const TITLE_FOCUS := Color("f2c35e")
+
+
+## A scrapbook page: the game's name hand-lettered top left over torn paper, the
+## menu as a stack of paper cards under it, and the two cats as polaroids taped
+## under the moon on the right. Nothing else is written on the page.
 static func _title(main: Node) -> void:
 	var screen: Control = main.title_overlay
 	screen.chromeless = true
+	# The sheet every sub-page (modes, growth, settings, credits) is written on.
 	var menu_plate := Panel.new()
 	menu_plate.name = "TitlePlate"
 	menu_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	menu_plate.position = Vector2(280, 344)
-	menu_plate.size = Vector2(624, 224)
-	var menu_style := Palette.surface(Color("081321b8"), 16)
-	menu_style.border_color = Color(Palette.OUTLINE, 0.45)
-	menu_plate.add_theme_stylebox_override("panel", menu_style)
+	menu_plate.add_theme_stylebox_override("panel", Palette.image_surface())
 	screen.add_child(menu_plate)
 	screen.move_child(menu_plate, 0)
+	preload("res://scripts/ui/neon_growth_ui.gd").trim(menu_plate, Palette.TAPE, false, true)
 	var ambience = LobbyAmbience.new()
 	ambience.name = "TitleAmbience"
-	ambience.setup(TitleLogo, TitleLyra, TitleVolta)
-	ambience.motion_enabled = false
-	ambience.starfield_enabled = false
-	ambience.shadows_enabled = false
-	ambience.set_process(false)
-	ambience.logo_origin = Vector2(252, 4)
-	ambience.title_logo.position = ambience.logo_origin
-	ambience.title_logo.size = Vector2(680, 300)
-	ambience.title_logo.scale = Vector2.ONE
-	# The two cats flank the menu plate (x 280..904) with the same 2px gap and the
-	# same 10px margin to the screen edge. The right one was at 924, which put it
-	# 8px past the screen's own right edge and made the pair visibly lopsided —
-	# 1184 - 268 - 10 is the number that mirrors the left one.
-	ambience.left_origin = Vector2(10, 108)
-	ambience.right_origin = Vector2(906, 108)
-	ambience.left_cat.position = ambience.left_origin
-	ambience.right_cat.position = ambience.right_origin
-	ambience.left_cat.size = Vector2(268, 476)
-	ambience.right_cat.size = Vector2(268, 476)
-	ambience.left_cat.scale = Vector2.ONE
-	ambience.right_cat.scale = Vector2.ONE
-	ambience.left_cat.rotation = 0.0
-	ambience.right_cat.rotation = 0.0
-	ambience.title_logo.pivot_offset = ambience.title_logo.size * 0.5
-	ambience.left_cat.pivot_offset = ambience.left_cat.size * 0.5
-	ambience.right_cat.pivot_offset = ambience.right_cat.size * 0.5
+	ambience.setup_backdrop(ScrapbookBackdrop)
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	label(screen, "달빛 옥상 · 간식 수호대",
-		Rect2(392, 40, 400, 40), 27, Palette.CREAM).name = "TitleEyebrow"
-	var tagline := label(screen, "둘이서 지키는, 우리만의 밤.",
-		Rect2(392, 304, 400, 32), 16, Palette.MUTED)
-	tagline.name = "TitleTagline"
-	tagline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var brand := icon(screen, TitleLogo, Rect2(250, -28, 560, 262))
+	brand.name = "BrandLockup"
+	brand.set_meta("decorative_overhang", true)
+	var collage := Control.new()
+	collage.name = "SnapshotCollage"
+	collage.set_anchors_preset(Control.PRESET_FULL_RECT)
+	collage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	screen.add_child(collage)
+	_snapshot(collage, "SnapshotIgnisNeve", SnapshotIgnisNeve,
+		Rect2(690, 210, 240, 240), -0.095)
+	_snapshot(collage, "SnapshotTeraNova", SnapshotTeraNova,
+		Rect2(865, 190, 250, 250), 0.075)
+	_snapshot(collage, "SnapshotSquad", SnapshotSquad,
+		Rect2(660, 390, 255, 255), 0.055)
+	_snapshot(collage, "SnapshotPrank", SnapshotPrank,
+		Rect2(875, 400, 225, 225), -0.09)
+	label(screen, "", Rect2(392, 40, 400, 40), 27, Palette.INK).name = "TitleEyebrow"
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
 		place(row, G.inner(0, 0, 0.5, 3.9 + float(index) * 0.56, 4.0, 0.52), Palette.TYPE_HEADING)
@@ -190,17 +196,37 @@ static func _title(main: Node) -> void:
 		# The toggle state is its own right-aligned label rather than padding on
 		# the end of the caption: Korean names are different widths, so a padded
 		# string put every state marker at a different place down the column.
-		var state := label(row, "", Rect2(0, 0, row.size.x - 22, row.size.y), Palette.TYPE_BODY, Palette.P1)
+		var state := label(row, "", Rect2(0, 0, row.size.x - 22, row.size.y), Palette.TYPE_BODY, Palette.P1_INK)
 		state.name = "State"
 		state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# Tall enough for the credits, which is the longest of the three pages.
 	place(main.title_note, G.inner(0, 0, 5.0, 3.9, 5.8, 2.3), 15, Palette.MUTED)
 	var version_text := String(ProjectSettings.get_setting("application/config/version", "개발판"))
-	var version := label(screen, "v" + version_text, Rect2(Palette.PADDING, screen.size.y - 38, 100, 30), Palette.TYPE_CAPTION, Palette.MUTED)
+	var version := label(screen, "v" + version_text, Rect2(Palette.PADDING, screen.size.y - 38, 100, 30), Palette.TYPE_CAPTION, Palette.NIGHT_MUTED)
 	version.name = "TitleVersion"
 	var keys := footer(screen, "↑ ↓ 이동    ENTER / A 선택    ESC / B 뒤로")
 	keys.name = "TitleKeys"
+	for caption: Label in [version, keys]:
+		caption.add_theme_color_override("font_color", Palette.CREAM)
+		caption.add_theme_constant_override("outline_size", 4)
+		caption.add_theme_color_override("font_outline_color", Color(Palette.INK, 0.85))
+	screen.get_node("FooterRule").visible = false
+
+
+static func _snapshot(parent: Control, node_name: String, texture: Texture2D,
+		rect: Rect2, tilt: float) -> void:
+	var photo := Polaroid.new()
+	photo.name = node_name
+	photo.position = rect.position
+	photo.size = rect.size
+	photo.rotation = tilt
+	photo.sky_seed = node_name.hash()
+	photo.caption_margin = Polaroid.BORDER
+	photo.set_meta("decorative_overhang", true)
+	parent.add_child(photo)
+	photo.setup(texture, "", Palette.INK)
+	photo.subject.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 
 
 static func refresh_title(main: Node) -> void:
@@ -214,8 +240,9 @@ static func refresh_title(main: Node) -> void:
 	title_plate.visible = not menu
 	title_plate.position = Vector2(232, 56)
 	title_plate.size = Vector2(720, 544)
-	main.title_overlay.get_node("TitleAmbience").visible = menu
-	main.title_overlay.get_node("TitleTagline").visible = menu
+	main.title_overlay.get_node("TitleAmbience").visible = true
+	main.title_overlay.get_node("BrandLockup").visible = menu
+	main.title_overlay.get_node("SnapshotCollage").visible = menu
 	var eyebrow: Label = main.title_overlay.get_node("TitleEyebrow")
 	eyebrow.visible = not menu
 	eyebrow.text = {
@@ -223,22 +250,25 @@ static func refresh_title(main: Node) -> void:
 		"meta": "영구 성장",
 		"settings": "설정",
 		"credits": "제작진",
-	}.get(main.title_mode, "달빛 옥상 · 간식 수호대")
-	place(eyebrow, Rect2(264, 80, 656, 44), 28, Palette.CREAM)
+	}.get(main.title_mode, "")
+	place(eyebrow, Rect2(264, 74, 656, 50), 34, Palette.INK)
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	main.title_note.visible = menu or meta or credits
-	main.title_note.add_theme_stylebox_override("normal",
-		StyleBoxEmpty.new() if menu else Palette.surface(Color("0b1526e8"), 8))
-	if menu:
-		place(main.title_note, Rect2(304, 568, 576, 28), 14, Palette.MUTED)
-		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	elif credits:
-		place(main.title_note, Rect2(280, 152, 624, 328), 17, Palette.MUTED)
+	# The main page carries no sentence under the menu: every card says what it
+	# is. The note is the sub-pages' reading area.
+	main.title_note.visible = meta or credits
+	if credits:
+		main.title_note.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+		place(main.title_note, Rect2(280, 140, 624, 352), 19, Palette.INK)
 		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	elif meta:
-		place(main.title_note, Rect2(264, 482, 656, 100), 14, Palette.MUTED)
+		var note := Palette.surface(Palette.PAPER_SHADE, 3)
+		note.shadow_size = 0
+		note.set_border_width_all(1)
+		note.border_color = Color(Palette.INK_LINE, 0.35)
+		note.set_content_margin_all(14)
+		main.title_note.add_theme_stylebox_override("normal", note)
+		place(main.title_note, Rect2(264, 482, 656, 100), 15, Palette.INK)
 		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	for index in main.title_rows.size():
@@ -246,13 +276,17 @@ static func refresh_title(main: Node) -> void:
 		if index >= rows.size():
 			row.visible = false
 			continue
+		# Menu cards are laid crooked on the page; every sub-page is a sheet with
+		# straight rows on it.
+		row.rotation = 0.0
+		row.add_theme_color_override("font_color", Palette.INK)
 		if menu:
-			var slots := [
-				Rect2(392, 352, 400, 64),
-				Rect2(304, 432, 280, 56), Rect2(600, 432, 280, 56),
-				Rect2(304, 496, 280, 56), Rect2(600, 496, 280, 56),
-			]
-			place(row, slots[index], 28 if index == 0 else 18)
+			var slot: Rect2 = TITLE_MENU_SLOTS[index]
+			if main.title_cursor == index:
+				slot.position.x += TITLE_MENU_NUDGE
+			place(row, slot, 32 if index == 0 else (24 if index < 3 else 21), Palette.INK)
+			row.pivot_offset = row.size * 0.5
+			row.rotation = TITLE_MENU_TILT[index]
 		elif meta:
 			if main.meta_reset_pending:
 				place(row, Rect2(344, 240 + index * 72, 496, 56), 18)
@@ -279,48 +313,52 @@ static func refresh_title(main: Node) -> void:
 		var state: Label = row.get_node("State")
 		state.size = Vector2(row.size.x - 22, row.size.y)
 		state.text = ""
-		if main.title_mode == "settings" and index == 4:
+		if main.title_mode == "settings" and index == 5:
 			state.text = main.window_size_label()
-			state.add_theme_color_override("font_color", Palette.P1)
-		elif main.title_mode == "settings" and index < 6:
+			state.add_theme_color_override("font_color", Palette.GOLD_INK)
+		elif main.title_mode == "settings" and index in [2, 3]:
+			var volume: float = main.feedback.sound_volume if index == 2 else main.feedback.music_volume
+			state.text = "%d%%" % roundi(volume * 100.0)
+			state.add_theme_color_override("font_color", Palette.GOLD_INK if volume > 0.0 else Palette.MUTED)
+		elif main.title_mode == "settings" and index < 7:
 			var states := [main.screen_shake_enabled, main.feedback.damage_numbers_enabled,
-				main.feedback.sound_enabled, main.feedback.music_enabled, false,
+				false, false, main.settings.large_text_enabled, false,
 				DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN]
 			state.text = "● 켜짐" if states[index] else "○ 꺼짐"
-			state.add_theme_color_override("font_color", Palette.P1 if states[index] else Palette.MUTED)
+			state.add_theme_color_override("font_color", Palette.GOLD_INK if states[index] else Palette.MUTED)
 		elif main.title_mode == "meta" and not main.meta_reset_pending and index < 6:
 			var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + index]
 			var id := String(entry["id"])
 			var rank: int = main.meta_progression.rank(id)
 			var price: int = main.meta_progression.cost(id)
 			state.text = "Lv.%d/%d    %s" % [rank, int(entry["max_rank"]), "MAX" if price <= 0 else "%d개" % price]
-			state.add_theme_color_override("font_color", Palette.GOLD if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
+			state.add_theme_color_override("font_color", Palette.GOLD_INK if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
 		row.text = ("▶  " if main.title_cursor == index and not menu else "") + caption
 		var focused: bool = main.title_cursor == index
-		var style := Palette.surface(Palette.CARD.lerp(Palette.P1, 0.10) if focused else Palette.CARD)
-		style.border_color = Palette.P1 if focused else Palette.OUTLINE
+		# Paper cards; the one under the cursor is coloured in with a marker and
+		# lifted further off the page.
+		var style := Palette.paper(TITLE_FOCUS if focused else Palette.PAPER_LIGHT, focused)
 		style.set_border_width_all(Palette.BORDER_ACTIVE if focused else Palette.BORDER)
 		style.set_content_margin_all(16)
-		style.border_width_left = 2 if focused else 1
-		style.bg_color = Color("315967") if focused else Color("101c2ebf")
+		# The hand is taller than its point size; with the full 16px above and
+		# below, a 56px card's minimum height outgrew its slot and pushed the
+		# stack's gaps apart.
+		style.content_margin_top = 2
+		style.content_margin_bottom = 2
+		if not menu and not focused:
+			style.shadow_offset = Vector2(2, 3)
 		row.add_theme_stylebox_override("normal", style)
 	match main.title_mode:
 		"menu":
-			var notes := [
-				"AI · 로컬 · LAN 중 플레이 방식을 선택합니다.",
-				"달빛 생선을 사용해 다음 원정을 강화합니다.",
-				"화면 · 소리 · 게임 플레이 옵션을 조정합니다.",
-				"함께 옥상을 만든 사람들을 확인합니다.",
-				"게임을 종료하고 바탕 화면으로 돌아갑니다.",
-			]
-			main.title_note.text = notes[clampi(main.title_cursor, 0, notes.size() - 1)]
+			main.title_note.text = ""
 		"modes":
 			main.title_note.text = ""
 		"settings":
 			main.title_note.text = ""
 			if main.settings.last_save_error != OK:
 				main.title_note.visible = true
-				place(main.title_note, Rect2(304, 536, 576, 40), 14, Color("ff9aa2"))
+				main.title_note.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+				place(main.title_note, Rect2(304, 536, 576, 40), 14, Palette.DANGER_INK)
 				main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				main.title_note.text = "저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
 		"meta":
@@ -355,21 +393,18 @@ static func _lobby(main: Node) -> void:
 	main.lobby_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	var ambience = LobbyAmbience.new()
 	ambience.name = "LobbyAmbience"
-	ambience.setup(TitleLogo, Icons.survivor("lyra"), Icons.survivor("volta"))
-	# The logo remains the hero, but leaves a little more breathing room for the
-	# two survivor states beneath it.
-	ambience.logo_origin = Vector2(220, 8)
-	ambience.title_logo.position = ambience.logo_origin
-	ambience.title_logo.size = Vector2(660, 302)
-	ambience.title_logo.pivot_offset = ambience.title_logo.size * 0.5
+	ambience.setup_backdrop(ScrapbookBackdrop)
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
+	var lobby_brand := icon(screen, TitleLogo, Rect2(346, -26, 408, 204))
+	lobby_brand.name = "LobbyBrandLockup"
+	lobby_brand.set_meta("decorative_overhang", true)
 	var prompt := label(screen, "P1과 P2가 연결되면 바로 출발", G.inner(0, 0, 3.5, 4, 5, 0.4), Palette.TYPE_VALUE, Palette.MUTED)
 	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		var item: Label = main.lobby_p1_label if slot == 0 else main.lobby_p2_label
 		item.name = "LobbyPlayer%d" % slot
-		place(item, G.inner(0, 0, 0.5 + slot * 6.0, 4.65, 5.5, 1.25), Palette.TYPE_HEADING, Palette.P1 if slot == 0 else Palette.P2)
+		place(item, G.inner(0, 0, 0.5 + slot * 6.0, 4.65, 5.5, 1.25), Palette.TYPE_HEADING, Palette.owner_ink(slot))
 		item.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD))
 		var style := item.get_theme_stylebox("normal") as StyleBoxFlat
 		style.set_content_margin_all(22)
@@ -391,7 +426,8 @@ static func _lobby(main: Node) -> void:
 		screen.add_child(card_mark)
 	var hint := footer(screen, "P1  WASD / 패드 1    P2  방향키 / 패드 2    ESC / START  나가기")
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_color_override("font_color", Palette.MUTED.lerp(Palette.CREAM, 0.24))
+	# The lobby is a paper page, unlike the night screens the footer usually sits on.
+	hint.add_theme_color_override("font_color", Palette.MUTED)
 
 
 static func refresh_lobby(main: Node) -> void:
@@ -434,8 +470,18 @@ static func _characters(main: Node) -> void:
 		var slot_rect := Rect2(64 + index * 88, 64, 80, 104)
 		var tile := plate(screen, slot_rect)
 		tile.name = "Roster%d" % index
-		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2(8, 4, 64, 64))
-		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(4, 72, 72, 24), 13)
+		# A contact sheet of little polaroids, each laid a touch off square.
+		tile.pivot_offset = tile.size * 0.5
+		tile.rotation = [-0.03, 0.022, -0.012, 0.028, -0.024, 0.014][index % 6]
+		var shot := Panel.new()
+		shot.name = "Photo"
+		shot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		shot.position = Vector2(6, 6)
+		shot.size = Vector2(68, 64)
+		shot.add_theme_stylebox_override("panel", Palette.photo(0))
+		tile.add_child(shot)
+		icon(tile, Icons.survivor(String(main.character_catalog[index]["id"])), Rect2(8, 6, 64, 62))
+		var name_label := label(tile, String(main.character_catalog[index]["name"]), Rect2(4, 72, 72, 26), 15)
 		name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for slot in 2:
 		# Two exact 560px dossiers with a single 16px centre gutter. These values
@@ -447,25 +493,30 @@ static func _characters(main: Node) -> void:
 		bed.add_theme_stylebox_override("panel", Palette.player_surface(slot, true))
 		screen.move_child(bed, 0)
 		preload("res://scripts/ui/neon_growth_ui.gd").trim(
-			bed, Palette.P1 if slot == 0 else Palette.P2, true, false)
+			bed, Palette.P1 if slot == 0 else Palette.P2, false, false)
+		# The portrait is a polaroid pinned to the dossier: night-sky photograph,
+		# white print border, turned a little off the page.
 		var portrait_bed := plate(screen,
 			Rect2(x + 16, card.position.y + 48, 160, 216), Palette.NIGHT_RAISED)
 		portrait_bed.name = "CatPortraitBed%d" % slot
-		var portrait_style := Palette.surface(Color("14273b"), 8)
-		portrait_style.border_color = Color(Palette.P1 if slot == 0 else Palette.P2, 0.25)
-		portrait_bed.add_theme_stylebox_override("panel", portrait_style)
+		portrait_bed.add_theme_stylebox_override("panel", Palette.photo(8))
+		portrait_bed.pivot_offset = portrait_bed.size * 0.5
+		portrait_bed.rotation = -0.03 if slot == 0 else 0.03
 		var portrait: TextureRect = main.character_portrait_icons[slot]
 		screen.move_child(portrait, screen.get_child_count() - 1)
 		portrait.position = Vector2(x + 24, card.position.y + 56)
 		portrait.size = Vector2(144, 200)
+		# Same centre as the print, so the cat turns with the photo it is in.
+		portrait.pivot_offset = portrait.size * 0.5
+		portrait.rotation = portrait_bed.rotation
 		label(screen, "%s" % main.player_label(slot),
-			Rect2(x + 16, card.position.y + 8, 160, 32), 22,
-			Palette.P1 if slot == 0 else Palette.P2).name = "CatNumber%d" % slot
+			Rect2(x + 16, card.position.y + 8, 160, 32), 24,
+			Palette.owner_ink(slot)).name = "CatNumber%d" % slot
 		var heading := label(screen, "",
-			Rect2(x + 192, card.position.y + 48, 352, 40), Palette.TYPE_TITLE)
+			Rect2(x + 192, card.position.y + 44, 352, 44), 34)
 		heading.name = "CatName%d" % slot
-		var status := label(screen, "", Rect2(x + 320, card.position.y + 8, 224, 32), 14,
-			Palette.P1 if slot == 0 else Palette.P2)
+		var status := label(screen, "", Rect2(x + 320, card.position.y + 8, 224, 32), 15,
+			Palette.owner_ink(slot))
 		status.name = "CatStatus%d" % slot
 		status.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		var weapon_art := icon(screen, null,
@@ -491,6 +542,7 @@ static func _characters(main: Node) -> void:
 			var cell_y := card.position.y + 128.0 + row * 48.0
 			var stat_bed := plate(screen, Rect2(cell_x, cell_y, STAT_CELL, 40), Palette.NIGHT_RAISED)
 			stat_bed.name = "CatStatBed%d_%d" % [slot, stat]
+			stat_bed.add_theme_stylebox_override("panel", _chip_surface())
 			icon(screen, Icons.upgrade(String(entry["icon"])),
 				Rect2(cell_x + 6.0, cell_y + 11.0, STAT_ICON, STAT_ICON)
 			).name = "CatStatIcon%d_%d" % [slot, stat]
@@ -515,9 +567,19 @@ static func _characters(main: Node) -> void:
 	leash_value.name = "ChainLength"
 	place(main.character_synergy_label,
 		Rect2(312, 560, 848, 32),
-		Palette.TYPE_BODY, Palette.MUTED)
+		Palette.TYPE_BODY, Palette.NIGHT_MUTED)
 	main.character_synergy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	footer(screen, "나 A / D 이동    W 확정     동료 ← / → 이동    ↑ 확정     ESC / B 나가기")
+	footer(screen, "나 A / D 이동    [W] 준비     동료 ← / → 이동    [↑] 준비     ESC / B 나가기")
+
+
+## A recessed chip of darker paper written on the card itself — a stat, a
+## count — rather than a piece laid on top of it, so no shadow and a faint edge.
+static func _chip_surface() -> StyleBoxFlat:
+	var chip := Palette.surface(Palette.PAPER_SHADE, 3)
+	chip.shadow_size = 0
+	chip.set_border_width_all(1)
+	chip.border_color = Color(Palette.INK_LINE, 0.28)
+	return chip
 
 
 static func refresh_characters(main: Node) -> void:
@@ -582,13 +644,16 @@ static func refresh_characters(main: Node) -> void:
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		panel.add_theme_stylebox_override("panel",
 			Palette.player_surface(slot, not main.character_confirmed[slot], main.character_confirmed[slot]))
+		# Tape in the owner's colour; the marker ring circles a dossier once that
+		# survivor is ready, the way you would circle a pick on a printed sheet.
 		preload("res://scripts/ui/neon_growth_ui.gd").trim(panel,
 			Palette.P1 if slot == main.local_view_slot() else Palette.P2,
-			not main.character_confirmed[slot], false)
+			main.character_confirmed[slot], false)
 		if screen.has_node("CharacterConfirm%d" % slot):
 			var confirm: Button = screen.get_node("CharacterConfirm%d" % slot)
 			confirm.disabled = not main._can_control_player_slot(slot)
-			confirm.text = "✓  준비 완료" if main.character_confirmed[slot] else "준비하기"
+			var confirm_key := "W" if slot == 0 else "↑"
+			confirm.text = ("✓  준비 완료" if main.character_confirmed[slot] else "준비하기") + "    [%s]" % confirm_key
 			confirm.add_theme_stylebox_override("normal",
 				Palette.button_surface("normal", Palette.P1 if slot == 0 else Palette.P2, true))
 		for action in ["CharacterPrevious%d" % slot, "CharacterNext%d" % slot]:
@@ -614,11 +679,12 @@ static func refresh_characters(main: Node) -> void:
 		var style := tile.get_theme_stylebox("panel") as StyleBoxFlat
 		var p1: bool = main.selected_character_indices[0] == index
 		var p2: bool = main.selected_character_indices[1] == index
-		style.border_color = Palette.P1 if p1 else (Palette.P2 if p2 else Palette.OUTLINE)
+		style.border_color = Palette.P1_INK if p1 else (Palette.P2_INK if p2 else Palette.INK_LINE)
 		style.set_border_width_all(Palette.BORDER_ACTIVE if p1 or p2 else Palette.BORDER)
-		style.bg_color = Palette.CARD.lerp(Palette.P1 if p1 else Palette.P2, 0.16) if p1 or p2 else Palette.CARD
+		style.bg_color = Palette.CARD.lerp(Palette.P1 if p1 else Palette.P2, 0.3) if p1 or p2 else Palette.CARD
+		# Only a picked print gets taped down; the rest of the sheet stays loose.
 		preload("res://scripts/ui/neon_growth_ui.gd").trim(tile,
-			Palette.P1 if p1 else (Palette.P2 if p2 else Palette.OUTLINE),
+			Palette.P1 if p1 else (Palette.P2 if p2 else Color.TRANSPARENT),
 			p1 or p2)
 
 	preload("res://scripts/ui/player_perspective.gd").characters(main)
@@ -716,16 +782,16 @@ static func _resonance(main: Node) -> void:
 	for child in screen.get_children():
 		if child is Label and String(child.text).begins_with("보스가 남긴"):
 			child.name = "ResonanceSubtitle"
-			place(child, Rect2(0, 36, screen.size.x, 22), Palette.TYPE_CAPTION, Palette.MUTED)
+			place(child, Rect2(0, 36, screen.size.x, 22), Palette.TYPE_CAPTION, Palette.NIGHT_MUTED)
 			(child as Label).horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	place(main.resonance_status, Rect2(300, 468, screen.size.x - 600.0, 44),
-		Palette.TYPE_BODY, Palette.MUTED)
+		Palette.TYPE_BODY, Palette.NIGHT_MUTED)
 	main.resonance_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# Bottom-right, where the growth screen's own controls line sits, and clear
 	# of the full-width XP bar the band is standing on.
 	var controls: Label = screen.get_node_or_null("ResonanceControls")
 	if controls != null:
-		place(controls, Rect2(825, 518, 425, 24), Palette.TYPE_CAPTION, Palette.MUTED)
+		place(controls, Rect2(825, 518, 425, 24), Palette.TYPE_CAPTION, Palette.NIGHT_MUTED)
 		controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 
@@ -752,7 +818,11 @@ static func _hud(main: Node) -> void:
 		bar.add_theme_stylebox_override("fill", fill)
 		caption.position = bar.position
 		caption.size = bar.size
-		caption.add_theme_font_size_override("font_size", 15)
+		caption.add_theme_font_override("font", CombatFont)
+		caption.add_theme_font_size_override("font_size", 17)
+		caption.add_theme_color_override("font_color", Color.WHITE)
+		caption.add_theme_color_override("font_outline_color", Color("071125"))
+		caption.add_theme_constant_override("outline_size", 4)
 		main.hud_portrait_icons[slot].position = Vector2(24 if slot == 0 else 1212, 16)
 		main.hud_portrait_icons[slot].size = Vector2(44, 44)
 		label(main.combat_hud, "%s" % main.player_label(slot), Rect2(x + 58, 11, 32, 20), 13, accent).name = "PlayerNumber%d" % slot
@@ -776,23 +846,34 @@ static func _hud(main: Node) -> void:
 		item.position = Vector2(columns[2], SHARED_TOP + 43.0)
 		item.size = Vector2(column, 18)
 	# Put text above thin meters so a full bright fill cannot wash out its label.
+	# The shared strip is a paper note taped to the top of the screen, so its
+	# readings are written in ink.
 	for caption: Label in [main.chain_distance_text_label, main.chain_integrity_text_label]:
 		caption.position.y = SHARED_TOP + 37.0
-		caption.add_theme_font_size_override("font_size", 13)
+		caption.add_theme_font_override("font", CombatFont)
+		caption.add_theme_font_size_override("font_size", 16)
+		caption.add_theme_color_override("font_color", Palette.INK)
+		caption.add_theme_constant_override("outline_size", 0)
 	for meter: ProgressBar in [main.chain_bar, main.chain_integrity_bar]:
 		meter.position.y = SHARED_TOP + 60.0
 		meter.size.y = 6
-		meter.add_theme_stylebox_override("background", Palette.surface(Color("17263a99")))
-		var meter_fill := Palette.surface(Palette.GOLD)
+		var track := Palette.surface(Color(Palette.INK, 0.16), 3)
+		track.set_border_width_all(0)
+		meter.add_theme_stylebox_override("background", track)
+		var meter_fill := Palette.surface(Palette.GOLD.darkened(0.12), 3)
 		meter_fill.set_border_width_all(0)
 		meter.add_theme_stylebox_override("fill", meter_fill)
-	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 13, Palette.CREAM)
+	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 16, Palette.P2_INK)
+	main.resonance_status_label.add_theme_font_override("font", CombatFont)
+	main.resonance_status_label.add_theme_constant_override("outline_size", 0)
 	main.resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main.resonance_status_label.visible = true
 	if main.resonance_pips != null:
 		main.resonance_pips.position = Vector2(columns[1], SHARED_TOP + 60.0)
 		main.resonance_pips.size = Vector2(column, 6)
-	place(main.chain_status_label, Rect2(strip_left, SHARED_TOP + 72.0, strip_width, 18), 12, Palette.MUTED)
+	place(main.chain_status_label, Rect2(strip_left, SHARED_TOP + 72.0, strip_width, 20), 14, Palette.MUTED)
+	main.chain_status_label.add_theme_font_override("font", CombatFont)
+	main.chain_status_label.add_theme_constant_override("outline_size", 0)
 	main.chain_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# Clear of the shared frame (8..104) rather than tucked against it: the boss
 	# bar paints its own name, rank pips and numbers in a strip above the fill,
@@ -804,25 +885,34 @@ static func _hud(main: Node) -> void:
 	main.boss_bar.size = Vector2(SHARED_WIDTH, 44.0)
 	main.boss_health_text_label.position = main.boss_bar.position
 	main.boss_health_text_label.size = Vector2(500.0, 22.0)
-	main.boss_health_text_label.add_theme_font_size_override("font_size", 14)
+	main.boss_health_text_label.add_theme_font_override("font", CombatFont)
+	main.boss_health_text_label.add_theme_font_size_override("font_size", 16)
 	main.xp_bar.position = Vector2(0, 690)
 	main.xp_bar.size = Vector2(1280, 30)
 	main.xp_bar.add_theme_stylebox_override("background", Palette.surface(Color("17263a99")))
 	var xp_fill := Palette.surface(Palette.GOLD)
 	xp_fill.set_border_width_all(0)
 	main.xp_bar.add_theme_stylebox_override("fill", xp_fill)
-	place(main.xp_text_label, Rect2(0, 690, 1280, 30), 14, Palette.CREAM)
+	place(main.xp_text_label, Rect2(0, 690, 1280, 30), 16, Palette.CREAM)
+	main.xp_text_label.add_theme_font_override("font", CombatFont)
+	main.xp_text_label.add_theme_color_override("font_outline_color", Color("071125"))
+	main.xp_text_label.add_theme_constant_override("outline_size", 4)
 	main.xp_text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main.xp_text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# The clock is the page's centre line, so it is centred on the content span
 	# rather than snapped to a column edge — 48..1232 has its middle at 640.
-	place(main.hud_label, Rect2(590, SHARED_TOP + 2.0, 100, 34), 25, Palette.CREAM)
+	place(main.hud_label, Rect2(574, SHARED_TOP + 1.0, 132, 38), 34, Palette.INK)
+	main.hud_label.add_theme_font_override("font", CombatFont)
+	main.hud_label.add_theme_constant_override("outline_size", 0)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 280.0, SHARED_TOP + 11.0, 146, 24), 14, Palette.MUTED)
+	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 274.0, SHARED_TOP + 10.0, 152, 25), 16, Palette.MUTED)
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 18.0, SHARED_TOP + 11.0, 160, 24), 14, Palette.GOLD)
+	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 18.0, SHARED_TOP + 10.0, 166, 25), 16, Palette.GOLD_INK)
 	objective_readout.name = "ObjectiveReadout"
+	for readout: Label in [wave_readout, objective_readout]:
+		readout.add_theme_font_override("font", CombatFont)
+		readout.add_theme_constant_override("outline_size", 0)
 	# What each survivor carries, directly under their health bar: weapons on the
 	# first row, treasures on the second, only what has actually been picked up,
 	# each with its level in the bottom-right corner.
@@ -916,15 +1006,13 @@ static func layout_carried(holder: Control, mirrored: bool) -> void:
 static func _install_hud_frames(main: Node) -> void:
 	for slot in 2:
 		var x := 14.0 if slot == 0 else 874.0
-		var panel := plate(main.combat_hud, Rect2(x, 8, 392, 116), Palette.HUD)
+		var panel := plate(main.combat_hud, Rect2(x, 8, 392, 124), Palette.HUD)
 		panel.name = "P%dFrame" % (slot + 1)
 		panel.z_index = -2
 		panel.hide()
 		var style := Palette.surface(Palette.HUD)
 		style.border_color = Color(Palette.P1 if slot == 0 else Palette.P2, 0.42)
 		panel.add_theme_stylebox_override("panel", style)
-		preload("res://scripts/ui/neon_growth_ui.gd").trim(
-			panel, Palette.P1 if slot == 0 else Palette.P2)
 		var paw := icon(panel, HudPaw, Rect2(374, 98, 12, 12))
 		paw.modulate = Palette.P1.darkened(0.22) if slot == 0 else Palette.P2.darkened(0.22)
 	# Its last line (chain status, y 77..97) is the bottom of what it holds; the
@@ -935,10 +1023,16 @@ static func _install_hud_frames(main: Node) -> void:
 	var shared := plate(main.combat_hud, Rect2(SHARED_LEFT, SHARED_TOP, SHARED_WIDTH, 98), Palette.HUD)
 	shared.name = "SharedFrame"
 	shared.z_index = -2
-	var shared_style := Palette.surface(Palette.HUD)
-	shared_style.border_color = Palette.OUTLINE
+	# The one piece of paper on the fight: a note taped across the top of the
+	# screen with the clock and the pair's shared readings written on it.
+	var shared_style := Palette.paper(Color(Palette.PAPER_LIGHT, 0.96), true)
+	shared_style.border_color = Color(Palette.INK_LINE, 0.72)
+	shared_style.set_border_width_all(2)
+	shared_style.shadow_color = Color(Palette.PAPER_SHADOW, 0.82)
+	shared_style.shadow_size = 7
+	shared_style.shadow_offset = Vector2(0, 4)
 	shared.add_theme_stylebox_override("panel", shared_style)
-	preload("res://scripts/ui/neon_growth_ui.gd").trim(shared, Color("35dbff"), true, true)
+	preload("res://scripts/ui/neon_growth_ui.gd").trim(shared, Palette.TAPE, false, false)
 
 
 static func refresh_hud(main: Node) -> void:
@@ -975,7 +1069,9 @@ static func refresh_hud(main: Node) -> void:
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
 		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
 		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
-		main.combat_hud.get_node("P%dFrame" % (slot + 1)).hide()
+		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
+		frame.size.y = (76.0 if slot == main.local_view_slot() else 68.0) if main.level_up_active else 124.0
+		frame.hide()
 
 
 ## Explicit level captions distinguish equipment levels from item quantities.
@@ -1029,12 +1125,15 @@ static func _refresh_tactical_alert(main: Node) -> void:
 
 static func _results(main: Node) -> void:
 	var screen: Control = main.result_overlay
-	var wide := G.w(8) - G.GUTTER * 2.0
-	label(screen, "", Rect2(G.GUTTER, 24, wide, 44), Palette.TYPE_TITLE).name = "ResultHeading"
-	label(screen, "", Rect2(G.GUTTER, 74, wide, 28), Palette.TYPE_BODY, Palette.MUTED).name = "ResultReason"
+	var wide := screen.size.x - G.GUTTER * 2.0
+	label(screen, "", Rect2(G.GUTTER, 18, wide, 40), Palette.TYPE_TITLE).name = "ResultHeading"
+	label(screen, "", Rect2(G.GUTTER, 58, wide, 26), Palette.TYPE_BODY, Palette.MUTED).name = "ResultReason"
+	var highlight := label(screen, "", Rect2(G.GUTTER, 87, wide, 28), 18, Palette.GOLD_INK)
+	highlight.name = "ResultHighlight"
+	highlight.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	for index in 3:
 		# Three metric tiles across the dialogue, sharing one gutter each.
-		var tile := plate(screen, G.slice(Rect2(G.GUTTER, 120, wide, 120), 3, index))
+		var tile := plate(screen, G.slice(Rect2(G.GUTTER, 120, wide, 112), 3, index))
 		var ids := ["move", "might", "growth"]
 		var names := ["생존 시간", "처치", "공유 레벨"]
 		icon(tile, Icons.upgrade(ids[index]), Rect2(18, 14, 32, 32))
@@ -1042,28 +1141,28 @@ static func _results(main: Node) -> void:
 		label(tile, "", Rect2(20, 52, tile.size.x - 40.0, 52), Palette.TYPE_METRIC).name = "Value"
 		tile.name = "ResultMetric%d" % index
 	for slot in 2:
-		var half := G.slice(Rect2(G.GUTTER, 252, wide, 150), 2, slot)
+		var half := G.slice(Rect2(G.GUTTER, 244, wide, 150), 2, slot)
 		var x := half.position.x
 		var tile := plate(screen, half)
 		screen.move_child(tile, 0)
 		var portrait: TextureRect = screen.get_node("ResultCat%d" % slot)
-		portrait.position = Vector2(x + G.GUTTER, 270)
+		portrait.position = Vector2(x + G.GUTTER, 260)
 		portrait.size = Vector2(64, 64)
-		label(screen, "", Rect2(x + 92, 264, half.size.x - 108, 26), 18, Palette.P1 if slot == 0 else Palette.P2).name = "ResultName%d" % slot
-		var player_stats := label(screen, "", Rect2(x + 92, 290, half.size.x - 108, 34), 12, Palette.MUTED)
+		label(screen, "", Rect2(x + 92, 256, half.size.x - 108, 26), 20, Palette.owner_ink(slot)).name = "ResultName%d" % slot
+		var player_stats := label(screen, "", Rect2(x + 92, 285, half.size.x - 108, 40), 14, Palette.MUTED)
 		player_stats.name = "ResultPlayerStats%d" % slot
 		player_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		for index in 4:
-			var weapon_x := x + 92 + index * 72
-			icon(screen, null, Rect2(weapon_x, 329, 42, 42)).name = "ResultWeapon%d_%d" % [slot, index]
-			var dps := label(screen, "", Rect2(weapon_x - 8, 372, 58, 18), 11, Palette.MUTED)
+			var weapon_x := x + 92 + index * 82
+			icon(screen, null, Rect2(weapon_x, 330, 44, 44)).name = "ResultWeapon%d_%d" % [slot, index]
+			var dps := label(screen, "", Rect2(weapon_x - 9, 374, 62, 20), 12, Palette.MUTED)
 			dps.name = "ResultWeaponDps%d_%d" % [slot, index]
 			dps.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label(screen, "함께 지킨 기록    획득물", Rect2(G.GUTTER, 410, wide, 22), 14, Palette.GOLD)
-	var coop := label(screen, "", Rect2(G.GUTTER, 433, wide, 48), 14, Palette.MUTED)
+	label(screen, "함께 지킨 기록    획득물", Rect2(G.GUTTER, 406, wide, 22), 16, Palette.GOLD_INK)
+	var coop := label(screen, "", Rect2(G.GUTTER, 430, wide, 44), 15, Palette.MUTED)
 	coop.name = "CoopRecord"
 	coop.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var meta_title := label(screen, "", Rect2(G.GUTTER, 486, wide, 22), 14, Palette.GOLD)
+	var meta_title := label(screen, "", Rect2(G.GUTTER, 468, wide, 22), 16, Palette.GOLD_INK)
 	meta_title.name = "MetaTitle"
 	for index in 6:
 		var card_width := (wide - 5.0 * 8.0) / 6.0
@@ -1071,7 +1170,7 @@ static func _results(main: Node) -> void:
 		# occupy the same rows: the moon-fish row arrived on this screen after the
 		# button and nothing shifted to make space, so the button sat across two of
 		# the six cards. Their names were unreadable and they could not be clicked.
-		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 512, card_width, 64), 11, Palette.INK)
+		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 494, card_width, 66), 13, Palette.INK)
 		card.name = "MetaUpgrade%d" % index
 		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1079,7 +1178,7 @@ static func _results(main: Node) -> void:
 		card.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD))
 	# Sized to its own text rather than to the panel: an 850px plate holding one
 	# centred phrase read as two empty boxes with a button wedged between them.
-	place(main.result_label, Rect2(G.GUTTER, 620, wide, 18), 12, Palette.MUTED)
+	place(main.result_label, Rect2(G.GUTTER, 616, wide, 18), 13, Palette.MUTED)
 	main.result_label.remove_theme_stylebox_override("normal")
 	main.result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
@@ -1088,6 +1187,7 @@ static func refresh_result(main: Node, victory: bool) -> void:
 	var screen: Control = main.result_overlay
 	screen.get_node("ResultHeading").text = "옥상 수호 성공" if victory else "오늘의 산책 종료"
 	screen.get_node("ResultReason").text = "폭주 청소 로봇을 멈췄어요. 간식은 무사합니다!" if victory else "구조가 늦어졌어요. 다시 발맞춰 도전해요."
+	screen.get_node("ResultHighlight").text = main._result_highlight()
 	var values := ["%02d:%02d" % [int(main.elapsed) / 60, int(main.elapsed) % 60], str(main.kills), "LV.%d" % main.progression.level]
 	for index in 3:
 		screen.get_node("ResultMetric%d/Value" % index).text = values[index]
@@ -1109,7 +1209,7 @@ static func refresh_result(main: Node, victory: bool) -> void:
 				]
 	screen.get_node("CoopRecord").text = main._run_stats_summary()
 	main._refresh_meta_result_ui()
-	main.result_label.text = "SPACE / Y  강화 구매    ENTER / A  메인 메뉴로" if victory else "ENTER / A  메인 메뉴로"
+	main.result_label.text = "SPACE / Y 강화 구매    ENTER / A 같은 조합 재도전    ESC / B 메인 메뉴"
 
 
 static func _pause(main: Node) -> void:

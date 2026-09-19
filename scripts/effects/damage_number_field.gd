@@ -17,7 +17,7 @@ extends Node2D
 ## The motion is the Label's, reproduced: it rises thirty pixels over 0.48s and
 ## fades over the last 0.48s of a 0.6s life.
 
-const UIFont := preload("res://assets/fonts/Jua-Regular.ttf")
+const UIFont := preload("res://scripts/ui/cat_theme.gd").FAMILY
 const FONT_SIZE := 18
 const LIFE := 0.6
 const RISE := 30.0

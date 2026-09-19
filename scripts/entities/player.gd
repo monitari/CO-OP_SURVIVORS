@@ -3,8 +3,8 @@ extends Node2D
 
 ## The game's one typeface, for the badge and the downed prompt drawn straight
 ## onto the world. These used to take ThemeDB's built-in fallback, which put a
-## second typeface on screen next to every Jua-set HUD label.
-const UIFont := preload("res://assets/fonts/Jua-Regular.ttf")
+## second typeface on screen next to every HUD label.
+const UIFont := preload("res://scripts/ui/cat_theme.gd").FAMILY
 
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 var portrait: Texture2D

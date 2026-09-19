@@ -136,16 +136,18 @@ func _probed_draw() -> void:
 		draw_polyline_colors(_path, colors, LINE_WIDTH, true)
 		return
 	var charged := float(clampi(int(round(progress * float(SEGMENTS))), 0, SEGMENTS)) / float(SEGMENTS)
+	# The remaining-time shade sits on the icon. Draw it first so the moving
+	# cooldown edge remains fully visible above it for both survivors.
+	if charged < 1.0:
+		var inner := Rect2(Vector2.ONE * LINE_WIDTH, size - Vector2.ONE * LINE_WIDTH * 2.0)
+		var shade_height := inner.size.y * (1.0 - charged)
+		draw_rect(Rect2(inner.position, Vector2(inner.size.x, shade_height)), SHADE)
 	draw_polyline(_path, Color(tint, 0.16), LINE_WIDTH, true)
 	if charged >= 1.0:
 		draw_polyline(_path, tint, LINE_WIDTH, true)
 		return
 	if charged > 0.0:
 		draw_polyline(_cut(charged), tint, LINE_WIDTH, true)
-	# The wait still to go, as a shade lowered over the art from the top.
-	var inner := Rect2(Vector2.ONE * LINE_WIDTH, size - Vector2.ONE * LINE_WIDTH * 2.0)
-	var shade_height := inner.size.y * (1.0 - charged)
-	draw_rect(Rect2(inner.position, Vector2(inner.size.x, shade_height)), SHADE)
 
 
 ## The path from the top centre, clockwise, as far as `fraction` of the way.

@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Every piece of text in the game must be set in the same typeface.
+## Menus, cards and combat readings use one expressive bundled family.
 ##
 ## The HUD used to get Jua from a Theme hung on one Control host, which covered
 ## the menus and missed everything drawn outside that subtree: floating damage
@@ -11,7 +11,7 @@ extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
 const TestHarness := preload("res://tests/test_harness.gd")
-const FAMILY := "Jua-Regular.ttf"
+const FAMILY := "MemomentKkukkukk.ttf"
 
 var failures: Array[String] = []
 var checked := 0
@@ -71,7 +71,7 @@ func _run() -> void:
 	await process_frame
 	_walk(main, "result")
 	if failures.is_empty():
-		print("FONT_UNITY_PASS: %d text nodes across every screen use one family" % checked)
+		print("FONT_UNITY_PASS: %d text nodes use the bundled display family" % checked)
 		quit(0)
 	else:
 		for failure in failures:

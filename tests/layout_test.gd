@@ -241,8 +241,9 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 			and holder.position.x >= bar.position.x - 0.5
 			and holder.position.x + holder.size.x <= bar.position.x + bar.size.x + 0.5,
 			"P%d equipment sits under its own health bar" % (slot + 1))
-		_check(not main.combat_hud.get_node("P%dFrame" % (slot + 1)).visible,
-			"P%d decorative HUD box stays hidden" % (slot + 1))
+		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
+		_check(not frame.visible,
+			"P%d health and equipment remain unboxed" % (slot + 1))
 		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).visible
 			and not main.combat_hud.get_node("PlayerNumber%d" % slot).visible,
 			"P%d name and player label stay hidden" % (slot + 1))
@@ -291,7 +292,9 @@ func _check_action_overlaps(screen_name: String, screen: Control) -> void:
 			continue
 		if node is Button:
 			buttons.append(node)
-		elif (node is Label and not node.text.is_empty()) or (node is TextureRect and node.texture != null):
+		elif (((node is Label and not node.text.is_empty())
+				or (node is TextureRect and node.texture != null))
+				and not node.has_meta("decorative_overhang")):
 			content.append(node)
 	for index in buttons.size():
 		var button := buttons[index]
@@ -313,8 +316,10 @@ func _walk(screen_name: String, node: Control) -> void:
 		checked += 1
 		if control is Label:
 			_check_label(screen_name, control as Label)
-		# The tier badge deliberately hangs off the corner of the icon it labels.
-		if node.size.x > 0.0 and control.name != "Tier":
+		# The tier badge deliberately hangs off the corner of the icon it labels,
+		# and scrapbook pieces that declare themselves overhangs (tape across a
+		# card's edge, the title page's bleed art and film edges) do the same.
+		if node.size.x > 0.0 and control.name != "Tier" and not control.has_meta("decorative_overhang"):
 			var own := Rect2(control.position, control.size)
 			if control.name == "PartnerChoice" or control.scale.x < 1.0:
 				var global_bounds := Rect2(Vector2.ZERO, Vector2(1280, 720))

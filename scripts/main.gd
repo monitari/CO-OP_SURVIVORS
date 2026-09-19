@@ -7,6 +7,8 @@ const OnlineCoopScript := preload("res://scripts/systems/online_coop.gd")
 const WINDOW_SIZES: Array[Vector2i] = [
 	Vector2i(1280, 720), Vector2i(1600, 900), Vector2i(1920, 1080),
 ]
+const VOLUME_STEPS := [0.0, 0.25, 0.5, 0.75, 1.0]
+static var pending_retry: Dictionary = {}
 
 const PlayerScene := preload("res://scripts/entities/player.gd")
 const CharacterData := preload("res://scripts/catalogs/character_catalog.gd")
@@ -501,6 +503,9 @@ func _ready() -> void:
 	add_child(feedback)
 	feedback.sound_enabled = settings.sound_enabled
 	feedback.music_enabled = settings.music_enabled
+	feedback.sound_volume = settings.sound_volume if settings.sound_enabled else 0.0
+	feedback.music_volume = settings.music_volume if settings.music_enabled else 0.0
+	feedback.refresh_music()
 	feedback.damage_numbers_enabled = settings.damage_numbers_enabled
 	screen_shake_enabled = settings.screen_shake_enabled
 	weapon_controller = WeaponControllerScript.new() as WeaponController
@@ -515,6 +520,7 @@ func _ready() -> void:
 	_create_hud()
 	ReviewUI.install(self)
 	CoopSelectionUI.install(self)
+	_apply_accessibility_text_scale()
 	# Runtime inspection is intentionally absent from release exports. In debug
 	# builds F10 opens live combat/build telemetry and tightly scoped test actions.
 	if OS.is_debug_build():
@@ -528,7 +534,42 @@ func _ready() -> void:
 		world_camera, weapon_controller, feedback]:
 		rooftop_view.adopt(world_node)
 	_begin_title()
+	if not pending_retry.is_empty():
+		call_deferred("_resume_pending_retry")
 	queue_redraw()
+
+
+func _resume_pending_retry() -> void:
+	var request := pending_retry.duplicate(true)
+	pending_retry.clear()
+	var characters: Array = request.get("characters", [0, 1])
+	if characters.size() >= 2:
+		selected_character_indices = [int(characters[0]), int(characters[1])]
+	ai_companion = bool(request.get("ai_companion", false))
+	character_confirmed = [true, true]
+	_start_selected_run()
+
+
+func _apply_accessibility_text_scale() -> void:
+	_apply_text_scale_to(self, 1.14 if settings.large_text_enabled else 1.0)
+
+
+func _apply_text_scale_to(node: Node, scale_factor: float) -> void:
+	if node is Control and node.has_theme_font_size_override("font_size"):
+		var current_size: int = node.get_theme_font_size("font_size")
+		if (not node.has_meta("accessibility_base_font_size")
+				or current_size != int(node.get_meta("accessibility_applied_font_size", current_size))):
+			# A screen refresh may deliberately assign a different base size for a
+			# different mode. Treat that as the new source instead of restoring an
+			# older layout's size from metadata.
+			node.set_meta("accessibility_base_font_size", current_size)
+		var base_size := int(node.get_meta("accessibility_base_font_size"))
+		# Display lettering already has ample size; enlarge dense reading text.
+		var applied_size: int = roundi(base_size * scale_factor) if base_size <= 20 else base_size
+		node.add_theme_font_size_override("font_size", applied_size)
+		node.set_meta("accessibility_applied_font_size", applied_size)
+	for child in node.get_children():
+		_apply_text_scale_to(child, scale_factor)
 
 
 func _on_joy_connection_changed(device: int, connected: bool) -> void:
@@ -1041,6 +1082,10 @@ func _build_ui_theme_host() -> Control:
 	var theme := Theme.new()
 	theme.default_font = CatTheme.adopt()
 	theme.set_color("font_color", "Label", CatTheme.CREAM)
+	# Every button is a paper button (CatTheme.button_surface), written in ink.
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+		theme.set_color(key, "Button", CatTheme.INK)
+	theme.set_color("font_disabled_color", "Button", Color(CatTheme.MUTED, 0.6))
 	# Screens keep their own type scale; family and neutral ink are inherited.
 	var host := Control.new()
 	host.name = "ThemeHost"
@@ -1419,8 +1464,8 @@ func _create_hud() -> void:
 	# The run summary grew (loadouts, then the co-op tally) while this panel
 	# stayed the size it was, and clip_text cuts silently — the last four
 	# lines, including "ENTER / A" and the whole tally, were simply gone.
-	result_overlay.position = Vector2(180.0, 35.0)
-	result_overlay.size = Vector2(920.0, 650.0)
+	result_overlay.position = Vector2(148.0, 40.0)
+	result_overlay.size = Vector2(984.0, 640.0)
 	result_overlay.visible = false
 	layer.add_child(result_overlay)
 	result_label = Label.new()
@@ -1628,7 +1673,7 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 
 ## Menu rows, per page. The last entry of every page is the way out of it.
 const TITLE_MENU := ["게임 시작", "영구 성장", "설정", "제작진", "게임 종료"]
-const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음", "음악", "창 해상도", "전체 화면", "뒤로"]
+const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "큰 글자", "창 해상도", "전체 화면", "뒤로"]
 const TITLE_CREDITS := ["뒤로"]
 
 
@@ -1749,19 +1794,21 @@ func _activate_title_item(index: int) -> void:
 		match index:
 			0: screen_shake_enabled = not screen_shake_enabled
 			1: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
-			2: feedback.sound_enabled = not feedback.sound_enabled
+			2: _step_sound_volume()
 			3:
-				feedback.music_enabled = not feedback.music_enabled
-				feedback.refresh_music()
+				_step_music_volume()
 			4:
+				settings.large_text_enabled = not settings.large_text_enabled
+				_apply_accessibility_text_scale()
+			5:
 				settings.window_size_index = wrapi(settings.window_size_index + 1, 0, WINDOW_SIZES.size())
 				if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED:
 					_apply_window_size()
-			5: _toggle_fullscreen()
-			6:
+			6: _toggle_fullscreen()
+			7:
 				title_mode = "menu"
 				title_cursor = 2
-		if index < 6:
+		if index < 7:
 			_persist_settings()
 		_refresh_title_ui()
 		return
@@ -1793,6 +1840,7 @@ func _activate_title_item(index: int) -> void:
 func _refresh_title_ui() -> void:
 	EditorialUI.refresh_title(self)
 	ReviewUI.refresh_title(self)
+	_apply_text_scale_to(title_overlay, 1.14 if settings.large_text_enabled else 1.0)
 
 
 func _begin_lobby() -> void:
@@ -2051,6 +2099,7 @@ func _refresh_character_select_ui() -> void:
 	character_roster_label.text = "   ".join(roster)
 	character_synergy_label.text = _synergy_preview()
 	EditorialUI.refresh_characters(self)
+	_apply_text_scale_to(character_overlay, 1.14 if settings.large_text_enabled else 1.0)
 	if online != null:
 		online.send_character_state()
 	if ai_companion:
@@ -2950,12 +2999,11 @@ func _handle_pause_input() -> void:
 		_persist_settings()
 		_update_pause_text()
 	elif Input.is_action_just_pressed("toggle_sound"):
-		feedback.sound_enabled = not feedback.sound_enabled
+		_step_sound_volume()
 		_persist_settings()
 		_update_pause_text()
 	elif Input.is_action_just_pressed("toggle_music"):
-		feedback.music_enabled = not feedback.music_enabled
-		feedback.refresh_music()
+		_step_music_volume()
 		_persist_settings()
 		_update_pause_text()
 
@@ -2968,7 +3016,18 @@ func window_size_label() -> String:
 
 func _apply_window_size() -> void:
 	var index := clampi(settings.window_size_index, 0, WINDOW_SIZES.size() - 1)
-	DisplayServer.window_set_size(WINDOW_SIZES[index])
+	var requested := WINDOW_SIZES[index]
+	var screen := DisplayServer.window_get_current_screen()
+	var screen_size := DisplayServer.screen_get_size(screen)
+	# A decorated 1920x1080 window has a client area shorter than 1080 on a
+	# 1080p desktop. Windows then scales/clips the image while pointer events are
+	# still reported against the client, which makes every button feel displaced.
+	# Borderless is used only when the chosen resolution exactly fills the screen.
+	var exact_desktop := requested == screen_size
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, exact_desktop)
+	DisplayServer.window_set_size(requested)
+	if not exact_desktop:
+		DisplayServer.window_set_position((screen_size - requested) / 2)
 
 
 func _toggle_fullscreen() -> void:
@@ -2983,13 +3042,35 @@ func _persist_settings() -> void:
 	settings.damage_numbers_enabled = feedback.damage_numbers_enabled
 	settings.sound_enabled = feedback.sound_enabled
 	settings.music_enabled = feedback.music_enabled
+	settings.sound_volume = feedback.sound_volume
+	settings.music_volume = feedback.music_volume
 	settings.fullscreen_enabled = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 	settings.save_settings()
+
+
+func _volume_step(value: float) -> float:
+	var nearest := 0
+	for index in VOLUME_STEPS.size():
+		if absf(float(VOLUME_STEPS[index]) - value) < absf(float(VOLUME_STEPS[nearest]) - value):
+			nearest = index
+	return float(VOLUME_STEPS[(nearest + 1) % VOLUME_STEPS.size()])
+
+
+func _step_sound_volume() -> void:
+	feedback.sound_volume = _volume_step(feedback.sound_volume)
+	feedback.sound_enabled = feedback.sound_volume > 0.0
+
+
+func _step_music_volume() -> void:
+	feedback.music_volume = _volume_step(feedback.music_volume)
+	feedback.music_enabled = feedback.music_volume > 0.0
+	feedback.refresh_music()
 
 
 func _update_pause_text() -> void:
 	EditorialUI.refresh_pause(self)
 	ReviewUI.refresh_pause(self)
+	_apply_text_scale_to(pause_overlay, 1.14 if settings.large_text_enabled else 1.0)
 
 
 func _activate_pause_item(index: int) -> void:
@@ -3015,10 +3096,12 @@ func _activate_pause_item(index: int) -> void:
 			return
 		1: screen_shake_enabled = not screen_shake_enabled
 		2: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
-		3: feedback.sound_enabled = not feedback.sound_enabled
+		3: _step_sound_volume()
 		4:
-			feedback.music_enabled = not feedback.music_enabled
-			feedback.refresh_music()
+			_step_music_volume()
+		8:
+			settings.large_text_enabled = not settings.large_text_enabled
+			_apply_accessibility_text_scale()
 		7:
 			pause_settings = not pause_settings
 			pause_cursor = 7
@@ -3030,7 +3113,7 @@ func _activate_pause_item(index: int) -> void:
 			pending_quits = index == 6
 			pause_cursor = 0
 			restart_armed_at = Time.get_ticks_msec() + 400
-	if index in [1, 2, 3, 4]:
+	if index in [1, 2, 3, 4, 8]:
 		_persist_settings()
 	_update_pause_text()
 
@@ -5489,6 +5572,7 @@ func _refresh_level_up_ui() -> void:
 	_refresh_player_cards(1)
 	_refresh_player_cards(2)
 	CoopSelectionUI.refresh(self)
+	_apply_text_scale_to(level_overlay, 1.14 if settings.large_text_enabled else 1.0)
 
 
 ## Per-hand state the cards do not paint themselves: tooltips and the reroll
@@ -5966,7 +6050,14 @@ func _update_hud() -> void:
 	UIWrite.font_color(p1_health_text_label, Color("ffcfdf") if players[0].downed else Color("f4f8ff"))
 	UIWrite.font_color(p2_health_text_label, Color("ffcfdf") if players[1].downed else Color("f4f8ff"))
 	chain_bar.value = tension * 100.0
-	chain_distance_text_label.text = "사슬 거리  %d%%" % int(round(tension * 100.0))
+	var distance_state := "안정"
+	if chain_overloaded or tension >= 0.95:
+		distance_state = "한계"
+	elif tension >= CHAIN_WARNING_RATIO:
+		distance_state = "과충전"
+	elif tension >= CHAIN_RESIST_RATIO:
+		distance_state = "팽팽"
+	chain_distance_text_label.text = "거리 · %s  %d%%" % [distance_state, int(round(tension * 100.0))]
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
@@ -5983,7 +6074,8 @@ func _update_hud() -> void:
 		chain_color = Color("8ecae6")
 	chain_status_label.text = chain_state
 	chain_status_label.visible = not chain_state.is_empty()
-	UIWrite.font_color(chain_status_label, chain_color)
+	# Written on the paper strip, so in the ink shade of the bar colour.
+	UIWrite.font_color(chain_status_label, CardVisual.ink_of(chain_color))
 	var fill := chain_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if fill != null:
 		UIWrite.bg_color(fill, chain_color)
@@ -6007,10 +6099,10 @@ func _update_hud() -> void:
 		# An unspent core is the pair owing themselves a decision, so it stays on
 		# the HUD until it is gone rather than being mentioned once and forgotten.
 		resonance_status_label.text = "공명핵 %d" % held_cores
-		UIWrite.font_color(resonance_status_label, Color("fff275"))
+		UIWrite.font_color(resonance_status_label, CatTheme.GOLD_INK)
 	else:
 		resonance_status_label.text = "공명 %d/%d" % [active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES]
-		UIWrite.font_color(resonance_status_label, Color("e4c1f9"))
+		UIWrite.font_color(resonance_status_label, Color("6f3a9c"))
 	if resonance_pips != null:
 		resonance_pips.report(active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES, held_cores)
 	xp_bar.max_value = progression.required_experience
@@ -6045,6 +6137,18 @@ func _run_stats_summary() -> String:
 		int(run_stats["resonance_casts"]), int(run_stats["items"]),
 		float(run_stats["overcharge_time"]), _item_count_summary()
 	]
+
+
+func _result_highlight() -> String:
+	if int(run_stats["revives"]) > 0:
+		return "오늘의 협동    동료 구조 %d회 · 끝까지 함께 버텼어요" % int(run_stats["revives"])
+	if int(run_stats["bosses"]) > 0:
+		return "오늘의 성과    옥상 보스 %d대 격파" % int(run_stats["bosses"])
+	var lead := 0 if _player_damage_total(0) >= _player_damage_total(1) else 1
+	var damage := _player_damage_total(lead)
+	if damage > 0.0:
+		return "오늘의 활약    %s %s · 총 피해 %.0f" % [player_label(lead), players[lead].character_name, damage]
+	return "첫걸음 완료    다음 원정에서는 더 오래 발맞춰 보세요"
 
 
 func _reset_run_stats() -> void:
@@ -6159,7 +6263,24 @@ func _handle_result_input() -> void:
 				feedback.play_cue("select")
 			_refresh_meta_result_ui()
 	if Input.is_action_just_pressed("restart"):
-		get_tree().reload_current_scene()
+		_retry_same_pair()
+	elif Input.is_action_just_pressed("menu_cancel") or Input.is_action_just_pressed("pause"):
+		_return_to_main_menu()
+
+
+func _retry_same_pair() -> void:
+	pending_retry = {
+		"characters": selected_character_indices.duplicate(),
+		"ai_companion": ai_companion,
+	}
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func _return_to_main_menu() -> void:
+	pending_retry.clear()
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 
 func _refresh_meta_result_ui() -> void:
@@ -6186,8 +6307,8 @@ func _refresh_meta_result_ui() -> void:
 			"MAX" if price <= 0 else "%d개" % price, String(entry["summary"])]
 		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 		if style != null:
-			style.set_border_width_all(3 if index == meta_cursor else 1)
-			style.border_color = Color("ffd166") if index == meta_cursor else Color("73858c")
+			style.set_border_width_all(3 if index == meta_cursor else 2)
+			style.border_color = CatTheme.GOLD_INK if index == meta_cursor else CatTheme.INK_LINE
 
 
 func _end_run(victory: bool = false, grant_rewards := true) -> void:
@@ -6209,7 +6330,7 @@ func _end_run(victory: bool = false, grant_rewards := true) -> void:
 		var portrait := result_overlay.get_node("ResultCat%d" % slot) as TextureRect
 		portrait.texture = IconCatalog.survivor(String(selected_characters[slot]["id"]))
 	get_tree().paused = true
-	result_label.add_theme_color_override("font_color", CatTheme.INK if victory else Color("ffb2ac"))
+	result_label.add_theme_color_override("font_color", CatTheme.INK if victory else CatTheme.DANGER_INK)
 	EditorialUI.refresh_result(self, victory)
 	if debug_run_tainted:
 		result_overlay.get_node("ResultReason").text = "디버그 조작을 사용한 런입니다. 보상과 발견 기록은 저장되지 않습니다."

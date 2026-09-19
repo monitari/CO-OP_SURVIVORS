@@ -37,6 +37,7 @@ static func hud(main: Node) -> void:
 		main.combat_hud.get_node("PlayerNumber%d" % slot).hide()
 		main.combat_hud.get_node("PlayerIdentity%d" % slot).hide()
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
+		frame.position = Vector2(14, 8) if own else Vector2(874, 8)
 		frame.hide()
 		# Carried equipment sits under the bar it belongs to, left-aligned with it
 		# on the left and right-aligned (and mirrored) on the right.

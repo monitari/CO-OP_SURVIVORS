@@ -308,6 +308,8 @@ const MUSIC_TRACKS := {
 
 var sound_enabled := true
 var music_enabled := true
+var sound_volume := 0.75
+var music_volume := 0.70
 var damage_numbers_enabled := true
 var damage_numbers: DamageNumberField
 var damage_numbers_this_frame := 0
@@ -340,7 +342,7 @@ func _ready() -> void:
 	_ensure_buses()
 	_music_player = AudioStreamPlayer.new()
 	_music_player.bus = "Music"
-	_music_player.volume_db = -14.0
+	_refresh_volume()
 	add_child(_music_player)
 
 
@@ -426,7 +428,7 @@ func play_cue(cue: String, gain_db := 0.0, pitch := 1.0) -> void:
 	if player == null:
 		return
 	player.stream = _tone_cache[cue]
-	player.volume_db = -5.0 + gain_db
+	player.volume_db = -5.0 + gain_db + linear_to_db(maxf(sound_volume, 0.001))
 	player.pitch_scale = pitch
 	player.play()
 
@@ -527,6 +529,7 @@ func stop_music() -> void:
 ## Re-applies the music toggle without losing which track should be playing,
 ## so flipping it off and on again resumes the right bed.
 func refresh_music() -> void:
+	_refresh_volume()
 	var track := _current_track
 	_current_track = ""
 	if music_enabled and not track.is_empty():
@@ -534,6 +537,11 @@ func refresh_music() -> void:
 	else:
 		_current_track = track
 		_music_player.stop()
+
+
+func _refresh_volume() -> void:
+	if _music_player != null:
+		_music_player.volume_db = -14.0 + linear_to_db(maxf(music_volume, 0.001))
 
 
 func show_damage(world_position: Vector2, amount: float, color: Color = Color.WHITE) -> void:

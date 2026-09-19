@@ -1,7 +1,7 @@
 extends SceneTree
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const Enemies := preload("res://scripts/ui/enemy_icons.gd")
-const UiFont := preload("res://assets/fonts/Jua-Regular.ttf")
+const UiFont := preload("res://scripts/ui/cat_theme.gd").FAMILY
 
 func _initialize() -> void: call_deferred("_run")
 

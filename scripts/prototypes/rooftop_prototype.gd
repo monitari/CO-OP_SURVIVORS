@@ -39,7 +39,7 @@ const GridScript := preload("res://scripts/systems/enemy_spatial_grid.gd")
 const ProjectileScript := preload("res://scripts/entities/projectile.gd")
 const MilkPoolScript := preload("res://scripts/effects/milk_pool.gd")
 const MineScript := preload("res://scripts/entities/proximity_mine.gd")
-const UIFont := preload("res://assets/fonts/Jua-Regular.ttf")
+const UIFont := preload("res://scripts/ui/cat_theme.gd").FAMILY
 
 ## The chain is the only weapon in this scene. That is not a shortcut: the
 ## chain is the mechanic whose drawn shape and damaged shape have to agree, so

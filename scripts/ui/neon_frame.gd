@@ -1,24 +1,29 @@
 extends Control
-## Resolution-independent neon trim; decorative children never intercept input.
+## Scrapbook trim laid over a paper card: two strips of masking tape holding it
+## to the page, a marker outline when it is the one in focus, and an ink paw
+## stamp. Still called NeonTrim by the nodes that own one — the name predates
+## the paper look — and it keeps the old API (accent / active / ears / paws), so
+## every card, panel and button that was trimmed is re-dressed from here.
+## Decorative only: it never takes input, and it redraws only when it changes.
 const Palette := preload("res://scripts/ui/cat_theme.gd")
-var accent := Color("35dbff")
-var active := false
+var accent := Color("35dbff"):
+	set(value):
+		if accent != value:
+			accent = value
+			queue_redraw()
+var active := false:
+	set(value):
+		if active != value:
+			active = value
+			queue_redraw()
 var ears := false
 var paws := true
-var age := 0.0
 var last_size := Vector2.ZERO
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	process_mode = Node.PROCESS_MODE_ALWAYS
-
-func _process(delta: float) -> void:
-	if not is_visible_in_tree(): return
-	age += delta
-	if active or size != last_size:
-		last_size = size
-		queue_redraw()
+	resized.connect(queue_redraw)
 
 func _draw() -> void:
 	var probe_started := FrameProbe.mark()
@@ -27,35 +32,56 @@ func _draw() -> void:
 
 
 func _probed_draw() -> void:
-	var pulse := 0.88 + sin(age * 2.0) * 0.12 if active else 0.65
-	for layer in range(4, 0, -1):
-		var glow := StyleBoxFlat.new()
-		glow.bg_color = Color.TRANSPARENT
-		glow.border_color = Color(accent, 0.035 * pulse)
-		glow.set_border_width_all(layer * 3)
-		glow.set_corner_radius_all(16 + layer)
-		glow.corner_detail = Palette.corner_detail_for(16 + layer)
-		draw_style_box(glow, Rect2(Vector2.ONE * -layer * 1.4, size + Vector2.ONE * layer * 2.8))
-	var edge := StyleBoxFlat.new()
-	edge.bg_color = Color.TRANSPARENT
-	edge.border_color = Color(accent.lightened(0.3), 0.95 if active else 0.7)
-	edge.set_border_width_all(2 if active else 1)
-	edge.set_corner_radius_all(14)
-	edge.corner_detail = Palette.corner_detail_for(14)
-	draw_style_box(edge, Rect2(Vector2.ZERO, size))
-	draw_line(Vector2(20, 4), Vector2(size.x * 0.38, 4), Color(accent, pulse), 2, true)
-	draw_line(Vector2(size.x * 0.62, size.y - 4), Vector2(size.x - 20, size.y - 4), Color(accent, pulse), 2, true)
-	if paws and size.y > 90:
-		_paw(Vector2(17, 20), 0.75)
-		_paw(Vector2(size.x - 17, 20), 0.75)
+	var tape := _tape_colour()
+	if active:
+		# A marker line traced just outside the cut edge, a little off-register
+		# the way a hand-drawn circle around a photo is.
+		var marker := StyleBoxFlat.new()
+		marker.bg_color = Color.TRANSPARENT
+		marker.border_color = Color(accent.darkened(0.08), 0.95)
+		marker.set_border_width_all(3)
+		marker.set_corner_radius_all(Palette.RADIUS + 3)
+		marker.corner_detail = Palette.corner_detail_for(Palette.RADIUS + 3)
+		draw_style_box(marker, Rect2(Vector2(-9, -9), size + Vector2(18, 18)))
+	# A transparent accent means "nothing holds this down": no tape at all.
+	if accent.a > 0.05 and size.x >= 60.0 and size.y >= 40.0:
+		var strip := Vector2(clampf(size.x * 0.2, 26.0, 46.0), 14.0)
+		_tape(Vector2(4.0, 2.0), strip, -0.62, tape)
+		if size.x > 120.0:
+			_tape(Vector2(size.x - 4.0, 2.0), strip, 0.62, tape)
 	if ears:
-		var x := size.x * 0.5
-		var points := PackedVector2Array([Vector2(x - 37, 0), Vector2(x - 30, -20), Vector2(x - 15, -9), Vector2(x + 15, -9), Vector2(x + 30, -20), Vector2(x + 37, 0)])
-		draw_polyline(points, Color(accent, pulse), 3, true)
-		draw_circle(Vector2(x - 7, -3), 1.8, accent, true, -1.0, true)
-		draw_circle(Vector2(x + 7, -3), 1.8, accent, true, -1.0, true)
+		_tape(Vector2(size.x * 0.5, -1.0), Vector2(clampf(size.x * 0.16, 44.0, 84.0), 16.0), -0.03, tape)
+	if paws and size.y > 90.0:
+		_paw(Vector2(size.x - 20.0, size.y - 18.0), 0.7, Color(Palette.INK_LINE, 0.16))
 
-func _paw(at: Vector2, factor: float) -> void:
-	draw_circle(at + Vector2(0, 3) * factor, 4 * factor, Color(accent, 0.75), true, -1.0, true)
-	for toe in [Vector2(-6, -2), Vector2(-2, -6), Vector2(3, -6), Vector2(7, -2)]:
-		draw_circle(at + toe * factor, 2.4 * factor, Color(accent, 0.8), true, -1.0, true)
+
+## Owner-coloured tape for a card that belongs to someone, the plain roll for
+## everything else. Tape is translucent, so what it holds shows through.
+func _tape_colour() -> Color:
+	var base: Color = Palette.TAPE.lerp(accent, 0.5) if accent.s > 0.2 else Palette.TAPE
+	# Mostly opaque: over the night sky a see-through strip read as a grey bar.
+	return Color(base.lightened(0.28), 0.9)
+
+
+## A strip of tape centred on `at`, rotated `angle`, with the torn ends drawn as
+## a shallow zigzag.
+func _tape(at: Vector2, extent: Vector2, angle: float, colour: Color) -> void:
+	var half := extent * 0.5
+	var points := PackedVector2Array()
+	points.append(Vector2(-half.x, -half.y))
+	points.append(Vector2(half.x, -half.y))
+	for step in 4:
+		var y := -half.y + extent.y * float(step + 1) / 4.0
+		points.append(Vector2(half.x + (2.0 if step % 2 == 0 else 0.0), y))
+	points.append(Vector2(-half.x, half.y))
+	for step in 4:
+		var y := half.y - extent.y * float(step + 1) / 4.0
+		points.append(Vector2(-half.x - (2.0 if step % 2 == 0 else 0.0), y))
+	var transform := Transform2D(angle, at)
+	draw_colored_polygon(transform * points, colour)
+
+
+func _paw(at: Vector2, factor: float, colour: Color) -> void:
+	draw_circle(at + Vector2(0, 3) * factor, 5 * factor, colour, true, -1.0, true)
+	for toe in [Vector2(-7, -3), Vector2(-2.5, -8), Vector2(3, -8), Vector2(8, -3)]:
+		draw_circle(at + toe * factor, 2.8 * factor, colour, true, -1.0, true)
