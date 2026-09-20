@@ -106,6 +106,11 @@ func _run() -> void:
 	main.pause_cursor = 0
 	main._update_pause_text()
 	await process_frame
+	var confirm_cancel: Button = main.pause_overlay.get_node("PauseAction0")
+	var confirm_accept: Button = main.pause_overlay.get_node("PauseAction1")
+	_check(confirm_cancel.size == confirm_accept.size
+		and is_equal_approx(confirm_cancel.position.y, confirm_accept.position.y),
+		"pause confirmation actions use one matched size and row")
 	_audit("일시정지 확인", main.pause_overlay)
 	main._set_pause(false)
 
@@ -246,17 +251,22 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 			"P%d health and equipment have no enclosing player box" % (slot + 1))
 		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
 		var player_number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
-		_check(identity.visible and player_number.visible
-			and not identity.text.is_empty() and not player_number.text.is_empty(),
-			"P%d card names the survivor and player role" % (slot + 1))
+		var player_level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
+		_check(identity.visible and player_number.visible and player_level.visible
+			and not identity.text.is_empty() and not player_number.text.is_empty()
+			and player_level.text.begins_with("Lv."),
+			"P%d block names the survivor, player role and shared level" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
 			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)
 			_check(not carried.is_empty(), "the fixture actually gave P%d %s" % [slot + 1, row])
 			for index in cap:
 				var art: TextureRect = holder.get_node("%s%d" % [row, index])
+				var socket: Control = holder.get_node("%sSlot%d" % [row, index])
 				_check(art.visible == (index < carried.size()),
 					"P%d %s slot %d is shown exactly when it is carried" % [slot + 1, row, index])
+				_check(socket.visible,
+					"P%d %s socket %d keeps the 2x4 loadout grid visible" % [slot + 1, row, index])
 	var own: ProgressBar = main.p1_health_bar if main.local_view_slot() == 0 else main.p2_health_bar
 	var partner: ProgressBar = main.p2_health_bar if main.local_view_slot() == 0 else main.p1_health_bar
 	_check(own.size == partner.size and is_equal_approx(own.position.y, partner.position.y),

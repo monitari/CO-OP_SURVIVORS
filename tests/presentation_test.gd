@@ -306,7 +306,9 @@ func _test_layout(main: Node) -> void:
 		var meter: ProgressBar = pair[1]
 		_check(is_equal_approx(caption.position.x, meter.position.x) and is_equal_approx(caption.size.x, meter.size.x),
 			"upper HUD labels align with their meter widths")
-		_check(caption.position.y + caption.size.y <= meter.position.y and meter.position.y < 130,
+		var shared_frame: Control = main.combat_hud.get_node("SharedFrame")
+		_check(caption.position.y + caption.size.y <= meter.position.y
+			and meter.position.y + meter.size.y <= shared_frame.position.y + shared_frame.size.y,
 			"meter labels stay above the thin top bars without overlapping their fill")
 	# The shared experience meter is the exception, and used to be checked by the
 	# same rule as the two above. It is no longer a strip at the top of the play

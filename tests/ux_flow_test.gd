@@ -43,7 +43,8 @@ func _run() -> void:
 		"and how far it is to the next one (%s)" % main.xp_text_label.text)
 	for slot in 2:
 		var frame: Panel = main.combat_hud.get_node("P%dFrame" % (slot + 1))
-		_check(not frame.visible and frame.size.y <= 152,
+		var carried: Control = main.combat_hud.get_node("Carried%d" % slot)
+		_check(not frame.visible and carried.position.y + carried.size.y <= 192,
 			"player HUD removes its enclosing box and keeps compact geometry")
 		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).text.contains("개인 Lv."),
 			"player identity omits the redundant personal level")

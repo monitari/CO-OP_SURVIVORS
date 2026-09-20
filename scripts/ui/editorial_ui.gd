@@ -851,10 +851,10 @@ static func _hud(main: Node) -> void:
 	for slot in 2:
 		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
 		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
-		var x := 76.0 if slot == 0 else 884.0
+		var x := PLAYER_BAR_LEFT if slot == 0 else PLAYER_BAR_RIGHT
 		var accent := Palette.P1 if slot == 0 else Palette.P2
-		bar.position = Vector2(x, 38)
-		bar.size = Vector2(320, 22)
+		bar.position = Vector2(x, PLAYER_HEALTH_TOP)
+		bar.size = Vector2(PLAYER_BAR_WIDTH, 24)
 		var track := Palette.surface(Color("0b1628cc"), Palette.RADIUS)
 		track.border_color = Color.TRANSPARENT
 		track.set_border_width_all(0)
@@ -875,39 +875,36 @@ static func _hud(main: Node) -> void:
 		caption.add_theme_constant_override("shadow_offset_x", 0)
 		caption.add_theme_constant_override("shadow_offset_y", 0)
 		caption.add_theme_constant_override("outline_size", 0)
-		main.hud_portrait_icons[slot].position = Vector2(25 if slot == 0 else 1213, 18)
-		main.hud_portrait_icons[slot].size = Vector2(42, 42)
-		var number := label(main.combat_hud, "%s" % main.player_label(slot), Rect2(x, 10, 50, 24), 14, accent)
+		main.hud_portrait_icons[slot].position = Vector2(20 if slot == 0 else 1204, 16)
+		main.hud_portrait_icons[slot].size = Vector2(56, 56)
+		var number := label(main.combat_hud, "%s" % main.player_label(slot), Rect2(x + 64, 40, 76, 22), 13, accent)
 		number.name = "PlayerNumber%d" % slot
-		var identity := label(main.combat_hud, "", Rect2(x + 54, 8, 266, 26), 17, accent)
+		var identity := label(main.combat_hud, "", Rect2(x, 10, PLAYER_BAR_WIDTH, 28), 19, accent)
 		identity.name = "PlayerIdentity%d" % slot
-		for tag: Label in [number, identity]:
+		var level := label(main.combat_hud, "", Rect2(x, 40, 58, 22), 13, Palette.CREAM)
+		level.name = "PlayerLevel%d" % slot
+		var level_style := Palette.surface(Color(accent, 0.88), 10)
+		level_style.set_border_width_all(0)
+		level.add_theme_stylebox_override("normal", level_style)
+		level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		for tag: Label in [number, identity, level]:
 			tag.add_theme_font_override("font", ReadoutFont)
 			tag.add_theme_color_override("font_shadow_color", Color.TRANSPARENT)
 			tag.add_theme_constant_override("shadow_offset_x", 0)
 			tag.add_theme_constant_override("shadow_offset_y", 0)
 			tag.add_theme_constant_override("outline_size", 0)
-	# Three readings, three equal columns, one shape each. The strip used to hold
-	# two meters and a loose string ("공명 1/3") beside them, so the one reading
-	# that is a count of things the pair owns was the one you had to read rather
-	# than see — in a row that had already taught the eye to expect bars.
-	var strip_left := SHARED_LEFT + 18.0
-	var strip_width := SHARED_WIDTH - 36.0
-	var column := (strip_width - METER_GAP * 2.0) / 3.0
-	var columns: Array[float] = [
-		strip_left,
-		strip_left + column + METER_GAP,
-		strip_left + (column + METER_GAP) * 2.0,
-	]
+	# Match context sits above the large clock. Distance, the four chain states,
+	# and integrity share the lower baseline, as in the supplied reference.
+	var left_meter := Rect2(SHARED_LEFT + 20.0, SHARED_TOP + 99.0, 148.0, 41.0)
+	var right_meter := Rect2(SHARED_LEFT + SHARED_WIDTH - 168.0, SHARED_TOP + 99.0, 148.0, 41.0)
 	for item in [main.chain_bar, main.chain_distance_text_label]:
-		item.position = Vector2(columns[0], SHARED_TOP + 43.0)
-		item.size = Vector2(column, 18)
+		item.position = left_meter.position
+		item.size = Vector2(left_meter.size.x, 24)
 	for item in [main.chain_integrity_bar, main.chain_integrity_text_label]:
-		item.position = Vector2(columns[2], SHARED_TOP + 43.0)
-		item.size = Vector2(column, 18)
-	# Put text above thin meters so a full fill cannot wash out its label.
+		item.position = right_meter.position
+		item.size = Vector2(right_meter.size.x, 24)
 	for caption: Label in [main.chain_distance_text_label, main.chain_integrity_text_label]:
-		caption.position.y = SHARED_TOP + 37.0
+		caption.position.y = SHARED_TOP + 99.0
 		caption.add_theme_font_override("font", ReadoutFont)
 		caption.add_theme_font_size_override("font_size", 15)
 		caption.add_theme_color_override("font_color", Palette.INK)
@@ -916,24 +913,24 @@ static func _hud(main: Node) -> void:
 		caption.add_theme_constant_override("shadow_offset_y", 0)
 		caption.add_theme_constant_override("outline_size", 0)
 	for meter: ProgressBar in [main.chain_bar, main.chain_integrity_bar]:
-		meter.position.y = SHARED_TOP + 60.0
-		meter.size.y = 6
+		meter.position.y = SHARED_TOP + 132.0
+		meter.size.y = 8
 		var track := Palette.surface(Color(Palette.INK, 0.16), 3)
 		track.set_border_width_all(0)
 		meter.add_theme_stylebox_override("background", track)
 		var meter_fill := Palette.surface(Palette.GOLD.darkened(0.12), 3)
 		meter_fill.set_border_width_all(0)
 		meter.add_theme_stylebox_override("fill", meter_fill)
-	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 14, Palette.P2_INK)
+	place(main.resonance_status_label, Rect2(SHARED_LEFT + 234.0, SHARED_TOP + 52.0, 208.0, 26.0), 17, Palette.P2_INK)
 	main.resonance_status_label.add_theme_font_override("font", ReadoutFont)
 	main.resonance_status_label.add_theme_font_size_override("font_size", 15)
 	main.resonance_status_label.add_theme_constant_override("outline_size", 0)
 	main.resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main.resonance_status_label.visible = true
 	if main.resonance_pips != null:
-		main.resonance_pips.position = Vector2(columns[1], SHARED_TOP + 60.0)
-		main.resonance_pips.size = Vector2(column, 6)
-	place(main.chain_status_label, Rect2(strip_left, SHARED_TOP + 72.0, strip_width, 20), 14, Palette.MUTED)
+		main.resonance_pips.position = Vector2(SHARED_LEFT + 234.0, SHARED_TOP + 80.0)
+		main.resonance_pips.size = Vector2(208.0, 8.0)
+	place(main.chain_status_label, Rect2(SHARED_LEFT + 178.0, SHARED_TOP + 129.0, 320.0, 18.0), 13, Palette.MUTED)
 	main.chain_status_label.add_theme_font_override("font", ReadoutFont)
 	main.chain_status_label.add_theme_constant_override("outline_size", 0)
 	main.chain_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -943,8 +940,8 @@ static func _hud(main: Node) -> void:
 	main.boss_label.add_theme_color_override("font_color", Color("f0cca2"))
 	place(main.boss_label, Rect2(G.x(3.9), 128, G.w(1.8), 22), 13, Palette.CREAM)
 	main.boss_label.visible = false
-	main.boss_bar.position = Vector2(SHARED_LEFT, SHARED_TOP + 112.0)
-	main.boss_bar.size = Vector2(SHARED_WIDTH, 44.0)
+	main.boss_bar.position = Vector2(SHARED_LEFT + 38.0, SHARED_TOP + 162.0)
+	main.boss_bar.size = Vector2(SHARED_WIDTH - 76.0, 44.0)
 	main.boss_health_text_label.position = main.boss_bar.position
 	main.boss_health_text_label.size = Vector2(500.0, 22.0)
 	main.boss_health_text_label.add_theme_font_override("font", ReadoutFont)
@@ -963,18 +960,31 @@ static func _hud(main: Node) -> void:
 	main.xp_text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# The clock is the page's centre line, so it is centred on the content span
 	# rather than snapped to a column edge — 48..1232 has its middle at 640.
-	place(main.hud_label, Rect2(574, SHARED_TOP + 1.0, 132, 36), 27, Palette.INK)
+	place(main.hud_label, Rect2(SHARED_LEFT + 248.0, SHARED_TOP + 4.0, 180.0, 48.0), 40, Palette.INK)
 	main.hud_label.add_theme_font_override("font", ReadoutFont)
 	main.hud_label.add_theme_constant_override("outline_size", 0)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 274.0, SHARED_TOP + 10.0, 152, 25), 16, Palette.INK)
+	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + SHARED_WIDTH - 190.0, SHARED_TOP + 15.0, 170.0, 30.0), 17, Palette.INK)
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 18.0, SHARED_TOP + 10.0, 166, 25), 16, Palette.GOLD_INK)
+	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 20.0, SHARED_TOP + 15.0, 184.0, 30.0), 17, Palette.GOLD_INK)
 	objective_readout.name = "ObjectiveReadout"
 	for readout: Label in [wave_readout, objective_readout]:
 		readout.add_theme_font_override("font", ReadoutFont)
 		readout.add_theme_constant_override("outline_size", 0)
+	var rule := ColorRect.new()
+	rule.name = "SharedRule"
+	rule.position = Vector2(SHARED_LEFT + 20.0, SHARED_TOP + 91.0)
+	rule.size = Vector2(SHARED_WIDTH - 40.0, 1.0)
+	rule.color = Color(Palette.INK_LINE, 0.28)
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	main.combat_hud.add_child(rule)
+	for index in 4:
+		var step := label(main.combat_hud, ["저항", "과충전", "한계", "과부하"][index],
+			Rect2(SHARED_LEFT + 178.0 + index * 80.0, SHARED_TOP + 99.0, 75.0, 26.0), 14, Palette.MUTED)
+		step.name = "ChainStep%d" % index
+		step.add_theme_font_override("font", ReadoutFont)
+		step.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# What each survivor carries, directly under their health bar: weapons on the
 	# first row, treasures on the second, only what has actually been picked up,
 	# each with its level in the bottom-right corner.
@@ -1031,16 +1041,18 @@ static func _hud(main: Node) -> void:
 
 
 
-## Space between the three readings in the shared HUD strip.
-const METER_GAP := 14.0
 ## The shared strip's box. Everything in it — the clock, the two readouts, the
 ## three meters and the boss bar under it — is placed from these, so the strip
 ## can be nudged without three separate lists of magic numbers drifting apart.
-const SHARED_LEFT := 418.0
+const SHARED_LEFT := 302.0
 const SHARED_TOP := 8.0
-const SHARED_WIDTH := 444.0
-const CARRIED_CELL := 34.0
-const CARRIED_PITCH := 38.0
+const SHARED_WIDTH := 676.0
+const PLAYER_BAR_LEFT := 90.0
+const PLAYER_BAR_RIGHT := 986.0
+const PLAYER_BAR_WIDTH := 204.0
+const PLAYER_HEALTH_TOP := 68.0
+const CARRIED_CELL := 42.0
+const CARRIED_PITCH := 46.0
 
 
 ## Places a carried-equipment ribbon's cells. Mirrored for the survivor on the
@@ -1069,8 +1081,8 @@ static func layout_carried(holder: Control, mirrored: bool) -> void:
 ## Control in the frame. The portrait stands on the frame itself now.
 static func _install_hud_frames(main: Node) -> void:
 	for slot in 2:
-		var x := 14.0 if slot == 0 else 874.0
-		var panel := plate(main.combat_hud, Rect2(x, 8, 392, 136), Palette.PAPER_LIGHT)
+		var x := 10.0 if slot == 0 else 982.0
+		var panel := plate(main.combat_hud, Rect2(x, 8, 288, 184), Palette.PAPER_LIGHT)
 		panel.name = "P%dFrame" % (slot + 1)
 		panel.z_index = -2
 		panel.hide()
@@ -1080,9 +1092,18 @@ static func _install_hud_frames(main: Node) -> void:
 		style.shadow_color = Color(Palette.PAPER_SHADOW, 0.72)
 		style.shadow_offset = Vector2(0, 3)
 		panel.add_theme_stylebox_override("panel", style)
-		var paw := icon(panel, HudPaw, Rect2(374, 98, 12, 12))
+		var paw := icon(panel, HudPaw, Rect2(270, 158, 12, 12))
 		paw.modulate = Palette.owner_ink(slot)
-	var shared := plate(main.combat_hud, Rect2(SHARED_LEFT, SHARED_TOP, SHARED_WIDTH, 108), Palette.PAPER_LIGHT)
+		var ring := plate(main.combat_hud,
+			Rect2(14, 10, 68, 68) if slot == 0 else Rect2(1198, 10, 68, 68), Palette.NIGHT)
+		ring.name = "PlayerPortraitRing%d" % slot
+		ring.z_index = -1
+		var ring_style := Palette.surface(Color("0b1628ed"), 34)
+		ring_style.border_color = Palette.owner_ink(slot)
+		ring_style.set_border_width_all(3)
+		ring_style.shadow_size = 0
+		ring.add_theme_stylebox_override("panel", ring_style)
+	var shared := plate(main.combat_hud, Rect2(SHARED_LEFT, SHARED_TOP, SHARED_WIDTH, 154), Palette.PAPER_LIGHT)
 	shared.name = "SharedFrame"
 	shared.z_index = -2
 	# The one piece of paper on the fight: a note taped across the top of the
@@ -1120,6 +1141,7 @@ static func refresh_hud(main: Node) -> void:
 			director.bosses_spawned + 1, remaining / 60, remaining % 60
 		]
 	main.combat_hud.get_node("ObjectiveReadout").text = readout
+	_refresh_chain_steps(main)
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
 		var health: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
@@ -1129,16 +1151,37 @@ static func refresh_hud(main: Node) -> void:
 		UIWrite.bg_color(fill, Color("e06b72") if endangered else accent)
 		var number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
 		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
+		var level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		number.text = main.player_label(slot)
 		identity.text = main.players[slot].character_name
+		level.text = "Lv.%d" % main.progression.level
 		UIWrite.font_color(number, accent)
 		UIWrite.font_color(identity, accent)
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
 		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
 		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
-		frame.size.y = 136.0
+		frame.size.y = 184.0
 		frame.hide()
+
+
+static func _refresh_chain_steps(main: Node) -> void:
+	var tension: float = float(main.chain_bar.value) / 100.0
+	var active := 3 if main.chain_overloaded else 2 if tension >= 0.95 else 1 if tension >= main.CHAIN_WARNING_RATIO else 0 if tension >= main.CHAIN_RESIST_RATIO else -1
+	if int(main.combat_hud.get_meta("chain_step", -2)) == active:
+		return
+	main.combat_hud.set_meta("chain_step", active)
+	var active_colors := [Palette.P1, Palette.GOLD, Color("e69a30"), Color("e05a70")]
+	for index in 4:
+		var step: Label = main.combat_hud.get_node("ChainStep%d" % index)
+		var selected: bool = index == active
+		var tint: Color = active_colors[index] if selected else Color(Palette.INK_LINE, 0.12)
+		var chip := Palette.surface(tint, 10)
+		chip.border_color = active_colors[index] if selected else Color(Palette.INK_LINE, 0.28)
+		chip.set_border_width_all(2 if selected else 1)
+		chip.shadow_size = 0
+		step.add_theme_stylebox_override("normal", chip)
+		UIWrite.font_color(step, Palette.CREAM if selected and index in [2, 3] else Palette.INK if selected else Palette.MUTED)
 
 
 ## Explicit level captions distinguish equipment levels from item quantities.
@@ -1148,8 +1191,12 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 	while holder.has_node("%s%d" % [prefix, index]):
 		var art: TextureRect = holder.get_node("%s%d" % [prefix, index])
 		art.visible = index < carried.size()
-		holder.get_node("%sSlot%d" % [prefix, index]).visible = art.visible
+		var socket: Control = holder.get_node("%sSlot%d" % [prefix, index])
+		# Empty sockets remain as the 2x4 loadout grid shown in the reference.
+		# Only the art and its live cooldown border disappear until an item fills it.
+		socket.show()
 		if not art.visible:
+			socket.get_node("CooldownBorder").hide()
 			index += 1
 			continue
 		var entry: Dictionary = carried[index]
@@ -1162,7 +1209,7 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 		# The socket's own border sets the tier colour (gold while resonating) and
 		# refreshes itself every frame; writing CREAM here as well made the two
 		# fight over the same label once per tick, and each write re-shaped it.
-		holder.get_node("%sSlot%d/CooldownBorder" % [prefix, index]).refresh()
+		socket.get_node("CooldownBorder").refresh()
 		index += 1
 
 

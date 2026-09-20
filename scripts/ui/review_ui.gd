@@ -295,8 +295,12 @@ static func choose_cat(main: Node, slot: int, direction: int) -> void:
 static func refresh_pause(main: Node) -> void:
 	if not main.pause_overlay.has_node("PauseAction0"): return
 	var screen: Control = main.pause_overlay
-	screen.position = Vector2(250, 90) if main.pause_settings else Vector2(450, 180)
-	screen.size = Vector2(780, 520) if main.pause_settings else Vector2(380, 360)
+	if main.restart_pending:
+		screen.position = Vector2(450, 250)
+		screen.size = Vector2(380, 220)
+	else:
+		screen.position = Vector2(250, 90) if main.pause_settings else Vector2(450, 180)
+		screen.size = Vector2(780, 520) if main.pause_settings else Vector2(380, 360)
 	for child in screen.get_children():
 		if child is Label or child.name in ["SettingsRows", "RunSnapshot"]:
 			child.hide()
@@ -346,7 +350,11 @@ static func refresh_pause(main: Node) -> void:
 		elif index == 12:
 			button.text += "        " + ("켜짐" if main.settings.vsync_enabled else "꺼짐")
 		if main.restart_pending and index < 2:
-			button.position = Vector2(20, 100 + index * 60)
+			# Confirmation actions are one matched pair. Previously the hidden
+			# settings slot kept its width while cancel kept the menu row's width.
+			button.position = Vector2(20 + index * 170, 100)
+			button.size = Vector2(160, 48)
+			button.add_theme_font_size_override("font_size", 16)
 			button.text = "취소" if index == 0 else "종료" if main.pending_quits else "메뉴로 돌아가기"
 		button.add_theme_stylebox_override("normal", Palette.button_surface("hover" if index == main.pause_cursor else "normal", Palette.GOLD, index == main.pause_cursor))
 	var details: Button = screen.get_node("PauseDetails")

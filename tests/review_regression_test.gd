@@ -28,9 +28,9 @@ func _run() -> void:
 	await _press(main, "menu_confirm")
 	check(main.pause_settings, "confirm opens settings")
 	await _press(main, "menu_next")
-	check(main.pause_cursor == 1, "settings navigation reaches first toggle")
+	check(main.pause_cursor == 9, "settings navigation reaches display mode first")
 	await _press(main, "menu_next")
-	check(main.pause_cursor == 2, "settings navigation follows vertical list")
+	check(main.pause_cursor == 10, "settings navigation follows the display column")
 	main.pause_cursor = 1
 	main._update_pause_text()
 	var before: bool = main.screen_shake_enabled
