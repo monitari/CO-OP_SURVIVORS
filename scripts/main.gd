@@ -8,6 +8,9 @@ const WINDOW_SIZES: Array[Vector2i] = [
 	Vector2i(1280, 720), Vector2i(1600, 900), Vector2i(1920, 1080),
 ]
 const VOLUME_STEPS := [0.0, 0.25, 0.5, 0.75, 1.0]
+## What the window was actually opened at, which is the requested size unless
+## the desktop was too small to hold it once framed. Zero until a window exists.
+var applied_window_size := Vector2i.ZERO
 static var pending_retry: Dictionary = {}
 
 const PlayerScene := preload("res://scripts/entities/player.gd")
@@ -480,10 +483,7 @@ func _ready() -> void:
 	randomize()
 	settings = SettingsScript.new() as GameSettings
 	settings.load_settings()
-	if DisplayServer.get_name() != "headless":
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen_enabled else DisplayServer.WINDOW_MODE_WINDOWED)
-		if not settings.fullscreen_enabled:
-			_apply_window_size()
+	_set_fullscreen(settings.fullscreen_enabled)
 	meta_progression = MetaProgressionScript.new() as MetaProgression
 	meta_progression.load_progress()
 	_setup_input_map()
@@ -634,13 +634,28 @@ func _input(event: InputEvent) -> void:
 		_toggle_moonlight()
 		get_viewport().set_input_as_handled()
 		return
-	if event.is_action_pressed("toggle_fullscreen") and debug_panel_open:
-		return
-	if event.is_action_pressed("toggle_fullscreen"):
+	# Alt+Enter as well as F11. It is the shortcut every Windows game has, and it
+	# is the one a player reaches for once a full-screen window has swallowed the
+	# desktop. It is matched as a raw chord rather than bound as an action
+	# because Godot's action matching ignores modifiers the bound event does not
+	# mention: an Alt+Enter bound to 전체화면 would also register as menu_confirm
+	# and 재시작, which are both plain Enter.
+	var key := event as InputEventKey
+	var alt_enter: bool = (key != null and key.pressed and not key.echo
+		and key.alt_pressed and key.keycode in [KEY_ENTER, KEY_KP_ENTER])
+	if event.is_action_pressed("toggle_fullscreen") or alt_enter:
+		# F11 is lent to the debug panel while it is open; Alt+Enter is not.
+		if debug_panel_open and not alt_enter:
+			return
 		_toggle_fullscreen()
 		_persist_settings()
 		if title_active:
 			_refresh_title_ui()
+		# menu_confirm and 재시작 are polled from Input rather than read off this
+		# event, so marking it handled is not enough to stop a plain-Enter action
+		# from seeing the same press. Dropping the next input tick is.
+		if alt_enter:
+			modal_input_guard = maxi(modal_input_guard, 2)
 		get_viewport().set_input_as_handled()
 
 
@@ -1673,7 +1688,11 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 
 ## Menu rows, per page. The last entry of every page is the way out of it.
 const TITLE_MENU := ["게임 시작", "영구 성장", "설정", "제작진", "게임 종료"]
-const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "큰 글자", "창 해상도", "전체 화면", "뒤로"]
+const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "큰 글자", "창 해상도",
+	# The keys are printed on the row: a player who has just been swallowed by a
+	# full-screen window is not going to go looking through a settings page for
+	# the way back out of it.
+	"전체 화면    F11 · Alt+Enter", "뒤로"]
 const TITLE_CREDITS := ["뒤로"]
 
 
@@ -3008,33 +3027,94 @@ func _handle_pause_input() -> void:
 		_update_pause_text()
 
 
+func window_size() -> Vector2i:
+	return WINDOW_SIZES[clampi(settings.window_size_index, 0, WINDOW_SIZES.size() - 1)]
+
+
 func window_size_label() -> String:
-	var index := clampi(settings.window_size_index, 0, WINDOW_SIZES.size() - 1)
-	var size := WINDOW_SIZES[index]
-	return "%d × %d" % [size.x, size.y]
+	var requested := window_size()
+	if applied_window_size != Vector2i.ZERO and applied_window_size != requested:
+		return "%d × %d    화면에 맞춤" % [applied_window_size.x, applied_window_size.y]
+	return "%d × %d" % [requested.x, requested.y]
 
 
+## Full screen, whichever of the two full-screen modes the platform gave us.
+func is_fullscreen() -> bool:
+	var mode := DisplayServer.window_get_mode()
+	return mode == DisplayServer.WINDOW_MODE_FULLSCREEN 		or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+
+
+## Shrinks a window down to `room`, keeping 16:9 so the stretch never has to
+## letterbox what the desktop could have shown.
+static func fit_window_size(requested: Vector2i, room: Vector2i) -> Vector2i:
+	if requested.x <= room.x and requested.y <= room.y:
+		return requested
+	var height := mini(room.y, room.x * 9 / 16)
+	# Rounded to a whole multiple of nine so the result is 16:9 to the pixel.
+	# Three pixels of height are cheaper than the one-pixel letterbox the stretch
+	# would otherwise put along the top of every screen.
+	height = (height / 9) * 9
+	# Small enough to be unplayable is worse than a window running off the edge,
+	# so the floor is half the authored canvas.
+	height = maxi(height, 360)
+	return Vector2i(height * 16 / 9, height)
+
+
+## Places the windowed-mode window: framed, sized to something the desktop can
+## actually show, and centred on the screen.
+##
+## Two things used to go wrong here and they were the same thing. A 1920x1080
+## client area does not fit a 1080p desktop once the window manager has added a
+## title bar, so the old code dropped the frame and let the window cover the
+## whole desktop instead — and then never moved it. Its client origin stayed
+## where the *framed* window's outer corner had been, measured at (1912, -31) on
+## a 1080p desktop, so the picture and the pointer disagreed by the height of a
+## title bar and every button had to be clicked a little below itself. And a
+## borderless window the exact size of the desktop is indistinguishable from
+## full screen, so turning 전체화면 off appeared to do nothing at all.
+##
+## So the window keeps its frame, the size is clamped to what the desktop's
+## usable area can hold, and the position is always set rather than inherited.
+## Filling the screen is what 전체화면 is for, and it is now the only thing that
+## does it.
 func _apply_window_size() -> void:
-	var index := clampi(settings.window_size_index, 0, WINDOW_SIZES.size() - 1)
-	var requested := WINDOW_SIZES[index]
+	if DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
 	var screen := DisplayServer.window_get_current_screen()
-	var screen_size := DisplayServer.screen_get_size(screen)
-	# A decorated 1920x1080 window has a client area shorter than 1080 on a
-	# 1080p desktop. Windows then scales/clips the image while pointer events are
-	# still reported against the client, which makes every button feel displaced.
-	# Borderless is used only when the chosen resolution exactly fills the screen.
-	var exact_desktop := requested == screen_size
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, exact_desktop)
+	# The usable rect, not the screen: a taskbar is as much in the way as a
+	# title bar, and on a multi-monitor desktop its origin is not (0, 0).
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var requested := window_size()
 	DisplayServer.window_set_size(requested)
-	if not exact_desktop:
-		DisplayServer.window_set_position((screen_size - requested) / 2)
+	# Measured rather than assumed: the frame is the window manager's number,
+	# and it is zero on the platforms that do not draw one.
+	var frame := DisplayServer.window_get_size_with_decorations() - DisplayServer.window_get_size()
+	applied_window_size = fit_window_size(requested, usable.size - frame)
+	if applied_window_size != requested:
+		DisplayServer.window_set_size(applied_window_size)
+	# `window_set_position` places the client area, so the frame hanging above
+	# and around it has to be paid for out of the centring rather than ignored.
+	var inset := DisplayServer.window_get_position() - DisplayServer.window_get_position_with_decorations()
+	DisplayServer.window_set_position(
+		usable.position + (usable.size - applied_window_size - frame) / 2 + inset)
+
+
+## The one place the window mode changes. It takes what the player asked for
+## rather than flipping whatever the window happens to be, so the settings row,
+## F11 and Alt+Enter cannot drift out of step with each other.
+func _set_fullscreen(on: bool) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if on:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		_apply_window_size()
 
 
 func _toggle_fullscreen() -> void:
-	var fullscreen := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fullscreen else DisplayServer.WINDOW_MODE_FULLSCREEN)
-	if fullscreen:
-		_apply_window_size()
+	_set_fullscreen(not is_fullscreen())
 
 
 func _persist_settings() -> void:
@@ -3044,7 +3124,7 @@ func _persist_settings() -> void:
 	settings.music_enabled = feedback.music_enabled
 	settings.sound_volume = feedback.sound_volume
 	settings.music_volume = feedback.music_volume
-	settings.fullscreen_enabled = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
+	settings.fullscreen_enabled = is_fullscreen()
 	settings.save_settings()
 
 

@@ -327,7 +327,7 @@ static func refresh_title(main: Node) -> void:
 		elif main.title_mode == "settings" and index < 7:
 			var states := [main.screen_shake_enabled, main.feedback.damage_numbers_enabled,
 				false, false, main.settings.large_text_enabled, false,
-				DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN]
+				main.is_fullscreen()]
 			state.text = "● 켜짐" if states[index] else "○ 꺼짐"
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if states[index] else Palette.MUTED)
 		elif main.title_mode == "meta" and not main.meta_reset_pending and index < 6:
