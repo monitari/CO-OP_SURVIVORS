@@ -26,6 +26,8 @@ extends Control
 ## is combat ownership, and the memory of which colours mean "something is about
 ## to hurt you" is built during the fight, not in the menus.
 
+const CatTheme := preload("res://scripts/ui/cat_theme.gd")
+
 const TRACK := Color("0a1122e6")
 const OUTLINE := Color("7596bd66")
 const FILL := Color("ef476f")
@@ -126,7 +128,9 @@ func _probed_draw() -> void:
 		draw_line(Vector2(x, top + 2.0), Vector2(x, top + bar_height - 2.0), Color(TRACK, 0.85), 2.0)
 	draw_rect(track, OUTLINE, false, 1.0)
 
-	var font := ThemeDB.fallback_font
+	# The readout face, not the theme's handwriting: this strip is a name, a rank
+	# and two numbers read while the boss is swinging.
+	var font: Font = CatTheme.READOUT
 	# The strip above the bar reads left to right in one pass: name, then the
 	# pips that say which boss this is, then the numbers. Laying the pips out
 	# from the end of the name rather than centring them is what keeps a long

@@ -6233,6 +6233,10 @@ func _show_message(text: String, color: Color) -> void:
 	notice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	notice.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	notice.clip_text = true
+	# 13px over the rooftop, in the corner of the eye, while the fight runs: the
+	# readout face rather than the menus' handwriting, for the same reason the
+	# HUD strip above it uses it (see CatTheme.READOUT).
+	notice.add_theme_font_override("font", CatTheme.READOUT)
 	notice.add_theme_font_size_override("font_size", 13)
 	notice.add_theme_color_override("font_color", color)
 	notice.add_theme_color_override("font_outline_color", Color(0.02, 0.035, 0.07, 0.92))

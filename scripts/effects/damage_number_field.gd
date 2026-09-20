@@ -17,7 +17,9 @@ extends Node2D
 ## The motion is the Label's, reproduced: it rises thirty pixels over 0.48s and
 ## fades over the last 0.48s of a 0.6s life.
 
-const UIFont := preload("res://scripts/ui/cat_theme.gd").FAMILY
+## Damage is a number read in passing, over the fight rather than over paper,
+## so it is set in the readout face like the rest of the combat numbers.
+const UIFont := preload("res://scripts/ui/cat_theme.gd").READOUT
 const FONT_SIZE := 18
 const LIFE := 0.6
 const RISE := 30.0

@@ -23,6 +23,9 @@ extends Control
 ## which is what keeps them reading as one family of marks — a boss and a box
 ## should look like the same kind of HUD object, not like two unrelated widgets.
 
+## The readout face: a pointer's word and distance are read mid-dodge.
+const UIFont := preload("res://scripts/ui/cat_theme.gd").READOUT
+
 const PILL_HEIGHT := 30.0
 const PILL_PADDING := 11.0
 const ARROW_LENGTH := 13.0
@@ -55,7 +58,7 @@ func report(mark: String, direction: Vector2, nearness: float, tint: Color, is_u
 	closeness = clampf(nearness, 0.0, 1.0)
 	accent = tint
 	urgent = is_urgent
-	_text_width = ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_text_width = UIFont.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 	size = Vector2(_text_width + PILL_PADDING * 2.0, PILL_HEIGHT)
 	queue_redraw()
 
@@ -78,7 +81,7 @@ func _draw() -> void:
 
 
 func _probed_draw() -> void:
-	var font := ThemeDB.fallback_font
+	var font: Font = UIFont
 	var pill := Rect2(Vector2.ZERO, size)
 	var glow := 0.25 + 0.45 * closeness
 	if urgent:

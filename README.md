@@ -75,7 +75,7 @@ godot --headless --path . --export-release "Windows Desktop"
 
 <img src="docs/screenshots/equipment-slots.png" width="520" alt="체력 막대 아래 무기 네 칸과 보물 네 칸, 둥근 쿨타임 테두리와 음영, 모서리 레벨 칩">
 
-글꼴은 **Griun 한글 고운체**(`assets/fonts/GriunXHangeul_Gowoon-Rg.ttf`)입니다. 빠진 특수기호는 **Jua**가 대신 그립니다(`CatTheme.adopt()`가 폴백으로 연결). 고운체는 일반 안티앨리어싱과 2배 오버샘플링으로 가져와 1920×1080에서도 획이 깨지지 않게 표시합니다.
+글꼴은 두 벌을 역할로 나눠 씁니다. 화면의 목소리는 **Griun 한글 고운체**(`assets/fonts/GriunXHangeul_Gowoon-Rg.ttf`)로, 제목·카드·설명·대사처럼 종이 위에서 천천히 읽는 글에 씁니다. 전투 중 한눈에 읽는 수치 — 상단 HUD 띠, 시계, 체력·경험치 막대, 보스 바, 피해 숫자, 화면 밖 지시자, 알림 로그 — 는 획이 네 배 두꺼운 **Jua**(`assets/fonts/Jua-Regular.ttf`)로 씁니다. 고운체의 가는 획은 13~16px 야경 위에서 읽히지 않고, Jua는 같은 크기에서 오히려 조금 더 좁아 배치를 바꾸지 않고 바꿔 끼울 수 있습니다. 두 글꼴 모두 없는 기호(`·`, 화살표, 줄표)와 빠진 한글 음절은 **Memoment 꾹꾹**(`assets/fonts/MemomentKkukkukk.ttf`, 한글 11,172자 전부)이 대신 그리며, `CatTheme.adopt()`가 두 글꼴 아래에 폴백으로 겁니다. 세 글꼴 모두 MSDF 없이 일반 안티앨리어싱과 2배 오버샘플링으로 가져와 1920×1080에서도 획이 깨지지 않게 표시합니다.
 
 | | P1 | P2 | 게임패드 |
 |---|---|---|---|

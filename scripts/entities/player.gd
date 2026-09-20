@@ -4,7 +4,9 @@ extends Node2D
 ## The game's one typeface, for the badge and the downed prompt drawn straight
 ## onto the world. These used to take ThemeDB's built-in fallback, which put a
 ## second typeface on screen next to every HUD label.
-const UIFont := preload("res://scripts/ui/cat_theme.gd").FAMILY
+## The badge over a survivor and the downed prompt are read at a glance during
+## a fight, so they take the readout face rather than the menus' handwriting.
+const UIFont := preload("res://scripts/ui/cat_theme.gd").READOUT
 
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 var portrait: Texture2D

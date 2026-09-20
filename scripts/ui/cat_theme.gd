@@ -2,20 +2,35 @@ extends RefCounted
 ## Shared "moonlit scrapbook" UI tokens: cream paper and dark ink laid over the
 ## night rooftop. Combat ownership and danger colours stay separate.
 
-## The one typeface in the game.
+## Two typefaces, split by what the reader is doing with the words.
 ##
-## Griun Hangul Gowoon gives every screen a calm, legible handwritten voice.
-## Jua stays behind it as the fallback for any symbol the primary family lacks,
-## so missing glyphs never depend on whichever font the operating system chooses.
+## Griun Hangul Gowoon is the game's voice: a thin, calm handwriting for titles,
+## card names, dialogue and anything read at leisure on paper.
 ##
-## `adopt()` puts it on ThemeDB as well as on the HUD host's theme, which is what
-## non-Control draws (damage numbers, P1/P2 badges, the downed prompt) and any
-## un-themed Label actually read.
+## Jua is the readout face. The HUD strip is read in the corner of the eye while
+## something is chasing you, at 13-16px, and Gowoon's hairline strokes simply do
+## not survive that — the clock, the boss timer, the wave and kill counts and the
+## three meter captions were all but invisible over the paper note. Jua carries
+## the same rounded, friendly character at four times the stroke weight, and is
+## marginally *narrower* at every size used here, so nothing had to be re-laid
+## out to adopt it.
+##
+## Memoment Kkukkukk is the fallback under both. It is the only bundled face
+## with the full 11,172 Hangul syllables, and the only one with the punctuation
+## the HUD actually types — the middle dot in "거리·안정", arrows, the em dash.
+## Jua used to hold this job while missing every one of those glyphs, which left
+## them to whatever the operating system happened to offer.
+##
+## `adopt()` puts FAMILY on ThemeDB as well as on the HUD host's theme, which is
+## what non-Control draws (damage numbers, P1/P2 badges, the downed prompt) and
+## any un-themed Label actually read.
 const FAMILY := preload("res://assets/fonts/GriunXHangeul_Gowoon-Rg.ttf")
-const SYMBOL_FALLBACK := preload("res://assets/fonts/Jua-Regular.ttf")
+const READOUT := preload("res://assets/fonts/Jua-Regular.ttf")
+const SYMBOL_FALLBACK := preload("res://assets/fonts/MemomentKkukkukk.ttf")
 
 
-## Makes FAMILY the fallback for every font lookup in the process, themed or not.
+## Makes FAMILY the fallback for every font lookup in the process, themed or not,
+## and hangs the symbol face under both bundled families.
 ## Idempotent; call it before the first Control or draw_string.
 ##
 ## Two separate resolutions have to be pointed at it, because a Control does not
@@ -23,10 +38,14 @@ const SYMBOL_FALLBACK := preload("res://assets/fonts/Jua-Regular.ttf")
 ## explicit engine-font draw ends up with, while an un-themed Control asks the
 ## default Theme. Setting only the first leaves every Label that is not under a
 ## themed host — the floating damage numbers, most of all — in the engine face.
+##
+## The two families never fall back to *each other*: a chain that loops would be
+## one, and a word half-set in handwriting and half in the readout face reads as
+## a rendering bug rather than as a hierarchy.
 static func adopt() -> Font:
-	var family: FontFile = FAMILY
-	if family.fallbacks.is_empty():
-		family.fallbacks = [SYMBOL_FALLBACK]
+	for face: FontFile in [FAMILY, READOUT]:
+		if face.fallbacks.is_empty():
+			face.fallbacks = [SYMBOL_FALLBACK]
 	if ThemeDB.fallback_font != FAMILY:
 		ThemeDB.fallback_font = FAMILY
 	var default_theme := ThemeDB.get_default_theme()
