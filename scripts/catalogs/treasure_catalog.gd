@@ -1,5 +1,6 @@
 class_name TreasureCatalog
 extends RefCounted
+const L := preload("res://scripts/systems/loc.gd")
 
 ## Attributes used to be free-floating level-up cards: all twelve were always in
 ## the pool, every one of them stacked without limit, and a build was therefore
@@ -161,7 +162,7 @@ static func tier_text(treasure: Dictionary, tier: int) -> String:
 	if not bool(treasure.get("flat", false)):
 		amount *= tier_weight(tier)
 	amount *= float(treasure.get("display", 1.0))
-	return String(treasure["text"]).replace("{v}", _number(amount))
+	return L.t(String(treasure["text"])).replace("{v}", _number(amount))
 
 
 static func _number(amount: float) -> String:

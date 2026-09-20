@@ -1,5 +1,6 @@
 class_name ItemStateVeil
 extends Control
+const L := preload("res://scripts/systems/loc.gd")
 
 ## Full-screen tell for the timed field items.
 ##
@@ -74,7 +75,7 @@ func refresh(windows: Dictionary) -> void:
 		# instead of wherever its row happens to be.
 		chip.position = Vector2(SCREEN.x * 0.5 - 96.0, 596.0 + float(shown) * 34.0)
 		var label := chip.get_node("Name") as Label
-		label.text = "%s  %.1f초" % [String(entry["name"]), remaining]
+		label.text = L.f("%s  %.1f초", [L.t(String(entry["name"])), remaining])
 		var fill := chip.get_node("Fill") as ColorRect
 		fill.size = Vector2(188.0 * ratio, 4.0)
 		var urgent := ratio <= EXPIRY_WARNING

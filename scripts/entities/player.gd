@@ -9,6 +9,7 @@ extends Node2D
 const UIFont := preload("res://scripts/ui/cat_theme.gd").READOUT
 
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
+const L := preload("res://scripts/systems/loc.gd")
 var portrait: Texture2D
 
 signal damaged(player: ChainPlayer, amount: float)
@@ -380,7 +381,7 @@ func _probed_draw() -> void:
 		draw_line(Vector2(-10, -10), Vector2(10, 10), Color("ff5d8f"), 5.0, true)
 		draw_line(Vector2(10, -10), Vector2(-10, 10), Color("ff5d8f"), 5.0, true)
 		draw_arc(Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * clampf(revive_progress / 2.6, 0.0, 1.0), 28, Color("80ed99"), 4.0, true)
-		var down_text := "구조 중 %.0f%%" % (revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else "가까이 와서 구조    %.0f초" % bleedout_remaining
+		var down_text := L.f("구조 중 %.0f%%", revive_progress / 2.6 * 100.0) if revive_progress > 0.0 else L.f("가까이 와서 구조    %.0f초", bleedout_remaining)
 		draw_string(UIFont, Vector2(-92.0, -43.0), down_text, HORIZONTAL_ALIGNMENT_CENTER, 184.0, 16, Color("ffcfdf"))
 		return
 	draw_circle(facing * (radius + 5.0), 2.5, Color.WHITE)

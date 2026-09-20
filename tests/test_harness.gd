@@ -24,7 +24,24 @@ static func arm_watchdog(tree: SceneTree, prefix: String, seconds: float) -> voi
 ## takes the coroutine with it.
 static func require_loaded(tree: SceneTree, main: Node, prefix: String) -> bool:
 	if main.get_script() != null:
+		pin_locale(main)
 		return true
 	push_error("%s: res://scripts/main.gd failed to load — see the parse errors above" % prefix)
 	tree.quit(1)
 	return false
+
+
+## Tests assert on the words on the screen, and the game now ships in two
+## languages. Which one a test runs in must come from the test rather than from
+## whatever the machine running it last saved in its settings file — a developer
+## who switched the game to English would otherwise see a dozen suites fail on
+## strings that are perfectly correct.
+##
+## Korean unless CHAINBOUND_LOCALE says otherwise; layout_test sets its own
+## locale per sweep after this has run.
+static func pin_locale(main: Node) -> void:
+	var locale := OS.get_environment("CHAINBOUND_LOCALE")
+	if locale.is_empty():
+		locale = "ko"
+	main.settings.language = locale
+	TranslationServer.set_locale(locale)

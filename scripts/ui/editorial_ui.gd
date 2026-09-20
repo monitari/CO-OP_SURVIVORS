@@ -7,6 +7,7 @@ const Polaroid := preload("res://scripts/ui/polaroid.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
 const MetaProgressionData := preload("res://scripts/systems/meta_progression.gd")
 const UIWrite := preload("res://scripts/ui/ui_write.gd")
+const L := preload("res://scripts/systems/loc.gd")
 ## The survivor dossier's stat chips. Four across a 352px column, each holding an
 ## icon and a line like "범위 118%".
 ##
@@ -51,14 +52,52 @@ static func label(parent: Node, text: String, rect: Rect2, font_size := Palette.
 
 
 static func place(item: Label, rect: Rect2, font_size: int, ink: Color = Palette.INK) -> void:
+	# clip_text first, and only then the size. A Label with its clipping off
+	# reports its own text as a minimum width, and Control clamps `size` up to
+	# that minimum — so a box assigned 298px quietly became 313px wide as soon as
+	# the Korean line in it was wider than the column, and sat under the button
+	# next to it. Clipping makes the minimum 1px, so the box keeps the size the
+	# layout asked for and the text is cut instead of moving its neighbours.
+	item.clip_text = true
 	item.position = rect.position
 	item.size = rect.size
 	item.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	item.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	item.add_theme_font_size_override("font_size", font_size)
 	item.add_theme_color_override("font_color", ink)
-	item.clip_text = true
 	item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+## Writes `text` into a caption and steps its font down until the *translated*
+## line fits the box, never below `floor_size`. Korean and English are not the
+## same length — "무기 강화" is 68px where "Weapon Upgrade" is 87 — so a box cut
+## to one locale silently eats the other's last letters. Shrinking is always
+## better than clipping: a slightly smaller line still reads, half a word does
+## not. The fitted size is recorded so the large-text pass in main.gd can raise
+## the line only as far as it still fits.
+## `room` overrides the measured width, for a caption inside a container that
+## has not laid its children out yet — asking such a caption for its width gets
+## a 0 back, which would shrink every line to the floor on the first frame.
+static func fit_text(item: Control, text: String, base_size: int, floor_size := 9,
+		room_override := -1.0) -> void:
+	item.text = text
+	var font := item.get_theme_font("font")
+	if font == null:
+		return
+	var room := room_override if room_override > 0.0 else item.size.x
+	if item is Button:
+		var style: StyleBox = item.get_theme_stylebox("normal")
+		if style != null:
+			room -= style.get_margin(SIDE_LEFT) + style.get_margin(SIDE_RIGHT)
+	var shown: String = item.atr(text)
+	var size := base_size
+	while size > floor_size and font.get_string_size(
+			shown, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > room:
+		size -= 1
+	item.add_theme_font_size_override("font_size", size)
+	item.set_meta("accessibility_base_font_size", size)
+	item.set_meta("accessibility_applied_font_size", size)
+	item.set_meta("fit_font_ceiling", size)
 
 
 static func plate(parent: Node, rect: Rect2, tint: Color = Palette.CARD) -> Panel:
@@ -377,7 +416,7 @@ static func refresh_title(main: Node) -> void:
 			var id := String(entry["id"])
 			var rank: int = main.meta_progression.rank(id)
 			var price: int = main.meta_progression.cost(id)
-			state.text = "Lv.%d/%d    %s" % [rank, int(entry["max_rank"]), "MAX" if price <= 0 else "%d개" % price]
+			state.text = L.f("Lv.%d/%d    %s", [rank, int(entry["max_rank"]), "MAX" if price <= 0 else L.f("%d개", price)])
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
 		row.text = ("▶  " if main.title_cursor == index and not menu else "") + main.tr(caption)
 		var focused: bool = main.title_cursor == index
@@ -407,13 +446,13 @@ static func refresh_title(main: Node) -> void:
 				main.title_note.text = "저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
 		"meta":
 			if main.meta_reset_pending or main.title_cursor == 7:
-				main.title_note.text = "성장 초기화 · 사용한 생선 %d개 전액 환급 · 발견한 무기 기록 유지" % main.meta_progression.refund_value()
+				main.title_note.text = L.f("성장 초기화 · 사용한 생선 %d개 전액 환급 · 발견한 무기 기록 유지", main.meta_progression.refund_value())
 			elif main.title_cursor == 6:
 				main.title_note.text = "성장 분야 전환    기초: 체력·위력·공속·이동·자력·행운    전문화: 방어·재생·치명·범위·지속·구조"
 			else:
 				var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + main.title_cursor]
-				main.title_note.text = "보유 %d 달빛 생선    ·    %s\n%s · 단계마다 적용 · 다음 원정부터 반영" % [
-					main.meta_progression.points, String(entry["name"]), String(entry["summary"])]
+				main.title_note.text = L.f("보유 %d 달빛 생선    ·    %s\n%s · 단계마다 적용 · 다음 원정부터 반영", [
+					main.meta_progression.points, L.t(String(entry["name"])), L.t(String(entry["summary"]))])
 			if main.meta_progression.last_save_error != OK:
 				main.title_note.text = "저장할 수 없습니다. 진행 상황은 변경되지 않았어요.\n\n저장 공간과 폴더 권한을 확인한 뒤 다시 시도해 주세요."
 		"credits":
@@ -572,7 +611,6 @@ static func _characters(main: Node) -> void:
 		var role := label(screen, "",
 			Rect2(x + 192, card.position.y + 88, 352, 32), 14, Palette.MUTED)
 		role.name = "CatRole%d" % slot
-		role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		# Four cells of STAT_CELL form the default stat row. The second row uses
 		# the same template in detailed mode instead of hand-offset labels.
 		#
@@ -652,7 +690,9 @@ static func refresh_characters(main: Node) -> void:
 		# what their weapon does and two by who they are, because only the two
 		# newest had no PLAYSTYLE entry to override them. The weapon still
 		# describes itself on the level-up card and in the block below.
-		screen.get_node("CatRole%d" % slot).text = main.tr("%s  ·  조작 난이도 %s") % [main.tr(String(cat["title"])), CharacterCatalog.difficulty_stars(cat)]
+		fit_text(screen.get_node("CatRole%d" % slot),
+			main.tr("%s  ·  조작 난이도 %s") % [main.tr(String(cat["title"])), CharacterCatalog.difficulty_stars(cat)],
+			14, 10)
 		screen.get_node("CatRole%d" % slot).tooltip_text = main.tr(String(cat["description"]))
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
@@ -773,14 +813,14 @@ static func refresh_growth(main: Node, slot: int) -> void:
 		var card: Label = main.level_card_labels[slot][index]
 		var against := bool(option.get("discouraged", false))
 		var reason := String(option.get("discouragement_reason" if against else "recommendation_reason", ""))
-		card.tooltip_text = "%s\n%s\n%s" % [String(option["title"]), main._upgrade_preview(slot, option),
-			reason if not reason.is_empty() else "현재 구성에서 무난한 선택입니다."]
+		card.tooltip_text = "%s\n%s\n%s" % [growth_title(option), main._upgrade_preview(slot, option),
+			reason if not reason.is_empty() else L.t("현재 구성에서 무난한 선택입니다.")]
 	var reroll: Button = main.level_overlay.get_node_or_null("Reroll%d" % slot)
 	if reroll != null:
 		var tech_hand := not choices.is_empty() and choices.all(func(option: Dictionary) -> bool: return String(option["id"]) == "choose_tech")
 		reroll.visible = slot == main.focused_growth_slot() and not locked and not complete and not tech_hand and main.rerolls_remaining[slot] > 0
 		reroll.disabled = main.level_up_input_delay > 0.0
-		reroll.text = "↻  다시 뽑기    %d" % main.rerolls_remaining[slot]
+		reroll.text = L.f("↻  다시 뽑기    %d", main.rerolls_remaining[slot])
 
 
 ## The small heading over a growth card's art.
@@ -803,17 +843,32 @@ static func growth_category(option: Dictionary) -> String:
 ## The card title: the option's own title without the prefix the category
 ## heading already says.
 static func growth_title(option: Dictionary) -> String:
-	return String(option.get("title", "")).replace("새 보물: ", "").replace("신규 기술: ", "").replace("보물 강화: ", "").replace("무기 진화: ", "")
+	var title := String(option.get("title", ""))
+	for prefix in ["새 보물: ", "신규 기술: ", "보물 강화: ", "무기 진화: ",
+			"신규 무기: ", "시너지 보물: "]:
+		title = title.replace(prefix, "")
+	# A title is one or two catalog names stacked ("마력 증폭" over the weapon it
+	# applies to). Each line is its own key, so each line is looked up on its own
+	# rather than the pair of them being looked up as one sentence that no
+	# catalog ever wrote.
+	var lines: Array[String] = []
+	for line in title.split("\n"):
+		lines.append(L.t(line))
+	return "\n".join(lines)
 
 
 static func compact_growth_description(option: Dictionary) -> String:
 	var description := String(option.get("description", ""))
 	if String(option.get("id", "")) not in ["unlock_treasure", "treasure_upgrade"]:
 		return description
-	return description.replace(
-		"투사체  장판 지속시간", "투사체  장판 지속").replace(
-		"가한 피해 0.6%를 팀 체력으로 회복    초당 최대 1.5",
-		"피해의 0.6% 팀 회복\n초당 최대 +1.5")
+	# Both halves of a pair are their own translation key, so the shortening
+	# happens in whatever language the description arrived in rather than only
+	# in the one the long phrases happen to be written in.
+	for pair in [["투사체  장판 지속시간", "투사체  장판 지속"],
+			["가한 피해 0.6%를 팀 체력으로 회복    초당 최대 1.5",
+				"피해의 0.6% 팀 회복\n초당 최대 +1.5"]]:
+		description = description.replace(L.t(pair[0]), L.t(pair[1]))
+	return description
 
 
 ## The resonance vote is a growth screen now (see main._refresh_resonance_vote_ui),
@@ -1208,7 +1263,7 @@ static func _refresh_carried_row(main: Node, holder: Control, prefix: String, ca
 		var tier: Label = art.get_node("Tier")
 		tier.text = str(int(entry.get("tier", 1)))
 		art.mouse_filter = Control.MOUSE_FILTER_PASS
-		UIWrite.tooltip(art, "%s    Lv.%d" % [main.tr(String(entry.get("weapon_name", entry.get("name", "보물")))), int(entry.get("tier", 1))])
+		UIWrite.tooltip(art, L.f("%s    Lv.%d", [main.tr(String(entry.get("weapon_name", entry.get("name", "보물")))), int(entry.get("tier", 1))]))
 		# The socket's own border sets the tier colour (gold while resonating) and
 		# refreshes itself every frame; writing CREAM here as well made the two
 		# fight over the same label once per tick, and each write re-shaped it.
@@ -1275,8 +1330,12 @@ static func _results(main: Node) -> void:
 			var dps := label(screen, "", Rect2(weapon_x - 9, 374, 62, 20), 12, Palette.MUTED)
 			dps.name = "ResultWeaponDps%d_%d" % [slot, index]
 			dps.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label(screen, "함께 지킨 기록    획득물", Rect2(G.GUTTER, 406, wide, 22), 16, Palette.GOLD_INK)
-	var coop := label(screen, "", Rect2(G.GUTTER, 430, wide, 44), 15, Palette.MUTED)
+	# 398 to 494 is everything between the weapon DPS row and the moon-fish
+	# cards, and the three lines in it are stacked edge to edge: the record wraps
+	# to two lines, so at its old 430 it finished six pixels inside the clear
+	# reward line under it.
+	label(screen, "함께 지킨 기록    획득물", Rect2(G.GUTTER, 398, wide, 22), 16, Palette.GOLD_INK)
+	var coop := label(screen, "", Rect2(G.GUTTER, 422, wide, 44), 15, Palette.MUTED)
 	coop.name = "CoopRecord"
 	coop.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var meta_title := label(screen, "", Rect2(G.GUTTER, 468, wide, 22), 16, Palette.GOLD_INK)
@@ -1367,5 +1426,5 @@ static func refresh_pause(main: Node) -> void:
 static func connection_notice(main: Node, device: int) -> void:
 	# Keep the navigable menu; a disconnect must not strand mouse/pad users.
 	main._update_pause_text()
-	main.pause_overlay.get_node("PauseHeading").text = "%s 패드 연결 끊김    키보드 사용 가능" % main.player_label(device)
+	main.pause_overlay.get_node("PauseHeading").text = L.f("%s 패드 연결 끊김    키보드 사용 가능", main.player_label(device))
 	return

@@ -3,6 +3,7 @@ const UI := preload("res://scripts/ui/editorial_ui.gd")
 const Palette := preload("res://scripts/ui/cat_theme.gd")
 const Icons := preload("res://scripts/ui/icon_catalog.gd")
 const G := preload("res://scripts/ui/layout_grid.gd")
+const L := preload("res://scripts/systems/loc.gd")
 
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
@@ -199,7 +200,7 @@ static func install(main: Node) -> void:
 		# drawn: the button and the mark it produces are next to each other.
 		for index in main.resonance_cards.size():
 			var card: Label = main.resonance_cards[index]
-			button(card, "%s 선택" % main.player_label(slot),
+			button(card, L.f("%s 선택", main.player_label(slot)),
 				Rect2(12 + slot * 106, main.RESONANCE_CARD_HEIGHT - 96.0, 96, 30), func() -> void:
 					if not main.resonance_vote_active: return
 					if main.resonance_votes[slot] == index:
@@ -384,25 +385,27 @@ static func toggle_details(main: Node) -> void:
 		header.get_node("Weapon").texture = Icons.weapon(String(main.weapon_loadouts[slot][0]["weapon_id"]))
 		header.get_node("Name").text = "%s  %s" % [main.player_label(slot), main.tr(p.character_name)]
 		header.get_node("WeaponName").text = main.tr("%d 무기    %d 보물") % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
-		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%%    치명 %d%%    발동 %d%%\n추가 +%.1f    관통 +%d    탄속 %d%%    지속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)]
-		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f    방어 %.0f    재생 %.1f/s\n회피 %d%%    반사 %d%%    목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
-		main.details_overlay.get_node("Coop%d/Value" % slot).text = "사슬 %.0f    구조 %.2f초    유예 %.0f초\n과충전 +%d%%    밀착 +%d%%    대시 %.0f" % [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst]
-		main.details_overlay.get_node("Utility%d/Value" % slot).text = "이속 %.0f    범위 %d%%    자력 %d%%\nXP %d%%    강적 +%d%%    행운 %d    흡혈 %.1f%%\n레벨 회복 %d%%    드롭 +%d%%" % [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_lifesteal * 100.0, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)]
+		main.details_overlay.get_node("Offense%d/Value" % slot).text = L.f("위력 %d%%    치명 %d%%    발동 %d%%\n추가 +%.1f    관통 +%d    탄속 %d%%    지속 %d%%", [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)])
+		main.details_overlay.get_node("Survival%d/Value" % slot).text = L.f("HP %.0f/%.0f    방어 %.0f    재생 %.1f/s\n회피 %d%%    반사 %d%%    목숨 %d", [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances])
+		main.details_overlay.get_node("Coop%d/Value" % slot).text = L.f("사슬 %.0f    구조 %.2f초    유예 %.0f초\n과충전 +%d%%    밀착 +%d%%    대시 %.0f", [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst])
+		main.details_overlay.get_node("Utility%d/Value" % slot).text = L.f("이속 %.0f    범위 %d%%    자력 %d%%\nXP %d%%    강적 +%d%%    행운 %d    흡혈 %.1f%%\n레벨 회복 %d%%    드롭 +%d%%", [p.move_speed, roundi(p.area * 100), roundi(main.team_magnet * 100), roundi(main.team_growth * 100), roundi(main.team_hunt_bonus * 100), main.team_luck, main.team_lifesteal * 100.0, roundi(main.team_level_heal * 100), roundi(main.team_greed * 100)])
 		var build_lines: Array[String] = []
 		var weapon_names: Array[String] = []
 		for index in main.weapon_loadouts[slot].size():
 			var w: Dictionary = main.weapon_loadouts[slot][index]
-			weapon_names.append("%s Lv.%d" % [w["weapon_name"], w.get("tier", 1)])
+			weapon_names.append(L.f("%s Lv.%d", [L.t(String(w["weapon_name"])), w.get("tier", 1)]))
 		var treasure_names: Array[String] = []
 		for treasure: Dictionary in main.treasure_loadouts[slot]:
-			treasure_names.append("%s Lv.%d" % [treasure["name"], treasure["tier"]])
-		build_lines.append("무기  " + ("    ".join(weapon_names) if not weapon_names.is_empty() else "없음"))
-		build_lines.append("보물  " + ("    ".join(treasure_names) if not treasure_names.is_empty() else "없음"))
-		build_lines.append("진화  " + main._fusion_progress_line(slot))
+			treasure_names.append(L.f("%s Lv.%d", [L.t(String(treasure["name"])), treasure["tier"]]))
+		build_lines.append(L.t("무기  ") + ("    ".join(weapon_names) if not weapon_names.is_empty() else L.t("없음")))
+		build_lines.append(L.t("보물  ") + ("    ".join(treasure_names) if not treasure_names.is_empty() else L.t("없음")))
+		build_lines.append(L.t("진화  ") + main._fusion_progress_line(slot))
 		var choices: Array = main.p1_choices if slot == 0 else main.p2_choices
 		if main.level_up_active and not choices.is_empty():
 			var choice: Dictionary = choices[main.upgrade_cursors[slot]]
-			build_lines.append("선택  %s    ★ %s" % [String(choice["title"]).replace("\n", " "), String(choice.get("recommendation_reason", "균형 성장")).split("   ")[0]])
+			build_lines.append(L.f("선택  %s    ★ %s", [
+				UI.growth_title(choice).replace("\n", " "),
+				String(choice.get("recommendation_reason", L.t("균형 성장"))).split("   ")[0]]))
 		main.details_overlay.get_node("Build%d/Value" % slot).text = "\n".join(build_lines)
 
 	preload("res://scripts/ui/player_perspective.gd").details(main)

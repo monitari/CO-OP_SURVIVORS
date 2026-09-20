@@ -2,6 +2,7 @@ class_name ResonanceSystem
 extends Node
 
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
+const L := preload("res://scripts/systems/loc.gd")
 
 ## The top of the tree: what two *enhanced* weapons do together.
 ##
@@ -229,9 +230,34 @@ static func _pair_key(requires: Array) -> String:
 	return "%s+%s" % [requires[0], requires[1]]
 
 
+## The name a player reads. A hand-written resonance has one written name; a
+## generated one is an element word and a behaviour word, translated separately
+## so the roster does not need 54 hand-written English names to say the same
+## nine shapes in six elements.
+static func display_name(entry: Dictionary) -> String:
+	if entry.has("name_parts"):
+		var parts: Array = entry["name_parts"]
+		return "%s %s" % [L.t(String(parts[0])), L.t(String(parts[1]))]
+	return L.t(String(entry.get("name", "")))
+
+
+## The sentence a player reads, built the same way: one translated shape with
+## the element's noun and the element's rider clause dropped into it.
+static func display_description(entry: Dictionary) -> String:
+	if entry.has("description_parts"):
+		var parts: Array = entry["description_parts"]
+		return L.f(String(parts[0]), [L.t(String(parts[1])), L.t(String(parts[2]))])
+	return L.t(String(entry.get("description", "")))
+
+
 ## One generic resonance, built from the element's rider and the behaviour's
 ## shape. Name, description and numbers all come from the same two tags, so
 ## there is no text to keep in step with the effect by hand (§20).
+## A generated entry keeps the two words and the rider it was built from as well
+## as the Korean sentence, so `display_name` and `display_description` can build
+## the line again in whatever locale is current. Composing once and caching the
+## result would freeze the catalogue in the language it was first read in, and
+## the language can be changed from the pause menu mid-run.
 static func _generated(element: String, behavior: String, requires: Array) -> Dictionary:
 	var shape: Dictionary = BEHAVIOR_TEMPLATES[behavior]
 	return {
@@ -239,6 +265,8 @@ static func _generated(element: String, behavior: String, requires: Array) -> Di
 		"internal_id": "RESONANCE_%s_%s" % [element.to_upper(), behavior.to_upper()],
 		"name": "%s %s" % [ELEMENT_WORDS[element], BEHAVIOR_WORDS[behavior]],
 		"description": String(shape["description"]) % [TAG_NAMES[element], ELEMENT_RIDERS[element]],
+		"name_parts": [ELEMENT_WORDS[element], BEHAVIOR_WORDS[behavior]],
+		"description_parts": [String(shape["description"]), TAG_NAMES[element], ELEMENT_RIDERS[element]],
 		"requires": requires,
 		"kind": "template",
 		"template": String(shape["template"]),

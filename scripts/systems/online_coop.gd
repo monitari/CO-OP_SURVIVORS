@@ -2,6 +2,7 @@ class_name OnlineCoop
 extends Node
 
 const SessionScript := preload("res://scripts/systems/network_session.gd")
+const L := preload("res://scripts/systems/loc.gd")
 const FieldItemScript := preload("res://scripts/entities/field_item.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const RECONNECT_GRACE_SECONDS := 15.0
@@ -64,7 +65,7 @@ func host_game() -> void:
 	game.ai_companion = false
 	game.lobby_joined.assign([true, false])
 	game.lobby_devices.assign([-1, -3])
-	game.lobby_device_names.assign(["이 PC    호스트", "온라인 동료 대기 중"])
+	game.lobby_device_names.assign([L.t("이 PC    호스트"), L.t("온라인 동료 대기 중")])
 	game._refresh_lobby_ui()
 
 
@@ -74,7 +75,7 @@ func join_game(address: String) -> void:
 	game.ai_companion = false
 	game.lobby_joined.assign([false, true])
 	game.lobby_devices.assign([-3, -1])
-	game.lobby_device_names.assign(["호스트 연결 중", "이 PC    나"])
+	game.lobby_device_names.assign([L.t("호스트 연결 중"), L.t("이 PC    나")])
 	game._refresh_lobby_ui()
 
 
@@ -100,7 +101,7 @@ func _peer_joined(_peer_id: int) -> void:
 	if not game.lobby_active:
 		return
 	game.lobby_joined.assign([true, true])
-	game.lobby_device_names.assign(["이 PC    호스트", "온라인 동료"])
+	game.lobby_device_names.assign([L.t("이 PC    호스트"), L.t("온라인 동료")])
 	game._refresh_lobby_ui()
 	var retrying: bool = bool(game.online_retry_pending)
 	game._finish_lobby()
@@ -119,7 +120,7 @@ func _connected() -> void:
 		session.send_control({"type": "resume_request"})
 		return
 	game.lobby_joined.assign([true, true])
-	game.lobby_device_names.assign(["온라인 호스트", "이 PC    나"])
+	game.lobby_device_names.assign([L.t("온라인 호스트"), L.t("이 PC    나")])
 	game._refresh_lobby_ui()
 
 
@@ -155,7 +156,7 @@ func _begin_host_reconnect() -> void:
 	reconnect_forced_pause = not game.get_tree().paused
 	if reconnect_forced_pause:
 		game._set_pause(true, false)
-	_status("온라인 동료 연결 끊김    %d초 동안 재접속 대기" % int(RECONNECT_GRACE_SECONDS))
+	_status(L.f("온라인 동료 연결 끊김    %d초 동안 재접속 대기", int(RECONNECT_GRACE_SECONDS)))
 
 
 func _begin_client_reconnect() -> void:
@@ -187,11 +188,11 @@ func connection_tick(delta: float) -> void:
 		if game.pause_active:
 			game._set_pause(false, false)
 		game._begin_lobby()
-		_status("재접속 시간이 만료되었습니다    %s" % (
-			"방을 다시 열어 주세요" if was_host else "다시 참가해 주세요"))
+		_status(L.f("재접속 시간이 만료되었습니다    %s",
+			L.t("방을 다시 열어 주세요") if was_host else L.t("다시 참가해 주세요")))
 		return
 	if reconnect_as_host:
-		_status("온라인 동료 재접속 대기    %d초" % ceili(reconnect_remaining))
+		_status(L.f("온라인 동료 재접속 대기    %d초", ceili(reconnect_remaining)))
 		return
 	if session.role == NetworkSession.Role.CLIENT and session.peer_is_connected():
 		return
@@ -582,7 +583,7 @@ func _receive_resonance_close(payload: Dictionary) -> void:
 	game.get_tree().paused = false
 	var chosen: Dictionary = payload.get("chosen", {})
 	if not chosen.is_empty():
-		game._show_message("공명 발현 — %s" % String(chosen.get("name", "")), Color("fff275"))
+		game._show_message(L.f("공명 발현 — %s", ResonanceSystem.display_name(chosen)), Color("fff275"))
 
 
 func _player_build_states() -> Array[Dictionary]:

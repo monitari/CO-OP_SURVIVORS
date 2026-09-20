@@ -177,7 +177,7 @@ func _run() -> void:
 	# The active hand stays full size; the AI partner is represented by one
 	# readable summary instead of a tiny overlapping hand.
 	var picked: int = main.selected_upgrade_indices[1]
-	var partner_title := String(main.level_overlay.get_node("PartnerChoice/Title").text)
+	var partner_title := String(main.level_overlay.get_node("PartnerChoice/Captions/Title").text)
 	var picked_title := String(main.level_card_labels[1][picked].get_node("CardTitle").text)
 	var partner_heading := partner_title.get_slice("\n", 0)
 	check(partner_heading.ends_with(picked_title),

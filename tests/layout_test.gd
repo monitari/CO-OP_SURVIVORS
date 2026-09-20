@@ -5,10 +5,12 @@ const TestHarness := preload("res://tests/test_harness.gd")
 
 var failures: Array[String] = []
 var checked := 0
+## The language the screen under audit is set in, named in every failure line.
+var language := "ko"
 
 
 func _initialize() -> void:
-	TestHarness.arm_watchdog(self, "LAYOUT_FAIL", 120.0)
+	TestHarness.arm_watchdog(self, "LAYOUT_FAIL", 300.0)
 	call_deferred("_run")
 
 
@@ -26,12 +28,36 @@ func _initialize() -> void:
 ## Everything is asserted with the screen forced visible, because a hidden
 ## Control still has a size and the bug is present whether or not it is on
 ## screen at the moment the test looks.
+##
+## Every screen is swept once per language. Korean and English are not the same
+## length — “동료” is 30px where “Partner” is 59 — so a box cut to one of them
+## clips the other, silently, and the game ships with both. Which language the
+## machine running the test happens to have saved in its settings must not
+## decide which half gets checked.
 func _run() -> void:
+	for locale in ["ko", "en"]:
+		await _sweep(locale)
+		if not failures.is_empty():
+			break
+	print("LAYOUT_METRICS: %d controls audited" % checked)
+	if failures.is_empty():
+		print("LAYOUT_PASS: nothing overflows, nothing is clipped, in either language")
+		quit(0)
+	else:
+		for failure in failures:
+			push_error("LAYOUT_FAIL: " + failure)
+		quit(1)
+
+
+func _sweep(locale: String) -> void:
+	language = locale
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
 	if not TestHarness.require_loaded(self, main, "LAYOUT_FAIL"):
 		return
+	main.settings.language = locale
+	TranslationServer.set_locale(locale)
 	await process_frame
 	for mode in ["menu", "meta", "settings", "credits"]:
 		main.title_mode = mode
@@ -95,6 +121,15 @@ func _run() -> void:
 	main._update_hud()
 	await process_frame
 	_audit("전투 HUD", main.combat_hud)
+	# The readouts that sit on the HUD layer rather than inside the HUD panel.
+	# They are written to every tick like the rest of the strip, and "Resonance
+	# 0/2" was being cut to "esonance 0/" in a box measured for "공명 0/2"
+	# because nothing walked them.
+	for loose: Label in [main.chain_status_label, main.chain_distance_text_label,
+			main.chain_integrity_text_label, main.resonance_status_label,
+			main.p1_status_label, main.p2_status_label, main.xp_text_label]:
+		if loose != null and loose.visible:
+			_check_label("전투 HUD", loose)
 	_test_nothing_says_tier(main, "전투 HUD", main.combat_hud)
 	_test_play_field_hud_alignment(main)
 
@@ -129,15 +164,8 @@ func _run() -> void:
 	await process_frame
 	_audit("결과", main.result_overlay)
 	_test_the_result_screen_owns_the_screen(main)
-
-	print("LAYOUT_METRICS: %d controls audited" % checked)
-	if failures.is_empty():
-		print("LAYOUT_PASS: nothing overflows, nothing is clipped")
-		quit(0)
-	else:
-		for failure in failures:
-			push_error("LAYOUT_FAIL: " + failure)
-		quit(1)
+	main.queue_free()
+	await process_frame
 
 
 ## "T3" is jargon. Weapons and treasures have levels, and every screen has to
@@ -154,8 +182,8 @@ func _collect_tier_jargon(pattern: RegEx, screen_name: String, node: Node) -> vo
 	for child in node.get_children():
 		var item := child as Label
 		if item != null and pattern.search(String(item.text)) != null:
-			_check(false, "%s · %s still writes a tier as T-number: %s" % [
-				screen_name, item.name, String(item.text).replace("\n", " / ")])
+			_check(false, "[%s] %s · %s still writes a tier as T-number: %s" % [
+				language, screen_name, item.name, String(item.text).replace("\n", " / ")])
 		_collect_tier_jargon(pattern, screen_name, child)
 
 
@@ -254,7 +282,7 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 		var player_level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		_check(identity.visible and not player_number.visible and player_level.visible
 			and not identity.text.is_empty()
-			and player_level.text.begins_with("기여 ")
+			and player_level.text.begins_with(main.tr("기여 %d").split("%")[0])
 			and is_equal_approx(identity.position.y, bar.position.y)
 			and is_equal_approx(player_level.position.y, bar.position.y),
 			"P%d row aligns survivor, contribution level and health without a role spacer" % (slot + 1))
@@ -324,11 +352,14 @@ func _check_action_overlaps(screen_name: String, screen: Control) -> void:
 			if button.is_ancestor_of(other) or other.is_ancestor_of(button):
 				continue
 			_check(not button.get_global_rect().grow(-1.0).intersects(other.get_global_rect().grow(-1.0)),
-				"%s action %s overlaps %s" % [screen_name, button.name, other.name])
+				"[%s] %s action %s %s overlaps %s %s" % [language, screen_name,
+					button.name, str(button.get_global_rect()),
+					other.name, str(other.get_global_rect())])
 
 
 func _walk(screen_name: String, node: Control) -> void:
 	var bounds := Rect2(Vector2.ZERO, node.size)
+	_check_sibling_overlaps(screen_name, node)
 	for child in node.get_children():
 		var control := child as Control
 		if control == null:
@@ -336,7 +367,9 @@ func _walk(screen_name: String, node: Control) -> void:
 		if not control.visible:
 			continue
 		checked += 1
-		if control is Label:
+		if control is Button:
+			_check_button(screen_name, control as Button)
+		elif control is Label:
 			_check_label(screen_name, control as Label)
 		# The tier badge deliberately hangs off the corner of the icon it labels,
 		# and scrapbook pieces that declare themselves overhangs (tape across a
@@ -358,19 +391,102 @@ func _check_label(screen_name: String, item: Label) -> void:
 	if String(item.text).is_empty():
 		return
 	_check(item.get_line_count() <= item.get_visible_line_count(),
-		"%s · %s is not cut off vertically (%d lines, %d fit): %s" % [
-			screen_name, item.name, item.get_line_count(), item.get_visible_line_count(),
+		"[%s] %s · %s is not cut off vertically (%d lines, %d fit): %s" % [
+			language, screen_name, item.name, item.get_line_count(), item.get_visible_line_count(),
 			String(item.text).replace("\n", " / ")])
 	if item.autowrap_mode != TextServer.AUTOWRAP_OFF:
 		return
+	_check_width(screen_name, item, _shown(item), item.size.x - _horizontal_padding(item))
+
+
+## What the caption actually puts on screen. Godot translates a Control’s own
+## `text` on its way to the glyphs, so a label written from a literal still
+## reads Korean here while the screen reads English. Measuring the property
+## rather than the translation is how a whole language’s worth of clipping
+## stayed invisible to this test.
+func _shown(item: Control) -> String:
+	if item.auto_translate_mode == Control.AUTO_TRANSLATE_MODE_DISABLED:
+		return String(item.text)
+	return item.atr(String(item.text))
+
+
+func _check_width(screen_name: String, item: Control, text: String, room: float) -> void:
 	var font := item.get_theme_font("font")
+	if font == null:
+		return
 	var font_size := item.get_theme_font_size("font_size")
-	var room := item.size.x - _horizontal_padding(item)
-	for line in String(item.text).split("\n"):
+	for line in text.split("\n"):
 		var width := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		_check(width <= room + 1.0,
-			"%s · %s is not cut off horizontally (%.0fpx of text in %.0fpx): %s" % [
-				screen_name, item.name, width, room, line])
+			"[%s] %s · %s is not cut off horizontally (%.0fpx of text in %.0fpx): %s" % [
+				language, screen_name, item.name, width, room, line])
+
+
+## A button’s label is clipped exactly the way a caption’s is, and the row of
+## actions along the bottom of every screen is where the longest words live.
+func _check_button(screen_name: String, item: Button) -> void:
+	if String(item.text).is_empty() or item.autowrap_mode != TextServer.AUTOWRAP_OFF:
+		return
+	var style := item.get_theme_stylebox("normal")
+	var padding := 0.0 if style == null else style.get_margin(SIDE_LEFT) + style.get_margin(SIDE_RIGHT)
+	if item.icon != null:
+		padding += item.icon.get_width() + item.get_theme_constant("h_separation")
+	_check_width(screen_name, item, _shown(item), item.size.x - padding)
+
+
+## Two captions in one box, written over each other. Rows are placed at
+## hand-picked offsets, and a Label claims whatever height its font needs
+## regardless of the offset it was given — so a row pitch that suited one font
+## size becomes two lines sharing five pixels when the size or the language
+## changes. This is what made the partner’s summary plaque unreadable.
+func _check_sibling_overlaps(screen_name: String, parent: Control) -> void:
+	var captions: Array[Control] = []
+	for child in parent.get_children():
+		var item := child as Label
+		if item == null or not item.visible or String(item.text).is_empty():
+			continue
+		if item.has_meta("decorative_overhang"):
+			continue
+		captions.append(item)
+	for index in captions.size():
+		for other in captions.slice(index + 1):
+			var overlap := _drawn_rect(captions[index]).intersection(_drawn_rect(other))
+			_check(overlap.size.x <= 1.0 or overlap.size.y <= 1.0,
+				"[%s] %s · %s and %s are written on top of each other (%.0fx%.0f)" % [
+					language, screen_name, captions[index].name, other.name,
+					overlap.size.x, overlap.size.y])
+
+
+## Where a caption’s glyphs actually land inside its box. Boxes overlap all
+## over this UI on purpose — a full-width centred footer runs straight through
+## the version number in the corner, and neither is ever touched — so the check
+## has to be about the lettering rather than about the rectangles.
+func _drawn_rect(item: Label) -> Rect2:
+	var font := item.get_theme_font("font")
+	var font_size := item.get_theme_font_size("font_size")
+	var box := Rect2(item.position, item.size)
+	if font == null:
+		return box
+	var lines := String(_shown(item)).split("\n")
+	var widest := 0.0
+	for line in lines:
+		widest = maxf(widest, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
+	widest = minf(widest, box.size.x)
+	var tall := minf(box.size.y, font.get_height(font_size) * lines.size()
+		+ item.get_theme_constant("line_spacing") * maxi(0, lines.size() - 1))
+	var left := box.position.x
+	match item.horizontal_alignment:
+		HORIZONTAL_ALIGNMENT_CENTER:
+			left += (box.size.x - widest) * 0.5
+		HORIZONTAL_ALIGNMENT_RIGHT:
+			left += box.size.x - widest
+	var top := box.position.y
+	match item.vertical_alignment:
+		VERTICAL_ALIGNMENT_CENTER:
+			top += (box.size.y - tall) * 0.5
+		VERTICAL_ALIGNMENT_BOTTOM:
+			top += box.size.y - tall
+	return Rect2(left, top, widest, tall)
 
 
 func _horizontal_padding(item: Label) -> float:

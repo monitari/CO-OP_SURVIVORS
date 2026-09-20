@@ -373,9 +373,9 @@ func _test_cursor_and_deferred_apply(main: Node) -> void:
 	for index in main.p1_choices.size():
 		var locked_card: Label = main.level_card_labels[0][index]
 		_check(not locked_card.visible, "the partner's full cards do not overlap the active hand")
-	_check(main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료",
+	_check(main.level_overlay.get_node("PartnerChoice/Captions/State").text == "✓ 선택 완료",
 		"the partner summary shows that their choice is locked")
-	_check(not main.level_overlay.get_node("PartnerChoice/Title").text.is_empty(),
+	_check(not main.level_overlay.get_node("PartnerChoice/Captions/Title").text.is_empty(),
 		"the partner summary names the chosen growth")
 
 	await _tap(main, "p1_select_cancel")

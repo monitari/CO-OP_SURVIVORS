@@ -3,6 +3,7 @@ extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 const EnemyScript := preload("res://scripts/entities/enemy.gd")
 const Editorial := preload("res://scripts/ui/editorial_ui.gd")
+const TestHarness := preload("res://tests/test_harness.gd")
 var failures: Array[String] = []
 
 
@@ -14,6 +15,8 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	if not TestHarness.require_loaded(self, main, "GAMEPLAY_REWORK_FAIL"):
+		return
 	main.selected_character_indices[0] = 0
 	main.selected_character_indices[1] = 1
 	main.character_confirmed[0] = true

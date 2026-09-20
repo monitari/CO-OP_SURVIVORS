@@ -84,7 +84,7 @@ func run() -> void:
 	for frame in 24: await process_frame
 	await shot("three")
 	check(main.level_card_labels[0][1].size.x == 224, "three cards use large readable art")
-	check(main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료", "partner lock shown")
+	check(main.level_overlay.get_node("PartnerChoice/Captions/State").text == "✓ 선택 완료", "partner lock shown")
 	check(not main.combat_hud.has_node("P1Frame/PortraitPlaque"),
 		"portrait backing box is gone, not merely turned transparent")
 	check(not main.combat_hud.get_node("PlayerIdentity0").text.contains("개인 Lv."),
@@ -110,10 +110,10 @@ func run() -> void:
 	main._refresh_level_up_ui()
 	check(main.level_card_labels[1][5].visible and main.level_card_labels[1][5].scale == Vector2.ONE
 		and not main.level_card_labels[0][0].visible
-		and main.level_overlay.get_node("PartnerChoice/State").text == "✓ 선택 완료",
+		and main.level_overlay.get_node("PartnerChoice/Captions/State").text == "✓ 선택 완료",
 		"client sees own hand full size and the partner's choice as a summary")
-	check(not main.level_overlay.get_node("PartnerChoice/Title").text.is_empty()
-		and not main.level_overlay.get_node("PartnerChoice/Summary").text.is_empty(),
+	check(not main.level_overlay.get_node("PartnerChoice/Captions/Title").text.is_empty()
+		and not main.level_overlay.get_node("PartnerChoice/Captions/Summary").text.is_empty(),
 		"partner summary names the choice and its reason")
 	var partner_icon := main.level_overlay.get_node("PartnerChoice/PartnerIcon") as TextureRect
 	check(partner_icon.visible and partner_icon.texture != null,

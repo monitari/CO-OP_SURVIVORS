@@ -2,6 +2,7 @@ class_name Showcase
 extends Control
 
 const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
+const L := preload("res://scripts/systems/loc.gd")
 var player_labels: Array = ["나", "동료"]
 
 ## The three moments a run is actually about, given the screen for a few seconds.
@@ -105,7 +106,7 @@ func play_chest(entries: Array) -> void:
 	duration = maxf(CHEST_DURATION, CHEST_BURST_AT + 0.5 + float(entries.size()) * REWARD_STAGGER + 2.2)
 	accent = Color("ffd166")
 	headline = "행운 상자"
-	subtitle = "%d개 획득" % entries.size()
+	subtitle = L.f("%d개 획득", entries.size())
 	for entry: Dictionary in entries:
 		# The very card the growth hand deals, painted by the same function at the
 		# same size — a reward out of a box is a growth choice somebody else made.

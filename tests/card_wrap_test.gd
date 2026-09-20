@@ -12,6 +12,7 @@ extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 const CardVisual := preload("res://scripts/ui/growth_card_visual.gd")
 const NeonGrowthUI := preload("res://scripts/ui/neon_growth_ui.gd")
+const TestHarness := preload("res://tests/test_harness.gd")
 
 
 func _initialize() -> void:
@@ -22,6 +23,8 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	if not TestHarness.require_loaded(self, main, "CARD_WRAP_FAIL"):
+		return
 	main.selected_character_indices[0] = 0
 	main.selected_character_indices[1] = 1
 	main.character_confirmed[0] = true
@@ -48,20 +51,28 @@ func _run() -> void:
 	root.add_child(card)
 	var wraps := 0
 	var worst := 0
-	for size in [Vector2(224, 348), Vector2(208, 348), Vector2(182, 322)]:
-		for option in options:
-			var model: Dictionary = NeonGrowthUI.card_model(main, 0, option)
-			card.size = size
-			CardVisual.paint(card, model, CardVisual.CYAN, false, size.x, size.y)
-			await process_frame
-			var body: RichTextLabel = card.get_node("Body")
-			var phrases := body.get_parsed_text().count("\n") + 1
-			var over := body.get_content_height() > body.size.y + 1.0
-			if body.get_line_count() != phrases or over:
-				wraps += 1
-				print("%s %s: %d lines / %d phrases%s  | %s" % [size, option["id"], body.get_line_count(), phrases,
-					" OVERFLOW" if over else "", body.get_parsed_text().replace("\n", " / ")])
-			worst = maxi(worst, body.get_line_count())
-	print("%d cards, %d wrapped or overflowed, tallest %d lines" % [options.size() * 3, wraps, worst])
+	# In both languages. An English phrase runs about a third wider than the
+	# Korean it translates, so a card that reads as one block in Korean can
+	# break every phrase of itself in English at the same width.
+	var locales := ["ko", "en"]
+	for locale in locales:
+		TranslationServer.set_locale(locale)
+		for size in [Vector2(224, 348), Vector2(208, 348), Vector2(182, 322)]:
+			for option in options:
+				var model: Dictionary = NeonGrowthUI.card_model(main, 0, option)
+				card.size = size
+				CardVisual.paint(card, model, CardVisual.CYAN, false, size.x, size.y)
+				await process_frame
+				var body: RichTextLabel = card.get_node("Body")
+				var phrases := body.get_parsed_text().count("\n") + 1
+				var over := body.get_content_height() > body.size.y + 1.0
+				if body.get_line_count() != phrases or over:
+					wraps += 1
+					print("[%s] %s %s: %d lines / %d phrases%s  | %s" % [locale, size, option["id"],
+						body.get_line_count(), phrases, " OVERFLOW" if over else "",
+						body.get_parsed_text().replace("\n", " / ")])
+				worst = maxi(worst, body.get_line_count())
+	print("%d cards, %d wrapped or overflowed, tallest %d lines" % [
+		options.size() * 3 * locales.size(), wraps, worst])
 	print("CARD_WRAP_PASS" if wraps == 0 else "CARD_WRAP_FAIL")
 	quit(0 if wraps == 0 else 1)

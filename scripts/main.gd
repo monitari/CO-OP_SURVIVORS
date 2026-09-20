@@ -581,6 +581,11 @@ func _apply_text_scale_to(node: Node, scale_factor: float) -> void:
 		var base_size := int(node.get_meta("accessibility_base_font_size"))
 		# Display lettering already has ample size; enlarge dense reading text.
 		var applied_size: int = roundi(base_size * scale_factor) if base_size <= 20 else base_size
+		# A caption that EditorialUI.fit_text already shrank to fit its box has no
+		# room left to grow into. Enlarging it would trade a readable small line
+		# for a big clipped one, which is the opposite of an accessibility win.
+		if node.has_meta("fit_font_ceiling"):
+			applied_size = mini(applied_size, int(node.get_meta("fit_font_ceiling")))
 		node.add_theme_font_size_override("font_size", applied_size)
 		node.set_meta("accessibility_applied_font_size", applied_size)
 	for child in node.get_children():
@@ -1047,7 +1052,7 @@ func _toggle_moonlight() -> void:
 	Moonlight.enabled = not Moonlight.enabled
 	_apply_moonlight()
 	if not title_active and not lobby_active:
-		_show_message("달빛 연출 %s" % ("켜짐" if Moonlight.enabled else "꺼짐"), Color("8ecae6"))
+		_show_message(tr("달빛 연출 %s") % tr("켜짐" if Moonlight.enabled else "꺼짐"), Color("8ecae6"))
 
 
 func set_combat_visuals_enabled(enabled: bool) -> void:
@@ -1402,7 +1407,12 @@ func _create_hud() -> void:
 		bed.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bed.add_theme_stylebox_override("panel", CatTheme.surface(CatTheme.NIGHT_PANEL))
 		character_overlay.add_child(bed)
-		_add_cat_caption(character_overlay, "%s" % player_label(slot), Vector2(46 + slot * 564, 108), Vector2(50, 30), 18)
+		# The Korean key, not the translation: the caption is built once, and a
+		# Label translates its own text every time it draws, so leaving the key
+		# in place keeps it right after the language is changed. EditorialUI
+		# also finds these two by their text when it rebuilds the screen.
+		_add_cat_caption(character_overlay, "나" if slot == local_view_slot() else "동료",
+			Vector2(46 + slot * 564, 108), Vector2(100, 30), 18)
 
 	character_portrait_icons = [
 		_create_icon_rect(character_overlay, Vector2(258.0, 92.0), Vector2(84.0, 84.0)),
@@ -1744,7 +1754,7 @@ func _title_rows() -> Array:
 				return ["취소", "성장 초기화    사용한 생선 전액 환급"]
 			for entry in MetaProgression.UPGRADES.slice(meta_page * 6, meta_page * 6 + 6):
 				rows.append(String(entry["name"]))
-			rows.append("다음 성장 분야  %d / %d" % [meta_page + 1, ceili(MetaProgression.UPGRADES.size() / 6.0)])
+			rows.append(tr("다음 성장 분야  %d / %d") % [meta_page + 1, ceili(MetaProgression.UPGRADES.size() / 6.0)])
 			rows.append("성장 초기화    전액 환급")
 			return rows
 		"credits": return TITLE_CREDITS
@@ -2013,7 +2023,7 @@ func _reroll_growth_choice(slot: int) -> void:
 func _join_lobby_with_gamepad(device: int) -> void:
 	if device < 0 or device > 1:
 		return
-	_join_lobby_slot(device, device, "게임패드 %d" % (device + 1))
+	_join_lobby_slot(device, device, tr("게임패드 %d") % (device + 1))
 
 
 func _join_lobby_slot(slot: int, device: int, device_name: String) -> void:
@@ -2048,9 +2058,9 @@ func _refresh_lobby_ui() -> void:
 func _format_lobby_slot(slot: int) -> String:
 	var heading := "P%d  ·  %s" % [slot + 1, player_label(slot)]
 	if lobby_joined[slot]:
-		return "%s    ✓ 참가 완료\n%s" % [heading, lobby_device_names[slot]]
-	var hint := "WASD  /  패드 1 아무 버튼" if slot == 0 else "방향키  /  패드 2 아무 버튼"
-	return "%s    ○ 참가 대기\n%s" % [heading, hint]
+		return tr("%s    ✓ 참가 완료\n%s") % [heading, tr(lobby_device_names[slot])]
+	var hint := tr("WASD  /  패드 1 아무 버튼") if slot == 0 else tr("방향키  /  패드 2 아무 버튼")
+	return tr("%s    ○ 참가 대기\n%s") % [heading, hint]
 
 
 func _begin_character_select() -> void:
@@ -2157,15 +2167,15 @@ func _format_character_card(player_index: int) -> String:
 	var evolution := Evolutions.for_base(String(character["weapon_id"]))
 	for tech in WeaponTechs.for_weapon(String(character["weapon_id"])):
 		var treasure := Treasures.by_id(String(tech["synergy_treasure_id"]))
-		tech_names.append(String(tech["name"]))
-		synergy_names.append(String(treasure.get("name", "보물")))
+		tech_names.append(tr(String(tech["name"])))
+		synergy_names.append(tr(String(treasure.get("name", "보물"))))
 	var playstyle := String(EditorialUI.PLAYSTYLE.get(
 		String(character["weapon_id"]), "자동 공격")).split("    ")[-1]
 	return "\n".join([
-		"무기    %s    %s" % [String(character["weapon_name"]), playstyle],
-		"테크 Lv.%d    %s" % [WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(tech_names)],
-		"추천 보물    %s" % " / ".join(synergy_names),
-		"Lv.%d 진화    %s" % [Evolutions.EVOLUTION_TIER, String(evolution.get("weapon_name", "최종 진화"))],
+		tr("무기    %s    %s") % [tr(String(character["weapon_name"])), tr(playstyle)],
+		tr("테크 Lv.%d    %s") % [WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(tech_names)],
+		tr("추천 보물    %s") % " / ".join(synergy_names),
+		tr("Lv.%d 진화    %s") % [Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화")))],
 	])
 
 ## What this survivor does to the pair's leash, in plain language. The number
@@ -2304,7 +2314,7 @@ func _start_selected_run() -> void:
 	help_label.visible = false
 	# Derived from the schedule rather than written out, which is how it came to
 	# still say 02:00 after the boss moved to five minutes.
-	_show_message("옥상 보스 %d명 격파    총 %02d:%02d" % [
+	_show_message(tr("옥상 보스 %d명 격파    총 %02d:%02d") % [
 		WaveDirectorScript.BOSS_COUNT, int(RUN_LENGTH) / 60, int(RUN_LENGTH) % 60
 	], Color("80ed99"))
 	# Send only after characters, permanent bonuses and the chain length have
@@ -2607,9 +2617,9 @@ func _update_item_indicator() -> void:
 	if nearest == null:
 		item_edge_indicator.visible = false
 		return
-	var item_label := "상자" if nearest.item_id == "chest" else field_items.item_display_name(nearest.item_id)
+	var item_label := tr("상자") if nearest.item_id == "chest" else tr(field_items.item_display_name(nearest.item_id))
 	var expiring: bool = nearest.lifetime <= ITEM_POINTER_CLOCK
-	var mark := "%s %dm %d초" % [item_label, int(nearest_distance / 10.0), ceili(nearest.lifetime)] 		if expiring else "%s %dm" % [item_label, int(nearest_distance / 10.0)]
+	var mark := tr("%s %dm %d초") % [item_label, int(nearest_distance / 10.0), ceili(nearest.lifetime)] 		if expiring else tr("%s %dm") % [item_label, int(nearest_distance / 10.0)]
 	var item_nearness := 1.0 - clampf(nearest_distance / maxf(1.0, view.length()), 0.0, 1.0)
 	item_edge_indicator.report(mark, _edge_bearing(nearest.global_position, centre),
 		item_nearness, field_items.item_color(nearest.item_id),
@@ -2683,11 +2693,11 @@ func _update_camera(delta: float) -> void:
 ## visible before the enemies actually arrive.
 func _on_wave_started(wave_index: int, is_surge: bool) -> void:
 	if is_surge:
-		_show_message("%d파 대공세    서로 등을 맡으세요!" % (wave_index + 1), Color("ff5d8f"))
+		_show_message(tr("%d파 대공세    서로 등을 맡으세요!") % (wave_index + 1), Color("ff5d8f"))
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 7.0)
 	else:
-		_show_message("%d파 시작    발을 맞춰 포위를 뚫으세요" % (wave_index + 1), Color("fff275"))
+		_show_message(tr("%d파 시작    발을 맞춰 포위를 뚫으세요") % (wave_index + 1), Color("fff275"))
 		feedback.play_cue("kill")
 
 
@@ -2732,7 +2742,7 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		# This label stays as a hidden stub because the online snapshot and two
 		# tests still read its text.
 		boss_health_text_label.visible = false
-		_show_message("%s 출현    철벽 포위   %d / %d" % [
+		_show_message(tr("%s 출현    철벽 포위   %d / %d") % [
 			boss_name(enemy.boss_rank), enemy.boss_rank, WaveDirectorScript.BOSS_COUNT
 		], Color("ff5d8f"))
 		weapon_controller.play_boss_flare(enemy.global_position)
@@ -2750,7 +2760,7 @@ const BOSS_NAMES := [
 
 
 func boss_name(rank: int) -> String:
-	return String(BOSS_NAMES[clampi(rank - 1, 0, BOSS_NAMES.size() - 1)])
+	return tr(String(BOSS_NAMES[clampi(rank - 1, 0, BOSS_NAMES.size() - 1)]))
 
 
 ## A named encounter has arrived. These are announced rather than merely
@@ -2920,7 +2930,7 @@ func _on_player_damaged(player: ChainPlayer, amount: float) -> void:
 func _on_player_downed(player: ChainPlayer) -> void:
 	feedback.play_cue("down")
 	camera_shake = 12.0
-	_show_message("%s 다운 — 18초 안에 가까이 머물러 구조하세요!" % player.character_name, Color("ff5d8f"))
+	_show_message(tr("%s 다운 — 18초 안에 가까이 머물러 구조하세요!") % player.character_name, Color("ff5d8f"))
 
 
 ## 가시의 견장 sends a share of a contact hit back into whatever was standing
@@ -2961,7 +2971,7 @@ func _on_second_chance_used(player: ChainPlayer) -> void:
 	bursts.spawn(player.global_position, Color("fff275"), 2.2)
 	particles.emit_motes(player.global_position, Color("fff275"), 18)
 	camera_shake = maxf(camera_shake, 8.0)
-	_show_message("%s의 아홉 목숨!" % player.character_name, Color("fff275"))
+	_show_message(tr("%s의 아홉 목숨!") % player.character_name, Color("fff275"))
 
 
 func _on_player_dodged(player: ChainPlayer) -> void:
@@ -2985,7 +2995,7 @@ func _on_player_revived(player: ChainPlayer) -> void:
 		run_stats["revives_by_player"][rescuer_index] = int(run_stats["revives_by_player"][rescuer_index]) + 1
 		_award_contribution(rescuer_index, CONTRIBUTION_REVIVE)
 	feedback.play_cue("revive")
-	_show_message("%s 부활 — 사슬이 다시 이어집니다" % player.character_name, Color("80ed99"))
+	_show_message(tr("%s 부활 — 사슬이 다시 이어집니다") % player.character_name, Color("80ed99"))
 
 
 func _set_pause(enabled: bool, replicate := true) -> void:
@@ -3504,7 +3514,7 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 			_award_resonance_core()
 		feedback.play_music("moonlight" if enemy.boss_rank % 2 == 1 else "field")
 		feedback.play_cue("victory")
-		_show_message("%s 격파    남은 보스 %d    둘의 체력 +%d" % [
+		_show_message(tr("%s 격파    남은 보스 %d    둘의 체력 +%d") % [
 			boss_name(enemy.boss_rank), wave_director.bosses_remaining(), roundi(restored)
 		], Color("80ed99"))
 		return
@@ -3583,7 +3593,7 @@ func _try_drop_field_item(drop_position: Vector2, was_elite: bool) -> void:
 ## chain already decides who can reach a drop, so making the reward personal
 ## would punish whoever happened to be on the wrong side of it.
 func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
-	var label: String = "%s 획득!" % field_items.item_display_name(item_id)
+	var label: String = tr("%s 획득!") % tr(field_items.item_display_name(item_id))
 	var color: Color = field_items.item_color(item_id)
 	match item_id:
 		"chest":
@@ -3592,7 +3602,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(centre, 260.0, color, 0.48, false)
 			particles.emit_motes(centre, color, 22)
 			camera_shake = maxf(camera_shake, 12.0)
-			label += "    카드 %d장 획득" % rewards.size()
+			label += tr("    카드 %d장 획득") % rewards.size()
 			# Pushed to the front so the box is seen opening before anything it
 			# contained gets its own showcase (a chest can hand out a fusion).
 			_queue_showcase({"kind": "chest", "rewards": rewards}, true)
@@ -3605,7 +3615,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 				var before := players[slot].health
 				players[slot].heal(players[slot].max_health * FIELD_ITEM_HEAL_RATIO)
 				restored[slot] = roundi(players[slot].health - before)
-			label += "    나 +%d HP    동료 +%d HP" % [restored[local_view_slot()], restored[1 - local_view_slot()]]
+			label += tr("    나 +%d HP    동료 +%d HP") % [restored[local_view_slot()], restored[1 - local_view_slot()]]
 		"magnet":
 			var pulled := experience_system.magnetize_all()
 			# Two rings from the pair's midpoint so the pull has a visible source
@@ -3613,7 +3623,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			var centre := (players[0].global_position + players[1].global_position) * 0.5
 			weapon_controller.play_shockwave(centre, 900.0, color, 0.55, true)
 			camera_shake = maxf(camera_shake, 4.0)
-			label += "    경험치 결정 %d개 견인" % pulled
+			label += tr("    경험치 결정 %d개 견인") % pulled
 		"chain_ward":
 			chain_ward_remaining = CHAIN_WARD_DURATION
 			chain_ward_pulse_timer = 0.0
@@ -3626,7 +3636,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			for player in players:
 				particles.emit_ring(player.global_position, color, 60.0, 0.45)
 			camera_shake = maxf(camera_shake, 10.0)
-			label += "    %d초 사슬 무적    화력 +%d%%" % [
+			label += tr("    %d초 사슬 무적    화력 +%d%%") % [
 				int(CHAIN_WARD_DURATION), roundi((CHAIN_WARD_POWER - 1.0) * 100.0)]
 		"guard":
 			guard_remaining = GUARD_DURATION
@@ -3635,14 +3645,14 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 					player.invulnerability = maxf(player.invulnerability, GUARD_DURATION)
 				particles.emit_ring(player.global_position, color, 74.0, 0.5)
 			camera_shake = maxf(camera_shake, 6.0)
-			label += "    %d초 무적" % int(GUARD_DURATION)
+			label += tr("    %d초 무적") % int(GUARD_DURATION)
 		"frenzy":
 			frenzy_remaining = FRENZY_DURATION
 			for player in players:
 				player.field_move_multiplier = FRENZY_MOVE_SPEED
 				particles.emit_sparks(player.global_position, color, 12, 300.0)
 			camera_shake = maxf(camera_shake, 9.0)
-			label += "    %d초 광란    피해 +%d%%    이속 +%d%%    공속 +%d%%" % [
+			label += tr("    %d초 광란    피해 +%d%%    이속 +%d%%    공속 +%d%%") % [
 				int(FRENZY_DURATION), roundi((FRENZY_POWER - 1.0) * 100.0),
 				roundi((FRENZY_MOVE_SPEED - 1.0) * 100.0), roundi((FRENZY_ATTACK_SPEED - 1.0) * 100.0),
 			]
@@ -3652,7 +3662,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(stop_centre, 1100.0, color, 0.7, false)
 			particles.emit_motes(stop_centre, color, 20)
 			camera_shake = maxf(camera_shake, 14.0)
-			label += "    %d초 시간 정지" % int(TIME_STOP_DURATION)
+			label += tr("    %d초 시간 정지") % int(TIME_STOP_DURATION)
 		"purge":
 			var midpoint := (players[0].global_position + players[1].global_position) * 0.5
 			var visible_world := _visible_world_rect()
@@ -3673,7 +3683,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 			weapon_controller.play_shockwave(midpoint, view_radius * 0.55, Color.WHITE, 0.3, false)
 			weapon_controller.play_purge_rays(midpoint, view_radius, color)
 			camera_shake = maxf(camera_shake, 22.0)
-			label += "    시야 내 적 %d체 청소" % purged
+			label += tr("    시야 내 적 %d체 청소") % purged
 	run_stats["items"] = int(run_stats["items"]) + 1
 	if collector_index >= 0 and collector_index < 2:
 		run_stats["items_by_player"][collector_index] = int(run_stats["items_by_player"][collector_index]) + 1
@@ -3729,12 +3739,12 @@ func _open_chest() -> Array[Dictionary]:
 			# a finished build is worth something to the next run.
 			var paid := 0 if debug_run_tainted else meta_progression.award(CHEST_POINT_REWARD)
 			results.append({
-				"label": "달빛 생선 +%d" % paid,
+				"label": tr("달빛 생선 +%d") % paid,
 				"detail": "영구 재화로 저장",
 				"advice": "neutral",
 				"icon": IconCatalog.upgrade("luck"),
 				"slot": -1,
-				"card": {"category": "상자 보상", "title": "달빛 생선 +%d" % paid,
+				"card": {"category": "상자 보상", "title": tr("달빛 생선 +%d") % paid,
 					"body": "영구 재화로 저장\n다음 원정에서 사용", "icon": IconCatalog.upgrade("luck"),
 					"advice": "neutral", "reason": "빌드 완성 보상"},
 			})
@@ -3821,7 +3831,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 					"slot": slot, "priority": 2,
 					"option": {"id": upgrade_id, "weapon_slot": weapon_slot,
 						"title": "%s\n%s" % ["마력 증폭" if upgrade_id == "weapon_power" else "고속 시전", String(state["weapon_name"])]},
-					"label": "%s %s" % [String(state["weapon_name"]), "화력" if upgrade_id == "weapon_power" else "속도"],
+					"label": "%s %s" % [tr(String(state["weapon_name"])), tr("화력") if upgrade_id == "weapon_power" else tr("속도")],
 				})
 			for key in ["a", "b"]:
 				if _special_has_room(slot, weapon_slot, key):
@@ -3830,7 +3840,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 						"slot": slot, "priority": 2,
 						"option": {"id": "special_" + key, "weapon_slot": weapon_slot,
 							"title": "%s\n%s" % [String(spec.get("title", "특성")), String(state["weapon_name"])]},
-						"label": "%s 특성" % String(state["weapon_name"]),
+						"label": tr("%s 특성") % tr(String(state["weapon_name"])),
 					})
 		for treasure_slot in treasure_loadouts[slot].size():
 			var treasure: Dictionary = treasure_loadouts[slot][treasure_slot]
@@ -3852,7 +3862,7 @@ func _chest_unlock_candidates() -> Array[Dictionary]:
 					"slot": slot, "priority": 1,
 					"option": {"id": "unlock_weapon", "character": character,
 						"title": "신규 무기: %s" % String(character["weapon_name"])},
-					"label": "신규 %s" % String(character["weapon_name"]),
+					"label": tr("신규 %s") % tr(String(character["weapon_name"])),
 				})
 		if treasure_loadouts[slot].size() < TREASURE_LOADOUT_CAP:
 			for treasure in _pick_unowned_treasures(slot, Treasures.all_treasures().size()):
@@ -4160,7 +4170,7 @@ func _consume_overflow_levels() -> void:
 	level_up_gap_remaining = 0.0
 	if gained <= 0:
 		return
-	_show_message("초월 성장 %d    빌드 완성 이후에도 계속 강해집니다" % overflow_levels,
+	_show_message(tr("초월 성장 %d    빌드 완성 이후에도 계속 강해집니다") % overflow_levels,
 		Color("80ed99"))
 	_update_hud()
 
@@ -4938,7 +4948,7 @@ func _annotate_recommendations(slot: int, choices: Array[Dictionary]) -> void:
 func _discouragement_reason(slot: int, option: Dictionary, score: float) -> String:
 	var upgrade_id := String(option["id"])
 	if score <= 1.0:
-		return "지금은 효과 없음"
+		return tr("지금은 효과 없음")
 	if upgrade_id == "unlock_weapon":
 		# The cost of a new weapon is not that it is weak — it is Lv.1 in a
 		# loadout of four, and every card it takes afterwards is a card the
@@ -4946,21 +4956,21 @@ func _discouragement_reason(slot: int, option: Dictionary, score: float) -> Stri
 		# actually paying depends on how much room is left.
 		var free_weapon_slots: int = WEAPON_LOADOUT_CAP - int(weapon_loadouts[slot].size())
 		if free_weapon_slots <= 1:
-			return "마지막 무기 칸을 씁니다"
-		return "화력이 %d갈래로 갈립니다" % (weapon_loadouts[slot].size() + 1)
+			return tr("마지막 무기 칸을 씁니다")
+		return tr("화력이 %d갈래로 갈립니다") % (weapon_loadouts[slot].size() + 1)
 	if upgrade_id == "unlock_treasure":
 		var new_effect := _option_icon_id(slot, option)
 		if not UpgradeValue.benefits_loadout(weapon_loadouts[slot], new_effect):
-			return "지금 무기와 맞지 않음"
+			return tr("지금 무기와 맞지 않음")
 		if TREASURE_LOADOUT_CAP - treasure_loadouts[slot].size() <= 1:
-			return "마지막 보물 칸을 씁니다"
-		return "Lv.1부터 다시 쌓습니다"
+			return tr("마지막 보물 칸을 씁니다")
+		return tr("Lv.1부터 다시 쌓습니다")
 	if upgrade_id == "treasure_upgrade":
 		var effect := _option_icon_id(slot, option)
 		if not UpgradeValue.benefits_loadout(weapon_loadouts[slot], effect):
-			return "지금 무기와 맞지 않음"
-		return "성장이 느린 편"
-	return "다른 카드가 더 급합니다"
+			return tr("지금 무기와 맞지 않음")
+		return tr("성장이 느린 편")
+	return tr("다른 카드가 더 급합니다")
 
 
 ## Scores one card so the level-up screen can star the strongest. Treasures are
@@ -4980,27 +4990,27 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 	var is_treasure := upgrade_id in ["unlock_treasure", "treasure_upgrade"]
 	var effect_id := _option_icon_id(slot, option) if is_treasure else upgrade_id
 	var score := 20.0
-	var reason := "균형 성장"
+	var reason := tr("균형 성장")
 	match effect_id:
 		"choose_tech":
 			score = 65.0
-			reason = "성장 경로 결정"
+			reason = tr("성장 경로 결정")
 			# Both routes reach the same enhanced weapon, so the only thing left
 			# to prefer is whether this survivor already carries the treasure
 			# that route is built around.
 			var synergy_id := String((option["tech"] as Dictionary)["synergy_treasure_id"])
 			if _treasure_tier(slot, synergy_id) > 0:
 				score += 14.0
-				reason = "보유 보물과 시너지"
+				reason = tr("보유 보물과 시너지")
 		"weapon_power":
 			score = 50.0
-			reason = "주력 피해"
+			reason = tr("주력 피해")
 		"weapon_rate":
 			score = 47.0
-			reason = "발동 빈도"
+			reason = tr("발동 빈도")
 		"special_a", "special_b":
 			score = 28.0
-			reason = "제어    편의 강화"
+			reason = tr("제어    편의 강화")
 			var w: Dictionary = loadout[int(option["weapon_slot"])]
 			if upgrade_id == "special_b" and w.has("speed"):
 				score += 30.0 * (70.0 if w["weapon_id"] == "homing" else 55.0) / maxf(1.0, float(w["speed"]))
@@ -5008,64 +5018,64 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 				score += (1.0 - health_ratio) * 30.0
 		"might":
 			score = 39.0 + loadout.size() * 7.0
-			reason = "무기 %d종 강화" % loadout.size()
+			reason = tr("무기 %d종 강화") % loadout.size()
 		"area":
 			score = 38.0 + loadout.size() * 4.0
-			reason = "전체 범위"
+			reason = tr("전체 범위")
 		"amount":
 			score = 45.0
-			reason = "투사체 화력"
+			reason = tr("투사체 화력")
 		"haste":
 			score = 43.0 + loadout.size() * 5.0
-			reason = "전체 발동"
+			reason = tr("전체 발동")
 		"projectile_speed":
 			score = 36.0
-			reason = "명중 안정화"
+			reason = tr("명중 안정화")
 		"duration":
 			score = 40.0
-			reason = "투사체  장판 유지"
+			reason = tr("투사체  장판 유지")
 		"vitality":
 			score = 34.0 + (1.0 - health_ratio) * 48.0
-			reason = "체력 여유" if health_ratio >= 0.5 else "위기 생존"
+			reason = tr("체력 여유") if health_ratio >= 0.5 else tr("위기 생존")
 		"armor":
 			score = 35.0 + minf(20.0, elapsed / 6.0) + (1.0 - health_ratio) * 18.0
-			reason = "접촉 피해 절감"
+			reason = tr("접촉 피해 절감")
 		"recovery":
 			score = 34.0 + (1.0 - health_ratio) * 30.0
-			reason = "장기 생존"
+			reason = tr("장기 생존")
 		"move":
 			score = 34.0
-			reason = "회피와 구조 기동"
+			reason = tr("회피와 구조 기동")
 		"magnet":
 			score = 32.0 + maxf(0.0, 12.0 - progression.level)
-			reason = "XP 회수"
+			reason = tr("XP 회수")
 		"growth":
 			score = 52.0 - progression.level * 3.0
-			reason = "성장 가속"
+			reason = tr("성장 가속")
 		"luck":
 			score = 40.0 - progression.level * 1.5
-			reason = "희귀 카드 확률"
+			reason = tr("희귀 카드 확률")
 		"lifesteal":
 			score = 37.0 + (1.0 - health_ratio) * 42.0 + loadout.size() * 2.0
-			reason = "공격으로 팀 회복"
+			reason = tr("공격으로 팀 회복")
 		"catnip":
 			score = 31.0 + (1.0 - health_ratio) * 38.0
-			reason = "성장 때 팀 회복"
+			reason = tr("성장 때 팀 회복")
 		"bounty_bell":
 			score = 55.0 - progression.level * 1.7
-			reason = "강적 XP 증폭"
+			reason = tr("강적 XP 증폭")
 		"twin_charm":
 			score = 42.0 + maxf(0.0, 10.0 - team_overcharge * 20.0)
-			reason = "밀착 전투 화력"
+			reason = tr("밀착 전투 화력")
 		"dash_claw":
 			score = 40.0 + minf(12.0, float(run_stats["dashes"]) * 0.5)
-			reason = "대시를 공격으로"
+			reason = tr("대시를 공격으로")
 		"lucky_paw":
 			score = 38.0 + (1.0 - health_ratio) * 30.0
-			reason = "피해 완전 회피"
+			reason = tr("피해 완전 회피")
 		"nine_lives":
 			score = 58.0 + (1.0 - health_ratio) * 34.0
-			reason = "치명타 1회 무효"
+			reason = tr("치명타 1회 무효")
 		"unlock_weapon":
 			# A new weapon is worth the most when the survivor has room to grow it
 			# and the least when it would take the last socket: at four slots the
@@ -5073,7 +5083,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 			# a quarter of the loadout".
 			var free_weapon_slots := WEAPON_LOADOUT_CAP - loadout.size()
 			score = 32.0 + float(free_weapon_slots) * 7.0
-			reason = "공격 축 추가"
+			reason = tr("공격 축 추가")
 
 	# Projected damage is added to what the card is already worth rather than
 	# replacing it. It used to overwrite the score outright, which put the two
@@ -5088,7 +5098,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		# it prints the projected number whenever that number is large enough to
 		# be worth reading and keeps the table's phrase when it is not.
 		if marginal >= REASON_MIN_GAIN:
-			reason = "예상 화력 +%d%%" % roundi(marginal * 100.0)
+			reason = tr("예상 화력 +%d%%") % roundi(marginal * 100.0)
 	elif upgrade_id in ["weapon_power", "weapon_rate"]:
 		# A damage or cooldown card that measurably does nothing is not a weak
 		# card, it is a dead one, and the screen should say so outright.
@@ -5098,7 +5108,7 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 	if is_treasure:
 		if not UpgradeValue.benefits_loadout(loadout, effect_id):
 			score = 5.0
-			reason = "후속 무기 준비"
+			reason = tr("후속 무기 준비")
 		# This used to be a large bonus, because a treasure could be the missing
 		# half of an enhancement and the screen had to outrank a generic damage
 		# card to say so. Nothing gates an enhancement now, so what is left is a
@@ -5114,15 +5124,15 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		var free_weapon_slots := WEAPON_LOADOUT_CAP - loadout.size()
 		if free_weapon_slots <= 1:
 			score -= 9.0
-			reason = "%s   마지막 칸" % reason
+			reason = tr("%s   마지막 칸") % reason
 		else:
-			reason = "%s   빈 칸 %d" % [reason, free_weapon_slots]
+			reason = tr("%s   빈 칸 %d") % [reason, free_weapon_slots]
 	elif upgrade_id == "unlock_treasure":
 		# Committing a slot is worth more while several are open and less when it
 		# would spend the last of them on a whim.
 		var free_slots := TREASURE_LOADOUT_CAP - treasures.size()
 		score += 6.0 if free_slots > 1 else -8.0
-		reason = "%s   슬롯 %d칸" % [reason, free_slots]
+		reason = tr("%s   슬롯 %d칸") % [reason, free_slots]
 	elif upgrade_id == "treasure_upgrade":
 		# Deepening is the payoff for having committed, and a treasure one step
 		# from its cap is the cheapest remaining power in the pool.
@@ -5131,24 +5141,24 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		score += float(tier) * 3.0
 		if tier + 1 >= Treasures.MAX_TIER:
 			score += 10.0
-			reason = "%s   최종 티어" % reason
+			reason = tr("%s   최종 티어") % reason
 		else:
 			reason = "%s   Lv.%d" % [reason, tier + 1]
 
 	var new_resonance := _new_resonance_from_option(slot, option)
 	if not new_resonance.is_empty():
 		score += 120.0
-		reason = "공명 해금   %s" % new_resonance
+		reason = tr("공명 해금   %s") % new_resonance
 	elif int(option.get("weapon_slot", -1)) >= 0:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
 		if int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER - 1 and not bool(weapon.get("evolved", false)):
 			score += 34.0
-			reason = "다음 카드로 Lv.%d 진화" % Evolutions.EVOLUTION_TIER
+			reason = tr("다음 카드로 Lv.%d 진화") % Evolutions.EVOLUTION_TIER
 		elif int(weapon.get("tier", 1)) == WeaponGrowthScript.TECH_UNLOCK_TIER - 1 and String(weapon.get("tech_id", "")).is_empty():
 			# The card that opens the route decision is worth a little more than
 			# its numbers: every card after it is priced by the route.
 			score += 10.0
-			reason = "레벨 %d   테크 선택" % WeaponGrowthScript.TECH_UNLOCK_TIER
+			reason = tr("레벨 %d   테크 선택") % WeaponGrowthScript.TECH_UNLOCK_TIER
 	return {"score": score, "reason": reason}
 
 
@@ -5295,58 +5305,58 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		# 추천, never 필수 (§9). Both routes reach the same enhanced weapon at
 		# Lv.7, so the card can say so plainly and the choice stays about
 		# delivery rather than about a treasure the pair may never be offered.
-		return "%s\n특화 %s +1    추천 보물 %s\nLv.%d 진화    %s" % [
-			_tech_focus(tech), _tech_axes_text(state, tech), String(synergy.get("name", "없음")),
-			Evolutions.EVOLUTION_TIER, String(evolution.get("weapon_name", "최종 진화")),
+		return tr("%s\n특화 %s +1    추천 보물 %s\nLv.%d 진화    %s") % [
+			_tech_focus(tech), _tech_axes_text(state, tech), tr(String(synergy.get("name", "없음"))),
+			Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화"))),
 		]
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
 		var routes: Array[String] = []
 		for route in WeaponTechs.for_weapon(String(character["weapon_id"])):
-			routes.append(String(route["name"]))
-		return "%s\n레벨 %d에 테크 선택    %s" % [
-			EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"),
+			routes.append(tr(String(route["name"])))
+		return tr("%s\n레벨 %d에 테크 선택    %s") % [
+			tr(String(EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"))),
 			WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(routes)]
 	if upgrade_id == "unlock_treasure":
 		var treasure: Dictionary = option["treasure"]
-		return "%s
-획득 후 보물 %d/%d칸 사용" % [
+		return tr("%s
+획득 후 보물 %d/%d칸 사용") % [
 			Treasures.tier_text(treasure, 1), treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP
 		]
 	if upgrade_id == "treasure_upgrade":
 		var carried: Dictionary = treasure_loadouts[slot][int(option["treasure_slot"])]
 		var next_tier := int(carried["tier"]) + 1
-		return "%s
-레벨 %d → %d" % [
+		return tr("%s
+레벨 %d → %d") % [
 			Treasures.tier_text(Treasures.by_id(String(carried["id"])), next_tier), int(carried["tier"]), next_tier
 		]
 	var weapon_slot := int(option["weapon_slot"])
 	var state: Dictionary = weapon_loadouts[slot][weapon_slot]
 	var tier := int(state.get("tier", 1))
-	var tier_hint := "\n레벨 %d → %d" % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
+	var tier_hint := tr("\n레벨 %d → %d") % [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
-		tier_hint = "\n레벨 %d — 최대 강화" % Evolutions.WEAPON_MAX_TIER
+		tier_hint = tr("\n레벨 %d — 최대 강화") % Evolutions.WEAPON_MAX_TIER
 	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
 		# The card that finishes the weapon says so on its face: it is the last
 		# ordinary upgrade before the slot changes shape, and taking it is the
 		# whole of the enhancement now.
-		tier_hint = "\n레벨 %d — 이 카드로 진화" % Evolutions.EVOLUTION_TIER
+		tier_hint = tr("\n레벨 %d — 이 카드로 진화") % Evolutions.EVOLUTION_TIER
 	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
-		tier_hint = "\n레벨 %d — 테크 선택 가능" % WeaponGrowthScript.TECH_UNLOCK_TIER
+		tier_hint = tr("\n레벨 %d — 테크 선택 가능") % WeaponGrowthScript.TECH_UNLOCK_TIER
 	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
 	if not focus.is_empty():
 		tier_hint += "    " + focus
 	match upgrade_id:
 		"weapon_power":
-			return "피해 %.1f → %.1f%s\n한 번에 더 큰 피해" % [float(state["damage"]), float(state["damage"]) * WeaponGrowthScript.power_step(state), tier_hint]
+			return tr("피해 %.1f → %.1f%s\n한 번에 더 큰 피해") % [float(state["damage"]), float(state["damage"]) * WeaponGrowthScript.power_step(state), tier_hint]
 		"weapon_rate":
-			return "발동 %.2f초 → %.2f초%s\n더 자주 공격" % [float(state["cooldown"]), WeaponGrowthScript.next_cooldown(state), tier_hint]
+			return tr("발동 %.2f초 → %.2f초%s\n더 자주 공격") % [float(state["cooldown"]), WeaponGrowthScript.next_cooldown(state), tier_hint]
 		"special_a", "special_b":
 			var key := upgrade_id.substr(upgrade_id.length() - 1)
 			var spec := _special_spec(state, key)
 			if not spec.is_empty():
 				return _special_preview(spec, state, key) + tier_hint
-	return "현재 능력을 강화합니다."
+	return tr("현재 능력을 강화합니다.")
 
 
 ## What a growth card says, split by role so the card can set each part apart
@@ -5394,28 +5404,28 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 			WeaponTechs.apply_to_state(state, tech)
 			var evolution := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
 			var synergy := Treasures.by_id(String(tech["synergy_treasure_id"]))
-			sections["name"] = String(tech["name"])
-			sections["subject"] = String(state["weapon_name"])
+			sections["name"] = tr(String(tech["name"]))
+			sections["subject"] = tr(String(state["weapon_name"]))
 			sections["effect"] = _tech_focus(tech)
-			sections["tags"] = [{"text": "특화 %s +1" % axes_text, "kind": "focus"}]
+			sections["tags"] = [{"text": tr("특화 %s +1") % axes_text, "kind": "focus"}]
 			if not synergy.is_empty():
-				sections["synergy"] = "추천 보물 · %s" % String(synergy["name"])
-			sections["note"] = "Lv.%d 진화 → %s" % [Evolutions.EVOLUTION_TIER, String(evolution.get("weapon_name", "최종 진화"))]
+				sections["synergy"] = tr("추천 보물 · %s") % tr(String(synergy["name"]))
+			sections["note"] = tr("Lv.%d 진화 → %s") % [Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화")))]
 			return sections
 		"unlock_weapon":
 			var character: Dictionary = option["character"]
 			var routes: Array[String] = []
 			for route in WeaponTechs.for_weapon(String(character["weapon_id"])):
-				routes.append(String(route["name"]))
-			sections["name"] = String(character["weapon_name"])
-			sections["subject"] = "새 무기"
+				routes.append(tr(String(route["name"])))
+			sections["name"] = tr(String(character["weapon_name"]))
+			sections["subject"] = tr("새 무기")
 			sections["level"] = [0, 1]
-			sections["effect"] = _spaced(String(EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격")))
-			sections["tags"] = [{"text": "Lv.%d 테크 선택" % WeaponGrowthScript.TECH_UNLOCK_TIER, "kind": "tech"}]
+			sections["effect"] = _spaced(tr(String(EditorialUI.PLAYSTYLE.get(String(character["weapon_id"]), "자동 공격"))))
+			sections["tags"] = [{"text": tr("Lv.%d 테크 선택") % WeaponGrowthScript.TECH_UNLOCK_TIER, "kind": "tech"}]
 			if not routes.is_empty():
 				sections["note"] = " / ".join(routes)
 			sections["note"] = _join_note(String(sections["note"]),
-				"무기 칸 %d/%d" % [weapon_loadouts[slot].size() + 1, WEAPON_LOADOUT_CAP])
+				tr("무기 칸 %d/%d") % [weapon_loadouts[slot].size() + 1, WEAPON_LOADOUT_CAP])
 			return sections
 		"unlock_treasure", "treasure_upgrade":
 			var treasure: Dictionary
@@ -5426,64 +5436,64 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 				var carried: Dictionary = treasure_loadouts[slot][int(option["treasure_slot"])]
 				treasure = Treasures.by_id(String(carried["id"]))
 				tier = int(carried["tier"])
-			sections["name"] = String(treasure["name"])
-			sections["subject"] = "%s 보물" % String(treasure.get("stat", ""))
+			sections["name"] = tr(String(treasure["name"]))
+			sections["subject"] = tr("%s 보물") % tr(String(treasure.get("stat", "")))
 			sections["level"] = [tier, tier + 1]
 			var row := _treasure_row(treasure, tier, tier + 1)
 			if row.is_empty():
-				sections["effect"] = _spaced(String(treasure["text"]))
+				sections["effect"] = _spaced(tr(String(treasure["text"])))
 			else:
 				sections["stats"] = [row]
 			var tags: Array = []
 			if bool(treasure.get("shared", false)):
-				tags.append({"text": "팀 공유", "kind": "shared"})
+				tags.append({"text": tr("팀 공유"), "kind": "shared"})
 			if tier + 1 >= Treasures.MAX_TIER:
-				tags.append({"text": "최대 레벨", "kind": "max"})
+				tags.append({"text": tr("최대 레벨"), "kind": "max"})
 			sections["tags"] = tags
 			for owned: Dictionary in weapon_loadouts[slot]:
 				if String(owned.get("tech_synergy_treasure_id", "")) == String(treasure["id"]):
-					sections["synergy"] = "%s 시너지" % String(owned["weapon_name"])
+					sections["synergy"] = tr("%s 시너지") % tr(String(owned["weapon_name"]))
 					break
 			if upgrade_id == "unlock_treasure":
-				sections["note"] = "보물 칸 %d/%d" % [treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP]
+				sections["note"] = tr("보물 칸 %d/%d") % [treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP]
 			return sections
 
 	var state: Dictionary = weapon_loadouts[slot][int(option["weapon_slot"])]
 	var tier := int(state.get("tier", 1))
-	sections["subject"] = String(state["weapon_name"])
+	sections["subject"] = tr(String(state["weapon_name"]))
 	sections["level"] = [tier, mini(Evolutions.WEAPON_MAX_TIER, tier + 1)]
 	var tags: Array = []
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
-		tags.append({"text": "최대 강화", "kind": "max"})
+		tags.append({"text": tr("최대 강화"), "kind": "max"})
 	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
-		tags.append({"text": "이 카드로 진화", "kind": "evolve"})
+		tags.append({"text": tr("이 카드로 진화"), "kind": "evolve"})
 	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
-		tags.append({"text": "테크 선택 가능", "kind": "tech"})
+		tags.append({"text": tr("테크 선택 가능"), "kind": "tech"})
 	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
 	if not focus.is_empty():
-		tags.append({"text": focus, "kind": "focus" if focus == "테크 특화" else "off"})
+		tags.append({"text": tr(focus), "kind": "focus" if focus == "테크 특화" else "off"})
 	sections["tags"] = tags
 	match upgrade_id:
 		"weapon_power":
-			sections["name"] = "마력 증폭"
-			sections["stats"] = [{"label": "피해", "from": "%.1f" % float(state["damage"]),
+			sections["name"] = tr("마력 증폭")
+			sections["stats"] = [{"label": tr("피해"), "from": "%.1f" % float(state["damage"]),
 				"to": "%.1f" % (float(state["damage"]) * WeaponGrowthScript.power_step(state)), "post": ""}]
-			sections["effect"] = "한 번에 더 큰 피해"
+			sections["effect"] = tr("한 번에 더 큰 피해")
 		"weapon_rate":
-			sections["name"] = "고속 시전"
-			sections["stats"] = [{"label": "발동 간격", "from": "%.2f초" % float(state["cooldown"]),
-				"to": "%.2f초" % WeaponGrowthScript.next_cooldown(state), "post": ""}]
-			sections["effect"] = "더 자주 공격"
+			sections["name"] = tr("고속 시전")
+			sections["stats"] = [{"label": tr("발동 간격"), "from": tr("%.2f초") % float(state["cooldown"]),
+				"to": tr("%.2f초") % WeaponGrowthScript.next_cooldown(state), "post": ""}]
+			sections["effect"] = tr("더 자주 공격")
 		"special_a", "special_b":
 			var key := upgrade_id.substr(upgrade_id.length() - 1)
 			var spec := _special_spec(state, key)
-			sections["name"] = String(spec.get("title", "특성"))
+			sections["name"] = tr(String(spec.get("title", "특성")))
 			if not spec.is_empty():
 				sections["stats"] = _special_rows(spec, state, key)
-				sections["effect"] = String(SPECIAL_EFFECTS.get(String(spec.get("primitive", "")), ""))
+				sections["effect"] = tr(String(SPECIAL_EFFECTS.get(String(spec.get("primitive", "")), "")))
 	var partner := _fusion_partner_for_option(slot, option)
 	if not partner.is_empty():
-		sections["synergy"] = "%s 시너지" % String(partner["name"])
+		sections["synergy"] = tr("%s 시너지") % tr(String(partner["name"]))
 	return sections
 
 
@@ -5492,7 +5502,7 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 func _special_rows(spec: Dictionary, state: Dictionary, key: String) -> Array:
 	var current := _special_current(spec, state)
 	var next := _special_next(spec, current, _special_scale(state, spec, key), state)
-	var row := {"label": String(spec["label"]), "post": ""}
+	var row := {"label": tr(String(spec["label"])), "post": ""}
 	if bool(spec.get("integer", false)):
 		row["from"] = "%d" % int(round(current))
 		row["to"] = "%d" % int(round(next))
@@ -5509,7 +5519,7 @@ func _special_rows(spec: Dictionary, state: Dictionary, key: String) -> Array:
 	if bool(spec.get("integer", false)):
 		var bonus := WeaponGrowthScript.integer_focus_damage(state, key)
 		if bonus > 0.0:
-			rows.append({"label": "추가 피해", "from": "", "to": "+%d%%" % roundi(bonus * 100.0), "post": ""})
+			rows.append({"label": tr("추가 피해"), "from": "", "to": "+%d%%" % roundi(bonus * 100.0), "post": ""})
 	return rows
 
 
@@ -5521,10 +5531,10 @@ func _treasure_row(treasure: Dictionary, from_tier: int, to_tier: int) -> Dictio
 	var treasure_id := String(treasure["id"])
 	if treasure_id == "amount":
 		# Half a projectile a tier, counted whole where a volley is fired.
-		return {"label": "발사체", "from": "+" + String.num(0.5 * from_tier, 1) if from_tier > 0 else "",
-			"to": "+" + String.num(0.5 * to_tier, 1), "post": "(정수만큼 발사)"}
-	var text := String(treasure["text"])
-	var pattern := RegEx.create_from_string("([+-]?)\\{v\\}(%p|%|초)?")
+		return {"label": tr("발사체"), "from": "+" + String.num(0.5 * from_tier, 1) if from_tier > 0 else "",
+			"to": "+" + String.num(0.5 * to_tier, 1), "post": tr("(정수만큼 발사)")}
+	var text := tr(String(treasure["text"]))
+	var pattern := RegEx.create_from_string("([+-]?)\\{v\\}(%p|%|초|s)?")
 	var found := pattern.search(text)
 	if found == null:
 		return {}
@@ -5554,22 +5564,22 @@ func _join_note(first: String, second: String) -> String:
 func _tech_axes_text(state: Dictionary, tech: Dictionary) -> String:
 	var axes: Array = tech.get("upgrades", [])
 	if axes.size() >= 4:
-		return "균형"
+		return tr("균형")
 	var preview := state.duplicate()
 	WeaponTechs.apply_to_state(preview, tech)
 	var names: Array[String] = []
 	for axis: String in axes:
 		match axis:
-			"weapon_power": names.append("화력")
-			"weapon_rate": names.append("속도")
+			"weapon_power": names.append(tr("화력"))
+			"weapon_rate": names.append(tr("속도"))
 			_:
 				var spec := _special_spec(preview, axis.substr(axis.length() - 1))
-				names.append(String(spec.get("label", spec.get("title", "고유"))))
+				names.append(tr(String(spec.get("label", spec.get("title", "고유")))))
 	return " · ".join(names)
 
 
 func _tech_focus(tech: Dictionary) -> String:
-	return String(tech.get("behavior_description", tech.get("description", "자유 성장")))
+	return tr(String(tech.get("behavior_description", tech.get("description", "자유 성장"))))
 
 
 func _handle_level_up_input() -> void:
@@ -5912,7 +5922,7 @@ func _fusion_progress_line(slot: int) -> String:
 			var untyped_progress := minf(1.0, float(int(weapon.get("tier", 1))) / float(WeaponGrowthScript.TECH_UNLOCK_TIER)) * 0.4
 			if untyped_progress > best_progress:
 				best_progress = untyped_progress
-				best = "%s %d/%d → 테크 선택" % [String(weapon["weapon_name"]),
+				best = tr("%s %d/%d → 테크 선택") % [tr(String(weapon["weapon_name"])),
 					mini(int(weapon.get("tier", 1)), WeaponGrowthScript.TECH_UNLOCK_TIER), WeaponGrowthScript.TECH_UNLOCK_TIER]
 			continue
 		var evolution := _selected_evolution_for_state(weapon)
@@ -5931,9 +5941,9 @@ func _fusion_progress_line(slot: int) -> String:
 			String(evolution["weapon_name"]),
 		]
 	if not fused.is_empty():
-		var done := "완료 " + "  ".join(fused)
+		var done := tr("완료 ") + "  ".join(fused)
 		return done if best.is_empty() else best
-	return best if not best.is_empty() else "대상 없음"
+	return best if not best.is_empty() else tr("대상 없음")
 
 
 func _finish_level_up() -> void:
@@ -5944,7 +5954,7 @@ func _finish_level_up() -> void:
 	if team_level_heal > 0.0:
 		for player in players:
 			player.heal(player.max_health * team_level_heal)
-	_show_message("LV.%d    둘 다 성장 완료" % progression.level, Color("fff275"))
+	_show_message(tr("LV.%d    둘 다 성장 완료") % progression.level, Color("fff275"))
 	if progression.can_level_up():
 		level_up_gap_remaining = LEVEL_UP_GAP
 
@@ -5971,7 +5981,7 @@ func _announce_new_resonance_candidates() -> void:
 		if announced_resonance_ids.has(id):
 			continue
 		announced_resonance_ids[id] = true
-		_show_message("공명 가능 — %s    다음 공명핵에서 선택" % String(candidate["name"]), Color("e4c1f9"))
+		_show_message(tr("공명 가능 — %s    다음 공명핵에서 선택") % ResonanceSystem.display_name(candidate), Color("e4c1f9"))
 
 
 ## A boss died and left a core. Opens the selection if there is anything to
@@ -6034,7 +6044,7 @@ func _commit_resonance_choice(chosen: Dictionary) -> void:
 	resonance_vote_active = false
 	_animate_resonance_overlay(false)
 	get_tree().paused = false
-	_show_message("공명 발현 — %s" % String(chosen["name"]), Color("fff275"))
+	_show_message(tr("공명 발현 — %s") % ResonanceSystem.display_name(chosen), Color("fff275"))
 	# Deliberately a different shape from the fusion showcase: a resonance is
 	# the pair's move, so the two weapons orbit and stay two rather than
 	# converging into one.
@@ -6148,24 +6158,24 @@ func _resonance_card_model(resonance: Dictionary, badge: String, badge_color: Co
 		var mine: Array[String] = []
 		for requirement in requirements:
 			if requirement in (carried["tags"] as Array):
-				mine.append(_tag_name(String(requirement)))
+				mine.append(tr(_tag_name(String(requirement))))
 		contributed.append("%s [%s]" % [player_label(slot), " ".join(mine)])
-		weapons.append(String(carried["weapon_name"]))
+		weapons.append(tr(String(carried["weapon_name"])))
 	# Falls back to the bare requirement when the candidate did not come from a
 	# live pair of loadouts, which is what the codex and the theme tests hand in.
 	# The live path always has both.
 	# One line per survivor, each naming the weapon and the tag it brings, rather
 	# than a tag line and a separate weapon line. Same two facts, half the height
 	# — which is what leaves the description room to actually be read.
-	var supply := "%s + %s" % [_tag_name(String(requirements[0])), _tag_name(String(requirements[1]))]
+	var supply := "%s + %s" % [tr(_tag_name(String(requirements[0]))), tr(_tag_name(String(requirements[1])))]
 	if contributed.size() == 2 and weapons.size() == 2:
 		supply = "%s %s\n%s %s" % [contributed[0], weapons[0], contributed[1], weapons[1]]
 	elif contributed.size() == 2:
 		supply = "%s\n%s" % [contributed[0], contributed[1]]
 	return {
 		"category": "공명",
-		"title": String(resonance["name"]),
-		"body": "%s\n\n%s" % [supply, String(resonance["description"])],
+		"title": ResonanceSystem.display_name(resonance),
+		"body": "%s\n\n%s" % [supply, ResonanceSystem.display_description(resonance)],
 		"icon": IconCatalog.generated(String(resonance["id"]), "upgrade"),
 		"fusion": null,
 		"fusion_name": "",
@@ -6243,7 +6253,7 @@ func _refresh_resonance_vote_ui() -> void:
 			waiting.append("%s" % player_label(slot))
 	var lines: Array[String] = []
 	if waiting.size() == 1:
-		lines.append("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다" % waiting[0])
+		lines.append(tr("%s 선택 대기 중 — 확정한 쪽은 취소로 되돌릴 수 있습니다") % waiting[0])
 	elif waiting.size() == 2:
 		lines.append("각자 공명을 고른 뒤 확정하세요")
 	if not resonance_vote_message.is_empty():
@@ -6264,7 +6274,7 @@ func _resonance_pip_text(pointed_by: Array[int], locked_by: Array[int]) -> Strin
 	var parts: Array[String] = []
 	for slot in 2:
 		if slot in locked_by:
-			parts.append("● %s 확정" % player_label(slot))
+			parts.append(tr("● %s 확정") % player_label(slot))
 		elif slot in pointed_by:
 			parts.append("○ %s" % player_label(slot))
 	return "   ".join(parts)
@@ -6359,7 +6369,7 @@ func _update_hud() -> void:
 	UIWrite.font_color(p1_health_text_label, Color("ffcfdf") if players[0].downed else Color("f4f8ff"))
 	UIWrite.font_color(p2_health_text_label, Color("ffcfdf") if players[1].downed else Color("f4f8ff"))
 	chain_bar.value = tension * 100.0
-	chain_distance_text_label.text = "거리  %d%%" % int(round(tension * 100.0))
+	chain_distance_text_label.text = tr("거리  %d%%") % int(round(tension * 100.0))
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:
@@ -6369,7 +6379,7 @@ func _update_hud() -> void:
 		chain_state = "한계    가까이 붙기"
 		chain_color = Color("ff5d8f")
 	elif tension >= CHAIN_WARNING_RATIO:
-		chain_state = "과충전   공격 +%d%%" % roundi((0.25 + team_overcharge) * 100.0)
+		chain_state = tr("과충전   공격 +%d%%") % roundi((0.25 + team_overcharge) * 100.0)
 		chain_color = Color("fff275")
 	elif tension >= CHAIN_RESIST_RATIO:
 		chain_state = "저항    붙으면 회복"
@@ -6382,7 +6392,7 @@ func _update_hud() -> void:
 	if fill != null:
 		UIWrite.bg_color(fill, chain_color)
 	chain_integrity_bar.value = chain_integrity
-	chain_integrity_text_label.text = "내구도  %d%%" % int(round(chain_integrity))
+	chain_integrity_text_label.text = tr("내구도  %d%%") % int(round(chain_integrity))
 	var integrity_fill := chain_integrity_bar.get_theme_stylebox("fill") as StyleBoxFlat
 	if integrity_fill != null:
 		if chain_overloaded:
@@ -6400,16 +6410,16 @@ func _update_hud() -> void:
 	if held_cores > 0:
 		# An unspent core is the pair owing themselves a decision, so it stays on
 		# the HUD until it is gone rather than being mentioned once and forgotten.
-		resonance_status_label.text = "공명핵 %d" % held_cores
+		resonance_status_label.text = tr("공명핵 %d") % held_cores
 		UIWrite.font_color(resonance_status_label, CatTheme.GOLD_INK)
 	else:
-		resonance_status_label.text = "공명 %d/%d" % [active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES]
+		resonance_status_label.text = tr("공명 %d/%d") % [active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES]
 		UIWrite.font_color(resonance_status_label, Color("6f3a9c"))
 	if resonance_pips != null:
 		resonance_pips.report(active_count, ResonanceSystem.MAX_ACTIVE_RESONANCES, held_cores)
 	xp_bar.max_value = progression.required_experience
 	xp_bar.value = progression.experience
-	xp_text_label.text = ("LV.%d    초월 %d    XP %d / %d" % [
+	xp_text_label.text = (tr("LV.%d    초월 %d    XP %d / %d") % [
 		progression.level, overflow_levels,
 		int(progression.experience), int(progression.required_experience),
 	]) if growth_finished else ("LV.%d    XP %d / %d" % [
@@ -6420,13 +6430,13 @@ func _update_hud() -> void:
 
 func _player_status_text(player_index: int) -> String:
 	var player := players[player_index]
-	return "%s  %s" % [player_label(player_index), player.character_name]
+	return "%s  %s" % [player_label(player_index), tr(player.character_name)]
 
 
 func _player_health_text(player_index: int) -> String:
 	var player := players[player_index]
 	if player.downed:
-		return "DOWN %.1f초   구조 %.0f%%" % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
+		return tr("DOWN %.1f초   구조 %.0f%%") % [player.bleedout_remaining, player.revive_progress / 2.6 * 100.0]
 	return "%d / %d" % [int(player.health), int(player.max_health)]
 
 
@@ -6650,7 +6660,7 @@ func _refresh_meta_result_ui() -> void:
 		return
 	var title := result_overlay.get_node("MetaTitle") as Label
 	title.visible = run_won
-	title.text = "클리어 보상 +%d 달빛 생선      보유 %d      다음 원정부터 적용" % [run_reward, meta_progression.points]
+	title.text = tr("클리어 보상 +%d 달빛 생선      보유 %d      다음 원정부터 적용") % [run_reward, meta_progression.points]
 	if meta_progression.last_save_error != OK:
 		title.text = "저장할 수 없습니다    진행 상황은 변경되지 않았어요"
 	for visible_index in 6:
@@ -6665,8 +6675,8 @@ func _refresh_meta_result_ui() -> void:
 		var cap := int(entry["max_rank"])
 		var price := meta_progression.cost(id)
 		card.text = "%s%s\nLv.%d/%d    %s\n%s" % [
-			"◆ " if index == meta_cursor else "", String(entry["name"]), rank, cap,
-			"MAX" if price <= 0 else "%d개" % price, String(entry["summary"])]
+			"◆ " if index == meta_cursor else "", tr(String(entry["name"])), rank, cap,
+			"MAX" if price <= 0 else tr("%d개") % price, tr(String(entry["summary"]))]
 		var style := card.get_theme_stylebox("normal") as StyleBoxFlat
 		if style != null:
 			style.set_border_width_all(3 if index == meta_cursor else 2)

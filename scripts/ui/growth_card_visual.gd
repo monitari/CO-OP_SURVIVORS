@@ -2,6 +2,7 @@ extends RefCounted
 
 const Frame := preload("res://scripts/ui/neon_frame.gd")
 const Palette := preload("res://scripts/ui/cat_theme.gd")
+const L := preload("res://scripts/systems/loc.gd")
 
 const CYAN := Color("35dbff")
 const PARTNER := Color("ff9f43")
@@ -50,7 +51,13 @@ const TAG_COLORS := {
 const BADGE_HEIGHT := 34.0
 const BADGE_GAP := 8.0
 ## The smallest a card body is set before a phrase is broken over two lines.
-const BODY_SMALLEST := 13
+##
+## Breaking is the worse outcome of the two: a phrase set a point smaller is
+## still one phrase on one line, while a broken one costs a line the card does
+## not have and pushes the block past the recommendation strip. English phrases
+## run about a third wider than the Korean they translate, so on the narrow
+## cards of a five- or six-card hand the floor is what decides which happens.
+const BODY_SMALLEST := 11
 
 
 ## A polaroid: bright paper cut out with an ink edge, lifted off the page by a
@@ -190,7 +197,7 @@ static func paint(card: Label, model: Dictionary, tint: Color, selected: bool, w
 	# sentence said 합치면 무기가 강화됩니다, which was an instruction; nothing
 	# gates an enhancement now, so it describes a good fit instead.
 	var partner := String(model.get("fusion_name", ""))
-	fusion.tooltip_text = "%s와(과) 시너지가 좋습니다" % partner if not partner.is_empty() else ""
+	fusion.tooltip_text = L.f("%s와(과) 시너지가 좋습니다", L.t(partner)) if not partner.is_empty() else ""
 	fusion.mouse_filter = Control.MOUSE_FILTER_PASS if fusion.visible else Control.MOUSE_FILTER_IGNORE
 	var badge: Label = card.get_node("Recommendation")
 	var advice := String(model.get("advice", "neutral"))
@@ -204,7 +211,7 @@ static func paint(card: Label, model: Dictionary, tint: Color, selected: bool, w
 	# line it was replacing.
 	var badge_color: Color = model.get("badge_color", recommendation_color(advice))
 	badge.text = String(model["badge"]) if model.has("badge") \
-		else recommendation_text(advice, String(model.get("reason", "무난한 성장")))
+		else recommendation_text(advice, String(model.get("reason", L.t("무난한 성장"))))
 	badge.visible = not badge.text.is_empty()
 	badge.position = Vector2(10, height - 10 - BADGE_HEIGHT)
 	badge.size = Vector2(width - 20, BADGE_HEIGHT)
@@ -392,8 +399,11 @@ static func _paint_chip(category: Label, text: String, color: Color, width: floa
 	category.add_theme_font_size_override("font_size", font_size)
 	category.add_theme_color_override("font_color", Palette.INK)
 	category.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# The strip is measured from what it will draw, not from what it was handed:
+	# a Label translates its own text on the way to the screen, so sizing the
+	# tape to the Korean cut "Weapon Upgrade" down to "eapon Upgra".
 	var chip_width := category.get_theme_font("font").get_string_size(
-		text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 26.0
+		category.atr(text), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 26.0
 	chip_width = minf(width - 70.0, chip_width)
 	# A strip of coloured tape across the top edge holding the photo on. It
 	# overhangs the card and leans a little, like tape put on by hand.
@@ -424,7 +434,7 @@ static func _subject_line(sections: Dictionary, tint: Color) -> Array:
 		if not line.is_empty():
 			line.append(["  ·  ", 0, VALUE_ARROW])
 		if int(level[0]) <= 0:
-			line.append(["신규", 0, VALUE_NEXT])
+			line.append([L.t("신규"), 0, VALUE_NEXT])
 		elif int(level[0]) == int(level[1]):
 			line.append(["Lv.%d" % int(level[1]), 0, VALUE_NOW])
 		else:
