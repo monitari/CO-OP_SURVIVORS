@@ -7,7 +7,7 @@ const G := preload("res://scripts/ui/layout_grid.gd")
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
 const DETAILS_WIDTH := 608.0
-const PAUSE_ITEM_COUNT := 13
+const PAUSE_ITEM_COUNT := 14
 const PAUSE_SLOTS := [
 	Rect2(20, 70, 740, 44),
 	Rect2(400, 216, 360, 44), Rect2(400, 270, 360, 44),
@@ -16,19 +16,20 @@ const PAUSE_SLOTS := [
 	Rect2(20, 124, 740, 44), Rect2(400, 432, 360, 44),
 	Rect2(20, 216, 360, 44), Rect2(20, 270, 360, 44),
 	Rect2(20, 324, 360, 44), Rect2(20, 378, 360, 44),
+	Rect2(20, 432, 360, 44),
 ]
 
 static func pause_neighbor(index: int, direction: String, settings := false) -> int:
 	if settings:
 		if direction in ["up", "down"]:
-			var order := [0, 7, 9, 10, 11, 12, 1, 2, 3, 4, 8]
+			var order := [0, 7, 9, 10, 11, 12, 13, 1, 2, 3, 4, 8]
 			var step := -1 if direction == "up" else 1
 			return int(order[wrapi(order.find(index) + step, 0, order.size())])
 		if index == 0:
 			return 0
 		if index == 7:
 			return 7
-		var left := [9, 10, 11, 12]
+		var left := [9, 10, 11, 12, 13]
 		var right := [1, 2, 3, 4, 8]
 		if direction == "right" and index in left:
 			return right[mini(left.find(index), right.size() - 1)]
@@ -307,9 +308,9 @@ static func refresh_pause(main: Node) -> void:
 	var heading: Label = screen.get_node("PauseHeading")
 	heading.show()
 	UI.place(heading, Rect2(20, 16, 740 if main.pause_settings else 340, 42), 24)
-	heading.text = "설정" if main.pause_settings else "잠시 쉬어가기"
+	heading.text = main.tr("설정") if main.pause_settings else main.tr("잠시 쉬어가기")
 	if main.restart_pending:
-		heading.text = "게임을 종료할까요?" if main.pending_quits else "메뉴로 돌아갈까요?"
+		heading.text = main.tr("게임을 종료할까요?") if main.pending_quits else main.tr("메뉴로 돌아갈까요?")
 	var display_heading: Label = screen.get_node("PauseDisplayHeading")
 	var play_heading: Label = screen.get_node("PausePlayHeading")
 	display_heading.visible = main.pause_settings and not main.restart_pending
@@ -317,10 +318,10 @@ static func refresh_pause(main: Node) -> void:
 	var names := [
 		"계속하기", "화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량",
 		"메인 메뉴로", "게임 종료", "돌아가기" if main.pause_settings else "설정", "큰 글자",
-		"화면 모드", "창 해상도", "주사율 / FPS", "수직 동기화",
+		"화면 모드", "창 해상도", "주사율 / FPS", "수직 동기화", "언어",
 	]
 	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled]
-	var order := [0, 7, 9, 10, 11, 12, 1, 2, 3, 4, 8] if main.pause_settings else [0, 7, 5, 6]
+	var order := [0, 7, 9, 10, 11, 12, 13, 1, 2, 3, 4, 8] if main.pause_settings else [0, 7, 5, 6]
 	for index in PAUSE_ITEM_COUNT:
 		var button: Button = screen.get_node("PauseAction%d" % index)
 		button.visible = index < 2 if main.restart_pending else index in order
@@ -332,15 +333,15 @@ static func refresh_pause(main: Node) -> void:
 			}.get(index, slot)
 		button.position = slot.position
 		button.size = slot.size
-		button.text = names[index]
+		button.text = main.tr(names[index])
 		if index in [1, 2]:
-			button.text += "        " + ("켜짐" if states[index] else "꺼짐")
+			button.text += "        " + (main.tr("켜짐") if states[index] else main.tr("꺼짐"))
 		elif index == 3:
 			button.text += "        %d%%" % roundi(main.feedback.sound_volume * 100.0)
 		elif index == 4:
 			button.text += "        %d%%" % roundi(main.feedback.music_volume * 100.0)
 		elif index == 8:
-			button.text += "        " + ("켜짐" if main.settings.large_text_enabled else "꺼짐")
+			button.text += "        " + (main.tr("켜짐") if main.settings.large_text_enabled else main.tr("꺼짐"))
 		elif index == 9:
 			button.text += "        " + main.display_mode_label()
 		elif index == 10:
@@ -348,20 +349,22 @@ static func refresh_pause(main: Node) -> void:
 		elif index == 11:
 			button.text += "        " + main.frame_rate_label()
 		elif index == 12:
-			button.text += "        " + ("켜짐" if main.settings.vsync_enabled else "꺼짐")
+			button.text += "        " + (main.tr("켜짐") if main.settings.vsync_enabled else main.tr("꺼짐"))
+		elif index == 13:
+			button.text += "        " + main.language_label()
 		if main.restart_pending and index < 2:
 			# Confirmation actions are one matched pair. Previously the hidden
 			# settings slot kept its width while cancel kept the menu row's width.
 			button.position = Vector2(20 + index * 170, 100)
 			button.size = Vector2(160, 48)
 			button.add_theme_font_size_override("font_size", 16)
-			button.text = "취소" if index == 0 else "종료" if main.pending_quits else "메뉴로 돌아가기"
+			button.text = main.tr("취소") if index == 0 else main.tr("종료") if main.pending_quits else main.tr("메뉴로 돌아가기")
 		button.add_theme_stylebox_override("normal", Palette.button_surface("hover" if index == main.pause_cursor else "normal", Palette.GOLD, index == main.pause_cursor))
 	var details: Button = screen.get_node("PauseDetails")
 	details.visible = not main.restart_pending and not main.pause_settings
 	details.position = Vector2(20, 302)
 	details.size = Vector2(340, 34)
-	details.text = "내 장비    능력치   TAB"
+	details.text = main.tr("내 장비    능력치   TAB")
 	main.pause_label.hide()
 
 
@@ -379,8 +382,8 @@ static func toggle_details(main: Node) -> void:
 		var header: Panel = main.details_overlay.get_node("DetailHeader%d" % slot)
 		header.get_node("Portrait").texture = Icons.survivor(String(main.selected_characters[slot]["id"]))
 		header.get_node("Weapon").texture = Icons.weapon(String(main.weapon_loadouts[slot][0]["weapon_id"]))
-		header.get_node("Name").text = "%s  %s" % [main.player_label(slot), p.character_name]
-		header.get_node("WeaponName").text = "%d 무기    %d 보물" % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
+		header.get_node("Name").text = "%s  %s" % [main.player_label(slot), main.tr(p.character_name)]
+		header.get_node("WeaponName").text = main.tr("%d 무기    %d 보물") % [main.weapon_loadouts[slot].size(), main.treasure_loadouts[slot].size()]
 		main.details_overlay.get_node("Offense%d/Value" % slot).text = "위력 %d%%    치명 %d%%    발동 %d%%\n추가 +%.1f    관통 +%d    탄속 %d%%    지속 %d%%" % [roundi(p.might * 100), roundi(p.crit_chance * 100), roundi(100.0 / p.haste), p.amount, p.pierce, roundi(p.projectile_speed * 100), roundi(p.duration * 100)]
 		main.details_overlay.get_node("Survival%d/Value" % slot).text = "HP %.0f/%.0f    방어 %.0f    재생 %.1f/s\n회피 %d%%    반사 %d%%    목숨 %d" % [p.health, p.max_health, p.armor, p.recovery, roundi(p.dodge_chance * 100), roundi(p.thorns * 100), p.second_chances]
 		main.details_overlay.get_node("Coop%d/Value" % slot).text = "사슬 %.0f    구조 %.2f초    유예 %.0f초\n과충전 +%d%%    밀착 +%d%%    대시 %.0f" % [main.chain_max_length, 2.6 / (1.0 + p.resolve * 0.05), p.BLEEDOUT_BASE + p.resolve, roundi((0.25 + main.team_overcharge) * 100), roundi(main.team_close_power * 100), main.team_dash_burst]

@@ -256,12 +256,12 @@ static func refresh_title(main: Node) -> void:
 	main.title_overlay.get_node("SnapshotCollage").visible = menu
 	var eyebrow: Label = main.title_overlay.get_node("TitleEyebrow")
 	eyebrow.visible = not menu
-	eyebrow.text = {
+	eyebrow.text = main.tr({
 		"modes": "플레이 방식",
 		"meta": "영구 성장",
 		"settings": "설정",
 		"credits": "제작진",
-	}.get(main.title_mode, "")
+	}.get(main.title_mode, ""))
 	place(eyebrow, Rect2(264, 74, 656, 50), 34, Palette.INK)
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var display_heading: Label = main.title_overlay.get_node("SettingsDisplayHeading")
@@ -269,7 +269,7 @@ static func refresh_title(main: Node) -> void:
 	display_heading.visible = settings_page
 	play_heading.visible = settings_page
 	var keys: Label = main.title_overlay.get_node("TitleKeys")
-	keys.text = ("↑ ↓ 항목    ← → 바로 변경    ENTER / A 다음 값    ESC / B 뒤로"
+	keys.text = main.tr("↑ ↓ 항목    ← → 바로 변경    ENTER / A 다음 값    ESC / B 뒤로"
 		if settings_page else "↑ ↓ 이동    ENTER / A 선택    ESC / B 뒤로")
 	# The main page carries no sentence under the menu: every card says what it
 	# is. The note is the sub-pages' reading area.
@@ -329,9 +329,9 @@ static func refresh_title(main: Node) -> void:
 		elif main.title_mode == "modes":
 			place(row, Rect2(304, 160 + index * 72, 576, 56), 20)
 		elif settings_page:
-			var column: int = index / 5
-			var grid_row: int = index % 5
-			place(row, Rect2(264 + column * 336, 156 + grid_row * 62, 320, 52), 15)
+			var column: int = index / 6
+			var grid_row: int = index % 6
+			place(row, Rect2(264 + column * 336, 148 + grid_row * 54, 320, 46), 15)
 		else:
 			place(row, Rect2(304, 128 + index * 58, 576, 50), 17)
 		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if settings_page else HORIZONTAL_ALIGNMENT_CENTER
@@ -355,7 +355,7 @@ static func refresh_title(main: Node) -> void:
 			state.text = main.frame_rate_label()
 			state.add_theme_color_override("font_color", Palette.GOLD_INK)
 		elif settings_page and index == 3:
-			state.text = "● 켜짐" if main.settings.vsync_enabled else "○ 꺼짐"
+			state.text = main.tr("● 켜짐") if main.settings.vsync_enabled else main.tr("○ 꺼짐")
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if main.settings.vsync_enabled else Palette.MUTED)
 		elif settings_page and index in [7, 8]:
 			var volume: float = main.feedback.sound_volume if index == 7 else main.feedback.music_volume
@@ -367,8 +367,11 @@ static func refresh_title(main: Node) -> void:
 				main.screen_shake_enabled,
 				main.feedback.damage_numbers_enabled,
 			][index - 4]
-			state.text = "● 켜짐" if enabled else "○ 꺼짐"
+			state.text = main.tr("● 켜짐") if enabled else main.tr("○ 꺼짐")
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if enabled else Palette.MUTED)
+		elif settings_page and index == 9:
+			state.text = main.language_label()
+			state.add_theme_color_override("font_color", Palette.GOLD_INK)
 		elif main.title_mode == "meta" and not main.meta_reset_pending and index < 6:
 			var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + index]
 			var id := String(entry["id"])
@@ -376,7 +379,7 @@ static func refresh_title(main: Node) -> void:
 			var price: int = main.meta_progression.cost(id)
 			state.text = "Lv.%d/%d    %s" % [rank, int(entry["max_rank"]), "MAX" if price <= 0 else "%d개" % price]
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
-		row.text = ("▶  " if main.title_cursor == index and not menu else "") + caption
+		row.text = ("▶  " if main.title_cursor == index and not menu else "") + main.tr(caption)
 		var focused: bool = main.title_cursor == index
 		# Paper cards; the one under the cursor is coloured in with a marker and
 		# lifted further off the page.
@@ -426,7 +429,7 @@ static func _lobby(main: Node) -> void:
 		if child not in [main.lobby_title, main.lobby_p1_label, main.lobby_p2_label]:
 			screen.remove_child(child)
 			child.queue_free()
-	main.lobby_title.text = "함께 출발하기"
+	main.lobby_title.text = main.tr("함께 출발하기")
 	# The illustrated logo already carries the game title. Keep the legacy
 	# scene label available to older callers, but do not draw it twice.
 	main.lobby_title.visible = false
@@ -496,7 +499,7 @@ static func _characters(main: Node) -> void:
 	var backdrop := plate(screen, Rect2(8, 0, 1168, 640), Color("081321e8"))
 	backdrop.name = "SelectionBackdrop"
 	backdrop.z_index = -1
-	main.character_title.text = "오늘 밤의 수호대"
+	main.character_title.text = main.tr("오늘 밤의 수호대")
 	place(main.character_synergy_label, Rect2(520, 8, 272, 24), 15, Palette.MUTED)
 	main.character_synergy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	place(main.character_roster_label, Rect2(520, 32, 272, 20), 12, Palette.GOLD)
@@ -631,26 +634,26 @@ static func refresh_characters(main: Node) -> void:
 	var screen: Control = main.character_overlay
 	var detailed := bool(screen.get_meta("show_details", false))
 	if screen.has_node("CharacterDetails"):
-		screen.get_node("CharacterDetails").text = "간단 보기    TAB / X" if detailed else "능력치 보기    TAB / X"
+		screen.get_node("CharacterDetails").text = main.tr("간단 보기    TAB / X") if detailed else main.tr("능력치 보기    TAB / X")
 	if main.ai_companion:
-		main.character_roster_label.text = "클릭으로 나 선택    AI는 조합에 맞춰 자동 선택"
+		main.character_roster_label.text = main.tr("클릭으로 나 선택    AI는 조합에 맞춰 자동 선택")
 	elif main.online != null and main.online.is_client():
-		main.character_roster_label.text = "클릭으로 내 캐릭터 선택    동료는 직접 선택"
+		main.character_roster_label.text = main.tr("클릭으로 내 캐릭터 선택    동료는 직접 선택")
 	elif main.online != null and main.online.is_host():
-		main.character_roster_label.text = "클릭으로 내 캐릭터 선택    동료 선택을 기다리는 중"
+		main.character_roster_label.text = main.tr("클릭으로 내 캐릭터 선택    동료 선택을 기다리는 중")
 	else:
-		main.character_roster_label.text = "클릭 나    우클릭 동료"
+		main.character_roster_label.text = main.tr("클릭 나    우클릭 동료")
 	for slot in 2:
 		var cat: Dictionary = main.character_catalog[main.selected_character_indices[slot]]
-		screen.get_node("CatName%d" % slot).text = String(cat["name"])
-		screen.get_node("CatStatus%d" % slot).text = "준비 완료" if main.character_confirmed[slot] else ("AI 동료" if main.ai_companion and slot != main.local_view_slot() else "캐릭터 선택 중")
+		screen.get_node("CatName%d" % slot).text = main.tr(String(cat["name"]))
+		screen.get_node("CatStatus%d" % slot).text = main.tr("준비 완료") if main.character_confirmed[slot] else (main.tr("AI 동료") if main.ai_companion and slot != main.local_view_slot() else main.tr("캐릭터 선택 중"))
 		screen.get_node("CatWeapon%d" % slot).texture = Icons.weapon(String(cat["weapon_id"]))
 		# The breed line, not the weapon line. Ten cats used to be introduced by
 		# what their weapon does and two by who they are, because only the two
 		# newest had no PLAYSTYLE entry to override them. The weapon still
 		# describes itself on the level-up card and in the block below.
-		screen.get_node("CatRole%d" % slot).text = "%s  ·  조작 난이도 %s" % [String(cat["title"]), CharacterCatalog.difficulty_stars(cat)]
-		screen.get_node("CatRole%d" % slot).tooltip_text = cat["description"]
+		screen.get_node("CatRole%d" % slot).text = main.tr("%s  ·  조작 난이도 %s") % [main.tr(String(cat["title"])), CharacterCatalog.difficulty_stars(cat)]
+		screen.get_node("CatRole%d" % slot).tooltip_text = main.tr(String(cat["description"]))
 		for stat in CharacterCatalog.DISPLAYED_STATS.size():
 			var entry: Dictionary = CharacterCatalog.DISPLAYED_STATS[stat]
 			screen.get_node("CatStat%d_%d" % [slot, stat]).text = CharacterCatalog.stat_text(cat, String(entry["field"]))
@@ -670,8 +673,9 @@ static func refresh_characters(main: Node) -> void:
 			# The detailed view is where the plan goes: which final form this
 			# starting weapon is on and what completes it. Choosing a cat is
 			# choosing that route, and this is the screen where it is chosen.
-			body.text = "%s\n%s\n연결 특성  ·  %s" % [
-				String(cat["description"]), main._route_note(cat), main._chain_note(cat)]
+			body.text = "%s\n%s\n%s  ·  %s" % [
+				main.tr(String(cat["description"])), main._route_note(cat),
+				main.tr("연결 특성"), main._chain_note(cat)]
 			# 392..444 in screen terms: the second stat row ends at 392 and the
 			# navigation buttons start at 448, so this is the whole of the room
 			# there is. Three lines of 10 fit the Gowoon metrics; larger text did not, and the
@@ -682,7 +686,10 @@ static func refresh_characters(main: Node) -> void:
 			portrait_bed.size = Vector2(160, 216)
 			portrait.position = Vector2(x + 24, panel.position.y + 56)
 			portrait.size = Vector2(144, 200)
-			body.text = "시작 무기  ·  %s\n%s\n\n%s" % [String(cat["weapon_name"]), String(PLAYSTYLE.get(String(cat["weapon_id"]), "자동 공격")), main._chain_note(cat)]
+			body.text = "%s  ·  %s\n%s\n\n%s" % [
+				main.tr("시작 무기"), main.tr(String(cat["weapon_name"])),
+				main.tr(String(PLAYSTYLE.get(String(cat["weapon_id"]), "자동 공격"))),
+				main._chain_note(cat)]
 			place(body, Rect2(x + 240, panel.position.y + 176, 304, 88), 14)
 		body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -697,7 +704,7 @@ static func refresh_characters(main: Node) -> void:
 			var confirm: Button = screen.get_node("CharacterConfirm%d" % slot)
 			confirm.disabled = not main._can_control_player_slot(slot)
 			var confirm_key := "W" if slot == 0 else "↑"
-			confirm.text = ("✓  준비 완료" if main.character_confirmed[slot] else "준비하기") + "    [%s]" % confirm_key
+			confirm.text = (main.tr("✓  준비 완료") if main.character_confirmed[slot] else main.tr("준비하기")) + "    [%s]" % confirm_key
 			confirm.add_theme_stylebox_override("normal",
 				Palette.button_surface("normal", Palette.P1 if slot == 0 else Palette.P2, true))
 		for action in ["CharacterPrevious%d" % slot, "CharacterNext%d" % slot]:
@@ -714,9 +721,9 @@ static func refresh_characters(main: Node) -> void:
 	# default screen stays a portrait and four numbers.
 	# Rebuilt rather than appended: this runs on every refresh, and appending
 	# would grow the line a clause at a time as the cursor walks the roster.
-	main.character_synergy_label.text = ("%s    ·    두 무기가 Lv.7에 이르면 공명 후보가 열립니다"
+	main.character_synergy_label.text = (main.tr("%s    ·    두 무기가 Lv.7에 이르면 공명 후보가 열립니다")
 		% main._synergy_preview()) if detailed else main._synergy_preview()
-	var leash_grade := "짧음" if pair_leash < 288.0 else ("보통" if pair_leash < 352.0 else "넓음")
+	var leash_grade := main.tr("짧음") if pair_leash < 288.0 else (main.tr("보통") if pair_leash < 352.0 else main.tr("넓음"))
 	screen.get_node("ChainPlate/ChainLength").text = "%s  ·  %d" % [leash_grade, roundi(pair_leash)]
 	for index in main.character_catalog.size():
 		var tile: Panel = screen.get_node("Roster%d" % index)
@@ -1127,21 +1134,22 @@ static func refresh_hud(main: Node) -> void:
 	_refresh_tactical_alert(main)
 	main.hud_label.text = "%02d:%02d" % [int(main.elapsed) / 60, int(main.elapsed) % 60]
 	main.xp_text_label.text = "LV.%d    XP %d / %d" % [main.progression.level, int(main.progression.experience), int(main.progression.required_experience)]
-	main.combat_hud.get_node("WaveReadout").text = "%s    %d 처치" % ["휴식" if main.wave_director.in_calm else "%d파" % maxi(1, main.wave_director.wave_index + 1), main.kills]
+	var wave_name := main.tr("휴식") if main.wave_director.in_calm else main.tr("%d파") % maxi(1, main.wave_director.wave_index + 1)
+	main.combat_hud.get_node("WaveReadout").text = main.tr("%s    %d 처치") % [wave_name, main.kills]
 	# Five bosses, so the readout has to say which one is coming and how many
 	# are left rather than counting down to a single event once and then being
 	# permanently wrong for the remaining twenty minutes.
 	var director: WaveDirector = main.wave_director
 	var readout: String
 	if main.chain_warded():
-		readout = "황금 목줄  %.1f초" % main.chain_ward_remaining
+		readout = main.tr("황금 목줄  %.1f초") % main.chain_ward_remaining
 	elif director.boss_active:
-		readout = "%d/%d 보스 전투" % [director.bosses_spawned, WaveDirector.BOSS_COUNT]
+		readout = main.tr("%d/%d 보스 전투") % [director.bosses_spawned, WaveDirector.BOSS_COUNT]
 	elif director.bosses_remaining() <= 0:
-		readout = "최종 격파"
+		readout = main.tr("최종 격파")
 	else:
 		var remaining := maxi(0, int(director.next_boss_time() - main.elapsed))
-		readout = "%d번째 보스  %02d:%02d" % [
+		readout = main.tr("%d번째 보스  %02d:%02d") % [
 			director.bosses_spawned + 1, remaining / 60, remaining % 60
 		]
 	main.combat_hud.get_node("ObjectiveReadout").text = readout
@@ -1150,13 +1158,13 @@ static func refresh_hud(main: Node) -> void:
 	var effect: Label = main.combat_hud.get_node("ChainEffectReadout")
 	var delta_percent := roundi(absf(power - 1.0) * 100.0)
 	if power > 1.001:
-		effect.text = "공격 +%d%%" % delta_percent
+		effect.text = main.tr("공격 +%d%%") % delta_percent
 		UIWrite.font_color(effect, Palette.GOLD_INK)
 	elif power < 0.999:
-		effect.text = "공격 -%d%%" % delta_percent
+		effect.text = main.tr("공격 -%d%%") % delta_percent
 		UIWrite.font_color(effect, Color("b63b5d"))
 	else:
-		effect.text = "공격 ±0%"
+		effect.text = main.tr("공격 ±0%")
 		UIWrite.font_color(effect, Palette.MUTED)
 	for slot in 2:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
@@ -1169,18 +1177,18 @@ static func refresh_hud(main: Node) -> void:
 		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
 		var level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		number.text = main.player_label(slot)
-		identity.text = main.players[slot].character_name
-		level.text = "기여 %d" % int(main.run_stats["personal_levels"][slot])
+		identity.text = main.tr(main.players[slot].character_name)
+		level.text = main.tr("기여 %d") % int(main.run_stats["personal_levels"][slot])
 		UIWrite.font_color(number, accent)
 		UIWrite.font_color(identity, accent)
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
-		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
-		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
+		_refresh_carried_row(main, holder, "Weapon", main.weapon_loadouts[slot], true)
+		_refresh_carried_row(main, holder, "Treasure", main.treasure_loadouts[slot], false)
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		frame.size.y = 184.0
 		frame.hide()
 ## Explicit level captions distinguish equipment levels from item quantities.
-static func _refresh_carried_row(holder: Control, prefix: String, carried: Array,
+static func _refresh_carried_row(main: Node, holder: Control, prefix: String, carried: Array,
 		is_weapon: bool) -> void:
 	var index := 0
 	while holder.has_node("%s%d" % [prefix, index]):
@@ -1200,7 +1208,7 @@ static func _refresh_carried_row(holder: Control, prefix: String, carried: Array
 		var tier: Label = art.get_node("Tier")
 		tier.text = str(int(entry.get("tier", 1)))
 		art.mouse_filter = Control.MOUSE_FILTER_PASS
-		UIWrite.tooltip(art, "%s    Lv.%d" % [String(entry.get("weapon_name", entry.get("name", "보물"))), int(entry.get("tier", 1))])
+		UIWrite.tooltip(art, "%s    Lv.%d" % [main.tr(String(entry.get("weapon_name", entry.get("name", "보물")))), int(entry.get("tier", 1))])
 		# The socket's own border sets the tier colour (gold while resonating) and
 		# refreshes itself every frame; writing CREAM here as well made the two
 		# fight over the same label once per tick, and each write re-shaped it.
@@ -1214,16 +1222,16 @@ static func _refresh_tactical_alert(main: Node) -> void:
 	var message := ""
 	if main.players[0].downed or main.players[1].downed:
 		var slot := 0 if main.players[0].downed else 1
-		message = "%s 구조 필요    동료 곁에 머무르세요" % main.player_label(slot)
+		message = main.tr("%s 구조 필요    동료 곁에 머무르세요") % main.player_label(slot)
 	elif main.chain_overloaded:
-		message = "사슬 과부하    서로 가까이 붙으세요"
+		message = main.tr("사슬 과부하    서로 가까이 붙으세요")
 	elif main.chain_bar.value >= 95.0:
-		message = "사슬 한계    두 고양이의 거리를 줄이세요"
+		message = main.tr("사슬 한계    두 고양이의 거리를 줄이세요")
 	elif main.players[0].health <= main.players[0].max_health * 0.25 or main.players[1].health <= main.players[1].max_health * 0.25:
 		var slot := 0 if main.players[0].health <= main.players[0].max_health * 0.25 else 1
-		message = "%s 체력 위험    적과 거리를 벌리세요" % main.player_label(slot)
+		message = main.tr("%s 체력 위험    적과 거리를 벌리세요") % main.player_label(slot)
 	elif main.chain_integrity < 40.0:
-		message = "사슬 내구 부족    가까이 붙어 회복하세요"
+		message = main.tr("사슬 내구 부족    가까이 붙어 회복하세요")
 	alert.visible = not message.is_empty() and not (main.level_up_active or main.resonance_vote_active or main.pause_active or main.game_over)
 	alert.get_node("Action").text = message
 	var style := alert.get_theme_stylebox("panel") as StyleBoxFlat
@@ -1294,14 +1302,14 @@ static func _results(main: Node) -> void:
 
 static func refresh_result(main: Node, victory: bool) -> void:
 	var screen: Control = main.result_overlay
-	screen.get_node("ResultHeading").text = "옥상 수호 성공" if victory else "오늘의 산책 종료"
-	screen.get_node("ResultReason").text = "폭주 청소 로봇을 멈췄어요. 간식은 무사합니다!" if victory else "구조가 늦어졌어요. 다시 발맞춰 도전해요."
+	screen.get_node("ResultHeading").text = main.tr("옥상 수호 성공") if victory else main.tr("오늘의 산책 종료")
+	screen.get_node("ResultReason").text = main.tr("폭주 청소 로봇을 멈췄어요. 간식은 무사합니다!") if victory else main.tr("구조가 늦어졌어요. 다시 발맞춰 도전해요.")
 	screen.get_node("ResultHighlight").text = main._result_highlight()
 	var values := ["%02d:%02d" % [int(main.elapsed) / 60, int(main.elapsed) % 60], str(main.kills), "LV.%d" % main.progression.level]
 	for index in 3:
 		screen.get_node("ResultMetric%d/Value" % index).text = values[index]
 	for slot in 2:
-		screen.get_node("ResultName%d" % slot).text = "%s  %s" % [main.player_label(slot), main.players[slot].character_name]
+		screen.get_node("ResultName%d" % slot).text = "%s  %s" % [main.player_label(slot), main.tr(main.players[slot].character_name)]
 		screen.get_node("ResultPlayerStats%d" % slot).text = main._result_player_summary(slot)
 		for index in 4:
 			var art: TextureRect = screen.get_node("ResultWeapon%d_%d" % [slot, index])
@@ -1312,13 +1320,13 @@ static func refresh_result(main: Node, victory: bool) -> void:
 				var weapon_id := String(main.weapon_loadouts[slot][index]["weapon_id"])
 				art.texture = Icons.weapon(weapon_id)
 				dps.text = "%.1f DPS" % main._weapon_dps(slot, weapon_id)
-				art.tooltip_text = "%s    총 피해 %.0f" % [
-					String(main.weapon_loadouts[slot][index]["weapon_name"]),
+				art.tooltip_text = main.tr("%s    총 피해 %.0f") % [
+					main.tr(String(main.weapon_loadouts[slot][index]["weapon_name"])),
 					float(main.run_stats["weapon_damage"][slot].get(weapon_id, 0.0)),
 				]
 	screen.get_node("CoopRecord").text = main._run_stats_summary()
 	main._refresh_meta_result_ui()
-	main.result_label.text = "SPACE / Y 강화 구매    ENTER / A 같은 조합 재도전    ESC / B 메인 메뉴"
+	main.result_label.text = main.tr("SPACE / Y 강화 구매    ENTER / A 같은 조합 재도전    ESC / B 메인 메뉴")
 
 
 static func _pause(main: Node) -> void:

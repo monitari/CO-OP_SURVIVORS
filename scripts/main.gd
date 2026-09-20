@@ -484,6 +484,7 @@ func _ready() -> void:
 	randomize()
 	settings = SettingsScript.new() as GameSettings
 	settings.load_settings()
+	TranslationServer.set_locale(settings.language)
 	_apply_display_settings()
 	meta_progression = MetaProgressionScript.new() as MetaProgression
 	meta_progression.load_progress()
@@ -1710,7 +1711,7 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 const TITLE_MENU := ["게임 시작", "영구 성장", "설정", "제작진", "게임 종료"]
 const TITLE_SETTINGS := [
 	"화면 모드", "창 해상도", "주사율 / FPS", "수직 동기화", "큰 글자",
-	"화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "뒤로",
+	"화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "언어", "뒤로",
 ]
 const TITLE_CREDITS := ["뒤로"]
 
@@ -1802,7 +1803,7 @@ func _activate_title_item(index: int) -> void:
 		return
 	title_cursor = index
 	if title_mode == "settings":
-		if index == 9:
+		if index == 10:
 			title_mode = "menu"
 			title_cursor = 2
 			feedback.play_cue("select")
@@ -1938,7 +1939,7 @@ func display_player_number(slot: int) -> int:
 
 
 func player_label(slot: int) -> String:
-	return "나" if slot == local_view_slot() else "동료"
+	return tr("나") if slot == local_view_slot() else tr("동료")
 
 
 func _step_ai_character(delta: float) -> void:
@@ -2172,10 +2173,10 @@ func _format_character_card(player_index: int) -> String:
 func _chain_note(character: Dictionary) -> String:
 	var contribution := float(character["chain"])
 	if contribution >= 40.0:
-		return "사슬 길게"
+		return tr("사슬 길게")
 	if contribution <= -15.0:
-		return "사슬 짧게"
-	return "사슬 보통"
+		return tr("사슬 짧게")
+	return tr("사슬 보통")
 
 
 ## The pair's shared read on their two picks, without naming anything they have
@@ -2200,8 +2201,11 @@ func _route_note(character: Dictionary) -> String:
 		var treasure_name := String(treasure.get("name", ""))
 		if not treasure_name.is_empty() and treasure_name not in synergies:
 			synergies.append(treasure_name)
-	return "Lv.%d 진화  ·  %s    추천 보물  %s" % [
-		Evolutions.EVOLUTION_TIER, String(evolution["weapon_name"]), " / ".join(synergies)]
+	var localized_synergies: Array[String] = []
+	for name in synergies:
+		localized_synergies.append(tr(name))
+	return tr("Lv.%d 진화  ·  %s    추천 보물  %s") % [
+		Evolutions.EVOLUTION_TIER, tr(String(evolution["weapon_name"])), " / ".join(localized_synergies)]
 
 
 func _synergy_preview() -> String:
@@ -2213,14 +2217,14 @@ func _synergy_preview() -> String:
 	var durability := (float(first_profile["durability"]) + float(second_profile["durability"])) * 0.5
 
 	if coverage < 0.4 and durability < 0.45:
-		return "둘 다 좁게 싸우고 얇습니다 — 포위되기 전에 정리해야 합니다"
+		return tr("둘 다 좁게 싸우고 얇습니다 — 포위되기 전에 정리해야 합니다")
 	if coverage < 0.4:
-		return "둘 다 한 번에 적은 수만 처리합니다 — 몰리면 함께 물러나세요"
+		return tr("둘 다 한 번에 적은 수만 처리합니다 — 몰리면 함께 물러나세요")
 	if durability < 0.45:
-		return "화력은 넓지만 둘 다 무릅니다 — 사슬 거리를 짧게 유지하세요"
+		return tr("화력은 넓지만 둘 다 무릅니다 — 사슬 거리를 짧게 유지하세요")
 	if coverage > 0.7 and durability > 0.6:
-		return "넓게 처리하고 잘 버팁니다 — 과충전을 오래 끌고 가도 됩니다"
-	return "한쪽이 넓게 쓸고 한쪽이 앞을 맡는 조합입니다"
+		return tr("넓게 처리하고 잘 버팁니다 — 과충전을 오래 끌고 가도 됩니다")
+	return tr("한쪽이 넓게 쓸고 한쪽이 앞을 맡는 조합입니다")
 
 
 func _start_selected_run() -> void:
@@ -3063,7 +3067,7 @@ func window_size() -> Vector2i:
 func window_size_label() -> String:
 	var requested := window_size()
 	if applied_window_size != Vector2i.ZERO and applied_window_size != requested:
-		return "%d × %d    화면에 맞춤" % [applied_window_size.x, applied_window_size.y]
+		return tr("%d × %d    화면에 맞춤") % [applied_window_size.x, applied_window_size.y]
 	return "%d × %d" % [requested.x, requested.y]
 
 
@@ -3076,36 +3080,42 @@ func monitor_refresh_rate() -> int:
 
 func frame_rate_label() -> String:
 	match settings.frame_rate_limit:
-		0: return "모니터 %d Hz" % monitor_refresh_rate()
-		-1: return "제한 없음"
+		0: return tr("모니터 %d Hz") % monitor_refresh_rate()
+		-1: return tr("제한 없음")
 		_: return "%d FPS" % settings.frame_rate_limit
 
 
 func display_mode_label() -> String:
-	return "전체 화면" if settings.fullscreen_enabled else "창 모드"
+	return tr("전체 화면") if settings.fullscreen_enabled else tr("창 모드")
+
+
+func language_label() -> String:
+	return "English" if settings.language == "en" else "한국어"
 
 
 func settings_description(index: int) -> String:
 	match index:
 		0:
-			return "기본은 창 모드입니다. F11 또는 Alt+Enter로도 언제든 전환할 수 있습니다."
+			return tr("기본은 창 모드입니다. F11 또는 Alt+Enter로도 언제든 전환할 수 있습니다.")
 		1:
-			return "창 모드 크기를 고릅니다. 전체 화면에서는 모니터의 기본 해상도를 사용합니다."
+			return tr("창 모드 크기를 고릅니다. 전체 화면에서는 모니터의 기본 해상도를 사용합니다.")
 		2:
-			return "렌더링 프레임을 제한합니다. 현재 모니터는 약 %d Hz로 감지되었습니다." % monitor_refresh_rate()
+			return tr("렌더링 프레임을 제한합니다. 현재 모니터는 약 %d Hz로 감지되었습니다.") % monitor_refresh_rate()
 		3:
-			return "화면 찢어짐을 줄입니다. 켜면 모니터 주사율이 프레임 상한보다 우선합니다."
+			return tr("화면 찢어짐을 줄입니다. 켜면 모니터 주사율이 프레임 상한보다 우선합니다.")
 		4:
-			return "메뉴와 설명의 작은 글자를 키웁니다."
+			return tr("메뉴와 설명의 작은 글자를 키웁니다.")
 		5:
-			return "피격과 강한 공격에서 발생하는 카메라 흔들림을 조절합니다."
+			return tr("피격과 강한 공격에서 발생하는 카메라 흔들림을 조절합니다.")
 		6:
-			return "적에게 준 피해 수치를 전투 화면에 표시합니다."
+			return tr("적에게 준 피해 수치를 전투 화면에 표시합니다.")
 		7:
-			return "효과음 음량을 25% 단위로 조절합니다."
+			return tr("효과음 음량을 25% 단위로 조절합니다.")
 		8:
-			return "음악 음량을 25% 단위로 조절합니다."
-		_: return "Enter / A로 변경하고 Esc / B로 메인 메뉴로 돌아갑니다."
+			return tr("음악 음량을 25% 단위로 조절합니다.")
+		9:
+			return tr("화면에 표시할 언어를 고릅니다. 변경 내용은 즉시 적용됩니다.")
+		_: return tr("Enter / A로 변경하고 Esc / B로 메인 메뉴로 돌아갑니다.")
 
 
 ## Full screen, whichever of the two full-screen modes the platform gave us.
@@ -3292,6 +3302,13 @@ func _change_setting(index: int, direction: int, wrap_choice: bool) -> void:
 			_step_sound_volume(direction, wrap_choice)
 		8:
 			_step_music_volume(direction, wrap_choice)
+		9:
+			var languages: Array = SettingsScript.LANGUAGES
+			var current := languages.find(settings.language)
+			var next := (wrapi(current + direction, 0, languages.size()) if wrap_choice
+				else clampi(current + direction, 0, languages.size() - 1))
+			settings.language = String(languages[next])
+			TranslationServer.set_locale(settings.language)
 		_:
 			return
 	_persist_settings()
@@ -3309,7 +3326,7 @@ func _update_pause_text() -> void:
 func _pause_setting_index(index: int) -> int:
 	return int({
 		9: 0, 10: 1, 11: 2, 12: 3,
-		8: 4, 1: 5, 2: 6, 3: 7, 4: 8,
+		8: 4, 1: 5, 2: 6, 3: 7, 4: 8, 13: 9,
 	}.get(index, -1))
 
 
@@ -6417,23 +6434,24 @@ func _player_health_text(player_index: int) -> String:
 ## the survival numbers above it. These are the counters run_stats has been
 ## carrying unused; nothing else reads them.
 func _run_stats_summary() -> String:
-	return "보스 %d대   구조 %d회   대시 %d회   공명 %d회   아이템 %d개   과충전 %.0f초\n%s" % [
+	var totals := tr("보스 %d대   구조 %d회   대시 %d회   공명 %d회   아이템 %d개   과충전 %.0f초") % [
 		int(run_stats["bosses"]), int(run_stats["revives"]), int(run_stats["dashes"]),
 		int(run_stats["resonance_casts"]), int(run_stats["items"]),
-		float(run_stats["overcharge_time"]), _item_count_summary()
+		float(run_stats["overcharge_time"])
 	]
+	return totals + "\n" + _item_count_summary()
 
 
 func _result_highlight() -> String:
 	if int(run_stats["revives"]) > 0:
-		return "오늘의 협동    동료 구조 %d회 · 끝까지 함께 버텼어요" % int(run_stats["revives"])
+		return tr("오늘의 협동    동료 구조 %d회 · 끝까지 함께 버텼어요") % int(run_stats["revives"])
 	if int(run_stats["bosses"]) > 0:
-		return "오늘의 성과    옥상 보스 %d대 격파" % int(run_stats["bosses"])
+		return tr("오늘의 성과    옥상 보스 %d대 격파") % int(run_stats["bosses"])
 	var lead := 0 if _player_damage_total(0) >= _player_damage_total(1) else 1
 	var damage := _player_damage_total(lead)
 	if damage > 0.0:
-		return "오늘의 활약    %s %s · 총 피해 %.0f" % [player_label(lead), players[lead].character_name, damage]
-	return "첫걸음 완료    다음 원정에서는 더 오래 발맞춰 보세요"
+		return tr("오늘의 활약    %s %s · 총 피해 %.0f") % [player_label(lead), tr(players[lead].character_name), damage]
+	return tr("첫걸음 완료    다음 원정에서는 더 오래 발맞춰 보세요")
 
 
 func _reset_run_stats() -> void:
@@ -6495,20 +6513,24 @@ func _player_damage_total(player_index: int) -> float:
 
 
 func _result_player_summary(player_index: int) -> String:
-	return "기여 LV.%d   처치 %d   아이템 %d\n총 피해 %.0f   구조 %d   DPS %.1f" % [
+	var contribution := tr("기여 LV.%d   처치 %d   아이템 %d") % [
 		int(run_stats["personal_levels"][player_index]), int(run_stats["kills_by_player"][player_index]),
-		int(run_stats["items_by_player"][player_index]), _player_damage_total(player_index),
+		int(run_stats["items_by_player"][player_index])
+	]
+	var combat := tr("총 피해 %.0f   구조 %d   DPS %.1f") % [
+		_player_damage_total(player_index),
 		int(run_stats["revives_by_player"][player_index]),
 		_player_damage_total(player_index) / maxf(1.0, elapsed),
 	]
+	return contribution + "\n" + combat
 
 
 func _item_count_summary() -> String:
 	var parts: Array[String] = []
 	var item_counts: Dictionary = run_stats["items_by_type"]
 	for item_id in item_counts:
-		parts.append("%s ×%d" % [field_items.item_display_name(String(item_id)), int(item_counts[item_id])])
-	return "획득 없음" if parts.is_empty() else "   ".join(parts)
+		parts.append("%s ×%d" % [tr(field_items.item_display_name(String(item_id))), int(item_counts[item_id])])
+	return tr("획득 없음") if parts.is_empty() else "   ".join(parts)
 
 
 const NOTICE_CAP := 10

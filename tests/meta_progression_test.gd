@@ -64,6 +64,7 @@ func _run() -> void:
 	settings.window_size_index = 2
 	settings.frame_rate_limit = 144
 	settings.vsync_enabled = false
+	settings.language = "en"
 	_check(settings.save_settings() == OK, "settings report a successful save")
 	var loaded_settings := SettingsScript.new() as GameSettings
 	loaded_settings.settings_path = SETTINGS_SAVE
@@ -76,8 +77,9 @@ func _run() -> void:
 		"volume levels and the large-text preference persist")
 	_check(loaded_settings.window_size_index == 2,
 		"1920x1080 window preference persists with display settings")
-	_check(loaded_settings.frame_rate_limit == 144 and not loaded_settings.vsync_enabled,
-		"frame-rate limit and V-Sync preference persist")
+	_check(loaded_settings.frame_rate_limit == 144 and not loaded_settings.vsync_enabled
+		and loaded_settings.language == "en",
+		"frame-rate limit, V-Sync and language preferences persist")
 
 	var old_config := ConfigFile.new()
 	old_config.set_value("format", "version", 1)
@@ -143,9 +145,11 @@ func _run() -> void:
 	main.settings.window_size_index = 0
 	main.settings.frame_rate_limit = 0
 	main.settings.vsync_enabled = true
+	main.settings.language = "ko"
+	TranslationServer.set_locale("ko")
 	main._refresh_title_ui()
-	_check(main._title_rows().size() == 10,
-		"the settings page exposes display, accessibility and audio controls")
+	_check(main._title_rows().size() == 11,
+		"the settings page exposes display, accessibility, audio and language controls")
 	main._activate_title_item(0)
 	_check(main.settings.fullscreen_enabled,
 		"the settings page turns full screen on without rereading a stale OS mode")
@@ -168,13 +172,24 @@ func _run() -> void:
 	main._change_setting(7, -1, false)
 	_check(is_equal_approx(main.feedback.sound_volume, 0.25),
 		"left/right volume adjustments apply and preview the new level")
+	main._activate_title_item(9)
+	_check(main.settings.language == "en"
+		and TranslationServer.get_locale().begins_with("en")
+		and main.tr("게임 시작") == "Start Game"
+		and main.title_rows[0].text.contains("Display Mode")
+		and main.title_rows[9].get_node("State").text == "English",
+		"changing the language applies the English catalogue immediately")
+	main._activate_title_item(9)
+	_check(main.settings.language == "ko" and main.tr("게임 시작") == "게임 시작",
+		"language selection can return to Korean without restarting")
 	main.pause_active = true
 	main.pause_settings = true
 	main.pause_cursor = 9
 	main._update_pause_text()
 	_check(main.pause_overlay.get_node("PauseAction9").visible
-		and main.pause_overlay.get_node("PauseAction12").visible,
-		"the pause settings page also exposes display mode and V-Sync")
+		and main.pause_overlay.get_node("PauseAction12").visible
+		and main.pause_overlay.get_node("PauseAction13").visible,
+		"the pause settings page also exposes display mode, V-Sync and language")
 	main.pause_active = false
 	main.pause_settings = false
 	var pause_action := main.pause_overlay.get_node("PauseAction1") as Button

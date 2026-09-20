@@ -27,6 +27,11 @@ window/stretch/mode="canvas_items"
 
 theme/custom_font="res://assets/fonts/GriunXHangeul_Gowoon-Rg.ttf"
 
+[internationalization]
+
+locale/translations=PackedStringArray("res://localization/ui.ko.translation", "res://localization/ui.en.translation")
+locale/fallback="ko"
+
 [rendering]
 
 textures/canvas_textures/default_texture_filter=3

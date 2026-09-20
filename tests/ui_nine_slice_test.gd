@@ -41,7 +41,9 @@ func _run() -> void:
 		"title subpages share the enlarged central panel")
 	main.title_mode = "settings"
 	main._refresh_title_ui()
-	_check(not main.title_note.visible, "settings has no right explanation box")
+	_check(main.title_note.visible and main.title_note.position == Vector2(264, 486)
+		and main.title_note.size == Vector2(656, 88),
+		"settings uses one compact explanation strip below the two-column controls")
 	main.title_mode = "credits"
 	main._refresh_title_ui()
 	_check(main.title_note.visible and main.title_note.position.x == 280.0

@@ -6,6 +6,7 @@ const SECTION := "accessibility"
 const FORMAT_SECTION := "format"
 const SAVE_VERSION := 2
 const FRAME_RATE_LIMITS := [0, 60, 90, 120, 144, 165, 240, -1]
+const LANGUAGES := ["ko", "en"]
 var settings_path := SETTINGS_PATH # Tests isolate saves from user preferences.
 
 var sound_enabled := true
@@ -20,6 +21,7 @@ var window_size_index := 0
 ## 0 follows the monitor, -1 is uncapped, and positive values cap rendered FPS.
 var frame_rate_limit := 0
 var vsync_enabled := true
+var language := "ko"
 var last_save_error: Error = OK
 var last_load_error: Error = OK
 var recovered_from_backup := false
@@ -67,6 +69,9 @@ func load_settings() -> void:
 	if frame_rate_limit not in FRAME_RATE_LIMITS:
 		frame_rate_limit = 0
 	vsync_enabled = bool(config.get_value(SECTION, "vsync_enabled", vsync_enabled))
+	language = String(config.get_value(SECTION, "language", language))
+	if language not in LANGUAGES:
+		language = "ko"
 
 
 func save_settings() -> Error:
@@ -83,5 +88,6 @@ func save_settings() -> Error:
 	config.set_value(SECTION, "window_size_index", window_size_index)
 	config.set_value(SECTION, "frame_rate_limit", frame_rate_limit)
 	config.set_value(SECTION, "vsync_enabled", vsync_enabled)
+	config.set_value(SECTION, "language", language)
 	last_save_error = MetaProgression._save_atomically(config, settings_path)
 	return last_save_error

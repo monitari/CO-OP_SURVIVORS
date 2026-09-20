@@ -194,15 +194,15 @@ static func difficulty_stars(character: Dictionary) -> String:
 ## by both players at once and no amount of speed makes up for it.
 static func _difficulty_headline(character: Dictionary, coverage: float, durability: float, mobility: float) -> String:
 	if float(character["chain"]) <= -25.0:
-		return "사슬이 짧아 둘이 붙어 다녀야 합니다"
+		return TranslationServer.translate("사슬이 짧아 둘이 붙어 다녀야 합니다")
 	var weakest := minf(coverage, minf(durability, mobility))
 	if weakest > 0.55:
-		return "약점이 뚜렷하지 않아 무난합니다"
+		return TranslationServer.translate("약점이 뚜렷하지 않아 무난합니다")
 	if is_equal_approx(weakest, coverage):
-		return "한 번에 처리하는 수가 적어 포위에 약합니다"
+		return TranslationServer.translate("한 번에 처리하는 수가 적어 포위에 약합니다")
 	if is_equal_approx(weakest, durability):
-		return "한 대가 크게 아파 실수를 아낄 수 없습니다"
-	return "느려서 위치를 미리 잡아 두어야 합니다"
+		return TranslationServer.translate("한 대가 크게 아파 실수를 아낄 수 없습니다")
+	return TranslationServer.translate("느려서 위치를 미리 잡아 두어야 합니다")
 
 
 ## The stats the select screen shows, in the order it shows them, each with the
@@ -225,25 +225,25 @@ const DISPLAYED_STATS := [
 static func stat_text(character: Dictionary, field: String) -> String:
 	match field:
 		"health":
-			return "체력 %.0f" % float(character["health"])
+			return TranslationServer.translate("체력 %.0f") % float(character["health"])
 		"speed":
-			return "이속 %.0f" % float(character["speed"])
+			return TranslationServer.translate("이속 %.0f") % float(character["speed"])
 		"armor":
-			return "방어 %.0f" % float(character["armor"])
+			return TranslationServer.translate("방어 %.0f") % float(character["armor"])
 		"crit":
-			return "치명 %.0f%%" % (float(character["crit"]) * 100.0)
+			return TranslationServer.translate("치명 %.0f%%") % (float(character["crit"]) * 100.0)
 		"might":
-			return "위력 %.0f%%" % (float(character["might"]) * 100.0)
+			return TranslationServer.translate("위력 %.0f%%") % (float(character["might"]) * 100.0)
 		"haste":
-			return "공속 %.0f%%" % (100.0 / float(character["haste"]))
+			return TranslationServer.translate("공속 %.0f%%") % (100.0 / float(character["haste"]))
 		"area":
-			return "범위 %.0f%%" % (float(character["area"]) * 100.0)
+			return TranslationServer.translate("범위 %.0f%%") % (float(character["area"]) * 100.0)
 		"recovery":
-			return "재생 %.1f" % float(character["recovery"])
+			return TranslationServer.translate("재생 %.1f") % float(character["recovery"])
 		"pickup":
-			return "자력 %.0f%%" % (float(character["pickup"]) * 100.0)
+			return TranslationServer.translate("자력 %.0f%%") % (float(character["pickup"]) * 100.0)
 		_:
-			return "사슬 %+.0f" % float(character["chain"])
+			return TranslationServer.translate("사슬 %+.0f") % float(character["chain"])
 
 
 static func _span(roster: Array[Dictionary], field: String) -> Vector2:
