@@ -26,9 +26,13 @@ func _test_run_stats_are_fresh() -> void:
 	var first := RunStatsTemplate.create()
 	var second := RunStatsTemplate.create()
 	first["xp_by_player"][0] = 99
+	first["contribution_points"][0] = 88.0
+	first["kills_by_player"][0] = 7
 	first["items_by_type"]["heal"] = 3
 	first["weapon_damage"][0]["homing"] = 42.0
 	_check(second["xp_by_player"] == [0, 0], "player XP does not leak between runs")
+	_check(second["contribution_points"] == [0.0, 0.0]
+		and second["kills_by_player"] == [0, 0], "player contribution does not leak between runs")
 	_check(second["items_by_type"].is_empty(), "item counts do not leak between runs")
 	_check(second["weapon_damage"][0].is_empty(), "nested damage data is deeply duplicated")
 

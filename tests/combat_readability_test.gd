@@ -30,8 +30,18 @@ func run() -> void:
 	main.kills = 17
 	var enemy: ChaserEnemy = main.wave_director._acquire_enemy("chaser", 0.0, Vector2.ZERO, false, false)
 	main._register_enemy(enemy)
-	enemy.take_damage(100000.0)
+	enemy.take_damage(100000.0, 0, "homing")
 	check(main.kills == 18 and main.players[0].health == 40.0 and main.players[1].health == 40.0, "18 kills no longer grant free healing")
+	check(int(main.run_stats["kills_by_player"][0]) == 1
+		and float(main.run_stats["contribution_points"][0]) > 0.0,
+		"damage and the finishing blow raise the acting player's contribution")
+	var contribution_before_actions: float = float(main.run_stats["contribution_points"][0])
+	main._on_field_item_collected("heal", 0)
+	main._on_player_revived(main.players[1])
+	check(float(main.run_stats["contribution_points"][0]) > contribution_before_actions
+		and int(main.run_stats["items_by_player"][0]) == 1
+		and int(main.run_stats["revives_by_player"][0]) == 1,
+		"item pickup and partner rescue also raise contribution")
 	main._update_hud()
 	var local_frame: Panel = main.combat_hud.get_node("P1Frame")
 	var shared_frame: Panel = main.combat_hud.get_node("SharedFrame")
@@ -44,7 +54,9 @@ func run() -> void:
 		and main.p1_health_text_label.get_theme_constant("outline_size") == 0,
 		"Health text has no shadow or artificial bold outline")
 	check(String(main.combat_hud.get_node("PlayerIdentity0").text) == main.players[0].character_name,
-		"The survivor card names the cat above its health and equipment")
+		"The survivor row names the cat beside contribution and health")
+	check(String(main.combat_hud.get_node("PlayerLevel0").text).begins_with("기여 "),
+		"The survivor row presents an action-based contribution level")
 	var holder: Control = main.combat_hud.get_node("Carried0")
 	var socket: Control = holder.get_node("WeaponSlot0")
 	check(socket.size.x == socket.size.y, "Equipment sockets are square")

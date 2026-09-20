@@ -24,49 +24,48 @@ static func hud(main: Node) -> void:
 		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
 		# Every client reads itself on the left and its partner on the right. Both
 		# sides use identical geometry, mirrored around the screen centre.
-		bar.position = Vector2(UI.PLAYER_BAR_LEFT, UI.PLAYER_HEALTH_TOP) if own else Vector2(UI.PLAYER_BAR_RIGHT, UI.PLAYER_HEALTH_TOP)
+		bar.position = Vector2(UI.PLAYER_BAR_LEFT, UI.PLAYER_ROW_TOP) if own else Vector2(UI.PLAYER_BAR_RIGHT, UI.PLAYER_ROW_TOP)
 		bar.size = Vector2(UI.PLAYER_BAR_WIDTH, 24)
 		bar.fill_mode = ProgressBar.FILL_BEGIN_TO_END if own else ProgressBar.FILL_END_TO_BEGIN
 		caption.position = bar.position
 		caption.size = bar.size
 		var portrait: Control = main.hud_portrait_icons[slot]
-		portrait.position = Vector2(20, 16) if own else Vector2(1204, 16)
-		portrait.size = Vector2(56, 56)
+		portrait.position = Vector2(20, 14) if own else Vector2(1208, 14)
+		portrait.size = Vector2(52, 52)
 		portrait.scale = Vector2.ONE
 		portrait.show()
 		var number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
 		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
 		var level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		if own:
-			identity.position = Vector2(UI.PLAYER_BAR_LEFT, 10)
-			identity.size = Vector2(UI.PLAYER_BAR_WIDTH, 28)
+			identity.position = Vector2(UI.PLAYER_IDENTITY_LEFT, UI.PLAYER_ROW_TOP)
+			identity.size = Vector2(80, 24)
 			identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			level.position = Vector2(UI.PLAYER_BAR_LEFT, 40)
-			number.position = Vector2(UI.PLAYER_BAR_LEFT + 64, 40)
-			number.size = Vector2(76, 22)
+			level.position = Vector2(UI.PLAYER_LEVEL_LEFT, UI.PLAYER_ROW_TOP)
+			number.position = Vector2(UI.PLAYER_ROLE_LEFT, UI.PLAYER_ROW_TOP)
+			number.size = Vector2(28, 24)
 			number.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		else:
-			identity.position = Vector2(UI.PLAYER_BAR_RIGHT, 10)
-			identity.size = Vector2(UI.PLAYER_BAR_WIDTH, 28)
+			identity.position = Vector2(UI.PLAYER_IDENTITY_RIGHT, UI.PLAYER_ROW_TOP)
+			identity.size = Vector2(80, 24)
 			identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-			level.position = Vector2(UI.PLAYER_BAR_RIGHT + UI.PLAYER_BAR_WIDTH - 58, 40)
-			number.position = Vector2(UI.PLAYER_BAR_RIGHT + UI.PLAYER_BAR_WIDTH - 140, 40)
-			number.size = Vector2(76, 22)
+			level.position = Vector2(UI.PLAYER_LEVEL_RIGHT, UI.PLAYER_ROW_TOP)
+			number.position = Vector2(UI.PLAYER_ROLE_RIGHT, UI.PLAYER_ROW_TOP)
+			number.size = Vector2(28, 24)
 			number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		number.show()
 		identity.show()
 		level.show()
 		var ring: Control = main.combat_hud.get_node("PlayerPortraitRing%d" % slot)
-		ring.position = Vector2(14, 10) if own else Vector2(1198, 10)
+		ring.position = Vector2(14, 8) if own else Vector2(1202, 8)
 		ring.show()
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		frame.position = Vector2(10, 8) if own else Vector2(982, 8)
 		frame.hide()
-		# Carried equipment sits under the bar it belongs to, left-aligned with it
-		# on the left and right-aligned (and mirrored) on the right.
+		# Carried equipment forms a compact row below each player's combined
+		# identity, contribution and health line.
 		var carried: Control = main.combat_hud.get_node("Carried%d" % slot)
-		carried.position = Vector2(bar.position.x if own else bar.position.x + bar.size.x - carried.size.x,
-			bar.position.y + bar.size.y + 7.0)
+		carried.position = Vector2(90, 50) if own else Vector2(1190 - carried.size.x, 50)
 		carried.set_meta("compact", false)
 		UI.layout_carried(carried, not own)
 

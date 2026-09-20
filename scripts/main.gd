@@ -2975,6 +2975,11 @@ func _on_footfall(at: Vector2, color: Color) -> void:
 
 func _on_player_revived(player: ChainPlayer) -> void:
 	run_stats["revives"] = int(run_stats["revives"]) + 1
+	var revived_index := players.find(player)
+	if revived_index >= 0:
+		var rescuer_index := 1 - revived_index
+		run_stats["revives_by_player"][rescuer_index] = int(run_stats["revives_by_player"][rescuer_index]) + 1
+		_award_contribution(rescuer_index, CONTRIBUTION_REVIVE)
 	feedback.play_cue("revive")
 	_show_message("%s 부활 — 사슬이 다시 이어집니다" % player.character_name, Color("80ed99"))
 
@@ -3431,10 +3436,15 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 	var dropped_grade := enemy.xp_grade
 	var defeated_boss := enemy.boss
 	var was_elite := enemy.elite
+	var killer_index := enemy.last_damage_player
 	if was_elite or defeated_boss:
 		dropped_xp = roundi(float(dropped_xp) * (1.0 + team_hunt_bonus))
 	enemies.erase(enemy)
 	kills += 1
+	if killer_index >= 0 and killer_index < 2:
+		run_stats["kills_by_player"][killer_index] = int(run_stats["kills_by_player"][killer_index]) + 1
+		_award_contribution(killer_index,
+			CONTRIBUTION_BOSS_KILL if defeated_boss else CONTRIBUTION_ELITE_KILL if was_elite else CONTRIBUTION_KILL)
 	_drop_experience(death_position, dropped_xp, dropped_grade, was_elite or defeated_boss)
 	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
 	# Only the named kills light the roof. An ordinary body dies several times a
@@ -3650,6 +3660,7 @@ func _on_field_item_collected(item_id: String, collector_index := -1) -> void:
 	run_stats["items"] = int(run_stats["items"]) + 1
 	if collector_index >= 0 and collector_index < 2:
 		run_stats["items_by_player"][collector_index] = int(run_stats["items_by_player"][collector_index]) + 1
+		_award_contribution(collector_index, CONTRIBUTION_ITEM)
 	var item_counts: Dictionary = run_stats["items_by_type"]
 	item_counts[item_id] = int(item_counts.get(item_id, 0)) + 1
 	var pickup_centre := (players[0].global_position + players[1].global_position) * 0.5
@@ -3935,7 +3946,7 @@ func _gain_shared_xp(amount: int, collector_index := -1) -> void:
 	progression.add_experience(gained)
 	if collector_index >= 0 and collector_index < 2:
 		run_stats["xp_by_player"][collector_index] = int(run_stats["xp_by_player"][collector_index]) + gained
-		run_stats["personal_levels"][collector_index] = _personal_level_for_xp(int(run_stats["xp_by_player"][collector_index]))
+		_award_contribution(collector_index, float(gained))
 	feedback.report_xp()
 	# Not opened here any more: the physics loop watches the queue so a level
 	# earned mid-burst waits out the gap instead of interrupting on the frame
@@ -6429,13 +6440,27 @@ func _reset_run_stats() -> void:
 	run_stats = RunStatsTemplate.create()
 
 
-func _personal_level_for_xp(total_xp: int) -> int:
-	var personal_level := 1
-	var remaining := total_xp
-	while remaining >= SharedProgression.requirement_for_level(personal_level):
-		remaining -= SharedProgression.requirement_for_level(personal_level)
-		personal_level += 1
-	return personal_level
+const CONTRIBUTION_DAMAGE_SCALE := 0.02
+const CONTRIBUTION_KILL := 2.0
+const CONTRIBUTION_ELITE_KILL := 12.0
+const CONTRIBUTION_BOSS_KILL := 60.0
+const CONTRIBUTION_ITEM := 10.0
+const CONTRIBUTION_REVIVE := 80.0
+
+
+func _award_contribution(player_index: int, points: float) -> void:
+	if player_index < 0 or player_index >= 2 or points <= 0.0:
+		return
+	run_stats["contribution_points"][player_index] = float(run_stats["contribution_points"][player_index]) + points
+	var progress: float = float(run_stats["contribution_progress"][player_index]) + points
+	var contribution_level: int = int(run_stats["personal_levels"][player_index])
+	var requirement := float(SharedProgression.requirement_for_level(contribution_level))
+	while progress >= requirement:
+		progress -= requirement
+		contribution_level += 1
+		requirement = float(SharedProgression.requirement_for_level(contribution_level))
+	run_stats["contribution_progress"][player_index] = progress
+	run_stats["personal_levels"][player_index] = contribution_level
 
 
 func _record_combat_damage(player_index: int, weapon_id: String, amount: float) -> void:
@@ -6448,6 +6473,7 @@ func _record_combat_damage(player_index: int, weapon_id: String, amount: float) 
 		return
 	var damage_by_weapon: Dictionary = run_stats["weapon_damage"][player_index]
 	damage_by_weapon[weapon_id] = float(damage_by_weapon.get(weapon_id, 0.0)) + amount
+	_award_contribution(player_index, amount * CONTRIBUTION_DAMAGE_SCALE)
 
 
 func _merge_weapon_damage_record(player_index: int, old_id: String, new_id: String) -> void:
@@ -6469,9 +6495,10 @@ func _player_damage_total(player_index: int) -> float:
 
 
 func _result_player_summary(player_index: int) -> String:
-	return "개인 LV.%d   주운 XP %d   아이템 %d\n총 피해 %.0f   총 DPS %.1f" % [
-		int(run_stats["personal_levels"][player_index]), int(run_stats["xp_by_player"][player_index]),
+	return "기여 LV.%d   처치 %d   아이템 %d\n총 피해 %.0f   구조 %d   DPS %.1f" % [
+		int(run_stats["personal_levels"][player_index]), int(run_stats["kills_by_player"][player_index]),
 		int(run_stats["items_by_player"][player_index]), _player_damage_total(player_index),
+		int(run_stats["revives_by_player"][player_index]),
 		_player_damage_total(player_index) / maxf(1.0, elapsed),
 	]
 

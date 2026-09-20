@@ -50,12 +50,16 @@ func _run() -> void:
 			"player identity omits the redundant personal level")
 	_check(main.chain_distance_text_label.text.contains("거리"), "the distance bar names what it measures")
 	_check(main.chain_integrity_text_label.text.contains("내구도"), "the integrity bar names what it measures")
+	_check(main.combat_hud.get_node("ChainEffectReadout").text.contains("공격"),
+		"the distance row names the chain's current attack effect")
 
 	main.players[0].position = Vector2(-main.chain_max_length * 0.43, 0.0)
 	main.players[1].position = Vector2(main.chain_max_length * 0.43, 0.0)
 	main._update_chain_visual()
 	main._update_hud()
 	_check(main._tension_damage_multiplier() > 1.0, "gold overcharge stage grants the advertised bonus")
+	_check(main.combat_hud.get_node("ChainEffectReadout").text.contains("+25%"),
+		"the distance row shows the live overcharge attack bonus")
 	_check(not main.chain_status_label.visible, "the compact HUD omits the separate chain-state row")
 	main.players[0].position = Vector2(-20.0, 0.0)
 	main.players[1].position = Vector2(20.0, 0.0)
@@ -154,6 +158,8 @@ func _test_chain_integrity(main: Node) -> void:
 	_check(main._tension_damage_multiplier() < 1.0, "an overloaded chain penalises damage instead of boosting it")
 	main._update_hud()
 	_check(not main.chain_status_label.visible, "overload does not restore the removed chain-state row")
+	_check(main.combat_hud.get_node("ChainEffectReadout").text.contains("-20%"),
+		"the distance row shows the live overload attack penalty")
 	_check(main.chain_integrity_bar.value <= 0.0, "the integrity bar bottoms out rather than repeating the number in text")
 
 	# Closing up is the only way back, and it must actually clear the penalty.

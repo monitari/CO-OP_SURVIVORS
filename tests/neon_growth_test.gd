@@ -89,8 +89,8 @@ func run() -> void:
 		"portrait backing box is gone, not merely turned transparent")
 	check(not main.combat_hud.get_node("PlayerIdentity0").text.contains("개인 Lv."),
 		"personal level is removed from player identity")
-	check(not main.combat_hud.get_node("Carried0/WeaponSlot1").visible,
-		"unused equipment sockets do not reserve empty boxes")
+	check(main.combat_hud.get_node("Carried0/WeaponSlot1").visible,
+		"unused equipment sockets preserve the compact 2x4 loadout grid")
 	var rerolls: int = main.rerolls_remaining[0]
 	main.level_overlay.get_node("Reroll0").pressed.emit()
 	check(main.rerolls_remaining[0] == rerolls - 1, "reroll button still works")

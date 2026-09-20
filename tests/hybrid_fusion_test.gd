@@ -45,7 +45,7 @@ func _run() -> void:
 	var first_requirement := SharedProgression.requirement_for_level(1)
 	main._gain_shared_xp(first_requirement, 0)
 	_check(int(main.run_stats["personal_levels"][0]) == 2 and int(main.run_stats["personal_levels"][1]) == 1,
-		"shared XP also records a collector-side rivalry level")
+		"collected XP contributes to the collector-side contribution level")
 
 	var directional := EnemyScript.new() as ChaserEnemy
 	directional.setup(0.0, "bulwark")
@@ -77,13 +77,13 @@ func _run() -> void:
 
 	main.elapsed = 10.0
 	Editorial.refresh_result(main, false)
-	_check(main.result_overlay.get_node("ResultPlayerStats0").text.contains("개인 LV.2"),
-		"result screen exposes the personal level comparison")
+	_check(main.result_overlay.get_node("ResultPlayerStats0").text.contains("기여 LV.2"),
+		"result screen exposes the contribution level comparison")
 	_check(main.result_overlay.get_node("ResultWeaponDps0_0").text.contains("DPS"),
 		"result screen exposes weapon DPS")
 
 	if failures.is_empty():
-		print("GAMEPLAY_REWORK_PASS: treasure enhancement, resonance gate, enemy facing, chest floor, rivalry levels, result DPS")
+		print("GAMEPLAY_REWORK_PASS: treasure enhancement, resonance gate, enemy facing, chest floor, contribution levels, result DPS")
 		quit(0)
 	else:
 		for failure in failures:

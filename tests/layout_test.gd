@@ -242,10 +242,10 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 		var holder: Control = main.combat_hud.get_node("Carried%d" % slot)
 		var bar: ProgressBar = main.p1_health_bar if slot == 0 else main.p2_health_bar
 		_check(holder.visible, "P%d carried equipment is shown" % (slot + 1))
+		var shared_frame: Control = main.combat_hud.get_node("SharedFrame")
 		_check(holder.position.y >= bar.position.y + bar.size.y
-			and holder.position.x >= bar.position.x - 0.5
-			and holder.position.x + holder.size.x <= bar.position.x + bar.size.x + 0.5,
-			"P%d equipment sits under its own health bar" % (slot + 1))
+			and not holder.get_rect().intersects(shared_frame.get_rect()),
+			"P%d compact equipment sits below its player row and clear of the centre" % (slot + 1))
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		_check(not frame.visible,
 			"P%d health and equipment have no enclosing player box" % (slot + 1))
@@ -254,8 +254,10 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 		var player_level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		_check(identity.visible and player_number.visible and player_level.visible
 			and not identity.text.is_empty() and not player_number.text.is_empty()
-			and player_level.text.begins_with("Lv."),
-			"P%d block names the survivor, player role and shared level" % (slot + 1))
+			and player_level.text.begins_with("기여 ")
+			and is_equal_approx(identity.position.y, bar.position.y)
+			and is_equal_approx(player_level.position.y, bar.position.y),
+			"P%d row aligns survivor, role, contribution level and health" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
 			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)
