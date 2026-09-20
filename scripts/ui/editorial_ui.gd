@@ -845,7 +845,7 @@ static func growth_category(option: Dictionary) -> String:
 static func growth_title(option: Dictionary) -> String:
 	var title := String(option.get("title", ""))
 	for prefix in ["새 보물: ", "신규 기술: ", "보물 강화: ", "무기 진화: ",
-			"신규 무기: ", "시너지 보물: "]:
+			"신규 무기: ", "시너지 보물: ", "필수 보물: "]:
 		title = title.replace(prefix, "")
 	# A title is one or two catalog names stacked ("마력 증폭" over the weapon it
 	# applies to). Each line is its own key, so each line is looked up on its own
@@ -1031,7 +1031,10 @@ static func _hud(main: Node) -> void:
 	main.hud_label.add_theme_font_override("font", ReadoutFont)
 	main.hud_label.add_theme_constant_override("outline_size", 0)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + SHARED_WIDTH - 130.0, SHARED_TOP + 9.0, 116.0, 26.0), 14, Palette.INK)
+	# The English readout grows to 16px in large-text mode. Give its left edge
+	# the otherwise unused gap beside the clock so "Wave" cannot be clipped by
+	# the right-aligned kill count.
+	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + SHARED_WIDTH - 144.0, SHARED_TOP + 9.0, 130.0, 26.0), 14, Palette.INK)
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 14.0, SHARED_TOP + 9.0, 116.0, 26.0), 13, Palette.GOLD_INK)
@@ -1114,8 +1117,8 @@ const PLAYER_LEVEL_LEFT := 144.0
 const PLAYER_LEVEL_RIGHT := 1086.0
 const PLAYER_LEVEL_WIDTH := 50.0
 const PLAYER_BAR_LEFT := 198.0
-const PLAYER_BAR_RIGHT := 938.0
-const PLAYER_BAR_WIDTH := 144.0
+const PLAYER_BAR_RIGHT := 914.0
+const PLAYER_BAR_WIDTH := 168.0
 const PLAYER_ROW_TOP := 18.0
 const CARRIED_CELL := 36.0
 const CARRIED_PITCH := 40.0
@@ -1233,7 +1236,10 @@ static func refresh_hud(main: Node) -> void:
 		var level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		number.text = main.player_label(slot)
 		identity.text = main.tr(main.players[slot].character_name)
-		level.text = main.tr("기여 %d") % int(main.run_stats["personal_levels"][slot])
+		# This is a compact level badge, not a prose contribution label. Keeping
+		# one locale-neutral abbreviation also prevents the large English caption
+		# from being clipped in its 50px mirrored slot.
+		level.text = "Lv.%d" % int(main.run_stats["personal_levels"][slot])
 		UIWrite.font_color(number, accent)
 		UIWrite.font_color(identity, accent)
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)

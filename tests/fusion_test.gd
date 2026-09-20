@@ -20,9 +20,8 @@ func _initialize() -> void:
 ## survives it, and the weapon keeps climbing afterwards.
 ##
 ## The gate this test used to guard (a maxed weapon *and* a route-specific
-## treasure at Lv.4) is deliberately gone, so the checks that it was enforced
-## are gone with it. What replaced them is the opposite assertion: a treasure
-## must not be able to hold an enhancement back.
+## treasure at Lv.4) is once again the recipe. Both halves are checked at their
+## boundary so neither ingredient can silently become optional.
 func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
@@ -42,7 +41,7 @@ func _run() -> void:
 
 	_test_catalog_is_complete()
 	_test_route_choice(main)
-	_test_level_seven_is_the_only_condition(main)
+	_test_recipe_conditions(main)
 	_test_enhancement_replaces_in_place(main)
 	_test_growth_carries_in_full(main)
 	_test_tier_is_capped(main)
@@ -50,7 +49,7 @@ func _run() -> void:
 	_test_completed_build_stops_growth(main)
 
 	if failures.is_empty():
-		print("FUSION_PASS: two routes per weapon, Lv.7 auto-enhances with growth intact, no treasure gate, maxed cards removed")
+		print("FUSION_PASS: two routes per weapon, Lv.7 + required treasure auto-enhances with growth intact, maxed cards removed")
 		quit(0)
 	else:
 		for failure in failures:
@@ -125,18 +124,27 @@ func _test_route_choice(main: Node) -> void:
 		"the chosen route records the treasure it pairs well with")
 
 
-## The one that matters: Lv.7 and nothing else, and no card in between.
-func _test_level_seven_is_the_only_condition(main: Node) -> void:
+## The route defines the treasure recipe; both weapon Lv.7 and treasure Lv.4
+## are required, with no separate evolution card in between.
+func _test_recipe_conditions(main: Node) -> void:
 	var weapon: Dictionary = main.weapon_loadouts[0][0]
 	main.treasure_loadouts[0] = []
 	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER - 1
 	_check(main._available_evolution(0, 0).is_empty(), "a weapon below Lv.7 is not enhanced")
 	_check(main._apply_pending_evolutions(0).is_empty(), "and nothing enhances it early")
 
-	# Carrying no treasures at all must not stand in the way.
 	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	_check(main._available_evolution(0, 0).is_empty(),
+		"Lv.7 alone does not enhance without the route's treasure")
+	var required_id := String(weapon["tech_synergy_treasure_id"])
+	var material: Dictionary = TreasureCatalog.build_state(TreasureCatalog.by_id(required_id))
+	material["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER - 1
+	main.treasure_loadouts[0].append(material)
+	_check(main._available_evolution(0, 0).is_empty(),
+		"the required treasure one tier short still blocks enhancement")
+	material["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER
 	_check(not main._available_evolution(0, 0).is_empty(),
-		"Lv.7 with an empty treasure loadout is enough to enhance")
+		"weapon Lv.7 plus its required treasure Lv.4 unlocks enhancement")
 
 	# The enhancement is never a card the pair has to pick.
 	for draw in 12:
@@ -205,8 +213,8 @@ func _test_tier_is_capped(main: Node) -> void:
 			"a max-tier weapon never appears as another ordinary upgrade")
 
 
-## The growth screen never names an enhanced weapon the pair has not reached,
-## and the corner seal marks a *synergy* rather than a requirement.
+## The growth screen exposes both recipe pieces, and the corner seal explains
+## the exact treasure tier rather than implying a vague synergy.
 func _test_growth_selection_exposes_synergy(main: Node) -> void:
 	main.fusion_discovered = false
 	main._refresh_level_up_ui()
@@ -240,12 +248,11 @@ func _test_growth_selection_exposes_synergy(main: Node) -> void:
 			_check(not card.get_node("FusionMark").visible,
 				"the synergy seal stays hidden before the treasure is owned (slot %d card %d)" % [slot, index])
 
-	# The progress line is one clock now, not two: no treasure appears in it.
 	var progress_line: String = main._fusion_progress_line(1)
 	_check(progress_line.contains("/%d" % EvolutionCatalog.EVOLUTION_TIER),
 		"full stats counts the weapon toward Lv.%d (%s)" % [EvolutionCatalog.EVOLUTION_TIER, progress_line])
-	_check(not progress_line.contains(String(treasure["name"])),
-		"and no longer presents a treasure as part of the requirement")
+	_check(progress_line.contains(String(treasure["name"])) and progress_line.contains("/%d" % EvolutionCatalog.REQUIRED_TREASURE_TIER),
+		"full stats names the required treasure and its tier (%s)" % progress_line)
 
 	main._apply_upgrade(1, {"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure})
 	main.p2_choices = route_choices
@@ -253,8 +260,8 @@ func _test_growth_selection_exposes_synergy(main: Node) -> void:
 	var mark := main.level_card_labels[1][0].get_node("FusionMark") as TextureRect
 	_check(mark.visible and mark.texture != null,
 		"owning the route's synergy treasure reveals the seal on its growth card")
-	_check(mark.tooltip_text.contains(String(treasure["name"])) and mark.tooltip_text.contains("시너지"),
-		"the seal explains the synergy rather than demanding a combination")
+	_check(mark.tooltip_text.contains(String(treasure["name"])) and mark.tooltip_text.contains("Lv.%d" % EvolutionCatalog.REQUIRED_TREASURE_TIER),
+		"the seal explains the exact treasure requirement")
 
 
 func _test_completed_build_stops_growth(main: Node) -> void:

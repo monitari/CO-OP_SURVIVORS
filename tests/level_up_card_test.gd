@@ -60,8 +60,8 @@ func _run() -> void:
 ## Two properties replaced it and this is what holds them honest:
 ##
 ##   1. a weapon takes at most one slot in a hand, whatever its own axes offer
-##   2. while a slot is open, every hand carries one piece of gear the survivor
-##      has never held, so discovery does not depend on the shuffle
+##   2. owned growth and discovery are both weighted draws: either category can
+##      be absent, making rerolls and imperfect hands meaningful again
 ##
 ## Sampled over many draws, since both are claims about every hand rather than
 ## about a lucky one.
@@ -85,7 +85,9 @@ func _test_hand_composition(main: Node) -> void:
 
 	var worst_crowding := 0
 	var discovery_missing := 0
-	var draws := 40
+	var discovery_seen := 0
+	var weapon_missing := 0
+	var draws := 100
 	for draw in draws:
 		main.last_upgrade_choice_keys[0] = []
 		var hand: Array = main._get_upgrade_choices(1)
@@ -103,12 +105,18 @@ func _test_hand_composition(main: Node) -> void:
 			worst_crowding = maxi(worst_crowding, int(per_weapon[weapon_slot]))
 		if main.treasure_loadouts[0].size() < main.TREASURE_LOADOUT_CAP and discovery == 0:
 			discovery_missing += 1
+		else:
+			discovery_seen += discovery
+		if per_weapon.is_empty():
+			weapon_missing += 1
 	_check(worst_crowding <= 1,
 		"no weapon takes more than one card in a hand (worst seen: %d in %d draws)"
 			% [worst_crowding, draws])
-	_check(discovery_missing == 0,
-		"every hand offers gear the survivor has never held while a slot is open (%d of %d draws did not)"
-			% [discovery_missing, draws])
+	_check(discovery_missing > 0 and discovery_seen > 0,
+		"discovery is possible but not guaranteed (%d missing hands, %d cards over %d draws)"
+			% [discovery_missing, discovery_seen, draws])
+	_check(weapon_missing > 0,
+		"owned weapon growth is not guaranteed (%d of %d hands omitted it)" % [weapon_missing, draws])
 
 
 ## The bands themselves, driven by scores rather than by whatever the pool
@@ -281,6 +289,10 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0],
 		main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0])
 	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER - 1
+	var required_id := String(main.weapon_loadouts[0][0]["tech_synergy_treasure_id"])
+	var required_material: Dictionary = TreasureCatalog.build_state(TreasureCatalog.by_id(required_id))
+	required_material["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER
+	main.treasure_loadouts[0] = [required_material]
 	var partner: Dictionary = main.weapon_loadouts[1][0]
 	main.weapon_loadouts[1][0] = EvolutionCatalog.build_state(
 		EvolutionCatalog.for_base(String(partner["weapon_id"])), partner
@@ -304,6 +316,7 @@ func _test_recommendation_and_build_readout(main: Node) -> void:
 	# Restore the normal opening tiers before the randomized card-flow checks.
 	main.weapon_loadouts[0][0]["tier"] = 1
 	main.weapon_loadouts[1][0]["tier"] = 1
+	main.treasure_loadouts[0] = []
 	main.p1_choices = main._get_upgrade_choices(1)
 	main.p2_choices = main._get_upgrade_choices(2)
 	main._refresh_level_up_ui()

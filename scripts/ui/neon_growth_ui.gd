@@ -184,6 +184,7 @@ static func card_model(main: Node, slot: int, option: Dictionary) -> Dictionary:
 	var tech := String(option["id"]) == "choose_tech"
 	var against := bool(option.get("discouraged", false))
 	var reason := String(option.get("recommendation_reason", "무난한 성장"))
+	var fusion: Dictionary = main._fusion_partner_for_option(slot, option)
 	var kind: String = {
 		"choose_tech": "tech", "unlock_weapon": "new_weapon",
 		"unlock_treasure": "new_treasure", "treasure_upgrade": "treasure",
@@ -195,8 +196,9 @@ static func card_model(main: Node, slot: int, option: Dictionary) -> Dictionary:
 		"title": UI.growth_title(option),
 		"body": UI.compact_growth_description(option) if tech else main._upgrade_preview(slot, option),
 		"icon": Icons.upgrade(main._option_icon_id(slot, option), main._option_weapon_id(slot, option)),
-		"fusion": main._fusion_partner_for_option(slot, option).get("texture"),
-		"fusion_name": String(main._fusion_partner_for_option(slot, option).get("name", "")),
+		"fusion": fusion.get("texture"),
+		"fusion_name": String(fusion.get("name", "")),
+		"fusion_tier": main.Evolutions.REQUIRED_TREASURE_TIER,
 		"tech": tech,
 		"advice": "discouraged" if against else ("recommended" if bool(option.get("recommended", false)) else "neutral"),
 		"reason": String(option.get("discouragement_reason", reason)) if against else reason,

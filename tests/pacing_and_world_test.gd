@@ -190,7 +190,7 @@ func _test_select_exposes_the_tech_tree(main: Node) -> void:
 		var card := String(main.character_p1_label.text if player_index == 0 else main.character_p2_label.text)
 		# 추천, not 필수 — treasures stopped gating enhancement, and the select
 		# screen is where a player would otherwise read a suggestion as a rule.
-		_check(card.contains("추천 보물"), "and names the routes' synergy treasures as recommendations")
+		_check(card.contains("필수 보물"), "and names the routes' required evolution treasures")
 		_check(not card.contains("필요 보물"), "and never presents one as required")
 		_check(not card.contains("난이도"), "and does not classify the pick by difficulty")
 		_check(main.character_overlay.get_node("CatWeapon%d" % player_index).texture != null, "and shows its weapon icon")

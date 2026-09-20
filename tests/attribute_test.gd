@@ -42,7 +42,7 @@ func _run() -> void:
 	_test_card_rules(main)
 
 	if failures.is_empty():
-		print("ATTRIBUTE_PASS: combat stats apply, lifesteal uses actual damage and a shared cap, weapon card guaranteed")
+		print("ATTRIBUTE_PASS: combat stats apply, lifesteal uses actual damage and a shared cap, weighted growth hands")
 		quit(0)
 	else:
 		for failure in failures:
@@ -284,10 +284,11 @@ func _test_lifesteal(main: Node) -> void:
 func _test_card_rules(main: Node) -> void:
 	if String(main.weapon_loadouts[0][0].get("tech_id", "")).is_empty():
 		main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.for_weapon(String(main.weapon_loadouts[0][0]["weapon_id"]))[0])
-	# Attribute cards dilute the pool, and weapon tier is the only route to
-	# resonance, so every draw must still contain a weapon upgrade.
+	# Owned weapons participate in the same weighted draw as the rest of the
+	# build. They should remain common, but no longer occupy a guaranteed slot.
 	var draws_without_weapon := 0
-	for draw in 30:
+	var draws := 80
+	for draw in draws:
 		var choices: Array = main._get_upgrade_choices(1)
 		var has_weapon := false
 		for option in choices:
@@ -295,7 +296,8 @@ func _test_card_rules(main: Node) -> void:
 				has_weapon = true
 		if not has_weapon:
 			draws_without_weapon += 1
-	_check(draws_without_weapon == 0, "every level-up still offers at least one weapon upgrade (%d draws missed)" % draws_without_weapon)
+	_check(draws_without_weapon > 0 and draws_without_weapon < draws,
+		"weapon growth is available but not guaranteed (%d of %d hands omitted it)" % [draws_without_weapon, draws])
 
 	# Measured against a filled-out build on purpose. With one weapon and no
 	# treasures nearly every option in the pool is already build-defining, so

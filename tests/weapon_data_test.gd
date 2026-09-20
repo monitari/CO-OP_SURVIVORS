@@ -109,14 +109,14 @@ func _check_techs() -> void:
 				"%s/%s has no synergy treasure" % [weapon_id, tech_id])
 			# §8. A route must never be the reason a weapon cannot finish.
 			_check(not tech.has("treasure_id"),
-				"%s/%s still carries a required treasure; treasures are synergy only" % [weapon_id, tech_id])
+				"%s/%s duplicates the centralized synergy_treasure_id recipe field" % [weapon_id, tech_id])
 			_check(not WeaponTechs.BEHAVIORS.get(weapon_id, {}).get(tech_id, {}).is_empty(),
 				"%s/%s has no behaviour, so the route changes nothing about delivery" % [weapon_id, tech_id])
 		roles.sort()
 		_check(roles == ["a", "b"], "%s routes are %s, expected one 'a' and one 'b'" % [weapon_id, roles])
 
 
-## §8. One enhancement per weapon, reachable by Lv.7 alone.
+## §8. One enhancement per weapon, reached with weapon Lv.7 + route treasure Lv.4.
 func _check_evolutions() -> void:
 	var seen_weapon_ids: Dictionary = {}
 	for weapon_id in _weapon_ids():
@@ -130,8 +130,8 @@ func _check_evolutions() -> void:
 			"%s is not the enhancement its own base weapon resolves to" % id)
 		_check(not evolution.has("treasure_id"),
 			"%s still names a required treasure" % id)
-	_check(not ("REQUIRED_TREASURE_TIER" in Evolutions),
-		"the treasure gate constant is back; Lv.7 is meant to be the only condition")
+	_check(Evolutions.REQUIRED_TREASURE_TIER == 4,
+		"enhancement recipes require the route treasure at Lv.4")
 	# §8. Growth carries in full: an enhanced weapon opens at the same multiple
 	# of its own catalogue damage that the base weapon had reached of its.
 	var base: Dictionary = Cats.all_characters()[0]["weapon"]

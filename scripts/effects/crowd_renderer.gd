@@ -217,7 +217,8 @@ func refresh() -> void:
 		var aspect := enemy.render_aspect
 		var span := radius * BODY_SPAN * grow
 		var width := span * aspect.x
-		if enemy.faces_along_heading and cos(enemy.rotation) < 0.0:
+		if enemy.source_facing != EnemyIcons.FACING_FRONT \
+				and cos(enemy.rotation) * float(enemy.source_facing) < 0.0:
 			width = -width
 		var height := span * aspect.y
 		var uv := enemy.render_uv

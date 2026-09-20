@@ -201,16 +201,15 @@ func _test_boss_telegraph_is_dodgeable() -> void:
 
 
 ## An enhancement is supposed to be the middle of a run, not the opening. The
-## cost used to be split across a weapon and a treasure; it is all in the weapon
-## now, so the count is the tiers alone — and the pair also has to survive to the
-## first boss before the resonance above it can be turned on at all.
+## cost is split across a weapon and its route treasure, and the pair also has to
+## survive to the first boss before the resonance above it can be turned on.
 func _test_road_to_fusion_is_long() -> void:
-	var picks := EvolutionCatalog.EVOLUTION_TIER - 1
-	_check(picks >= 6, "an enhancement costs at least six level-up picks (%d)" % picks)
+	var picks := EvolutionCatalog.EVOLUTION_TIER - 1 + EvolutionCatalog.REQUIRED_TREASURE_TIER
+	_check(picks >= 10, "an enhancement costs at least ten level-up picks (%d)" % picks)
 	_check(EvolutionCatalog.WEAPON_MAX_TIER > EvolutionCatalog.EVOLUTION_TIER,
 		"and the weapon still has somewhere to climb afterwards")
-	print("ENCOUNTER_METRICS: enhancement costs %d picks (weapon T%d), ceiling T%d" % [
-		picks, EvolutionCatalog.EVOLUTION_TIER, EvolutionCatalog.WEAPON_MAX_TIER
+	print("ENCOUNTER_METRICS: enhancement costs %d picks (weapon T%d + treasure T%d), ceiling T%d" % [
+		picks, EvolutionCatalog.EVOLUTION_TIER, EvolutionCatalog.REQUIRED_TREASURE_TIER, EvolutionCatalog.WEAPON_MAX_TIER
 	])
 
 

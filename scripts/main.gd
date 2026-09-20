@@ -2174,7 +2174,7 @@ func _format_character_card(player_index: int) -> String:
 	return "\n".join([
 		tr("무기    %s    %s") % [tr(String(character["weapon_name"])), tr(playstyle)],
 		tr("테크 Lv.%d    %s") % [WeaponGrowthScript.TECH_UNLOCK_TIER, " / ".join(tech_names)],
-		tr("추천 보물    %s") % " / ".join(synergy_names),
+		tr("필수 보물    %s") % " / ".join(synergy_names),
 		tr("Lv.%d 진화    %s") % [Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화")))],
 	])
 
@@ -2196,11 +2196,8 @@ func _chain_note(character: Dictionary) -> String:
 ## The plan this cat's starting weapon is on, named before the run rather than
 ## discovered during it.
 ##
-## Every starting weapon has exactly one final form, and it is reached at Lv.7
-## by growing the weapon and nothing else. Naming it here means a player picking
-## a cat can see where that cat ends up. It lives in the detailed view rather
-## than on the front of the dossier so the default screen stays a portrait and
-## four numbers.
+## Every starting weapon has one final form. The route decides which treasure
+## completes it, so both possible materials are named before the run.
 func _route_note(character: Dictionary) -> String:
 	var evolution := Evolutions.for_base(String(character["weapon_id"]))
 	if evolution.is_empty():
@@ -2214,8 +2211,9 @@ func _route_note(character: Dictionary) -> String:
 	var localized_synergies: Array[String] = []
 	for name in synergies:
 		localized_synergies.append(tr(name))
-	return tr("Lv.%d 진화  ·  %s    추천 보물  %s") % [
-		Evolutions.EVOLUTION_TIER, tr(String(evolution["weapon_name"])), " / ".join(localized_synergies)]
+	return tr("Lv.%d 진화  ·  %s    필수 보물 Lv.%d  %s") % [
+		Evolutions.EVOLUTION_TIER, tr(String(evolution["weapon_name"])),
+		Evolutions.REQUIRED_TREASURE_TIER, " / ".join(localized_synergies)]
 
 
 func _synergy_preview() -> String:
@@ -2712,6 +2710,11 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 	if enemy.get_parent() != world_stage:
 		enemy.reparent(world_stage, true)
 	enemy.z_index = 0
+	# setup() runs before the director assigns the final spawn point. Aim the
+	# freshly placed body at the pair now, so enemies on the right side of the
+	# ring do not spend their first (possibly AI-staggered) frames looking away.
+	if not enemy.scenery:
+		enemy.face_toward((players[0].position + players[1].position) * 0.5)
 	if not enemy.died.is_connected(_on_enemy_died):
 		enemy.died.connect(_on_enemy_died)
 	if not enemy.ranged_attack.is_connected(_on_enemy_ranged_attack):
@@ -4219,10 +4222,8 @@ func _pick_unowned_characters(slot: int, count: int) -> Array[Dictionary]:
 ## Treasures this player does not already carry, shuffled and capped. Mirrors
 ## _pick_unowned_characters so both halves of a build are offered the same way.
 ## The enhancement this weapon slot is owed right now, or an empty dictionary.
-## One condition: the weapon has reached Lv.7. The treasure half is gone — a
-## weapon no longer waits on a specific treasure at a specific depth, which was
-## a requirement decided by a route card six levels earlier and never stated
-## anywhere the player could act on it.
+## The selected route supplies the required treasure id; both halves are shown
+## on the route card and in the full-stat sheet.
 func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 	var weapon: Dictionary = weapon_loadouts[slot][weapon_slot]
 	if bool(weapon.get("evolved", false)):
@@ -4230,6 +4231,9 @@ func _available_evolution(slot: int, weapon_slot: int) -> Dictionary:
 	if int(weapon.get("tier", 1)) < Evolutions.EVOLUTION_TIER:
 		return {}
 	if String(weapon.get("tech_id", "")).is_empty():
+		return {}
+	var treasure_id := String(weapon.get("tech_synergy_treasure_id", ""))
+	if treasure_id.is_empty() or _treasure_tier(slot, treasure_id) < Evolutions.REQUIRED_TREASURE_TIER:
 		return {}
 	return _selected_evolution_for_state(weapon)
 
@@ -4241,11 +4245,10 @@ func _selected_evolution_for_state(weapon: Dictionary) -> Dictionary:
 	return Evolutions.for_base(String(weapon.get("base_weapon_id", weapon.get("weapon_id", ""))))
 
 
-## Enhances every weapon that has just earned it, and reports what changed so the
-## caller can show it. Called after any upgrade that could have moved a weapon on
-## to Lv.7, because the enhancement is not a card any more: "you may now buy the
-## thing you have already paid for" was a card every player took every time, and
-## it displaced cards they might have actually weighed.
+## Enhances every weapon that has just completed its recipe, and reports what
+## changed so the caller can show it. Called after any weapon or treasure upgrade
+## because either Lv.7 or the required treasure's Lv.4 can be the last step. The
+## enhancement itself is not another card the player must buy.
 func _apply_pending_evolutions(player_slot: int) -> Array[Dictionary]:
 	var enhanced: Array[Dictionary] = []
 	for weapon_slot in weapon_loadouts[player_slot].size():
@@ -4271,13 +4274,9 @@ func _apply_pending_evolutions(player_slot: int) -> Array[Dictionary]:
 	return enhanced
 
 
-## The treasures this survivor's chosen routes are built around and which they
-## do not yet carry. These are offered ahead of random discovery because they are
-## the ones this build can actually use — but nothing is reserved for them and
-## nothing breaks if the pair never takes one. They were 필수 until the
-## enhancement gate was removed; the difference between "your weapon will never
-## finish without this" and "this suits the route you picked" is the whole point
-## of the change, so the wording and the weighting both had to move with it.
+## Required treasures named by this survivor's chosen routes and not yet held.
+## They receive a useful weight, not a guaranteed slot: missing one is now a
+## real reason to reroll or change the rest of the build.
 func _synergy_treasures(slot: int) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var seen: Dictionary = {}
@@ -4475,11 +4474,9 @@ func _pick_growth_bucket(buckets: Array) -> Dictionary:
 ## out of the draw — it just means each piece is offered less often, which is
 ## what a four-slot loadout should feel like.
 ##
-## Two slots are then spoken for before the weighted draw runs. Tier progress is
-## the only road to an enhancement and from there to resonance, so a hand always
-## carries one weapon-growth card. And while a slot is still open, a hand always
-## carries one piece of gear the survivor has never held, so discovery is a
-## standing offer rather than something luck has to produce.
+## Every slot is now drawn from the weighted buckets. No carried item and no new
+## discovery is guaranteed to appear, which makes a weak hand and a reroll an
+## actual part of the run instead of an edge case.
 func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var slot := player_index - 1
 	var loadout: Array = weapon_loadouts[slot]
@@ -4539,9 +4536,8 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 				"title": "신규 무기: %s" % String(character["weapon_name"]),
 			})
 
-	# 신규 보물 — the ones a committed route is built around first, then whatever
-	# the survivor has not seen. Discovery is not rationed: nothing can strand a
-	# weapon any more, so there is no reason to hold unfamiliar treasures back.
+	# 신규 보물 — required route materials join the same weighted discovery pool
+	# as everything else; they are not inserted into the hand for free.
 	var new_treasures: Array[Dictionary] = []
 	if treasures.size() < TREASURE_LOADOUT_CAP:
 		var suited := _synergy_treasures(slot)
@@ -4550,7 +4546,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			offered_ids[String(treasure["id"])] = true
 			new_treasures.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
-				"title": "시너지 보물: %s" % String(treasure["name"]),
+				"title": "필수 보물: %s" % String(treasure["name"]),
 			})
 		for treasure in _pick_unowned_treasures(slot, maxi(3, suited.size()) + 3):
 			if offered_ids.has(String(treasure["id"])):
@@ -4573,18 +4569,6 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	]
 
 	var choices: Array[Dictionary] = []
-	# The weapon-progress slot.
-	var progress := _draw_growth_option(weapon_growth, previous_keys)
-	if not progress.is_empty():
-		choices.append(progress)
-	# The discovery slot, weighted between the two kinds of new gear so a
-	# survivor with both slots open does not always see the same one.
-	if choice_count > choices.size() and not (new_weapons.is_empty() and new_treasures.is_empty()):
-		var discovery_bucket := _pick_growth_bucket([buckets[2], buckets[3]])
-		if not discovery_bucket.is_empty():
-			var found := _draw_growth_option(discovery_bucket["options"] as Array, previous_keys)
-			if not found.is_empty():
-				choices.append(found)
 	while choices.size() < choice_count:
 		var bucket := _pick_growth_bucket(buckets)
 		if bucket.is_empty():
@@ -4995,13 +4979,11 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		"choose_tech":
 			score = 65.0
 			reason = tr("성장 경로 결정")
-			# Both routes reach the same enhanced weapon, so the only thing left
-			# to prefer is whether this survivor already carries the treasure
-			# that route is built around.
+			# A route whose required treasure is already underway is much safer.
 			var synergy_id := String((option["tech"] as Dictionary)["synergy_treasure_id"])
 			if _treasure_tier(slot, synergy_id) > 0:
 				score += 14.0
-				reason = tr("보유 보물과 시너지")
+				reason = tr("필수 보물 보유")
 		"weapon_power":
 			score = 50.0
 			reason = tr("주력 피해")
@@ -5109,11 +5091,8 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		if not UpgradeValue.benefits_loadout(loadout, effect_id):
 			score = 5.0
 			reason = tr("후속 무기 준비")
-		# This used to be a large bonus, because a treasure could be the missing
-		# half of an enhancement and the screen had to outrank a generic damage
-		# card to say so. Nothing gates an enhancement now, so what is left is a
-		# genuine preference — the same treasure is simply worth more on a weapon
-		# whose route it amplifies — and it is priced like one.
+		# A route material is the second half of an enhancement and should score
+		# accordingly, while still competing for a hand rather than being forced.
 		var path := _fusion_path_value(slot, effect_id)
 		if not path.is_empty():
 			score += float(path["value"])
@@ -5151,7 +5130,9 @@ func _score_upgrade_option(slot: int, option: Dictionary) -> Dictionary:
 		reason = tr("공명 해금   %s") % new_resonance
 	elif int(option.get("weapon_slot", -1)) >= 0:
 		var weapon: Dictionary = loadout[int(option["weapon_slot"])]
-		if int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER - 1 and not bool(weapon.get("evolved", false)):
+		if int(weapon.get("tier", 1)) == Evolutions.EVOLUTION_TIER - 1 \
+				and not bool(weapon.get("evolved", false)) \
+				and _treasure_tier(slot, String(weapon.get("tech_synergy_treasure_id", ""))) >= Evolutions.REQUIRED_TREASURE_TIER:
 			score += 34.0
 			reason = tr("다음 카드로 Lv.%d 진화") % Evolutions.EVOLUTION_TIER
 		elif int(weapon.get("tier", 1)) == WeaponGrowthScript.TECH_UNLOCK_TIER - 1 and String(weapon.get("tech_id", "")).is_empty():
@@ -5199,28 +5180,21 @@ func _route_lead_axis(slot: int, weapon_slot: int, route: Dictionary) -> String:
 	return "weapon_power"
 
 
-## What a treasure is worth to this survivor beyond its own numbers, because one
-## of their weapons is on a route that treasure is built for.
-##
-## This used to score "how close is this treasure to unlocking an enhancement",
-## and the answer was worth a lot because an enhancement could not happen without
-## it. Nothing gates an enhancement now, so what is left is genuine synergy: a
-## 신속 treasure on a weapon that took the 속도 route is a better card than the
-## same treasure on a weapon that took the 화력 one, and that is a preference
-## rather than a requirement — hence a much smaller number than the old gate.
+## What a treasure is worth to a route waiting for it. Before the required tier
+## it is build-completing value; afterwards only its ordinary synergy remains.
 func _fusion_path_value(slot: int, treasure_id: String) -> Dictionary:
 	var best := {}
 	var best_progress := -1.0
 	for weapon: Dictionary in weapon_loadouts[slot]:
 		if String(weapon.get("tech_synergy_treasure_id", "")) != treasure_id:
 			continue
-		# Deeper weapons make the synergy worth more, because the route they are
-		# committed to is the one the treasure is amplifying.
 		var progress := minf(1.0, float(int(weapon.get("tier", 1))) / float(Evolutions.EVOLUTION_TIER))
 		if progress <= best_progress:
 			continue
 		best_progress = progress
-		best = {"value": 12.0 + progress * 26.0}
+		var waiting := _treasure_tier(slot, treasure_id) < Evolutions.REQUIRED_TREASURE_TIER \
+				and not bool(weapon.get("evolved", false))
+		best = {"value": (42.0 + progress * 38.0) if waiting else (12.0 + progress * 26.0)}
 	return best
 
 
@@ -5230,26 +5204,53 @@ func _new_resonance_from_option(slot: int, option: Dictionary) -> String:
 	for candidate in before:
 		known[String(candidate["id"])] = true
 	var preview: Array = [weapon_loadouts[0].duplicate(true), weapon_loadouts[1].duplicate(true)]
+	var preview_treasures: Array = [treasure_loadouts[0].duplicate(true), treasure_loadouts[1].duplicate(true)]
 	var option_id := String(option["id"])
 	if option_id == "unlock_weapon":
 		var new_state := _build_weapon_state(option["character"] as Dictionary)
 		if option.has("tech"):
 			WeaponTechs.apply_to_state(new_state, option["tech"] as Dictionary)
 		preview[slot].append(new_state)
+	elif option_id == "unlock_treasure":
+		preview_treasures[slot].append(Treasures.build_state(option["treasure"] as Dictionary))
+	elif option_id == "treasure_upgrade":
+		var treasure_slot := int(option.get("treasure_slot", -1))
+		if treasure_slot < 0:
+			return ""
+		var grown_treasure: Dictionary = preview_treasures[slot][treasure_slot]
+		grown_treasure["tier"] = int(grown_treasure.get("tier", 1)) + 1
+	elif option_id == "choose_tech":
+		var route_slot := int(option.get("weapon_slot", -1))
+		if route_slot < 0:
+			return ""
+		WeaponTechs.apply_to_state(preview[slot][route_slot], option["tech"] as Dictionary)
 	else:
 		var weapon_slot := int(option.get("weapon_slot", -1))
 		if weapon_slot < 0:
 			return ""
 		var grown: Dictionary = preview[slot][weapon_slot]
 		grown["tier"] = int(grown.get("tier", 1)) + 1
-		# A tier card is the card that can open a resonance now: the seventh one
-		# enhances the weapon where it stands, so the preview has to enhance it
-		# too or it would promise nothing on the level that matters most.
-		if not bool(grown.get("evolved", false)) and int(grown["tier"]) >= Evolutions.EVOLUTION_TIER \
-				and not String(grown.get("tech_id", "")).is_empty():
+
+	# Either half can be the last recipe card. Promote every recipe completed by
+	# the preview so weapon Lv.7 and treasure Lv.4 receive the same recommendation.
+	for player_slot in 2:
+		for weapon_slot in preview[player_slot].size():
+			var grown: Dictionary = preview[player_slot][weapon_slot]
+			if bool(grown.get("evolved", false)) or int(grown.get("tier", 1)) < Evolutions.EVOLUTION_TIER:
+				continue
+			var required_id := String(grown.get("tech_synergy_treasure_id", ""))
+			if required_id.is_empty() or String(grown.get("tech_id", "")).is_empty():
+				continue
+			var material_tier := 0
+			for carried: Dictionary in preview_treasures[player_slot]:
+				if String(carried.get("id", "")) == required_id:
+					material_tier = int(carried.get("tier", 1))
+					break
+			if material_tier < Evolutions.REQUIRED_TREASURE_TIER:
+				continue
 			var evolution := Evolutions.for_base(String(grown.get("base_weapon_id", grown["weapon_id"])))
 			if not evolution.is_empty():
-				preview[slot][weapon_slot] = Evolutions.build_state(evolution, grown)
+				preview[player_slot][weapon_slot] = Evolutions.build_state(evolution, grown)
 	for candidate in resonance_system.get_candidates_for_loadouts(preview[0], preview[1]):
 		if not known.has(String(candidate["id"])):
 			return String(candidate["name"])
@@ -5302,12 +5303,10 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 		WeaponTechs.apply_to_state(state, tech)
 		var evolution := Evolutions.for_base(String(state.get("base_weapon_id", state["weapon_id"])))
 		var synergy := Treasures.by_id(String(tech["synergy_treasure_id"]))
-		# 추천, never 필수 (§9). Both routes reach the same enhanced weapon at
-		# Lv.7, so the card can say so plainly and the choice stays about
-		# delivery rather than about a treasure the pair may never be offered.
-		return tr("%s\n특화 %s +1    추천 보물 %s\nLv.%d 진화    %s") % [
+		return tr("%s\n특화 %s +1    필수 보물 %s Lv.%d\n무기 Lv.%d 진화    %s") % [
 			_tech_focus(tech), _tech_axes_text(state, tech), tr(String(synergy.get("name", "없음"))),
-			Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화"))),
+			Evolutions.REQUIRED_TREASURE_TIER, Evolutions.EVOLUTION_TIER,
+			tr(String(evolution.get("weapon_name", "최종 진화"))),
 		]
 	if upgrade_id == "unlock_weapon":
 		var character: Dictionary = option["character"]
@@ -5337,10 +5336,13 @@ func _upgrade_preview(slot: int, option: Dictionary) -> String:
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
 		tier_hint = tr("\n레벨 %d — 최대 강화") % Evolutions.WEAPON_MAX_TIER
 	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
-		# The card that finishes the weapon says so on its face: it is the last
-		# ordinary upgrade before the slot changes shape, and taking it is the
-		# whole of the enhancement now.
-		tier_hint = tr("\n레벨 %d — 이 카드로 진화") % Evolutions.EVOLUTION_TIER
+		var required_id := String(state.get("tech_synergy_treasure_id", ""))
+		var required := Treasures.by_id(required_id)
+		if _treasure_tier(slot, required_id) >= Evolutions.REQUIRED_TREASURE_TIER:
+			tier_hint = tr("\n레벨 %d — 이 카드로 진화") % Evolutions.EVOLUTION_TIER
+		else:
+			tier_hint = tr("\n레벨 %d — %s Lv.%d 필요") % [Evolutions.EVOLUTION_TIER,
+				tr(String(required.get("name", "보물"))), Evolutions.REQUIRED_TREASURE_TIER]
 	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
 		tier_hint = tr("\n레벨 %d — 테크 선택 가능") % WeaponGrowthScript.TECH_UNLOCK_TIER
 	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
@@ -5409,8 +5411,8 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 			sections["effect"] = _tech_focus(tech)
 			sections["tags"] = [{"text": tr("특화 %s +1") % axes_text, "kind": "focus"}]
 			if not synergy.is_empty():
-				sections["synergy"] = tr("추천 보물 · %s") % tr(String(synergy["name"]))
-			sections["note"] = tr("Lv.%d 진화 → %s") % [Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화")))]
+				sections["synergy"] = tr("필수 보물 · %s Lv.%d") % [tr(String(synergy["name"])), Evolutions.REQUIRED_TREASURE_TIER]
+			sections["note"] = tr("무기 Lv.%d 진화 → %s") % [Evolutions.EVOLUTION_TIER, tr(String(evolution.get("weapon_name", "최종 진화")))]
 			return sections
 		"unlock_weapon":
 			var character: Dictionary = option["character"]
@@ -5452,7 +5454,7 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 			sections["tags"] = tags
 			for owned: Dictionary in weapon_loadouts[slot]:
 				if String(owned.get("tech_synergy_treasure_id", "")) == String(treasure["id"]):
-					sections["synergy"] = tr("%s 시너지") % tr(String(owned["weapon_name"]))
+					sections["synergy"] = tr("%s 진화 재료") % tr(String(owned["weapon_name"]))
 					break
 			if upgrade_id == "unlock_treasure":
 				sections["note"] = tr("보물 칸 %d/%d") % [treasure_loadouts[slot].size() + 1, TREASURE_LOADOUT_CAP]
@@ -5466,7 +5468,13 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 	if tier + 1 >= Evolutions.WEAPON_MAX_TIER:
 		tags.append({"text": tr("최대 강화"), "kind": "max"})
 	elif tier + 1 == Evolutions.EVOLUTION_TIER and not bool(state.get("evolved", false)):
-		tags.append({"text": tr("이 카드로 진화"), "kind": "evolve"})
+		var required_id := String(state.get("tech_synergy_treasure_id", ""))
+		if _treasure_tier(slot, required_id) >= Evolutions.REQUIRED_TREASURE_TIER:
+			tags.append({"text": tr("이 카드로 진화"), "kind": "evolve"})
+		else:
+			var required := Treasures.by_id(required_id)
+			tags.append({"text": tr("%s Lv.%d 필요") % [tr(String(required.get("name", "보물"))),
+				Evolutions.REQUIRED_TREASURE_TIER], "kind": "tech"})
 	elif tier + 1 == WeaponGrowthScript.TECH_UNLOCK_TIER and String(state.get("tech_id", "")).is_empty():
 		tags.append({"text": tr("테크 선택 가능"), "kind": "tech"})
 	var focus := WeaponGrowthScript.focus_label(state, upgrade_id)
@@ -5493,7 +5501,7 @@ func _card_sections(slot: int, option: Dictionary) -> Dictionary:
 				sections["effect"] = tr(String(SPECIAL_EFFECTS.get(String(spec.get("primitive", "")), "")))
 	var partner := _fusion_partner_for_option(slot, option)
 	if not partner.is_empty():
-		sections["synergy"] = tr("%s 시너지") % tr(String(partner["name"]))
+		sections["synergy"] = tr("%s 조합") % tr(String(partner["name"]))
 	return sections
 
 
@@ -5657,8 +5665,8 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 			_apply_upgrade(0, p1_choices[selected_upgrade_indices[0]])
 		if selected_upgrade_indices[1] >= 0:
 			_apply_upgrade(1, p2_choices[selected_upgrade_indices[1]])
-		# A card that took a weapon to Lv.7 enhances it here, with no second card
-		# and no confirmation: the pair already paid for it.
+		# A card that completed either half of a recipe enhances it here, with no
+		# second card and no confirmation: the pair already paid for both pieces.
 		for slot_index in 2:
 			_apply_pending_evolutions(slot_index)
 		# Any enhancement the two picks produced is shown before the run is
@@ -5888,10 +5896,8 @@ func _fusion_partner_for_option(slot: int, option: Dictionary) -> Dictionary:
 		if weapon_slot >= 0 and weapon_slot < weapon_loadouts[slot].size():
 			weapon_id = String(weapon_loadouts[slot][weapon_slot]["weapon_id"])
 
-	# The seal names a *synergy*, never a requirement. It used to name the
-	# treasure a weapon had to have to enhance at all, which is a gate that no
-	# longer exists — and while it did, a card that said 필수 was read as an
-	# instruction rather than as a suggestion.
+	# The seal appears once both recipe pieces are carried and names the other
+	# ingredient; its tooltip states the required treasure tier.
 	if not weapon_id.is_empty():
 		var state: Dictionary = weapon_loadouts[slot][int(option.get("weapon_slot", -1))]
 		var synergy := String(state.get("tech_synergy_treasure_id", ""))
@@ -5929,19 +5935,25 @@ func _fusion_progress_line(slot: int) -> String:
 		if evolution.is_empty():
 			continue
 		var weapon_tier := int(weapon.get("tier", 1))
-		# One bar, one number. The line used to read "무기 5/7 + 보물 2/4 → 결과",
-		# which is two clocks the pair had to watch and only one of them was
-		# something they could reliably move.
-		var progress := minf(1.0, float(weapon_tier) / float(Evolutions.EVOLUTION_TIER))
+		var treasure_id := String(weapon.get("tech_synergy_treasure_id", ""))
+		var treasure := Treasures.by_id(treasure_id)
+		var treasure_tier := _treasure_tier(slot, treasure_id)
+		var weapon_progress := minf(1.0, float(weapon_tier) / float(Evolutions.EVOLUTION_TIER))
+		var treasure_progress := minf(1.0, float(treasure_tier) / float(Evolutions.REQUIRED_TREASURE_TIER))
+		var progress := (weapon_progress + treasure_progress) * 0.5
 		if progress <= best_progress:
 			continue
 		best_progress = progress
-		best = "%s %d/%d → %s" % [
-			String(weapon["weapon_name"]), weapon_tier, Evolutions.EVOLUTION_TIER,
-			String(evolution["weapon_name"]),
+		best = tr("%s %d/%d + %s %d/%d → %s") % [
+			tr(String(weapon["weapon_name"])), weapon_tier, Evolutions.EVOLUTION_TIER,
+			tr(String(treasure.get("name", "보물"))), treasure_tier, Evolutions.REQUIRED_TREASURE_TIER,
+			tr(String(evolution["weapon_name"])),
 		]
 	if not fused.is_empty():
-		var done := tr("완료 ") + "  ".join(fused)
+		var localized_fused: Array[String] = []
+		for weapon_name in fused:
+			localized_fused.append(tr(weapon_name))
+		var done := tr("완료 ") + "  ".join(localized_fused)
 		return done if best.is_empty() else best
 	return best if not best.is_empty() else tr("대상 없음")
 

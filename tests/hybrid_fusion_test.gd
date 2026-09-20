@@ -32,8 +32,12 @@ func _run() -> void:
 	var base_id := String(base["weapon_id"])
 	main.WeaponTechs.apply_to_state(base, main.WeaponTechs.for_weapon(base_id)[0])
 	base["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	var required_id := String(base["tech_synergy_treasure_id"])
+	var material: Dictionary = main.Treasures.build_state(main.Treasures.by_id(required_id))
+	material["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER
+	main.treasure_loadouts[0].append(material)
 	var ready: Dictionary = main._available_evolution(0, 0)
-	_check(not ready.is_empty(), "reaching Lv.%d alone unlocks the enhancement" % EvolutionCatalog.EVOLUTION_TIER)
+	_check(not ready.is_empty(), "weapon Lv.%d plus required treasure unlocks the enhancement" % EvolutionCatalog.EVOLUTION_TIER)
 	main.run_stats["weapon_damage"][0][base_id] = 420.0
 	var weapons_before: int = main.weapon_loadouts[0].size()
 	var treasures_before: int = main.treasure_loadouts[0].size()
@@ -54,14 +58,14 @@ func _run() -> void:
 	directional.setup(0.0, "bulwark")
 	directional.rotation = PI
 	directional._update_body_facing()
-	_check(directional.faces_along_heading and directional.body_sprite.flip_h,
-		"non-chaser enemy art mirrors when it changes direction")
+	_check(not directional.faces_along_heading and not directional.body_sprite.flip_h,
+		"front-facing bulwark art keeps its authored pose")
 	var remade := EnemyScript.new() as ChaserEnemy
 	remade.setup(0.0, "chaser")
 	remade.rotation = PI
 	remade._update_body_facing()
 	_check(remade.faces_along_heading and remade.body_sprite.flip_h,
-		"the remade chaser follows the same left-facing mirror rule")
+		"the side-facing chaser mirrors toward a leftward heading")
 	directional.queue_free()
 	remade.queue_free()
 

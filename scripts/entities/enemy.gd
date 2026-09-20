@@ -17,7 +17,17 @@ func _update_body_facing() -> void:
 	# well so standing height always means screen-up rather than "above the
 	# enemy's nose".
 	body_sprite.position = RooftopSpace.lift(stand_height).rotated(-rotation)
-	body_sprite.flip_h = faces_along_heading and cos(rotation) < 0.0
+	body_sprite.flip_h = (source_facing != EnemyIcons.FACING_FRONT
+		and cos(rotation) * float(source_facing) < 0.0)
+
+
+func face_toward(target_position: Vector2) -> void:
+	var direction := position.direction_to(target_position)
+	if direction.length_squared() <= 0.0001:
+		return
+	rotation = direction.angle()
+	if is_instance_valid(body_sprite) and visible:
+		_update_body_facing()
 
 signal died(enemy: ChaserEnemy)
 signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
@@ -133,7 +143,8 @@ var scenery := false
 ## flag rather than two tests, because the separation pass reads it for every
 ## sampled pair.
 var immovable := false
-var faces_along_heading := false ## Mobile art faces +X, so it mirrors rather than spins.
+var source_facing := EnemyIcons.FACING_FRONT ## Authored pose: left, right, or camera-facing.
+var faces_along_heading := false ## Compatibility/readability flag for directional source art.
 var leads_its_target := false ## Aims where the survivor is going, not where they are.
 var hunts_the_chain := false ## Walks the midpoint between the pair, not the nearer cat.
 ## Visual height only. Movement, targeting and every hit still use the node's
@@ -181,10 +192,11 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 	scenery = archetype == "planter"
 	stand_height = 0.0 if scenery else (20.0 if archetype in ["wasp", "owl"] else (4.0 if archetype == "mole" else 8.0))
 	immovable = is_boss or scenery
-	# Every mobile enemy now has a readable +X source silhouette. Keep the body
-	# upright and mirror that art from its movement heading instead of rotating
-	# the whole sprite sideways. The planter is the only stationary exception.
-	faces_along_heading = archetype != "planter"
+	# Only genuinely side-facing art may be mirrored. Camera-facing assets such
+	# as the owl and cleaning-robot bosses must keep their authored pose; flipping
+	# them by heading makes asymmetric crowns, lamps and tools read backwards.
+	source_facing = EnemyIcons.source_facing(archetype)
+	faces_along_heading = source_facing != EnemyIcons.FACING_FRONT
 	leads_its_target = archetype in ["wasp", "owl", "mole"]
 	hunts_the_chain = archetype == "chain_hunter" or archetype == "brute"
 	behavior = BEHAVIOR_BY_ARCHETYPE.get(archetype, Behavior.WALKER)
@@ -536,6 +548,7 @@ func _step_runner(target_position: Vector2, speed_scale: float, delta: float) ->
 		rotation = charge_direction.angle()
 		return
 	if charge_windup > 0.0:
+		rotation = charge_direction.angle()
 		charge_windup -= delta
 		if charge_windup <= 0.0: charge_timer = 1.5
 		return
@@ -556,6 +569,7 @@ func _step_charger(target_position: Vector2, speed_scale: float, delta: float) -
 		rotation = charge_direction.angle()
 		return
 	if charge_windup > 0.0:
+		rotation = charge_direction.angle()
 		charge_windup -= delta
 		if charge_windup <= 0.0:
 			charge_timer = 0.55
@@ -565,6 +579,7 @@ func _step_charger(target_position: Vector2, speed_scale: float, delta: float) -
 	if behavior_timer <= 0.0:
 		charge_direction = direction
 		telegraph_direction = direction
+		rotation = direction.angle()
 		charge_windup = 0.55
 		behavior_timer = 2.95
 	else:
@@ -581,6 +596,9 @@ func _step_shooter(target_position: Vector2, speed_scale: float, delta: float) -
 		position -= direction * move_speed * speed_scale * delta
 	rotation = direction.angle()
 	if shooter_windup > 0.0:
+		# The shot commits when the warning begins. Face along that warning rather
+		# than tracking a survivor past it and appearing to fire backwards.
+		rotation = telegraph_direction.angle()
 		shooter_windup -= delta
 		if shooter_windup <= 0.0:
 			ranged_attack.emit(global_position, telegraph_direction, 10.0 if not elite else 16.0)
@@ -626,11 +644,13 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 		rotation = charge_direction.angle()
 		return
 	if charge_windup > 0.0:
+		rotation = charge_direction.angle()
 		charge_windup -= delta
 		if charge_windup <= 0.0:
 			charge_timer = 0.5
 		return
 	if boss_slam_windup > 0.0:
+		rotation = telegraph_direction.angle()
 		boss_slam_windup -= delta
 		if boss_slam_windup <= 0.0:
 			chain_slam.emit(boss_slam_point, 44.0 if boss_enraged else 34.0, BOSS_SLAM_RADIUS)

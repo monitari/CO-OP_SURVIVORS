@@ -1022,3 +1022,26 @@ up to +1.5/s"
 "보유 보물","보유 보물","Treasures held"
 "투사체  장판 지속시간","투사체  장판 지속시간","Projectile  field duration"
 "가한 피해 0.6%를 팀 체력으로 회복    초당 최대 1.5","가한 피해 0.6%를 팀 체력으로 회복    초당 최대 1.5","Damage healed to team 0.6%    up to 1.5/s"
+"필수 보물    %s","필수 보물    %s","Required treasure    %s"
+"Lv.%d 진화  ·  %s    필수 보물 Lv.%d  %s","Lv.%d 진화  ·  %s    필수 보물 Lv.%d  %s","Lv.%d Evolution  ·  %s    Required Treasure Lv.%d  %s"
+"필수 보물: %s","필수 보물: %s","Required treasure: %s"
+"필수 보물 보유","필수 보물 보유","Required treasure owned"
+"%s
+특화 %s +1    필수 보물 %s Lv.%d
+무기 Lv.%d 진화    %s","%s
+특화 %s +1    필수 보물 %s Lv.%d
+무기 Lv.%d 진화    %s","%s
+Focus %s +1    required treasure %s Lv.%d
+Weapon Lv.%d evolution    %s"
+"
+레벨 %d — %s Lv.%d 필요","
+레벨 %d — %s Lv.%d 필요","
+Level %d — requires %s Lv.%d"
+"필수 보물 · %s Lv.%d","필수 보물 · %s Lv.%d","Required · %s Lv.%d"
+"무기 Lv.%d 진화 → %s","무기 Lv.%d 진화 → %s","Weapon Lv.%d → %s"
+"%s Lv.%d 필요","%s Lv.%d 필요","Requires %s Lv.%d"
+"%s와(과) 조합하면 무기가 강화됩니다","%s와(과) 조합하면 무기가 강화됩니다","Combine with %s to evolve the weapon"
+"%s %d/%d + %s %d/%d → %s","%s %d/%d + %s %d/%d → %s","%s %d/%d + %s %d/%d → %s"
+"%s Lv.%d가 진화에 필요합니다","%s Lv.%d가 진화에 필요합니다","Requires %s Lv.%d to evolve"
+"%s 진화 재료","%s 진화 재료","Evolution material for %s"
+"%s 조합","%s 조합","Combine with %s"

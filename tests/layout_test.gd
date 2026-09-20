@@ -282,7 +282,7 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 		var player_level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		_check(identity.visible and not player_number.visible and player_level.visible
 			and not identity.text.is_empty()
-			and player_level.text.begins_with(main.tr("기여 %d").split("%")[0])
+			and player_level.text.begins_with("Lv.")
 			and is_equal_approx(identity.position.y, bar.position.y)
 			and is_equal_approx(player_level.position.y, bar.position.y),
 			"P%d row aligns survivor, contribution level and health without a role spacer" % (slot + 1))
@@ -309,6 +309,8 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 	var partner: ProgressBar = main.p2_health_bar if main.local_view_slot() == 0 else main.p1_health_bar
 	_check(own.size == partner.size and is_equal_approx(own.position.y, partner.position.y),
 		"health bars use identical size and row")
+	_check(own.size.x >= 168.0,
+		"health bars have the longer combat read requested for the compact HUD")
 	_check(is_equal_approx(own.position.x, 1280.0 - partner.position.x - partner.size.x),
 		"health bars mirror around the screen centre")
 	_check(own.fill_mode == ProgressBar.FILL_BEGIN_TO_END
@@ -317,6 +319,29 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 	_check(is_equal_approx(main.xp_bar.position.y + main.xp_bar.size.y, 720.0)
 		and is_equal_approx(main.xp_bar.size.x, 1280.0),
 		"shared XP bar fills the bottom edge")
+	if language == "en":
+		var was_large: bool = main.settings.large_text_enabled
+		var old_kills: int = main.kills
+		var old_wave: int = main.wave_director.wave_index
+		var old_calm: bool = main.wave_director.in_calm
+		main.settings.large_text_enabled = true
+		main.wave_director.in_calm = false
+		main.wave_director.wave_index = 24
+		main.kills = 999
+		main._apply_text_scale_to(main.combat_hud, 1.14)
+		main._update_hud()
+		var wave_readout: Label = main.combat_hud.get_node("WaveReadout")
+		_check_width("combat HUD / large text", wave_readout,
+			_shown(wave_readout), wave_readout.size.x)
+		for slot in 2:
+			var level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
+			_check(level.text == "Lv.%d" % int(main.run_stats["personal_levels"][slot]),
+				"large English HUD uses the locale-neutral Lv. badge for P%d" % (slot + 1))
+		main.kills = old_kills
+		main.wave_director.wave_index = old_wave
+		main.wave_director.in_calm = old_calm
+		main.settings.large_text_enabled = was_large
+		main._apply_text_scale_to(main.combat_hud, 1.14 if was_large else 1.0)
 ## The run is over; the bars along the top are stale, and the P2 panel reaches
 ## far enough right to clip the result panel's own corner.
 func _test_the_result_screen_owns_the_screen(main: Node) -> void:

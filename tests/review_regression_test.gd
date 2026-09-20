@@ -54,6 +54,44 @@ func _run() -> void:
 		])
 		for term in ["치명", "회피", "구조", "자력", "과충전", "무기"]:
 			check(section_text.contains(term), "full stat category: " + term)
+
+	# English plus large text is the widest supported presentation. Fill both
+	# loadouts before checking so the build/evolution area is tested at its real
+	# worst case rather than with the one-weapon tutorial state.
+	var saved_weapons: Array = main.weapon_loadouts[0].duplicate(true)
+	var saved_treasures: Array = main.treasure_loadouts[0].duplicate(true)
+	for character in main.character_catalog:
+		if main.weapon_loadouts[0].size() >= main.WEAPON_LOADOUT_CAP:
+			break
+		var already_owned: bool = main.weapon_loadouts[0].any(func(w: Dictionary) -> bool:
+			return String(w["weapon_id"]) == String(character["weapon_id"]))
+		if not already_owned:
+			main.weapon_loadouts[0].append(main._build_weapon_state(character))
+	for treasure in main.Treasures.all_treasures():
+		if main.treasure_loadouts[0].size() >= main.TREASURE_LOADOUT_CAP:
+			break
+		main.treasure_loadouts[0].append(main.Treasures.build_state(treasure))
+	var korean_weapon_name := String(main.weapon_loadouts[0][0]["weapon_name"])
+	main.ReviewUI.toggle_details(main)
+	TranslationServer.set_locale("en")
+	main.settings.large_text_enabled = true
+	main._apply_text_scale_to(main.details_overlay, 1.14)
+	main.ReviewUI.toggle_details(main)
+	await process_frame
+	var build_text := String(main.details_overlay.get_node("Build0/Value").text)
+	check(not build_text.contains(korean_weapon_name) and build_text.contains(main.tr(korean_weapon_name)),
+		"English loadout evolution translates weapon names (%s)" % build_text)
+	for section in ["Offense", "Survival", "Coop", "Utility", "Build"]:
+		var value := main.details_overlay.get_node("%s0/Value" % section) as Label
+		check(value.get_line_count() <= value.get_visible_line_count(),
+			"large-text full stats keeps every %s line visible (%d/%d)" % [section, value.get_visible_line_count(), value.get_line_count()])
+	main.ReviewUI.toggle_details(main)
+	TranslationServer.set_locale("ko")
+	main.settings.large_text_enabled = false
+	main._apply_text_scale_to(main.details_overlay, 1.0)
+	main.weapon_loadouts[0] = saved_weapons
+	main.treasure_loadouts[0] = saved_treasures
+	main.ReviewUI.toggle_details(main)
 	main.ReviewUI.toggle_details(main)
 	check(main.pause_overlay.visible and main.pause_active, "closing details preserves pause")
 	main.ReviewUI.toggle_details(main)
@@ -75,11 +113,14 @@ func _run() -> void:
 	main.weapon_loadouts[0][0] = main._build_weapon_state(main.character_catalog[0])
 	main.WeaponTechs.apply_to_state(main.weapon_loadouts[0][0], main.WeaponTechs.by_id("homing", "comet"))
 	main.weapon_loadouts[0][0]["tier"] = EvolutionCatalog.EVOLUTION_TIER
-	main.treasure_loadouts[0] = []
+	var required_id := String(main.weapon_loadouts[0][0]["tech_synergy_treasure_id"])
+	var material: Dictionary = main.Treasures.build_state(main.Treasures.by_id(required_id))
+	material["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER
+	main.treasure_loadouts[0] = [material]
 	# An enhancement is no longer a card that has to survive a reroll: reaching
 	# Lv.7 applies it directly, so what a reroll must never do is offer one.
 	main._apply_pending_evolutions(0)
-	check(bool(main.weapon_loadouts[0][0].get("evolved", false)), "Lv.7 enhances without a card")
+	check(bool(main.weapon_loadouts[0][0].get("evolved", false)), "Lv.7 plus required treasure enhances without a card")
 	for iteration in 40:
 		for option in main._get_upgrade_choices(1):
 			check(String(option["id"]) != "evolve_weapon", "no reroll ever offers an enhancement card")
@@ -138,8 +179,8 @@ func _run() -> void:
 	check(main.world_stage.z_index > main.FRIENDLY_EFFECT_Z_MAX and main.crowd_renderer.threats_on_top,
 		"enemy warnings stay above friendly rings")
 	var card: String = main._format_character_card(0)
-	check(card.contains("추천 보물") and card.contains("Lv.%d 진화" % EvolutionCatalog.EVOLUTION_TIER),
-		"character select recommends treasures rather than requiring them, and names the Lv.7 enhancement")
+	check(card.contains("필수 보물") and card.contains("Lv.%d 진화" % EvolutionCatalog.EVOLUTION_TIER),
+		"character select names the required treasures and Lv.7 enhancement")
 	check(not card.contains("난이도"), "character select removes difficulty labels")
 	# Route hands open once a weapon has grown to the unlock tier.
 	for slot in 2:
@@ -181,7 +222,7 @@ func _run() -> void:
 		var projected: Vector2 = view * 0.5 + main.rooftop_view.project_offset(offset)
 		check(projected.y > 205 and projected.y < 650,
 			"camera protects actor from HUD (%s at y %.0f)" % [actor.name, projected.y])
-	if failures.is_empty(): print("REVIEW_PASS: safe inputs, mouse selection, full stats, caps, guaranteed fusion, marginal scoring, actual crit, art, camera")
+	if failures.is_empty(): print("REVIEW_PASS: safe inputs, mouse selection, large-text full stats, recipe evolution, marginal scoring, actual crit, art, camera")
 	else:
 		for failure in failures: push_error("REVIEW_FAIL: " + failure)
 	quit(0 if failures.is_empty() else 1)

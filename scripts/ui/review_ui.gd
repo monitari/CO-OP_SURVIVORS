@@ -7,7 +7,10 @@ const L := preload("res://scripts/systems/loc.gd")
 
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
-const DETAILS_WIDTH := 608.0
+const DETAILS_WIDTH := 720.0
+const DETAILS_HEIGHT := 660.0
+const DETAIL_CARD_WIDTH := 328.0
+const DETAIL_CARD_HEIGHT := 136.0
 const PAUSE_ITEM_COUNT := 14
 const PAUSE_SLOTS := [
 	Rect2(20, 70, 740, 44),
@@ -241,38 +244,40 @@ static func install(main: Node) -> void:
 	# One survivor's sheet, centred: the column it needs and no more. Both sheets
 	# are built at the same place and only the one being read is shown.
 	main.details_overlay = UI.plate(main.pause_overlay.get_parent(),
-		Rect2((G.VIEWPORT.x - DETAILS_WIDTH) * 0.5, 132, DETAILS_WIDTH, 545), Palette.PANEL)
+		Rect2((G.VIEWPORT.x - DETAILS_WIDTH) * 0.5, 40, DETAILS_WIDTH, DETAILS_HEIGHT), Palette.PANEL)
 	main.details_overlay.name = "BuildDetails"
 	main.details_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	main.details_overlay.z_index = 20
 	main.details_overlay.hide()
-	UI.label(main.details_overlay, "성장 기록    전체 능력치", Rect2(24, 12, 340, 40), Palette.TYPE_TITLE)
+	UI.label(main.details_overlay, "성장 기록    전체 능력치", Rect2(24, 12, 430, 40), Palette.TYPE_TITLE)
 	button(main.details_overlay, "닫기    TAB / X", Rect2(DETAILS_WIDTH - 180.0 - 24.0, 16, 180, 34), func() -> void: toggle_details(main))
 	# Local co-op has two readers on one screen, so the sheet can be flipped to
 	# the other survivor. With an AI partner or online there is only "me".
-	var swap := button(main.details_overlay, "P1 / P2 전환", Rect2(DETAILS_WIDTH - 150.0 - 24.0, 502, 150, 30), func() -> void:
+	var swap := button(main.details_overlay, "P1 / P2 전환", Rect2(DETAILS_WIDTH - 150.0 - 24.0, 616, 150, 30), func() -> void:
 		main.details_overlay.set_meta("detail_slot", 1 - int(main.details_overlay.get_meta("detail_slot", 0)))
 		preload("res://scripts/ui/player_perspective.gd").details(main))
 	swap.name = "DetailSwap"
 	for slot in 2:
 		var x := 24.0
-		var header := UI.plate(main.details_overlay, Rect2(x, 64, 560, 72), Palette.CARD)
+		var header := UI.plate(main.details_overlay, Rect2(x, 60, DETAILS_WIDTH - 48.0, 70), Palette.CARD)
 		header.name = "DetailHeader%d" % slot
 		UI.icon(header, null, Rect2(12, 8, 56, 56)).name = "Portrait"
 		UI.icon(header, null, Rect2(80, 14, 44, 44)).name = "Weapon"
-		UI.label(header, "", Rect2(138, 10, 402, 27), 22, Palette.owner_ink(slot)).name = "Name"
-		UI.label(header, "", Rect2(138, 39, 402, 23), 14, Palette.MUTED).name = "WeaponName"
-		_detail_card(main.details_overlay, x, 146, "might", "공격", "Offense%d" % slot)
-		_detail_card(main.details_overlay, x + 288, 146, "vitality", "생존", "Survival%d" % slot)
-		_detail_card(main.details_overlay, x, 268, "overcharge", "협동", "Coop%d" % slot)
-		_detail_card(main.details_overlay, x + 288, 268, "magnet", "탐색", "Utility%d" % slot)
+		UI.label(header, "", Rect2(138, 10, DETAILS_WIDTH - 186.0, 27), 22, Palette.owner_ink(slot)).name = "Name"
+		UI.label(header, "", Rect2(138, 39, DETAILS_WIDTH - 186.0, 23), 14, Palette.MUTED).name = "WeaponName"
+		_detail_card(main.details_overlay, x, 138, "might", "공격", "Offense%d" % slot)
+		_detail_card(main.details_overlay, x + DETAIL_CARD_WIDTH + 16.0, 138, "vitality", "생존", "Survival%d" % slot)
+		_detail_card(main.details_overlay, x, 282, "overcharge", "협동", "Coop%d" % slot)
+		_detail_card(main.details_overlay, x + DETAIL_CARD_WIDTH + 16.0, 282, "magnet", "탐색", "Utility%d" % slot)
 		# Four lines now: the selected tech path also lives in the detail view,
 		# with its real treasure and final-form names visible from the start.
-		var build := UI.plate(main.details_overlay, Rect2(x, 384, 560, 116), Palette.CARD)
+		var build := UI.plate(main.details_overlay, Rect2(x, 426, DETAILS_WIDTH - 48.0, 180), Palette.CARD)
 		build.name = "Build%d" % slot
-		UI.label(build, "장비 구성", Rect2(16, 8, 150, 22), 16, Palette.GOLD_INK)
-		UI.label(build, "", Rect2(16, 32, 528, 78), 14, Palette.INK).name = "Value"
-	UI.label(main.details_overlay, "선택은 창을 닫은 뒤 확정합니다", Rect2(24, 505, 360, 24), 14, Palette.MUTED).name = "DetailFooter"
+		UI.label(build, "장비 구성", Rect2(16, 8, 180, 22), 16, Palette.GOLD_INK)
+		var build_value := UI.label(build, "", Rect2(16, 32, DETAILS_WIDTH - 80.0, 140), 14, Palette.INK)
+		build_value.name = "Value"
+		build_value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UI.label(main.details_overlay, "선택은 창을 닫은 뒤 확정합니다", Rect2(24, 616, 430, 24), 14, Palette.MUTED).name = "DetailFooter"
 
 
 static func toggle_character_details(main: Node) -> void:
@@ -281,11 +286,13 @@ static func toggle_character_details(main: Node) -> void:
 
 
 static func _detail_card(parent: Control, x: float, y: float, icon_id: String, title: String, node_name: String) -> void:
-	var card := UI.plate(parent, Rect2(x, y, 272, 112), Palette.CARD)
+	var card := UI.plate(parent, Rect2(x, y, DETAIL_CARD_WIDTH, DETAIL_CARD_HEIGHT), Palette.CARD)
 	card.name = node_name
 	UI.icon(card, Icons.upgrade(icon_id), Rect2(14, 12, 30, 30))
-	UI.label(card, title, Rect2(52, 13, 214, 26), 17, Palette.GOLD_INK)
-	var value := UI.label(card, "", Rect2(14, 43, 244, 62), 13, Palette.INK)
+	UI.label(card, title, Rect2(52, 13, DETAIL_CARD_WIDTH - 60.0, 26), 17, Palette.GOLD_INK)
+	# 12px becomes 13.7px in large-text mode: still larger than the normal
+	# presentation, while keeping the longest English Utility row to four lines.
+	var value := UI.label(card, "", Rect2(14, 43, DETAIL_CARD_WIDTH - 28.0, 86), 12, Palette.INK)
 	value.name = "Value"
 	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 

@@ -13,12 +13,35 @@ extends RefCounted
 ## scales its sprite by the texture's longer edge, so empty margin would shrink
 ## the enemy on the field.
 ##
-## Directional silhouettes must face +X (right) in the source PNG. Enemy keeps
-## the painted body upright and mirrors it for a leftward heading; normalizing
-## the files here avoids archetype-specific facing exceptions in the hot path.
+## The checked-in art was produced in several poses: some silhouettes look to
+## the right, while the bosses and several enemies face the camera. Record that
+## authored pose instead of pretending every PNG faces +X. A future left-facing
+## asset is supported too, without another renderer special case.
 const FALLBACK := "chaser"
+const FACING_FRONT := 0
+const FACING_RIGHT := 1
+const FACING_LEFT := -1
+const SOURCE_FACING := {
+	"chaser": FACING_RIGHT,
+	"rat_runner": FACING_RIGHT,
+	"hedgehog": FACING_RIGHT,
+	"wasp": FACING_RIGHT,
+	"mole": FACING_RIGHT,
+	"swarm": FACING_FRONT,
+	"charger": FACING_FRONT,
+	"shooter": FACING_FRONT,
+	"chain_hunter": FACING_FRONT,
+	"bulwark": FACING_FRONT,
+	"brute": FACING_FRONT,
+	"owl": FACING_FRONT,
+	"planter": FACING_FRONT,
+}
 
 static var textures: Dictionary = {}
+
+
+static func source_facing(id: String) -> int:
+	return int(SOURCE_FACING.get(id, FACING_FRONT))
 
 
 static func get_icon(id: String) -> Texture2D:

@@ -5,17 +5,13 @@ const Growth := preload("res://scripts/systems/weapon_growth.gd")
 
 ## The middle rung of the tree: base weapon → enhanced weapon → resonance.
 ##
-## There is exactly one condition and it is a number the player can already see:
+## A route names the treasure that completes it. Enhancement happens when both
+## visible parts of that recipe are ready:
 ##
-##     무기 레벨 == 7
+##     무기 레벨 >= 7 + 테크의 필수 보물 레벨 >= 4
 ##
-## The enhancement used to want a second thing as well — a specific treasure
-## carried to Lv.4, and *which* treasure depended on the route the weapon took at
-## Lv.3. That is three facts to hold (route → treasure → tier) before a weapon
-## can finish, none of them visible at the moment the route was picked, and the
-## failure mode was a pair reaching Lv.7 with the wrong four treasures and never
-## learning why their weapon had stopped. Treasures are synergy now (see
-## TreasureCatalog and §추천 보물 in the level-up card), never a gate.
+## The route card, growth cards and full-stat sheet all print the same recipe,
+## so the treasure is a build choice rather than a hidden failure state.
 ##
 ## The enhancement is also not a card any more. A weapon that reaches Lv.7
 ## enhances on the spot, because "you may now buy the thing you have already
@@ -29,6 +25,7 @@ const Growth := preload("res://scripts/systems/weapon_growth.gd")
 
 ## Six weapon upgrades stand between a starting weapon and its enhancement.
 const EVOLUTION_TIER := 7
+const REQUIRED_TREASURE_TIER := 4
 
 ## Where the numeric ladder actually stops, which is no longer where the
 ## enhancement happens. A weapon used to be finished the moment it enhanced: the

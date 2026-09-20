@@ -193,11 +193,10 @@ static func paint(card: Label, model: Dictionary, tint: Color, selected: bool, w
 	# sentence; that was lost when the chest and growth cards were collapsed onto
 	# this one component, and a mark nobody can interrogate is just decoration.
 	#
-	# It marks a synergy, not a recipe. While treasures gated enhancement the
-	# sentence said 합치면 무기가 강화됩니다, which was an instruction; nothing
-	# gates an enhancement now, so it describes a good fit instead.
+	# The mark names the other carried half of the enhancement recipe.
 	var partner := String(model.get("fusion_name", ""))
-	fusion.tooltip_text = L.f("%s와(과) 시너지가 좋습니다", L.t(partner)) if not partner.is_empty() else ""
+	var required_tier := int(model.get("fusion_tier", 0))
+	fusion.tooltip_text = L.f("%s Lv.%d가 진화에 필요합니다", [L.t(partner), required_tier]) if not partner.is_empty() else ""
 	fusion.mouse_filter = Control.MOUSE_FILTER_PASS if fusion.visible else Control.MOUSE_FILTER_IGNORE
 	var badge: Label = card.get_node("Recommendation")
 	var advice := String(model.get("advice", "neutral"))
