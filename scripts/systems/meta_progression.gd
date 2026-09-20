@@ -6,6 +6,8 @@ extends RefCounted
 ## actually made it once, then its real icon/name may be used in future runs.
 
 const SAVE_PATH := "user://moonroof_progression.cfg"
+const SAVE_VERSION := 1
+const FORMAT_SECTION := "format"
 ## The headless tests drive whole runs, and a run that completes a fusion records
 ## the discovery — into the player's own save, because that is the only path this
 ## knew about. A suite run therefore marked fusions as found that nobody had
@@ -46,6 +48,8 @@ var points := 0
 var ranks: Dictionary = {}
 var discoveries: Dictionary = {}
 var last_save_error: Error = OK
+var last_load_error: Error = OK
+var recovered_from_backup := false
 
 
 func _init() -> void:
@@ -58,27 +62,62 @@ func _init() -> void:
 
 func load_progress() -> void:
 	var config := ConfigFile.new()
-	if config.load(save_path) != OK:
+	recovered_from_backup = false
+	last_load_error = config.load(save_path)
+	if last_load_error != OK:
+		last_load_error = config.load(save_path + ".bak")
+		if last_load_error != OK:
+			return
+		recovered_from_backup = true
+	var version := maxi(0, int(config.get_value(FORMAT_SECTION, "version", 0)))
+	if version > SAVE_VERSION:
+		last_load_error = ERR_FILE_UNRECOGNIZED
 		return
 	points = maxi(0, int(config.get_value(SECTION, "points", 0)))
 	for entry in UPGRADES:
 		var id := String(entry["id"])
 		ranks[id] = clampi(int(config.get_value(SECTION, id, 0)), 0, int(entry["max_rank"]))
-	for key in config.get_section_keys(DISCOVERY_SECTION):
-		if bool(config.get_value(DISCOVERY_SECTION, key, false)):
-			discoveries[String(key)] = true
+	if config.has_section(DISCOVERY_SECTION):
+		for key in config.get_section_keys(DISCOVERY_SECTION):
+			if bool(config.get_value(DISCOVERY_SECTION, key, false)):
+				discoveries[String(key)] = true
 
 
 func save_progress() -> Error:
 	var config := ConfigFile.new()
+	config.set_value(FORMAT_SECTION, "version", SAVE_VERSION)
 	config.set_value(SECTION, "points", points)
 	for entry in UPGRADES:
 		var id := String(entry["id"])
 		config.set_value(SECTION, id, rank(id))
 	for fusion_id in discoveries:
 		config.set_value(DISCOVERY_SECTION, String(fusion_id), true)
-	last_save_error = config.save(save_path)
+	last_save_error = _save_atomically(config, save_path)
 	return last_save_error
+
+
+static func _save_atomically(config: ConfigFile, path: String) -> Error:
+	var temporary := path + ".tmp"
+	var backup := path + ".bak"
+	var error := config.save(temporary)
+	if error != OK:
+		return error
+	var absolute := ProjectSettings.globalize_path(path)
+	var temporary_absolute := ProjectSettings.globalize_path(temporary)
+	var backup_absolute := ProjectSettings.globalize_path(backup)
+	if FileAccess.file_exists(path):
+		if FileAccess.file_exists(backup):
+			DirAccess.remove_absolute(backup_absolute)
+		error = DirAccess.rename_absolute(absolute, backup_absolute)
+		if error != OK:
+			DirAccess.remove_absolute(temporary_absolute)
+			return error
+	error = DirAccess.rename_absolute(temporary_absolute, absolute)
+	if error != OK:
+		if FileAccess.file_exists(backup):
+			DirAccess.rename_absolute(backup_absolute, absolute)
+		DirAccess.remove_absolute(temporary_absolute)
+	return error
 
 
 func award_clear() -> int:

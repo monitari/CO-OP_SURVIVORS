@@ -80,6 +80,70 @@ func _run() -> void:
 	recording._receive_snapshot_part(20, 0, 1, {"elapsed": 20.0}, [])
 	recording._receive_snapshot_part(19, 0, 1, {"elapsed": 19.0}, [])
 	_check(applied_sequences == [20.0], "client discards a snapshot older than the applied state")
+	recording._receive_snapshot_part(21, 0, 2, {"elapsed": 21.0}, [])
+	_check(applied_sequences == [20.0, 21.0],
+		"split snapshots apply player and HUD state before all enemy chunks arrive")
+	recording._receive_snapshot_part(21, 1, 2, {}, [])
+	_check(applied_sequences == [20.0, 21.0, 21.0],
+		"the completed split snapshot later supplies the assembled enemy state")
+	recording._receive_snapshot_part(30, 0, 2, {'elapsed': 30.0}, [])
+	recording._receive_snapshot_part(31, 0, 1, {'elapsed': 31.0}, [])
+	_check(applied_sequences.slice(-2) == [30.0, 31.0]
+		and not recording.incoming_snapshots.has(30),
+		"a lost enemy chunk cannot block a newer complete snapshot")
+
+	main.online._apply_snapshot({
+		"chain_max_length": 445.0, "chain_overloaded": true,
+		"chain_ward_remaining": 3.0, "guard_remaining": 2.0,
+		"frenzy_remaining": 4.0, "time_stop_remaining": 1.5,
+		"pending_cores": 1,
+	})
+	_check(is_equal_approx(main.chain_max_length, 445.0) and main.chain_overloaded
+		and is_equal_approx(main.chain_ward_remaining, 3.0)
+		and is_equal_approx(main.time_stop_remaining, 1.5)
+		and main.resonance_system.pending_cores == 1,
+		"client mirrors chain, timed-item and held-core combat state")
+
+	var nearby := ChaserEnemy.new()
+	nearby.setup(1.0, "runner")
+	nearby.position = Vector2(120, 0)
+	main.world_stage.add_child(nearby)
+	var distant := ChaserEnemy.new()
+	distant.setup(1.0, "runner")
+	distant.position = Vector2(OnlineCoop.REPLICATION_RADIUS + 800.0, 0)
+	main.world_stage.add_child(distant)
+	main.enemies.assign([nearby, distant])
+	var interest_snapshot: Dictionary = main.online._snapshot()
+	var interest_ids: Array[int] = []
+	for state: Array in interest_snapshot["enemies"]:
+		interest_ids.append(int(state[OnlineCoop.EnemyField.ID]))
+	_check(nearby.get_instance_id() in interest_ids and distant.get_instance_id() not in interest_ids,
+		"enemy snapshots keep the local combat area and omit distant non-bosses")
+	nearby.queue_free()
+	distant.queue_free()
+	main.enemies.clear()
+
+	main.online.reconnect_in_progress = true
+	main.online.reconnect_as_host = false
+	main.online.reconnect_forced_pause = true
+	main._set_pause(true, false)
+	main.online._receive_run_resume({
+		"indices": [0, 1],
+		"weapon_loadouts": main.weapon_loadouts.duplicate(true),
+		"treasure_loadouts": main.treasure_loadouts.duplicate(true),
+		"chain_max_length": 510.0,
+		"player_stats": main.online._player_build_states(),
+		"active_resonances": [],
+		"pending_cores": 2,
+		"attack_timers": main.attack_timers.duplicate(true),
+		"elapsed": 88.0, "kills": 42,
+		"level": 5, "xp": 3, "required_xp": 20,
+	})
+	_check(not main.online.reconnect_in_progress and not main.pause_active
+		and is_equal_approx(main.chain_max_length, 510.0)
+		and main.elapsed == 88.0 and main.kills == 42
+		and main.resonance_system.pending_cores == 2,
+		"mid-run reconnect restores authoritative build and run progress")
 
 	main.online._sync_enemies([[
 		7001, Vector2(300, 40), 0.25, "brute", false, true, 2,
@@ -122,6 +186,19 @@ func _run() -> void:
 			has_attack_visual = true
 			break
 	_check(has_attack_visual, "client creates a harmless player attack visual")
+	main.online._event(1, {
+		"type": "player_attack", "player": 0, "weapon": "lance",
+		"origin": Vector2(90, 40), "direction": Vector2.RIGHT,
+		"color": Color("caffbf"), "radius": 88.0,
+	})
+	await process_frame
+	var has_remote_trajectory := false
+	for child in main.weapon_controller.get_children():
+		if child.get_script() != null and String(child.get_script().resource_path).ends_with("lance_strike.gd"):
+			has_remote_trajectory = true
+			break
+	_check(has_remote_trajectory,
+		"remote weapon events preserve a directional beam instead of using one generic flare")
 
 	main.online._sync_items([[
 		8001, Vector2(240, 120), "frenzy", 18.0,
@@ -147,23 +224,55 @@ func _run() -> void:
 	main.online._control(1, {"type": "pause_state", "enabled": false})
 	_check(not main.pause_active and not paused, "host resume state resumes the client")
 
-	var remote_stats: Dictionary = main.run_stats.duplicate(true)
-	remote_stats["bosses"] = 3
-	remote_stats["revives"] = 2
+	var resonance_choices: Array = main.resonance_system.catalog.slice(0, 2)
 	main.online._control(1, {
-		"type": "run_result", "victory": false, "elapsed": 321.5,
-		"kills": 456, "run_stats": remote_stats,
+		"type": "resonance_open", "candidates": resonance_choices,
+		"cursors": [0, 1], "votes": [-1, -1], "message": "",
+	})
+	_check(main.resonance_vote_active and main.resonance_overlay.visible and paused,
+		"host resonance state opens and pauses the client vote")
+	main._confirm_resonance_vote(1, 1)
+	_check(recording.controls.back().get("type") == "resonance_action"
+		and recording.controls.back().get("action") == "confirm"
+		and int(recording.controls.back().get("index")) == 1,
+		"client resonance confirmation is sent to the host")
+	main.online._control(1, {
+		"type": "resonance_close", "chosen": resonance_choices[1],
+		"active": [resonance_choices[1]], "pending_cores": 0,
+	})
+	_check(not main.resonance_vote_active and not main.resonance_overlay.visible and not paused
+		and main.resonance_system.active_resonances.size() == 1,
+		"host resonance result closes the client vote and installs the chosen state")
+
+	var remote_stats: Dictionary = main.run_stats.duplicate(true)
+	remote_stats["bosses"] = WaveDirector.BOSS_COUNT
+	remote_stats["revives"] = 2
+	var points_before: int = int(main.meta_progression.points)
+	main.online._control(1, {
+		"type": "run_result", "victory": true, "elapsed": 321.5,
+		"kills": 456, "run_stats": remote_stats, "reward_eligible": true,
+		"debug_tainted": false,
 	})
 	_check(main.game_over and main.result_overlay.visible, "host result opens the client result screen")
 	_check(main.kills == 456 and int(main.run_stats["revives"]) == 2,
 		"client result uses the host's final run statistics")
-	_check(main.run_reward == 0, "remote result never awards the host profile locally")
+	_check(main.run_reward == MetaProgression.CLEAR_REWARD
+		and main.meta_progression.points == points_before + MetaProgression.CLEAR_REWARD,
+		"an eligible host result awards the client's own profile exactly once")
+	main._retry_same_pair()
+	_check(recording.controls.back().get("type") == "result_action"
+		and recording.controls.back().get("action") == "retry",
+		"client result retry requests host authority instead of reloading alone")
+	main._return_to_main_menu()
+	_check(recording.controls.back().get("type") == "result_action"
+		and recording.controls.back().get("action") == "menu",
+		"client result menu action requests the host transition")
 
 	_check(String(ProjectSettings.get_setting("display/window/stretch/aspect", "")) == "keep",
 		"non-16:9 fullscreen keeps the authored aspect ratio")
 	paused = false
 	if failures.is_empty():
-		print("ONLINE_STATE_PASS: combat visuals, field items, boss telegraphs, pause, result and display aspect")
+		print("ONLINE_STATE_PASS: snapshots, combat state, resonance, pause, reward, result actions and display aspect")
 		quit(0)
 	else:
 		for failure in failures:

@@ -4,6 +4,9 @@ extends Node
 const SessionScript := preload("res://scripts/systems/network_session.gd")
 const FieldItemScript := preload("res://scripts/entities/field_item.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
+const RECONNECT_GRACE_SECONDS := 15.0
+const RECONNECT_RETRY_SECONDS := 0.75
+const REPLICATION_RADIUS := 1700.0
 
 # Positional wire schema. Repeating eighteen Dictionary keys for every enemy was
 # larger than the actual values and pushed tiny ENet chunks over the MTU.
@@ -16,8 +19,14 @@ enum EnemyField {
 var game: Node
 var session: NetworkSession
 var snapshot_timer := 0.0
+var last_remote_input_msec := 0
 var replica_enemies: Dictionary = {}
 var replica_items: Dictionary = {}
+var reconnect_in_progress := false
+var reconnect_as_host := false
+var reconnect_remaining := 0.0
+var reconnect_retry_timer := 0.0
+var reconnect_forced_pause := false
 
 
 func configure(main: Node) -> void:
@@ -30,6 +39,7 @@ func configure(main: Node) -> void:
 	session.peer_joined.connect(_peer_joined)
 	session.peer_left.connect(_peer_left)
 	session.connected_to_host.connect(_connected)
+	session.connection_failed.connect(_connection_failed)
 	session.input_received.connect(_remote_input)
 	session.control_received.connect(_control)
 	session.event_received.connect(_event)
@@ -69,6 +79,7 @@ func join_game(address: String) -> void:
 
 
 func stop() -> void:
+	_cancel_reconnect()
 	_clear_replicas()
 	session.stop()
 
@@ -81,22 +92,44 @@ func _status(message: String) -> void:
 
 
 func _peer_joined(_peer_id: int) -> void:
-	if not is_host() or not game.lobby_active:
+	if not is_host():
+		return
+	if reconnect_in_progress and reconnect_as_host:
+		_status("온라인 동료 재접속 완료    런 복구 중…")
+		return
+	if not game.lobby_active:
 		return
 	game.lobby_joined.assign([true, true])
 	game.lobby_device_names.assign(["이 PC    호스트", "온라인 동료"])
 	game._refresh_lobby_ui()
+	var retrying: bool = bool(game.online_retry_pending)
 	game._finish_lobby()
+	if retrying:
+		game.online_retry_pending = false
+		game.character_confirmed.assign([true, true])
+		game._refresh_character_select_ui()
 	send_character_state()
+	if retrying:
+		game._start_selected_run()
 
 
 func _connected() -> void:
+	if reconnect_in_progress and not reconnect_as_host:
+		_status("호스트 재접속 완료    런 상태 복구 중…")
+		session.send_control({"type": "resume_request"})
+		return
 	game.lobby_joined.assign([true, true])
 	game.lobby_device_names.assign(["온라인 호스트", "이 PC    나"])
 	game._refresh_lobby_ui()
 
 
 func _peer_left(_peer_id: int) -> void:
+	if _run_can_reconnect():
+		if session.role == NetworkSession.Role.HOST:
+			_begin_host_reconnect()
+		else:
+			_begin_client_reconnect()
+		return
 	if session.role == NetworkSession.Role.OFFLINE:
 		game._begin_lobby()
 		_status("연결 종료    다시 방을 만들거나 참가하세요")
@@ -105,8 +138,72 @@ func _peer_left(_peer_id: int) -> void:
 		_status("온라인 동료가 나갔습니다")
 
 
+func _connection_failed() -> void:
+	if reconnect_in_progress and not reconnect_as_host:
+		reconnect_retry_timer = RECONNECT_RETRY_SECONDS
+
+
+func _run_can_reconnect() -> bool:
+	return (not game.title_active and not game.lobby_active
+		and not game.character_select_active and not game.game_over)
+
+
+func _begin_host_reconnect() -> void:
+	reconnect_in_progress = true
+	reconnect_as_host = true
+	reconnect_remaining = RECONNECT_GRACE_SECONDS
+	reconnect_forced_pause = not game.get_tree().paused
+	if reconnect_forced_pause:
+		game._set_pause(true, false)
+	_status("온라인 동료 연결 끊김    %d초 동안 재접속 대기" % int(RECONNECT_GRACE_SECONDS))
+
+
+func _begin_client_reconnect() -> void:
+	reconnect_in_progress = true
+	reconnect_as_host = false
+	reconnect_remaining = RECONNECT_GRACE_SECONDS
+	reconnect_retry_timer = 0.0
+	reconnect_forced_pause = not game.get_tree().paused
+	if reconnect_forced_pause:
+		game._set_pause(true, false)
+	_status("호스트 연결 끊김    자동 재접속 중…")
+
+
+func _cancel_reconnect() -> void:
+	reconnect_in_progress = false
+	reconnect_as_host = false
+	reconnect_remaining = 0.0
+	reconnect_retry_timer = 0.0
+	reconnect_forced_pause = false
+
+
+func connection_tick(delta: float) -> void:
+	if not reconnect_in_progress:
+		return
+	reconnect_remaining -= delta
+	if reconnect_remaining <= 0.0:
+		var was_host := reconnect_as_host
+		_cancel_reconnect()
+		if game.pause_active:
+			game._set_pause(false, false)
+		game._begin_lobby()
+		_status("재접속 시간이 만료되었습니다    %s" % (
+			"방을 다시 열어 주세요" if was_host else "다시 참가해 주세요"))
+		return
+	if reconnect_as_host:
+		_status("온라인 동료 재접속 대기    %d초" % ceili(reconnect_remaining))
+		return
+	if session.role == NetworkSession.Role.CLIENT and session.peer_is_connected():
+		return
+	reconnect_retry_timer -= delta
+	if reconnect_retry_timer <= 0.0:
+		reconnect_retry_timer = RECONNECT_RETRY_SECONDS
+		session.join_game(session.address, session.port)
+
+
 func _remote_input(_peer_id: int, movement: Vector2, dash: bool) -> void:
 	if is_host() and not game.lobby_active:
+		last_remote_input_msec = Time.get_ticks_msec()
 		game.players[1].set_command(movement, dash)
 
 
@@ -124,7 +221,42 @@ func send_run_start() -> void:
 		session.send_control({
 			"type": "run_start",
 			"indices": game.selected_character_indices.duplicate(),
+			"chain_max_length": game.chain_max_length,
+			"player_stats": _player_build_states(),
 		})
+
+
+func _send_run_resume() -> void:
+	if not is_host():
+		return
+	session.send_control({
+		"type": "run_resume",
+		"indices": game.selected_character_indices.duplicate(),
+		"weapon_loadouts": game.weapon_loadouts.duplicate(true),
+		"treasure_loadouts": game.treasure_loadouts.duplicate(true),
+		"chain_max_length": game.chain_max_length,
+		"player_stats": _player_build_states(),
+		"active_resonances": game.resonance_system.active_resonances.duplicate(true),
+		"pending_cores": game.resonance_system.pending_cores,
+		"attack_timers": game.attack_timers.duplicate(true),
+		"elapsed": game.elapsed,
+		"kills": game.kills,
+		"level": game.progression.level,
+		"xp": game.progression.experience,
+		"required_xp": game.progression.required_experience,
+	})
+	# Resume the modal that was already open, or the ordinary running state.
+	if game.level_up_active:
+		send_growth_state("growth_open")
+	elif game.resonance_vote_active:
+		send_resonance_state("resonance_open")
+	else:
+		send_pause_state(game.pause_active and not reconnect_forced_pause)
+	session.send_snapshot(_snapshot())
+	if reconnect_forced_pause:
+		game._set_pause(false, false)
+	_cancel_reconnect()
+	_status("온라인 동료 복구 완료")
 
 
 func send_growth_state(kind := "growth_state") -> void:
@@ -146,7 +278,50 @@ func send_growth_close() -> void:
 			"type": "growth_close",
 			"weapon_loadouts": game.weapon_loadouts.duplicate(true),
 			"treasure_loadouts": game.treasure_loadouts.duplicate(true),
+			"chain_max_length": game.chain_max_length,
+			"player_stats": _player_build_states(),
 		})
+
+
+func send_resonance_state(kind := "resonance_state") -> void:
+	if is_host():
+		session.send_control({
+			"type": kind,
+			"candidates": game.resonance_candidates.duplicate(true),
+			"cursors": game.resonance_cursors.duplicate(),
+			"votes": game.resonance_votes.duplicate(),
+			"message": game.resonance_vote_message,
+		})
+
+
+func send_resonance_close(chosen: Dictionary) -> void:
+	if is_host():
+		session.send_control({
+			"type": "resonance_close",
+			"chosen": chosen.duplicate(true),
+			"active": game.resonance_system.active_resonances.duplicate(true),
+			"pending_cores": game.resonance_system.pending_cores,
+		})
+
+
+func request_resonance_action(action: String, index: int) -> void:
+	if is_client():
+		session.send_control({"type": "resonance_action", "action": action, "index": index})
+
+
+func request_result_action(action: String) -> void:
+	if is_client():
+		session.send_control({"type": "result_action", "action": action})
+
+
+func send_retry_run() -> void:
+	if is_host():
+		session.send_control({"type": "retry_run"})
+
+
+func send_return_to_menu() -> void:
+	if is_host():
+		session.send_control({"type": "return_to_menu"})
 
 
 func send_pause_state(enabled: bool) -> void:
@@ -181,12 +356,14 @@ func request_growth_reroll() -> void:
 		session.send_control({"type": "growth_reroll"})
 
 
-func send_result(victory: bool) -> void:
+func send_result(victory: bool, reward_eligible := false) -> void:
 	if is_host():
 		session.send_control({
 			"type": "run_result", "victory": victory,
 			"elapsed": game.elapsed, "kills": game.kills,
 			"run_stats": game.run_stats.duplicate(true),
+			"reward_eligible": reward_eligible,
+			"debug_tainted": game.debug_run_tainted,
 		})
 
 
@@ -201,10 +378,13 @@ func send_enemy_shot(origin: Vector2, direction: Vector2, speed: float) -> void:
 func send_player_attack(player_index: int, weapon_id: String, origin: Vector2,
 		color: Color, radius: float) -> void:
 	if is_host():
+		var direction := Vector2.RIGHT
+		if player_index >= 0 and player_index < game.players.size():
+			direction = game.players[player_index].facing
 		session.send_event({
 			"type": "player_attack", "player": player_index,
 			"weapon": weapon_id, "origin": origin,
-			"color": color, "radius": radius,
+			"direction": direction, "color": color, "radius": radius,
 		})
 
 
@@ -215,7 +395,9 @@ func _event(_peer_id: int, payload: Dictionary) -> void:
 		"enemy_shot": _receive_enemy_shot(payload)
 		"player_attack":
 			game.weapon_controller.play_remote_attack(
+				String(payload.get("weapon", "")),
 				Vector2(payload.get("origin", Vector2.ZERO)),
+				Vector2(payload.get("direction", Vector2.RIGHT)),
 				Color(payload.get("color", Color.WHITE)),
 				clampf(float(payload.get("radius", 64.0)), 32.0, 220.0))
 
@@ -229,7 +411,18 @@ func _control(peer_id: int, payload: Dictionary) -> void:
 			return
 		if kind.begins_with("growth_") and not game.level_up_active:
 			return
+		if kind == "resonance_action" and not game.resonance_vote_active:
+			return
+		if kind == "result_action" and not game.game_over:
+			return
 		match kind:
+			"resume_request":
+				if reconnect_in_progress and reconnect_as_host:
+					_send_run_resume()
+			"dash":
+				if not game.game_over and not game.pause_active and not game.level_up_active \
+						and not game.resonance_vote_active and not game.cinematic_active:
+					game.players[1].commanded_dash = true
 			"character_choice":
 				game.selected_character_indices[1] = clampi(int(payload.get("index", 0)), 0, game.character_catalog.size() - 1)
 				game.character_confirmed[1] = bool(payload.get("confirmed", false))
@@ -253,27 +446,61 @@ func _control(peer_id: int, payload: Dictionary) -> void:
 						and not game.character_select_active and not game.cinematic_active)
 						or (not requested and game.pause_active)):
 					game._set_pause(requested)
+			"resonance_action":
+				var action := String(payload.get("action", ""))
+				var index := clampi(int(payload.get("index", 0)), 0,
+					maxi(0, game.resonance_candidates.size() - 1))
+				match action:
+					"cursor":
+						if game.resonance_votes[1] < 0:
+							game.resonance_cursors[1] = index
+							game._refresh_resonance_vote_ui()
+							send_resonance_state()
+					"confirm":
+						if game.resonance_votes[1] < 0:
+							game.resonance_cursors[1] = index
+							game.resonance_votes[1] = index
+							game.feedback.play_cue("select")
+							game._resolve_resonance_votes()
+					"cancel":
+						if game.resonance_votes[1] >= 0:
+							game.resonance_votes[1] = -1
+							game._refresh_resonance_vote_ui()
+							send_resonance_state()
+			"result_action":
+				match String(payload.get("action", "")):
+					"retry": game._retry_same_pair()
+					"menu": game._return_to_main_menu()
 		return
 	match kind:
 		"character_state": _receive_character_state(payload)
 		"run_start": _receive_run_start(payload)
+		"run_resume": _receive_run_resume(payload)
 		"growth_open", "growth_state": _receive_growth_state(payload)
 		"growth_close":
 			game.weapon_loadouts.assign(payload.get("weapon_loadouts", game.weapon_loadouts))
 			game.treasure_loadouts.assign(payload.get("treasure_loadouts", game.treasure_loadouts))
+			game.chain_max_length = float(payload.get("chain_max_length", game.chain_max_length))
+			_apply_player_build_states(payload.get("player_stats", []))
 			_sync_attack_timers()
 			game.level_up_active = false
 			game.level_overlay.visible = false
 			game.get_tree().paused = false
+		"resonance_open", "resonance_state": _receive_resonance_state(payload)
+		"resonance_close": _receive_resonance_close(payload)
 		"pause_state": game._set_pause(bool(payload.get("enabled", false)), false)
 		"run_result": _receive_result(payload)
+		"retry_run": game._accept_online_retry()
+		"return_to_menu": game._accept_online_return_to_menu()
 
 
 func _receive_result(payload: Dictionary) -> void:
 	game.elapsed = float(payload.get("elapsed", game.elapsed))
 	game.kills = int(payload.get("kills", game.kills))
 	game.run_stats = payload.get("run_stats", game.run_stats).duplicate(true)
-	game._end_run(bool(payload.get("victory", false)), false)
+	game.debug_run_tainted = bool(payload.get("debug_tainted", false))
+	game._end_run(bool(payload.get("victory", false)),
+		bool(payload.get("reward_eligible", false)))
 
 
 func _receive_character_state(payload: Dictionary) -> void:
@@ -287,9 +514,37 @@ func _receive_character_state(payload: Dictionary) -> void:
 
 
 func _receive_run_start(payload: Dictionary) -> void:
+	if not game.game_over and not game.character_select_active and not game.lobby_active:
+		return
 	game.selected_character_indices.assign(payload.get("indices", [0, 1]))
 	game.character_confirmed.assign([true, true])
 	game._start_selected_run()
+	game.chain_max_length = float(payload.get("chain_max_length", game.chain_max_length))
+	_apply_player_build_states(payload.get("player_stats", []))
+
+
+func _receive_run_resume(payload: Dictionary) -> void:
+	game.selected_character_indices.assign(payload.get("indices", game.selected_character_indices))
+	game.weapon_loadouts.assign(payload.get("weapon_loadouts", game.weapon_loadouts))
+	game.treasure_loadouts.assign(payload.get("treasure_loadouts", game.treasure_loadouts))
+	game.chain_max_length = float(payload.get("chain_max_length", game.chain_max_length))
+	game.resonance_system.active_resonances.assign(
+		payload.get("active_resonances", game.resonance_system.active_resonances))
+	game.resonance_system.pending_cores = int(
+		payload.get("pending_cores", game.resonance_system.pending_cores))
+	game.attack_timers = payload.get("attack_timers", game.attack_timers).duplicate(true)
+	game.elapsed = float(payload.get("elapsed", game.elapsed))
+	game.kills = int(payload.get("kills", game.kills))
+	game.progression.level = int(payload.get("level", game.progression.level))
+	game.progression.experience = int(payload.get("xp", game.progression.experience))
+	game.progression.required_experience = int(
+		payload.get("required_xp", game.progression.required_experience))
+	_apply_player_build_states(payload.get("player_stats", []))
+	_sync_attack_timers()
+	if reconnect_forced_pause:
+		game._set_pause(false, false)
+	_cancel_reconnect()
+	_status("온라인 런 복구 완료")
 
 
 func _receive_growth_state(payload: Dictionary) -> void:
@@ -306,14 +561,67 @@ func _receive_growth_state(payload: Dictionary) -> void:
 	game._refresh_level_up_ui()
 
 
+func _receive_resonance_state(payload: Dictionary) -> void:
+	game.resonance_candidates.assign(payload.get("candidates", []))
+	game.resonance_cursors.assign(payload.get("cursors", [0, 0]))
+	game.resonance_votes.assign(payload.get("votes", [-1, -1]))
+	game.resonance_vote_message = String(payload.get("message", ""))
+	game.resonance_vote_active = true
+	game.resonance_overlay.visible = true
+	game.modal_dim.visible = true
+	game.modal_dim.veil_only = true
+	game.get_tree().paused = true
+	game._refresh_resonance_vote_ui()
+
+
+func _receive_resonance_close(payload: Dictionary) -> void:
+	game.resonance_system.active_resonances.assign(payload.get("active", []))
+	game.resonance_system.pending_cores = int(payload.get("pending_cores", 0))
+	game.resonance_vote_active = false
+	game.resonance_overlay.visible = false
+	game.get_tree().paused = false
+	var chosen: Dictionary = payload.get("chosen", {})
+	if not chosen.is_empty():
+		game._show_message("공명 발현 — %s" % String(chosen.get("name", "")), Color("fff275"))
+
+
+func _player_build_states() -> Array[Dictionary]:
+	var states: Array[Dictionary] = []
+	for player in game.players:
+		states.append({
+			"health": player.health, "max_health": player.max_health,
+			"move_speed": player.move_speed,
+			"might": player.might, "haste": player.haste, "area": player.area,
+			"projectile_speed": player.projectile_speed, "duration": player.duration,
+			"amount": player.amount, "armor": player.armor, "recovery": player.recovery,
+			"crit_chance": player.crit_chance, "pierce": player.pierce,
+			"thorns": player.thorns, "resolve": player.resolve,
+			"dodge_chance": player.dodge_chance,
+			"second_chances": player.second_chances,
+		})
+	return states
+
+
+func _apply_player_build_states(states: Array) -> void:
+	for slot in mini(states.size(), game.players.size()):
+		var state: Dictionary = states[slot]
+		var player: ChainPlayer = game.players[slot]
+		for key in state:
+			player.set(key, state[key])
+
+
 func client_tick(delta: float) -> void:
+	if reconnect_in_progress:
+		return
 	if game.game_over:
+		game._handle_result_input()
 		return
 	if game.pause_active:
 		if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
 			request_pause(false)
 		return
 	if (not game.level_up_active and not game.character_select_active
+			and not game.resonance_vote_active
 			and Input.is_action_just_pressed("pause")):
 		request_pause(true)
 		return
@@ -322,6 +630,9 @@ func client_tick(delta: float) -> void:
 		return
 	if game.level_up_active:
 		_client_growth_input()
+		return
+	if game.resonance_vote_active:
+		_client_resonance_input()
 		return
 	if game.lobby_active or game.title_active or game.game_over:
 		return
@@ -367,6 +678,21 @@ func _client_growth_input() -> void:
 		game._reroll_growth_choice(1)
 
 
+func _client_resonance_input() -> void:
+	if game.resonance_candidates.is_empty():
+		return
+	if game.resonance_votes[1] >= 0:
+		if Input.is_action_just_pressed("p1_select_cancel"):
+			game._cancel_resonance_vote(1)
+		return
+	if Input.is_action_just_pressed("p1_select_previous"):
+		game._set_resonance_cursor(1, game.resonance_cursors[1] - 1)
+	elif Input.is_action_just_pressed("p1_select_next"):
+		game._set_resonance_cursor(1, game.resonance_cursors[1] + 1)
+	elif Input.is_action_just_pressed("p1_select_confirm"):
+		game._confirm_resonance_vote(1, game.resonance_cursors[1])
+
+
 func _receive_enemy_shot(payload: Dictionary) -> void:
 	# Through the host's own pool and the host's own signal wiring, so a received
 	# shot is recycled and pruned by exactly the code a locally fired one is.
@@ -383,6 +709,9 @@ func _receive_enemy_shot(payload: Dictionary) -> void:
 func host_tick(delta: float) -> void:
 	if not is_host() or game.lobby_active or game.character_select_active:
 		return
+	if last_remote_input_msec > 0 and Time.get_ticks_msec() - last_remote_input_msec > 500:
+		game.players[1].set_command(Vector2.ZERO)
+		last_remote_input_msec = 0
 	snapshot_timer -= delta
 	if snapshot_timer <= 0.0:
 		snapshot_timer = 0.10
@@ -398,8 +727,11 @@ func _snapshot() -> Dictionary:
 			"bleedout": player.bleedout_remaining, "revive": player.revive_progress,
 		})
 	var enemy_states: Array = []
+	var replication_center: Vector2 = (
+		game.players[0].position + game.players[1].position) * 0.5
 	for enemy in game.enemies:
-		if is_instance_valid(enemy) and not enemy.dead:
+		if (is_instance_valid(enemy) and not enemy.dead
+				and (enemy.boss or enemy.position.distance_to(replication_center) <= REPLICATION_RADIUS)):
 			enemy_states.append([
 				enemy.get_instance_id(), enemy.position, enemy.rotation, enemy.archetype,
 				enemy.elite, enemy.boss, enemy.boss_rank, enemy.health, enemy.max_health,
@@ -417,8 +749,15 @@ func _snapshot() -> Dictionary:
 		"players": player_states, "enemies": enemy_states, "items": item_states,
 		"elapsed": game.elapsed, "kills": game.kills,
 		"chain_integrity": game.chain_integrity,
+		"chain_max_length": game.chain_max_length,
+		"chain_overloaded": game.chain_overloaded,
+		"chain_ward_remaining": game.chain_ward_remaining,
+		"guard_remaining": game.guard_remaining,
+		"frenzy_remaining": game.frenzy_remaining,
+		"time_stop_remaining": game.time_stop_remaining,
 		"attack_timers": game.attack_timers.duplicate(true),
-		"resonances": game.resonance_system.active_resonances.duplicate(true),
+		"resonance_clocks": _resonance_clocks(),
+		"pending_cores": game.resonance_system.pending_cores,
 		"level": game.progression.level, "xp": game.progression.experience,
 		"required_xp": game.progression.required_experience,
 	}
@@ -440,16 +779,44 @@ func _apply_snapshot(payload: Dictionary) -> void:
 	game.elapsed = float(payload.get("elapsed", game.elapsed))
 	game.kills = int(payload.get("kills", game.kills))
 	game.chain_integrity = float(payload.get("chain_integrity", game.chain_integrity))
+	game.chain_max_length = float(payload.get("chain_max_length", game.chain_max_length))
+	game.chain_overloaded = bool(payload.get("chain_overloaded", game.chain_overloaded))
+	game.chain_ward_remaining = float(payload.get("chain_ward_remaining", game.chain_ward_remaining))
+	game.guard_remaining = float(payload.get("guard_remaining", game.guard_remaining))
+	game.frenzy_remaining = float(payload.get("frenzy_remaining", game.frenzy_remaining))
+	game.time_stop_remaining = float(payload.get("time_stop_remaining", game.time_stop_remaining))
 	game.progression.level = int(payload.get("level", game.progression.level))
 	game.progression.experience = int(payload.get("xp", game.progression.experience))
 	game.progression.required_experience = int(payload.get("required_xp", game.progression.required_experience))
 	_sync_attack_timers()
 	if payload.has("attack_timers"):
 		game.attack_timers = payload["attack_timers"].duplicate(true)
-	if payload.has("resonances"):
-		game.resonance_system.active_resonances.assign(payload["resonances"])
-	_sync_enemies(payload.get("enemies", []))
-	_sync_items(payload.get("items", []))
+	if payload.has("resonance_clocks"):
+		_apply_resonance_clocks(payload["resonance_clocks"])
+	if payload.has("pending_cores"):
+		game.resonance_system.pending_cores = int(payload["pending_cores"])
+	if payload.has("enemies"):
+		_sync_enemies(payload["enemies"])
+	if payload.has("items"):
+		_sync_items(payload["items"])
+
+
+func _resonance_clocks() -> Array:
+	var clocks: Array = []
+	for resonance: Dictionary in game.resonance_system.active_resonances:
+		clocks.append([String(resonance.get("id", "")),
+			float(resonance.get("cooldown_remaining", 0.0))])
+	return clocks
+
+
+func _apply_resonance_clocks(clocks: Array) -> void:
+	for clock: Array in clocks:
+		if clock.size() < 2:
+			continue
+		for resonance: Dictionary in game.resonance_system.active_resonances:
+			if String(resonance.get("id", "")) == String(clock[0]):
+				resonance["cooldown_remaining"] = float(clock[1])
+				break
 
 
 func _sync_attack_timers() -> void:

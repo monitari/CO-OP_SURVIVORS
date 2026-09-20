@@ -193,6 +193,12 @@ static func _title(main: Node) -> void:
 	_snapshot(collage, "SnapshotPrank", SnapshotPrank,
 		Rect2(890, 305, 210, 210), -0.115)
 	label(screen, "", Rect2(392, 40, 400, 40), 27, Palette.INK).name = "TitleEyebrow"
+	var display_heading := label(screen, "디스플레이", Rect2(264, 126, 320, 26), 16, Palette.GOLD_INK)
+	display_heading.name = "SettingsDisplayHeading"
+	display_heading.visible = false
+	var play_heading := label(screen, "게임 · 오디오", Rect2(600, 126, 320, 26), 16, Palette.GOLD_INK)
+	play_heading.name = "SettingsPlayHeading"
+	play_heading.visible = false
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
 		place(row, G.inner(0, 0, 0.5, 3.9 + float(index) * 0.56, 4.0, 0.52), Palette.TYPE_HEADING)
@@ -238,6 +244,7 @@ static func refresh_title(main: Node) -> void:
 	var meta: bool = main.title_mode == "meta"
 	var menu: bool = main.title_mode == "menu"
 	var credits: bool = main.title_mode == "credits"
+	var settings_page: bool = main.title_mode == "settings"
 	main.title_overlay.chromeless = true
 	main.title_overlay.queue_redraw()
 	var title_plate: Panel = main.title_overlay.get_node("TitlePlate")
@@ -257,9 +264,16 @@ static func refresh_title(main: Node) -> void:
 	}.get(main.title_mode, "")
 	place(eyebrow, Rect2(264, 74, 656, 50), 34, Palette.INK)
 	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var display_heading: Label = main.title_overlay.get_node("SettingsDisplayHeading")
+	var play_heading: Label = main.title_overlay.get_node("SettingsPlayHeading")
+	display_heading.visible = settings_page
+	play_heading.visible = settings_page
+	var keys: Label = main.title_overlay.get_node("TitleKeys")
+	keys.text = ("↑ ↓ 항목    ← → 바로 변경    ENTER / A 다음 값    ESC / B 뒤로"
+		if settings_page else "↑ ↓ 이동    ENTER / A 선택    ESC / B 뒤로")
 	# The main page carries no sentence under the menu: every card says what it
 	# is. The note is the sub-pages' reading area.
-	main.title_note.visible = meta or credits
+	main.title_note.visible = meta or credits or settings_page
 	if credits:
 		main.title_note.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
 		place(main.title_note, Rect2(280, 140, 624, 352), 19, Palette.INK)
@@ -273,6 +287,16 @@ static func refresh_title(main: Node) -> void:
 		note.set_content_margin_all(14)
 		main.title_note.add_theme_stylebox_override("normal", note)
 		place(main.title_note, Rect2(264, 482, 656, 100), 15, Palette.INK)
+		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	elif settings_page:
+		var note := Palette.surface(Palette.PAPER_SHADE, 2)
+		note.shadow_size = 0
+		note.set_border_width_all(1)
+		note.border_color = Color(Palette.INK_LINE, 0.30)
+		note.set_content_margin_all(12)
+		main.title_note.add_theme_stylebox_override("normal", note)
+		place(main.title_note, Rect2(264, 486, 656, 88), 14, Palette.INK)
 		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	for index in main.title_rows.size():
@@ -304,9 +328,13 @@ static func refresh_title(main: Node) -> void:
 			place(row, Rect2(392, 512, 400, 52), 19)
 		elif main.title_mode == "modes":
 			place(row, Rect2(304, 160 + index * 72, 576, 56), 20)
+		elif settings_page:
+			var column: int = index / 5
+			var grid_row: int = index % 5
+			place(row, Rect2(264 + column * 336, 156 + grid_row * 62, 320, 52), 15)
 		else:
 			place(row, Rect2(304, 128 + index * 58, 576, 50), 17)
-		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if settings_page else HORIZONTAL_ALIGNMENT_CENTER
 		row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.visible = index < rows.size()
 		if not row.visible:
@@ -317,19 +345,30 @@ static func refresh_title(main: Node) -> void:
 		var state: Label = row.get_node("State")
 		state.size = Vector2(row.size.x - 22, row.size.y)
 		state.text = ""
-		if main.title_mode == "settings" and index == 5:
+		if settings_page and index == 0:
+			state.text = main.display_mode_label()
+			state.add_theme_color_override("font_color", Palette.GOLD_INK)
+		elif settings_page and index == 1:
 			state.text = main.window_size_label()
 			state.add_theme_color_override("font_color", Palette.GOLD_INK)
-		elif main.title_mode == "settings" and index in [2, 3]:
-			var volume: float = main.feedback.sound_volume if index == 2 else main.feedback.music_volume
+		elif settings_page and index == 2:
+			state.text = main.frame_rate_label()
+			state.add_theme_color_override("font_color", Palette.GOLD_INK)
+		elif settings_page and index == 3:
+			state.text = "● 켜짐" if main.settings.vsync_enabled else "○ 꺼짐"
+			state.add_theme_color_override("font_color", Palette.GOLD_INK if main.settings.vsync_enabled else Palette.MUTED)
+		elif settings_page and index in [7, 8]:
+			var volume: float = main.feedback.sound_volume if index == 7 else main.feedback.music_volume
 			state.text = "%d%%" % roundi(volume * 100.0)
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if volume > 0.0 else Palette.MUTED)
-		elif main.title_mode == "settings" and index < 7:
-			var states := [main.screen_shake_enabled, main.feedback.damage_numbers_enabled,
-				false, false, main.settings.large_text_enabled, false,
-				main.is_fullscreen()]
-			state.text = "● 켜짐" if states[index] else "○ 꺼짐"
-			state.add_theme_color_override("font_color", Palette.GOLD_INK if states[index] else Palette.MUTED)
+		elif settings_page and index in [4, 5, 6]:
+			var enabled: bool = [
+				main.settings.large_text_enabled,
+				main.screen_shake_enabled,
+				main.feedback.damage_numbers_enabled,
+			][index - 4]
+			state.text = "● 켜짐" if enabled else "○ 꺼짐"
+			state.add_theme_color_override("font_color", Palette.GOLD_INK if enabled else Palette.MUTED)
 		elif main.title_mode == "meta" and not main.meta_reset_pending and index < 6:
 			var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + index]
 			var id := String(entry["id"])
@@ -358,11 +397,9 @@ static func refresh_title(main: Node) -> void:
 		"modes":
 			main.title_note.text = ""
 		"settings":
-			main.title_note.text = ""
+			main.title_note.text = main.settings_description(main.title_cursor)
 			if main.settings.last_save_error != OK:
-				main.title_note.visible = true
-				main.title_note.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-				place(main.title_note, Rect2(304, 536, 576, 40), 14, Palette.DANGER_INK)
+				place(main.title_note, Rect2(264, 486, 656, 88), 14, Palette.DANGER_INK)
 				main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				main.title_note.text = "저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
 		"meta":

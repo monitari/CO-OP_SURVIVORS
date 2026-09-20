@@ -8,7 +8,7 @@ var main: Node
 
 
 func _initialize() -> void:
-	Harness.arm_watchdog(self, "ONLINE_%s" % mode.to_upper(), 25.0)
+	Harness.arm_watchdog(self, "ONLINE_%s" % mode.to_upper(), 55.0)
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--peer-mode="):
 			mode = argument.trim_prefix("--peer-mode=")
@@ -20,9 +20,9 @@ func _run() -> void:
 		push_error("ONLINE_PROBE_FAIL: pass --peer-mode=host or client")
 		quit(2)
 		return
-	main = MainScene.instantiate()
-	root.add_child(main)
-	await process_frame
+	change_scene_to_packed(MainScene)
+	await scene_changed
+	main = current_scene
 	if not Harness.require_loaded(self, main, "ONLINE_%s" % mode.to_upper()):
 		return
 	main._begin_lobby()
@@ -52,6 +52,12 @@ func _run_host() -> void:
 	if not await _wait_until(func() -> bool: return main.players[1].position.x > start_x + 20.0, 5.0):
 		_fail("host did not apply the remote P2 movement command")
 		return
+	if not await _wait_until(func() -> bool: return main.online.reconnect_in_progress, 5.0):
+		_fail("host did not preserve the run after the client transport dropped")
+		return
+	if not await _wait_until(func() -> bool: return not main.online.reconnect_in_progress, 12.0):
+		_fail("host did not complete the client run restore")
+		return
 	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2(420, 0), false, true, 1) as ChaserEnemy
 	boss.charge_windup = 0.75
 	boss.telegraph_direction = Vector2.LEFT
@@ -75,9 +81,28 @@ func _run_host() -> void:
 	if not await _wait_until(func() -> bool: return not main.level_up_active, 6.0):
 		_fail("host never completed the shared growth choice")
 		return
+	main.resonance_candidates.assign(main.resonance_system.catalog.slice(0, 2))
+	main.resonance_cursors.assign([0, 0])
+	main.resonance_votes.assign([0, -1])
+	main.resonance_vote_message = ""
+	main.resonance_vote_active = true
+	main.resonance_overlay.visible = true
+	paused = true
+	main.online.send_resonance_state("resonance_open")
+	if not await _wait_until(_has_active_resonance, 5.0):
+		_fail("host never received the client's resonance vote")
+		return
+	if not await _wait_until(func() -> bool: return not main.cinematic_active, 5.0):
+		_fail("host resonance showcase never completed")
+		return
 	main._end_run(false)
-	await create_timer(0.5).timeout
-	print("ONLINE_HOST_PASS: movement, combat visuals, field items, pause, growth and result synchronized")
+	var first_run := main
+	await scene_changed
+	main = current_scene
+	if main == first_run or not await _wait_until(_run_is_active, 12.0):
+		_fail("host did not reopen the room and start the retry run · %s" % _state_text())
+		return
+	print("ONLINE_HOST_PASS: movement, combat visuals, field items, pause, growth, resonance, result and retry synchronized")
 	main.online.stop()
 	quit(0)
 
@@ -102,6 +127,17 @@ func _run_client() -> void:
 	while Time.get_ticks_msec() < end_at:
 		await physics_frame
 	Input.action_release("p1_right")
+	# Drop the transport without changing scenes. The host must keep the live
+	# run paused, and this client must reconnect to the same address and receive
+	# the authoritative build/run state before the probe continues.
+	main.online.session.multiplayer.multiplayer_peer.close()
+	if not await _wait_until(func() -> bool: return main.online.reconnect_in_progress, 3.0):
+		_fail("client did not enter mid-run reconnect after transport loss")
+		return
+	if not await _wait_until(func() -> bool:
+			return main.online.is_client() and not main.online.reconnect_in_progress, 12.0):
+		_fail("client did not restore the interrupted run · %s" % _state_text())
+		return
 	if not await _wait_until(_client_has_boss_telegraph, 5.0):
 		_fail("client never received the boss and its telegraph")
 		return
@@ -137,10 +173,24 @@ func _run_client() -> void:
 	if main.level_up_active:
 		_fail("client growth screen reopened after close")
 		return
+	if not await _wait_until(func() -> bool: return main.resonance_vote_active, 5.0):
+		_fail("client never received the resonance vote")
+		return
+	main.online.request_resonance_action("confirm", 0)
+	if not await _wait_until(_client_has_chosen_resonance, 5.0):
+		_fail("client never received the chosen resonance")
+		return
 	if not await _wait_until(func() -> bool: return main.game_over and main.result_overlay.visible, 5.0):
 		_fail("client never received the result screen")
 		return
-	print("ONLINE_CLIENT_PASS: movement, combat visuals, field items, pause, growth and result synchronized")
+	var first_run := main
+	main._retry_same_pair()
+	await scene_changed
+	main = current_scene
+	if main == first_run or not await _wait_until(_run_is_active, 12.0):
+		_fail("client did not reconnect and enter the retry run · %s" % _state_text())
+		return
+	print("ONLINE_CLIENT_PASS: movement, mid-run reconnect, combat visuals, field items, pause, growth, resonance, result and retry synchronized")
 	quit(0)
 
 
@@ -150,7 +200,9 @@ func _client_has_boss_telegraph() -> bool:
 
 
 func _client_has_enemy_projectile() -> bool:
-	for child in main.get_children():
+	# World nodes are adopted into the off-screen rooftop viewport after setup;
+	# looking only under main made a visible replicated shot appear missing.
+	for child in main.rooftop_view.world.get_children():
 		if child is EnemyProjectile:
 			return true
 	return false
@@ -161,6 +213,29 @@ func _client_has_player_attack_visual() -> bool:
 		if child is CombatFlare:
 			return true
 	return false
+
+
+func _has_active_resonance() -> bool:
+	return main.resonance_system.active_resonances.size() == 1
+
+
+func _client_has_chosen_resonance() -> bool:
+	return not main.resonance_vote_active and _has_active_resonance()
+
+
+func _run_is_active() -> bool:
+	return (is_instance_valid(main) and not main.title_active and not main.lobby_active
+		and not main.character_select_active and not main.game_over)
+
+
+func _state_text() -> String:
+	if not is_instance_valid(main):
+		return "main invalid"
+	return "role=%s title=%s lobby=%s character=%s over=%s status=%s peers=%s" % [
+		main.online.session.role, main.title_active, main.lobby_active,
+		main.character_select_active, main.game_over, main.help_label.text,
+		str(main.online.session.multiplayer.get_peers()),
+	]
 
 
 func _wait_until(condition: Callable, seconds: float) -> bool:

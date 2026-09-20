@@ -154,6 +154,7 @@ const CHAIN_OVERLOAD_CLEAR := 45.0
 const BOSS_SLAM_INTEGRITY_DRAIN := 28.0
 
 var ai_companion := false
+var online_retry_pending := false
 var ai_think_remaining := 0.0
 var ai_considered_human := -1
 ## One stable personality roll per AI lobby. It keeps the choice stable while
@@ -483,7 +484,7 @@ func _ready() -> void:
 	randomize()
 	settings = SettingsScript.new() as GameSettings
 	settings.load_settings()
-	_set_fullscreen(settings.fullscreen_enabled)
+	_apply_display_settings()
 	meta_progression = MetaProgressionScript.new() as MetaProgression
 	meta_progression.load_progress()
 	_setup_input_map()
@@ -546,6 +547,19 @@ func _resume_pending_retry() -> void:
 	if characters.size() >= 2:
 		selected_character_indices = [int(characters[0]), int(characters[1])]
 	ai_companion = bool(request.get("ai_companion", false))
+	var retry_role := int(request.get("online_role", NetworkSession.Role.OFFLINE))
+	if retry_role == NetworkSession.Role.HOST:
+		_begin_lobby()
+		lobby_input_cooldown = 0.0
+		selected_character_indices.assign(characters)
+		online_retry_pending = true
+		online.host_game()
+		return
+	if retry_role == NetworkSession.Role.CLIENT:
+		_begin_lobby()
+		lobby_input_cooldown = 0.0
+		online.join_game(String(request.get("online_address", "127.0.0.1")))
+		return
 	character_confirmed = [true, true]
 	_start_selected_run()
 
@@ -677,6 +691,10 @@ func _physics_process(delta: float) -> void:
 
 
 func _probed_physics_process(delta: float) -> void:
+	# Reconnection must keep counting while the run is paused and while modal
+	# input is guarded; OnlineCoop itself is process-always for the same reason.
+	if online != null:
+		online.connection_tick(delta)
 	if modal_input_guard > 0:
 		modal_input_guard -= 1
 		return
@@ -722,7 +740,9 @@ func _probed_physics_process(delta: float) -> void:
 		# frozen where the renderer first saw them.
 		# The received shots travel on this loop too: nothing else moves them now
 		# that they have no physics callback of their own.
-		_step_enemy_shots(delta)
+		if not (pause_active or level_up_active or resonance_vote_active \
+				or cinematic_active or game_over):
+			_step_enemy_shots(delta)
 		crowd_renderer.view_rect = _visible_world_rect()
 		crowd_renderer.dirty = true
 		return
@@ -1688,11 +1708,10 @@ func _create_character_label(label_position: Vector2, color: Color) -> Label:
 
 ## Menu rows, per page. The last entry of every page is the way out of it.
 const TITLE_MENU := ["게임 시작", "영구 성장", "설정", "제작진", "게임 종료"]
-const TITLE_SETTINGS := ["화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "큰 글자", "창 해상도",
-	# The keys are printed on the row: a player who has just been swallowed by a
-	# full-screen window is not going to go looking through a settings page for
-	# the way back out of it.
-	"전체 화면    F11 · Alt+Enter", "뒤로"]
+const TITLE_SETTINGS := [
+	"화면 모드", "창 해상도", "주사율 / FPS", "수직 동기화", "큰 글자",
+	"화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "뒤로",
+]
 const TITLE_CREDITS := ["뒤로"]
 
 
@@ -1750,7 +1769,18 @@ func _leave_title_subpage() -> void:
 
 
 func _handle_title_input() -> void:
-	if Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
+	if title_mode == "settings" and (Input.is_action_just_pressed("menu_left")
+			or Input.is_action_just_pressed("menu_right")):
+		_change_setting(title_cursor,
+			-1 if Input.is_action_just_pressed("menu_left") else 1, false)
+		_refresh_title_ui()
+	elif title_mode == "settings" and (Input.is_action_just_pressed("menu_previous")
+			or Input.is_action_just_pressed("menu_next")):
+		var step := 1 if Input.is_action_just_pressed("menu_next") else -1
+		title_cursor = wrapi(title_cursor + step, 0, TITLE_SETTINGS.size())
+		feedback.play_cue("select")
+		_refresh_title_ui()
+	elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
 		var step := 1 if Input.is_action_just_pressed("menu_next") else -1
 		title_cursor = wrapi(title_cursor + step, 0, _title_rows().size())
 		feedback.play_cue("select")
@@ -1771,6 +1801,15 @@ func _activate_title_item(index: int) -> void:
 	if index < 0 or index >= rows.size():
 		return
 	title_cursor = index
+	if title_mode == "settings":
+		if index == 9:
+			title_mode = "menu"
+			title_cursor = 2
+			feedback.play_cue("select")
+		else:
+			_change_setting(index, 1, true)
+		_refresh_title_ui()
+		return
 	feedback.play_cue("select")
 	if title_mode == "modes":
 		if index == 3:
@@ -1807,28 +1846,6 @@ func _activate_title_item(index: int) -> void:
 		var entry: Dictionary = MetaProgression.UPGRADES[meta_page * 6 + index]
 		if meta_progression.purchase(String(entry["id"])):
 			feedback.play_cue("fusion")
-		_refresh_title_ui()
-		return
-	if title_mode == "settings":
-		match index:
-			0: screen_shake_enabled = not screen_shake_enabled
-			1: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
-			2: _step_sound_volume()
-			3:
-				_step_music_volume()
-			4:
-				settings.large_text_enabled = not settings.large_text_enabled
-				_apply_accessibility_text_scale()
-			5:
-				settings.window_size_index = wrapi(settings.window_size_index + 1, 0, WINDOW_SIZES.size())
-				if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED:
-					_apply_window_size()
-			6: _toggle_fullscreen()
-			7:
-				title_mode = "menu"
-				title_cursor = 2
-		if index < 7:
-			_persist_settings()
 		_refresh_title_ui()
 		return
 	if title_mode == "credits":
@@ -2207,8 +2224,6 @@ func _synergy_preview() -> String:
 
 
 func _start_selected_run() -> void:
-	if online != null:
-		online.send_run_start()
 	debug_run_tainted = false
 	if is_instance_valid(debug_inspector):
 		debug_inspector.reset_run()
@@ -2288,6 +2303,10 @@ func _start_selected_run() -> void:
 	_show_message("옥상 보스 %d명 격파    총 %02d:%02d" % [
 		WaveDirectorScript.BOSS_COUNT, int(RUN_LENGTH) / 60, int(RUN_LENGTH) % 60
 	], Color("80ed99"))
+	# Send only after characters, permanent bonuses and the chain length have
+	# been applied, so the client mirrors the host-authoritative build.
+	if online != null:
+		online.send_run_start()
 
 
 func _apply_chain_constraint() -> void:
@@ -3000,8 +3019,13 @@ func _handle_pause_input() -> void:
 	if Input.is_action_just_pressed("pause") or Input.is_action_just_pressed("menu_cancel"):
 		_set_pause(false)
 	elif Input.is_action_just_pressed("menu_left") or Input.is_action_just_pressed("menu_right"):
-		pause_cursor = ReviewUI.pause_neighbor(
-			pause_cursor, "left" if Input.is_action_just_pressed("menu_left") else "right", pause_settings)
+		var direction := -1 if Input.is_action_just_pressed("menu_left") else 1
+		var setting_index: int = _pause_setting_index(pause_cursor) if pause_settings else -1
+		if setting_index >= 0:
+			_change_setting(setting_index, direction, false)
+		else:
+			pause_cursor = ReviewUI.pause_neighbor(
+				pause_cursor, "left" if direction < 0 else "right", pause_settings)
 		_update_pause_text()
 	elif Input.is_action_just_pressed("menu_previous") or Input.is_action_just_pressed("menu_next"):
 		pause_cursor = ReviewUI.pause_neighbor(
@@ -3036,6 +3060,47 @@ func window_size_label() -> String:
 	if applied_window_size != Vector2i.ZERO and applied_window_size != requested:
 		return "%d × %d    화면에 맞춤" % [applied_window_size.x, applied_window_size.y]
 	return "%d × %d" % [requested.x, requested.y]
+
+
+func monitor_refresh_rate() -> int:
+	if DisplayServer.get_name() == "headless":
+		return 60
+	var refresh := DisplayServer.screen_get_refresh_rate(DisplayServer.window_get_current_screen())
+	return 60 if refresh < 1.0 else maxi(1, roundi(refresh))
+
+
+func frame_rate_label() -> String:
+	match settings.frame_rate_limit:
+		0: return "모니터 %d Hz" % monitor_refresh_rate()
+		-1: return "제한 없음"
+		_: return "%d FPS" % settings.frame_rate_limit
+
+
+func display_mode_label() -> String:
+	return "전체 화면" if settings.fullscreen_enabled else "창 모드"
+
+
+func settings_description(index: int) -> String:
+	match index:
+		0:
+			return "기본은 창 모드입니다. F11 또는 Alt+Enter로도 언제든 전환할 수 있습니다."
+		1:
+			return "창 모드 크기를 고릅니다. 전체 화면에서는 모니터의 기본 해상도를 사용합니다."
+		2:
+			return "렌더링 프레임을 제한합니다. 현재 모니터는 약 %d Hz로 감지되었습니다." % monitor_refresh_rate()
+		3:
+			return "화면 찢어짐을 줄입니다. 켜면 모니터 주사율이 프레임 상한보다 우선합니다."
+		4:
+			return "메뉴와 설명의 작은 글자를 키웁니다."
+		5:
+			return "피격과 강한 공격에서 발생하는 카메라 흔들림을 조절합니다."
+		6:
+			return "적에게 준 피해 수치를 전투 화면에 표시합니다."
+		7:
+			return "효과음 음량을 25% 단위로 조절합니다."
+		8:
+			return "음악 음량을 25% 단위로 조절합니다."
+		_: return "Enter / A로 변경하고 Esc / B로 메인 메뉴로 돌아갑니다."
 
 
 ## Full screen, whichever of the two full-screen modes the platform gave us.
@@ -3100,21 +3165,66 @@ func _apply_window_size() -> void:
 		usable.position + (usable.size - applied_window_size - frame) / 2 + inset)
 
 
+func _apply_display_settings() -> void:
+	_apply_refresh_rate()
+	_set_fullscreen(settings.fullscreen_enabled)
+
+
+func _apply_refresh_rate() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_vsync_mode(
+		DisplayServer.VSYNC_ENABLED if settings.vsync_enabled else DisplayServer.VSYNC_DISABLED)
+	if settings.frame_rate_limit < 0:
+		Engine.max_fps = 0
+	elif settings.frame_rate_limit == 0:
+		# With V-Sync the display server owns the cap. Without it, match the
+		# detected monitor rate so "monitor" keeps the same meaning.
+		Engine.max_fps = 0 if settings.vsync_enabled else monitor_refresh_rate()
+	else:
+		Engine.max_fps = settings.frame_rate_limit
+
+
+func _step_frame_rate(direction := 1, wrap_choice := true) -> void:
+	var limits: Array = SettingsScript.FRAME_RATE_LIMITS
+	var current := limits.find(settings.frame_rate_limit)
+	var next := (wrapi(current + direction, 0, limits.size()) if wrap_choice
+		else clampi(current + direction, 0, limits.size() - 1))
+	settings.frame_rate_limit = int(limits[next])
+	_apply_refresh_rate()
+
+
 ## The one place the window mode changes. It takes what the player asked for
 ## rather than flipping whatever the window happens to be, so the settings row,
 ## F11 and Alt+Enter cannot drift out of step with each other.
 func _set_fullscreen(on: bool) -> void:
+	# Keep the requested value authoritative. Querying the OS immediately after
+	# a mode switch can return the previous mode for one frame and used to save
+	# that stale value over the player''s choice.
+	settings.fullscreen_enabled = on
 	if DisplayServer.get_name() == "headless":
 		return
 	if on:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	else:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-		_apply_window_size()
+		_finish_windowed_mode()
+		# Full screen forces borderless on. Some window managers apply that
+		# transition at the end of the frame, so restore the frame and size once
+		# more after the mode change has settled.
+		call_deferred("_finish_windowed_mode")
+
+
+func _finish_windowed_mode() -> void:
+	if DisplayServer.get_name() == "headless" or settings.fullscreen_enabled:
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+	_apply_window_size()
 
 
 func _toggle_fullscreen() -> void:
-	_set_fullscreen(not is_fullscreen())
+	_set_fullscreen(not settings.fullscreen_enabled)
 
 
 func _persist_settings() -> void:
@@ -3124,33 +3234,78 @@ func _persist_settings() -> void:
 	settings.music_enabled = feedback.music_enabled
 	settings.sound_volume = feedback.sound_volume
 	settings.music_volume = feedback.music_volume
-	settings.fullscreen_enabled = is_fullscreen()
 	settings.save_settings()
 
 
-func _volume_step(value: float) -> float:
+func _volume_step(value: float, direction := 1, wrap_choice := true) -> float:
 	var nearest := 0
 	for index in VOLUME_STEPS.size():
 		if absf(float(VOLUME_STEPS[index]) - value) < absf(float(VOLUME_STEPS[nearest]) - value):
 			nearest = index
-	return float(VOLUME_STEPS[(nearest + 1) % VOLUME_STEPS.size()])
+	var next := (wrapi(nearest + direction, 0, VOLUME_STEPS.size()) if wrap_choice
+		else clampi(nearest + direction, 0, VOLUME_STEPS.size() - 1))
+	return float(VOLUME_STEPS[next])
 
 
-func _step_sound_volume() -> void:
-	feedback.sound_volume = _volume_step(feedback.sound_volume)
+func _step_sound_volume(direction := 1, wrap_choice := true) -> void:
+	feedback.sound_volume = _volume_step(feedback.sound_volume, direction, wrap_choice)
 	feedback.sound_enabled = feedback.sound_volume > 0.0
 
 
-func _step_music_volume() -> void:
-	feedback.music_volume = _volume_step(feedback.music_volume)
+func _step_music_volume(direction := 1, wrap_choice := true) -> void:
+	feedback.music_volume = _volume_step(feedback.music_volume, direction, wrap_choice)
 	feedback.music_enabled = feedback.music_volume > 0.0
 	feedback.refresh_music()
+
+
+## Applies one settings-page value immediately. Enter/click cycles choices,
+## while left/right stops at each end and gives booleans a clear off/on side.
+func _change_setting(index: int, direction: int, wrap_choice: bool) -> void:
+	match index:
+		0:
+			_set_fullscreen(not settings.fullscreen_enabled if wrap_choice else direction > 0)
+		1:
+			var next := settings.window_size_index + direction
+			settings.window_size_index = (wrapi(next, 0, WINDOW_SIZES.size()) if wrap_choice
+				else clampi(next, 0, WINDOW_SIZES.size() - 1))
+			if not settings.fullscreen_enabled:
+				_apply_window_size()
+		2:
+			_step_frame_rate(direction, wrap_choice)
+		3:
+			settings.vsync_enabled = (not settings.vsync_enabled if wrap_choice else direction > 0)
+			_apply_refresh_rate()
+		4:
+			settings.large_text_enabled = (not settings.large_text_enabled if wrap_choice else direction > 0)
+			_apply_accessibility_text_scale()
+		5:
+			screen_shake_enabled = (not screen_shake_enabled if wrap_choice else direction > 0)
+		6:
+			feedback.damage_numbers_enabled = (
+				not feedback.damage_numbers_enabled if wrap_choice else direction > 0)
+		7:
+			_step_sound_volume(direction, wrap_choice)
+		8:
+			_step_music_volume(direction, wrap_choice)
+		_:
+			return
+	_persist_settings()
+	# Played after the value changes, so sound-volume adjustments preview the
+	# new level rather than the old one.
+	feedback.play_cue("select")
 
 
 func _update_pause_text() -> void:
 	EditorialUI.refresh_pause(self)
 	ReviewUI.refresh_pause(self)
 	_apply_text_scale_to(pause_overlay, 1.14 if settings.large_text_enabled else 1.0)
+
+
+func _pause_setting_index(index: int) -> int:
+	return int({
+		9: 0, 10: 1, 11: 2, 12: 3,
+		8: 4, 1: 5, 2: 6, 3: 7, 4: 8,
+	}.get(index, -1))
 
 
 func _activate_pause_item(index: int) -> void:
@@ -3167,6 +3322,11 @@ func _activate_pause_item(index: int) -> void:
 			else:
 				get_tree().reload_current_scene()
 		return
+	var setting_index: int = _pause_setting_index(index)
+	if setting_index >= 0:
+		_change_setting(setting_index, 1, true)
+		_update_pause_text()
+		return
 	match index:
 		0:
 			if online != null and online.is_client():
@@ -3174,14 +3334,6 @@ func _activate_pause_item(index: int) -> void:
 			else:
 				_set_pause(false)
 			return
-		1: screen_shake_enabled = not screen_shake_enabled
-		2: feedback.damage_numbers_enabled = not feedback.damage_numbers_enabled
-		3: _step_sound_volume()
-		4:
-			_step_music_volume()
-		8:
-			settings.large_text_enabled = not settings.large_text_enabled
-			_apply_accessibility_text_scale()
 		7:
 			pause_settings = not pause_settings
 			pause_cursor = 7
@@ -3193,8 +3345,6 @@ func _activate_pause_item(index: int) -> void:
 			pending_quits = index == 6
 			pause_cursor = 0
 			restart_armed_at = Time.get_ticks_msec() + 400
-	if index in [1, 2, 3, 4, 8]:
-		_persist_settings()
 	_update_pause_text()
 
 
@@ -5825,6 +5975,10 @@ func _open_resonance_core_choice() -> void:
 	resonance_cursors[0] = 0
 	resonance_cursors[1] = 0
 	resonance_vote_message = ""
+	# The AI companion locks the highest-ranked candidate immediately. The human
+	# still makes the final choice, without having to operate a nonexistent P2.
+	if ai_companion:
+		resonance_votes[1] = 0
 	resonance_vote_active = true
 	# Dealt in exactly as a growth hand is, over the paused fight, with the same
 	# view pull: this is the biggest choice the pair makes and it should arrive
@@ -5842,6 +5996,8 @@ func _open_resonance_core_choice() -> void:
 	_animate_resonance_overlay(true)
 	_pull_camera_for_choice(resonance_overlay)
 	feedback.play_cue("level")
+	if online != null:
+		online.send_resonance_state("resonance_open")
 
 
 ## Spends the core on this resonance and gives it the screen.
@@ -5861,6 +6017,67 @@ func _commit_resonance_choice(chosen: Dictionary) -> void:
 		"name": String(chosen["name"]),
 	})
 	_play_showcase_queue(Callable())
+	if online != null:
+		online.send_resonance_close(chosen)
+
+
+func _set_resonance_cursor(slot: int, index: int) -> void:
+	if not _can_control_player_slot(slot) or not resonance_vote_active \
+			or resonance_candidates.is_empty() or resonance_votes[slot] >= 0:
+		return
+	var next := wrapi(index, 0, resonance_candidates.size())
+	if online != null and online.is_client():
+		online.request_resonance_action("cursor", next)
+		return
+	resonance_cursors[slot] = next
+	_refresh_resonance_vote_ui()
+	if online != null:
+		online.send_resonance_state()
+
+
+func _confirm_resonance_vote(slot: int, index: int) -> void:
+	if not _can_control_player_slot(slot) or not resonance_vote_active \
+			or resonance_candidates.is_empty() or resonance_votes[slot] >= 0:
+		return
+	var chosen := wrapi(index, 0, resonance_candidates.size())
+	if online != null and online.is_client():
+		online.request_resonance_action("confirm", chosen)
+		return
+	resonance_cursors[slot] = chosen
+	resonance_votes[slot] = chosen
+	feedback.play_cue("select")
+	_resolve_resonance_votes()
+
+
+func _cancel_resonance_vote(slot: int) -> void:
+	if not _can_control_player_slot(slot) or not resonance_vote_active \
+			or resonance_votes[slot] < 0:
+		return
+	if online != null and online.is_client():
+		online.request_resonance_action("cancel", resonance_cursors[slot])
+		return
+	resonance_votes[slot] = -1
+	_refresh_resonance_vote_ui()
+	if online != null:
+		online.send_resonance_state()
+
+
+func _resolve_resonance_votes() -> void:
+	_refresh_resonance_vote_ui()
+	if online != null:
+		online.send_resonance_state()
+	if resonance_votes[0] < 0 or resonance_votes[1] < 0:
+		return
+	if resonance_votes[0] == resonance_votes[1]:
+		_commit_resonance_choice(resonance_candidates[resonance_votes[0]])
+		return
+	resonance_votes[0] = -1
+	resonance_votes[1] = 0 if ai_companion else -1
+	resonance_vote_message = "선택이 갈렸습니다 — 상대의 커서를 보고 다시 고르세요"
+	feedback.play_cue("warning")
+	_refresh_resonance_vote_ui()
+	if online != null:
+		online.send_resonance_state()
 
 
 ## Both survivors browse the same three cards with the same controls the
@@ -5869,35 +6086,19 @@ func _commit_resonance_choice(chosen: Dictionary) -> void:
 ## actually agrees — a disagreement is a conversation, not a failure state.
 func _handle_resonance_vote_input() -> void:
 	for slot in 2:
+		if not _can_control_player_slot(slot):
+			continue
 		var prefix := "p1_select_" if slot == 0 else "p2_select_"
 		if resonance_votes[slot] >= 0:
 			if Input.is_action_just_pressed(prefix + "cancel"):
-				resonance_votes[slot] = -1
-				_refresh_resonance_vote_ui()
+				_cancel_resonance_vote(slot)
 			continue
 		if Input.is_action_just_pressed(prefix + "previous"):
-			resonance_cursors[slot] = wrapi(resonance_cursors[slot] - 1, 0, resonance_candidates.size())
-			_refresh_resonance_vote_ui()
+			_set_resonance_cursor(slot, resonance_cursors[slot] - 1)
 		elif Input.is_action_just_pressed(prefix + "next"):
-			resonance_cursors[slot] = wrapi(resonance_cursors[slot] + 1, 0, resonance_candidates.size())
-			_refresh_resonance_vote_ui()
+			_set_resonance_cursor(slot, resonance_cursors[slot] + 1)
 		elif Input.is_action_just_pressed(prefix + "confirm"):
-			resonance_votes[slot] = resonance_cursors[slot]
-			feedback.play_cue("select")
-			_refresh_resonance_vote_ui()
-
-	if resonance_votes[0] < 0 or resonance_votes[1] < 0:
-		return
-	if resonance_votes[0] == resonance_votes[1]:
-		_commit_resonance_choice(resonance_candidates[resonance_votes[0]])
-		return
-	# Only the disagreement is cleared, not the browsing position: both cursors
-	# stay where they were so the pair argues from where they actually are.
-	resonance_votes[0] = -1
-	resonance_votes[1] = -1
-	resonance_vote_message = "선택이 갈렸습니다 — 상대의 커서를 보고 다시 고르세요"
-	feedback.play_cue("warning")
-	_refresh_resonance_vote_ui()
+			_confirm_resonance_vote(slot, resonance_cursors[slot])
 
 
 ## What one resonance card says, in the shape CardVisual.paint reads. Built the
@@ -6353,15 +6554,50 @@ func _handle_result_input() -> void:
 
 
 func _retry_same_pair() -> void:
+	if online != null and online.is_client():
+		online.request_result_action("retry")
+		return
+	if online != null and online.is_host():
+		_store_pending_retry()
+		online.send_retry_run()
+		get_tree().create_timer(0.12, true, false, true).timeout.connect(_reload_pending_retry)
+		return
+	_accept_online_retry()
+
+
+func _accept_online_retry() -> void:
+	_store_pending_retry()
+	_reload_pending_retry()
+
+
+func _store_pending_retry() -> void:
 	pending_retry = {
 		"characters": selected_character_indices.duplicate(),
 		"ai_companion": ai_companion,
+		"online_role": int(online.session.role) if online != null else 0,
+		"online_address": online.session.address if online != null else "127.0.0.1",
 	}
+
+
+func _reload_pending_retry() -> void:
 	get_tree().paused = false
 	get_tree().reload_current_scene()
 
 
 func _return_to_main_menu() -> void:
+	if online != null and online.is_client():
+		online.request_result_action("menu")
+		return
+	if online != null and online.is_host():
+		online.send_return_to_menu()
+		get_tree().create_timer(0.12, true, false, true).timeout.connect(_accept_online_return_to_menu)
+		return
+	_accept_online_return_to_menu()
+
+
+func _accept_online_return_to_menu() -> void:
+	if online != null and online.is_online():
+		online.stop()
 	pending_retry.clear()
 	get_tree().paused = false
 	get_tree().reload_current_scene()
@@ -6422,7 +6658,8 @@ func _end_run(victory: bool = false, grant_rewards := true) -> void:
 	feedback.stop_music()
 	feedback.play_cue("victory" if victory else "down")
 	if online != null:
-		online.send_result(victory)
+		online.send_result(victory, grant_rewards and victory and not debug_run_tainted
+			and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT)
 
 
 func _setup_input_map() -> void:

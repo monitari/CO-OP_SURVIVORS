@@ -15,7 +15,7 @@ enum Role { OFFLINE, HOST, CLIENT }
 
 const DEFAULT_PORT := 24872
 const MAX_CLIENTS := 1
-const ENEMIES_PER_SNAPSHOT_PART := 3
+const ENEMIES_PER_SNAPSHOT_PART := 2
 
 var role := Role.OFFLINE
 var address := "127.0.0.1"
@@ -23,6 +23,7 @@ var port := DEFAULT_PORT
 var snapshot_sequence := 0
 var incoming_snapshots: Dictionary = {}
 var last_applied_snapshot_sequence := -1
+var last_applied_base_sequence := -1
 
 
 func _ready() -> void:
@@ -72,19 +73,30 @@ func stop() -> void:
 	role = Role.OFFLINE
 	incoming_snapshots.clear()
 	last_applied_snapshot_sequence = -1
+	last_applied_base_sequence = -1
 
 
 func is_online() -> bool:
 	return role != Role.OFFLINE
 
 
+func peer_is_connected() -> bool:
+	return (multiplayer.multiplayer_peer != null
+		and multiplayer.multiplayer_peer.get_connection_status()
+			== MultiplayerPeer.CONNECTION_CONNECTED)
+
+
 func submit_input(movement: Vector2, dash: bool) -> void:
-	if role == Role.CLIENT:
-		_receive_input.rpc_id(1, movement.limit_length(1.0), dash)
+	if role == Role.CLIENT and peer_is_connected():
+		_receive_input.rpc_id(1, movement.limit_length(1.0), false)
+		# Movement is disposable, but a dash is a single button edge. Send that
+		# edge reliably so one lost input packet cannot eat the action entirely.
+		if dash:
+			_receive_control.rpc_id(1, {"type": "dash"})
 
 
 func send_control(payload: Dictionary) -> void:
-	if role == Role.CLIENT:
+	if role == Role.CLIENT and peer_is_connected():
 		_receive_control.rpc_id(1, payload)
 	elif role == Role.HOST:
 		_receive_control.rpc(payload)
@@ -139,13 +151,21 @@ func _receive_snapshot_part(sequence: int, part: int, part_count: int,
 	var assembly: Dictionary = incoming_snapshots[sequence]
 	if not base.is_empty():
 		assembly["base"] = base
+		# Player, timer and boss-independent state must not wait for every enemy
+		# chunk. With a full late-game crowd that could otherwise turn one dropped
+		# unreliable packet into a visible 100 ms freeze of the whole HUD.
+		if part_count > 1 and sequence > last_applied_base_sequence:
+			last_applied_base_sequence = sequence
+			snapshot_received.emit(base.duplicate(true))
 	(assembly["parts"] as Dictionary)[part] = enemies
 	for old_sequence in incoming_snapshots.keys():
 		if int(old_sequence) < sequence - 2:
 			incoming_snapshots.erase(old_sequence)
 	if (assembly["parts"] as Dictionary).size() < part_count or (assembly["base"] as Dictionary).is_empty():
 		return
-	var payload: Dictionary = assembly["base"]
+	# If a newer base already updated the player/HUD, an older enemy assembly may
+	# still improve the crowd picture but must not rewind those newer values.
+	var payload: Dictionary = {} if sequence < last_applied_base_sequence else assembly["base"]
 	var combined: Array = []
 	for index in part_count:
 		combined.append_array((assembly["parts"] as Dictionary)[index])

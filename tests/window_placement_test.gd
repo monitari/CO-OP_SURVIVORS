@@ -18,6 +18,7 @@ extends SceneTree
 const MainScene := preload("res://scenes/main.tscn")
 const TestHarness := preload("res://tests/test_harness.gd")
 const Main := preload("res://scripts/main.gd")
+const SETTINGS_SAVE := "res://tests/tmp/window_placement_settings.cfg"
 
 var failures: Array[String] = []
 
@@ -28,6 +29,8 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	for suffix in ["", ".tmp", ".bak"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SETTINGS_SAVE + suffix))
 	# Pure arithmetic first, so a desktop that happens to fit everything still
 	# exercises the clamp.
 	_check(Main.fit_window_size(Vector2i(1280, 720), Vector2i(1904, 993)) == Vector2i(1280, 720),
@@ -50,6 +53,7 @@ func _run() -> void:
 	await process_frame
 	if not TestHarness.require_loaded(self, main, "WINDOW_PLACEMENT_FAIL"):
 		return
+	main.settings.settings_path = SETTINGS_SAVE
 
 	main._set_fullscreen(false)
 	await process_frame
@@ -72,13 +76,40 @@ func _run() -> void:
 	_check(main.applied_window_size == windowed_size,
 		"the reported window size is the one the window actually has")
 
+	# Settings use left/right as live adjustment: the window and frame cap move
+	# while the settings panel is still open, with no apply/close step.
+	main.settings.window_size_index = 0
+	main._apply_window_size()
+	await process_frame
+	var compact_size := DisplayServer.window_get_size()
+	main._change_setting(1, 1, false)
+	await process_frame
+	_check(main.settings.window_size_index == 1
+		and DisplayServer.window_get_size() != compact_size,
+		"right applies the next window resolution immediately")
+	main._change_setting(1, -1, false)
+	await process_frame
+	_check(main.settings.window_size_index == 0
+		and DisplayServer.window_get_size() == compact_size,
+		"left applies the previous window resolution immediately")
+	main.settings.vsync_enabled = false
+	main.settings.frame_rate_limit = 0
+	main._apply_refresh_rate()
+	main._change_setting(2, 1, false)
+	_check(main.settings.frame_rate_limit == 60 and Engine.max_fps == 60,
+		"frame-rate changes apply to the engine immediately")
+
 	main._set_fullscreen(true)
+	_check(main.settings.fullscreen_enabled,
+		"the requested full-screen preference changes immediately")
 	await process_frame
 	_check(main.is_fullscreen(), "전체화면 켜짐 puts the window in a full-screen mode")
 	_check(DisplayServer.window_get_size() == DisplayServer.screen_get_size(
 		DisplayServer.window_get_current_screen()), "full screen covers the screen")
 
 	main._set_fullscreen(false)
+	_check(not main.settings.fullscreen_enabled,
+		"the requested windowed preference changes immediately")
 	await process_frame
 	_check(not main.is_fullscreen(), "전체화면 꺼짐 returns to a window")
 	# The complaint was that the switch did nothing. Whatever else is true, the
@@ -115,6 +146,8 @@ func _run() -> void:
 	_check(not main.is_fullscreen(), "a plain Enter is not a full-screen key")
 	main.settings.fullscreen_enabled = saved_preference
 	main.settings.save_settings()
+	for suffix in ["", ".tmp", ".bak"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SETTINGS_SAVE + suffix))
 
 	if failures.is_empty():
 		print("WINDOW_PLACEMENT_PASS: window %s at %s, full screen round-trips, F11 and Alt+Enter" % [

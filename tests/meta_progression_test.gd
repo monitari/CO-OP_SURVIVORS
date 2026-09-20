@@ -6,6 +6,9 @@ const PlayerScript := preload("res://scripts/entities/player.gd")
 const MainScene := preload("res://scenes/main.tscn")
 const SAVE := "res://tests/tmp/meta_progression_test.cfg"
 const SETTINGS_SAVE := "res://tests/tmp/settings_system_test.cfg"
+const RECOVERY_SAVE := "res://tests/tmp/meta_recovery_test.cfg"
+const SETTINGS_RECOVERY_SAVE := "res://tests/tmp/settings_recovery_test.cfg"
+const SETTINGS_MIGRATION_SAVE := "res://tests/tmp/settings_migration_test.cfg"
 var failures: Array[String] = []
 
 
@@ -14,11 +17,13 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SETTINGS_SAVE))
-	_check(int(ProjectSettings.get_setting("display/window/size/window_width_override")) == 1920
-		and int(ProjectSettings.get_setting("display/window/size/window_height_override")) == 1080,
-		"the project opens at 1920x1080 by default")
+	for path in [SAVE, SETTINGS_SAVE, RECOVERY_SAVE, SETTINGS_RECOVERY_SAVE, SETTINGS_MIGRATION_SAVE]:
+		for suffix in ["", ".tmp", ".bak"]:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path + suffix))
+	_check(int(ProjectSettings.get_setting("display/window/size/window_width_override")) == 1280
+		and int(ProjectSettings.get_setting("display/window/size/window_height_override")) == 720
+		and int(ProjectSettings.get_setting("display/window/size/mode")) == DisplayServer.WINDOW_MODE_WINDOWED,
+		"the project opens in a 1280x720 window by default")
 	var meta := MetaScript.new() as MetaProgression
 	meta.save_path = SAVE
 	_check(meta.points == 0, "a fresh profile starts empty")
@@ -49,12 +54,16 @@ func _run() -> void:
 
 	var settings := SettingsScript.new() as GameSettings
 	settings.settings_path = SETTINGS_SAVE
+	_check(not settings.fullscreen_enabled and settings.window_size_index == 0,
+		"fresh settings prefer a practical window instead of a screen-sized window")
 	settings.sound_enabled = false
 	settings.sound_volume = 0.25
 	settings.music_volume = 0.50
 	settings.large_text_enabled = true
 	settings.fullscreen_enabled = true
 	settings.window_size_index = 2
+	settings.frame_rate_limit = 144
+	settings.vsync_enabled = false
 	_check(settings.save_settings() == OK, "settings report a successful save")
 	var loaded_settings := SettingsScript.new() as GameSettings
 	loaded_settings.settings_path = SETTINGS_SAVE
@@ -67,6 +76,50 @@ func _run() -> void:
 		"volume levels and the large-text preference persist")
 	_check(loaded_settings.window_size_index == 2,
 		"1920x1080 window preference persists with display settings")
+	_check(loaded_settings.frame_rate_limit == 144 and not loaded_settings.vsync_enabled,
+		"frame-rate limit and V-Sync preference persist")
+
+	var old_config := ConfigFile.new()
+	old_config.set_value("format", "version", 1)
+	old_config.set_value("accessibility", "sound_volume", 0.25)
+	old_config.set_value("accessibility", "fullscreen_enabled", true)
+	old_config.set_value("accessibility", "window_size_index", 2)
+	_check(old_config.save(SETTINGS_MIGRATION_SAVE) == OK,
+		"the display migration fixture saves")
+	var migrated_settings := SettingsScript.new() as GameSettings
+	migrated_settings.settings_path = SETTINGS_MIGRATION_SAVE
+	migrated_settings.load_settings()
+	_check(not migrated_settings.fullscreen_enabled and migrated_settings.window_size_index == 0,
+		"version 1 display settings migrate once to the new windowed default")
+	_check(is_equal_approx(migrated_settings.sound_volume, 0.25),
+		"display migration preserves unrelated preferences")
+
+	var recovery := MetaScript.new() as MetaProgression
+	recovery.save_path = RECOVERY_SAVE
+	recovery.points = 5
+	_check(recovery.save_progress() == OK, "the recovery fixture writes its first profile")
+	recovery.points = 9
+	_check(recovery.save_progress() == OK, "a later profile save rotates the previous backup")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(RECOVERY_SAVE))
+	var recovered := MetaScript.new() as MetaProgression
+	recovered.save_path = RECOVERY_SAVE
+	recovered.load_progress()
+	_check(recovered.recovered_from_backup and recovered.points == 5,
+		"a missing or corrupt progression file loads the previous complete backup")
+
+	var settings_recovery := SettingsScript.new() as GameSettings
+	settings_recovery.settings_path = SETTINGS_RECOVERY_SAVE
+	settings_recovery.sound_volume = 0.25
+	_check(settings_recovery.save_settings() == OK, "the recovery fixture writes settings")
+	settings_recovery.sound_volume = 0.75
+	_check(settings_recovery.save_settings() == OK, "a later settings save rotates its backup")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SETTINGS_RECOVERY_SAVE))
+	var recovered_settings := SettingsScript.new() as GameSettings
+	recovered_settings.settings_path = SETTINGS_RECOVERY_SAVE
+	recovered_settings.load_settings()
+	_check(recovered_settings.recovered_from_backup
+		and is_equal_approx(recovered_settings.sound_volume, 0.25),
+		"missing or corrupt settings load the previous complete backup")
 
 	var failing := MetaScript.new() as MetaProgression
 	failing.save_path = SAVE + "/cannot_write.cfg"
@@ -83,6 +136,47 @@ func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
+	main.settings.settings_path = SETTINGS_SAVE
+	main.title_mode = "settings"
+	main.title_cursor = 0
+	main.settings.fullscreen_enabled = false
+	main.settings.window_size_index = 0
+	main.settings.frame_rate_limit = 0
+	main.settings.vsync_enabled = true
+	main._refresh_title_ui()
+	_check(main._title_rows().size() == 10,
+		"the settings page exposes display, accessibility and audio controls")
+	main._activate_title_item(0)
+	_check(main.settings.fullscreen_enabled,
+		"the settings page turns full screen on without rereading a stale OS mode")
+	main._activate_title_item(0)
+	_check(not main.settings.fullscreen_enabled,
+		"the settings page returns to windowed mode")
+	main._activate_title_item(1)
+	_check(main.settings.window_size_index == 1,
+		"the settings page changes the window resolution")
+	main._activate_title_item(2)
+	_check(main.settings.frame_rate_limit == 60,
+		"the settings page advances the frame-rate limit")
+	main._activate_title_item(3)
+	_check(not main.settings.vsync_enabled,
+		"the settings page changes V-Sync")
+	main._change_setting(1, -1, false)
+	_check(main.settings.window_size_index == 0,
+		"left/right display adjustments apply immediately without wrapping")
+	main.feedback.sound_volume = 0.50
+	main._change_setting(7, -1, false)
+	_check(is_equal_approx(main.feedback.sound_volume, 0.25),
+		"left/right volume adjustments apply and preview the new level")
+	main.pause_active = true
+	main.pause_settings = true
+	main.pause_cursor = 9
+	main._update_pause_text()
+	_check(main.pause_overlay.get_node("PauseAction9").visible
+		and main.pause_overlay.get_node("PauseAction12").visible,
+		"the pause settings page also exposes display mode and V-Sync")
+	main.pause_active = false
+	main.pause_settings = false
 	var pause_action := main.pause_overlay.get_node("PauseAction1") as Button
 	main.settings.large_text_enabled = false
 	main._apply_accessibility_text_scale()
@@ -128,11 +222,12 @@ func _run() -> void:
 	paused = false
 	main.free()
 	player.free()
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE))
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(SETTINGS_SAVE))
+	for path in [SAVE, SETTINGS_SAVE, RECOVERY_SAVE, SETTINGS_RECOVERY_SAVE, SETTINGS_MIGRATION_SAVE]:
+		for suffix in ["", ".tmp", ".bak"]:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path + suffix))
 
 	if failures.is_empty():
-		print("META_PROGRESSION_PASS: clear reward, capped purchases, save/load and next-run bonuses")
+		print("META_PROGRESSION_PASS: clear reward, capped purchases, atomic saves, backup recovery and next-run bonuses")
 		quit(0)
 	else:
 		for failure in failures:

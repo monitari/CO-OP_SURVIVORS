@@ -19,6 +19,7 @@ func _run() -> void:
 	root.add_child(main)
 	await process_frame
 	if not Harness.require_loaded(self, main, "COOP_REWORK"): return
+	seed(20260920)
 	main._begin_lobby()
 	main.lobby_input_cooldown = 0.0
 	main._join_ai_companion()
@@ -61,6 +62,11 @@ func _run() -> void:
 	check(main.players[1].input_source == ChainPlayer.InputSource.AI, "run installs AI input")
 	var p: ChainPlayer = main.players[1]
 	var partner: ChainPlayer = main.players[0]
+	p.commanded_dash = false
+	p.set_command(Vector2.ZERO, true)
+	p.set_command(Vector2.RIGHT, false)
+	check(p.commanded_dash, "a later movement update cannot erase a queued dash edge")
+	p.commanded_dash = false
 	partner.position = Vector2.ZERO
 	p.position = Vector2(220, 0)
 	main.set_physics_process(true)
@@ -171,8 +177,13 @@ func _run() -> void:
 	# The active hand stays full size; the AI partner is represented by one
 	# readable summary instead of a tiny overlapping hand.
 	var picked: int = main.selected_upgrade_indices[1]
-	check(main.level_overlay.get_node("PartnerChoice/Title").text == main.level_card_labels[1][picked].get_node("CardTitle").text and main.level_card_labels[0][0].visible,
-		"my hand and the partner's chosen growth summary stay on screen")
+	var partner_title := String(main.level_overlay.get_node("PartnerChoice/Title").text)
+	var picked_title := String(main.level_card_labels[1][picked].get_node("CardTitle").text)
+	var partner_heading := partner_title.get_slice("\n", 0)
+	check(partner_heading.ends_with(picked_title),
+		"partner growth summary names its choice (%s vs %s)" % [partner_title, picked_title])
+	check(main.level_card_labels[0][0].visible,
+		"my active growth hand stays visible while the AI summary is shown")
 	check(not main.level_card_labels[1][picked].visible,
 		"the partner's full card does not overlap the active hand")
 	main._select_upgrade(1, 0)
@@ -189,11 +200,36 @@ func _run() -> void:
 	check(main.focused_growth_slot() == 0
 		and main.level_card_labels[0][0].visible and not main.level_card_labels[1][0].visible,
 		"local P1 can revise before P2 confirms")
+	# A multi-option resonance vote used to wait forever for local P2 input even
+	# in solo mode. Feed two real enhanced weapons and verify that the companion
+	# locks its ranked preference as soon as the core opens.
+	main.level_up_active = false
+	main.level_overlay.visible = false
+	main.ai_companion = true
+	var evolutions := EvolutionCatalog.all_fusions()
+	main.weapon_loadouts[0] = [{
+		"evolved": true, "tier": EvolutionCatalog.WEAPON_MAX_TIER,
+		"tags": EvolutionCatalog.tags_of(evolutions[0]),
+		"weapon_name": evolutions[0]["weapon_name"], "weapon_id": evolutions[0]["weapon_id"],
+	}]
+	main.weapon_loadouts[1] = [{
+		"evolved": true, "tier": EvolutionCatalog.WEAPON_MAX_TIER,
+		"tags": EvolutionCatalog.tags_of(evolutions[1]),
+		"weapon_name": evolutions[1]["weapon_name"], "weapon_id": evolutions[1]["weapon_id"],
+	}]
+	main.resonance_system.grant_core()
+	main._open_resonance_core_choice()
+	check(main.resonance_candidates.size() > 1 and main.resonance_vote_active
+		and main.resonance_votes[1] == 0,
+		"AI companion automatically locks a ranked resonance vote")
+	main.resonance_vote_active = false
+	main.resonance_overlay.visible = false
+	paused = false
 	main._begin_lobby()
 	check(not main.ai_companion, "lobby reset releases AI mode")
 	main._start_selected_run()
 	check(main.players[1].input_source == ChainPlayer.InputSource.LOCAL, "human mode restores P2 input")
-	if failures.is_empty(): print("COOP_REWORK_PASS: AI movement/rescue/growth, local focus, route execution, caster ownership")
+	if failures.is_empty(): print("COOP_REWORK_PASS: AI movement/rescue/growth/resonance, dash latch, local focus and route ownership")
 	for failure in failures: push_error("COOP_REWORK_FAIL: " + failure)
 	paused = false
 	await create_timer(0.8).timeout

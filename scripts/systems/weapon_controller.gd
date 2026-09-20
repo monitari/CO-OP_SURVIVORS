@@ -892,8 +892,25 @@ func play_boss_flare(center: Vector2, enraged := false) -> void:
 	_spawn_combat_flare(center, Color("ff334f") if enraged else Color("c1121f"), Color("fff275"), 235.0 if enraged else 205.0, 0.72)
 
 
-func play_remote_attack(origin: Vector2, color: Color, radius: float) -> void:
-	_spawn_combat_flare(origin, color, color.lightened(0.38), radius, 0.24)
+func play_remote_attack(weapon_id: String, origin: Vector2, direction: Vector2,
+		color: Color, radius: float) -> void:
+	var heading := direction.normalized() if direction.length_squared() > 0.01 else Vector2.RIGHT
+	# Presentation remains harmless, but preserves the weapon's spatial
+	# language instead of collapsing every remote cast into one round flash.
+	if weapon_id in ["lance", "starpiercer", "chain", "lightning"]:
+		var tip := origin + heading * maxf(150.0, radius * 2.2)
+		if weapon_id in ["chain", "lightning"]:
+			_draw_lightning(origin, tip, color, 6.0)
+		else:
+			_draw_beam(origin, tip, color, 12.0)
+	elif weapon_id in ["frost", "milk", "mine", "orbit", "nova", "supernova"]:
+		_draw_ring(origin, radius, color, 8.0)
+	elif weapon_id in ["scythe", "boomerang", "returning_toy"]:
+		var sweep_from := origin + heading.rotated(-0.65) * radius
+		var sweep_to := origin + heading.rotated(0.65) * radius
+		_draw_lightning(sweep_from, sweep_to, color, 5.0)
+	else:
+		_spawn_combat_flare(origin, color, color.lightened(0.38), radius, 0.24)
 
 
 ## Treasure-driven dash attack, resolved through the same grid and feedback

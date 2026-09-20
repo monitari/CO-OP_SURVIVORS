@@ -7,15 +7,41 @@ const G := preload("res://scripts/ui/layout_grid.gd")
 ## One full-width primary action, a strict 2x2 settings grid, and a final pair
 ## of run actions. Every edge shares the same 16px inset and centre gutter.
 const DETAILS_WIDTH := 608.0
-const PAUSE_ITEM_COUNT := 9
+const PAUSE_ITEM_COUNT := 13
 const PAUSE_SLOTS := [
-	Rect2(20, 80, 340, 44), Rect2(20, 188, 340, 44), Rect2(20, 242, 340, 44),
-	Rect2(20, 296, 340, 44), Rect2(20, 350, 340, 44), Rect2(20, 188, 340, 44),
-	Rect2(20, 242, 340, 44), Rect2(20, 134, 340, 44), Rect2(20, 404, 340, 44),
+	Rect2(20, 70, 740, 44),
+	Rect2(400, 216, 360, 44), Rect2(400, 270, 360, 44),
+	Rect2(400, 324, 360, 44), Rect2(400, 378, 360, 44),
+	Rect2(20, 188, 340, 44), Rect2(20, 242, 340, 44),
+	Rect2(20, 124, 740, 44), Rect2(400, 432, 360, 44),
+	Rect2(20, 216, 360, 44), Rect2(20, 270, 360, 44),
+	Rect2(20, 324, 360, 44), Rect2(20, 378, 360, 44),
 ]
 
 static func pause_neighbor(index: int, direction: String, settings := false) -> int:
-	var order := [0, 7, 1, 2, 3, 4, 8] if settings else [0, 7, 5, 6]
+	if settings:
+		if direction in ["up", "down"]:
+			var order := [0, 7, 9, 10, 11, 12, 1, 2, 3, 4, 8]
+			var step := -1 if direction == "up" else 1
+			return int(order[wrapi(order.find(index) + step, 0, order.size())])
+		if index == 0:
+			return 0
+		if index == 7:
+			return 7
+		var left := [9, 10, 11, 12]
+		var right := [1, 2, 3, 4, 8]
+		if direction == "right" and index in left:
+			return right[mini(left.find(index), right.size() - 1)]
+		if direction == "left" and index in right:
+			return left[mini(right.find(index), left.size() - 1)]
+		var column: Array = left if index in left else right
+		var at := column.find(index)
+		if direction == "up":
+			return 7 if at == 0 else int(column[at - 1])
+		if direction == "down":
+			return 0 if at == column.size() - 1 else int(column[at + 1])
+		return index
+	var order := [0, 7, 5, 6]
 	var step := -1 if direction in ["up", "left"] else 1
 	return int(order[wrapi(order.find(index) + step, 0, order.size())])
 
@@ -175,9 +201,10 @@ static func install(main: Node) -> void:
 			button(card, "%s 선택" % main.player_label(slot),
 				Rect2(12 + slot * 106, main.RESONANCE_CARD_HEIGHT - 96.0, 96, 30), func() -> void:
 					if not main.resonance_vote_active: return
-					main.resonance_votes[slot] = index
-					main.resonance_cursors[slot] = index
-					main._refresh_resonance_vote_ui())
+					if main.resonance_votes[slot] == index:
+						main._cancel_resonance_vote(slot)
+					else:
+						main._confirm_resonance_vote(slot, index))
 	var action_width := 300.0
 	var action_left: float = (main.result_overlay.size.x - action_width * 2.0 - 16.0) * 0.5
 	var retry := button(main.result_overlay, "같은 조합으로 재도전    ENTER / A", Rect2(action_left, 568, action_width, 42), func() -> void:
@@ -190,6 +217,12 @@ static func install(main: Node) -> void:
 	result_menu.name = "ResultMenu"
 	var settings: Control = main.pause_overlay.get_node("SettingsRows")
 	settings.hide()
+	var pause_display := UI.label(main.pause_overlay, "디스플레이", Rect2(20, 180, 360, 26), 16, Palette.GOLD_INK)
+	pause_display.name = "PauseDisplayHeading"
+	pause_display.visible = false
+	var pause_play := UI.label(main.pause_overlay, "게임 · 오디오", Rect2(400, 180, 360, 26), 16, Palette.GOLD_INK)
+	pause_play.name = "PausePlayHeading"
+	pause_play.visible = false
 	var pause_rects := PAUSE_SLOTS
 	for index in PAUSE_ITEM_COUNT:
 		var action := button(main.pause_overlay, "", pause_rects[index], func() -> void: main._activate_pause_item(index))
@@ -262,25 +295,39 @@ static func choose_cat(main: Node, slot: int, direction: int) -> void:
 static func refresh_pause(main: Node) -> void:
 	if not main.pause_overlay.has_node("PauseAction0"): return
 	var screen: Control = main.pause_overlay
-	screen.position = Vector2(450, 125 if main.pause_settings else 180)
-	screen.size = Vector2(380, 470 if main.pause_settings else 360)
+	screen.position = Vector2(250, 90) if main.pause_settings else Vector2(450, 180)
+	screen.size = Vector2(780, 520) if main.pause_settings else Vector2(380, 360)
 	for child in screen.get_children():
 		if child is Label or child.name in ["SettingsRows", "RunSnapshot"]:
 			child.hide()
 	var heading: Label = screen.get_node("PauseHeading")
 	heading.show()
-	UI.place(heading, Rect2(20, 16, 340, 42), 24)
+	UI.place(heading, Rect2(20, 16, 740 if main.pause_settings else 340, 42), 24)
 	heading.text = "설정" if main.pause_settings else "잠시 쉬어가기"
 	if main.restart_pending:
 		heading.text = "게임을 종료할까요?" if main.pending_quits else "메뉴로 돌아갈까요?"
-	var names := ["계속하기", "화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량", "메인 메뉴로", "게임 종료", "돌아가기" if main.pause_settings else "설정", "큰 글자"]
+	var display_heading: Label = screen.get_node("PauseDisplayHeading")
+	var play_heading: Label = screen.get_node("PausePlayHeading")
+	display_heading.visible = main.pause_settings and not main.restart_pending
+	play_heading.visible = main.pause_settings and not main.restart_pending
+	var names := [
+		"계속하기", "화면 흔들림", "피해 숫자", "효과음 음량", "음악 음량",
+		"메인 메뉴로", "게임 종료", "돌아가기" if main.pause_settings else "설정", "큰 글자",
+		"화면 모드", "창 해상도", "주사율 / FPS", "수직 동기화",
+	]
 	var states := [true, main.screen_shake_enabled, main.feedback.damage_numbers_enabled]
-	var order := [0, 7, 1, 2, 3, 4, 8] if main.pause_settings else [0, 7, 5, 6]
+	var order := [0, 7, 9, 10, 11, 12, 1, 2, 3, 4, 8] if main.pause_settings else [0, 7, 5, 6]
 	for index in PAUSE_ITEM_COUNT:
 		var button: Button = screen.get_node("PauseAction%d" % index)
 		button.visible = index < 2 if main.restart_pending else index in order
-		button.position = PAUSE_SLOTS[index].position
-		button.size = PAUSE_SLOTS[index].size
+		var slot: Rect2 = PAUSE_SLOTS[index]
+		if not main.pause_settings:
+			slot = {
+				0: Rect2(20, 80, 340, 44), 7: Rect2(20, 134, 340, 44),
+				5: Rect2(20, 188, 340, 44), 6: Rect2(20, 242, 340, 44),
+			}.get(index, slot)
+		button.position = slot.position
+		button.size = slot.size
 		button.text = names[index]
 		if index in [1, 2]:
 			button.text += "        " + ("켜짐" if states[index] else "꺼짐")
@@ -290,6 +337,14 @@ static func refresh_pause(main: Node) -> void:
 			button.text += "        %d%%" % roundi(main.feedback.music_volume * 100.0)
 		elif index == 8:
 			button.text += "        " + ("켜짐" if main.settings.large_text_enabled else "꺼짐")
+		elif index == 9:
+			button.text += "        " + main.display_mode_label()
+		elif index == 10:
+			button.text += "        " + main.window_size_label()
+		elif index == 11:
+			button.text += "        " + main.frame_rate_label()
+		elif index == 12:
+			button.text += "        " + ("켜짐" if main.settings.vsync_enabled else "꺼짐")
 		if main.restart_pending and index < 2:
 			button.position = Vector2(20, 100 + index * 60)
 			button.text = "취소" if index == 0 else "종료" if main.pending_quits else "메뉴로 돌아가기"

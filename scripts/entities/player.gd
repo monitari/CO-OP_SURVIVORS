@@ -56,7 +56,9 @@ var commanded_dash := false
 
 func set_command(movement: Vector2, dash := false) -> void:
 	commanded_movement = movement.limit_length(1.0)
-	commanded_dash = dash
+	# A dash is edge-triggered. A later movement packet must not erase it before
+	# the next simulation tick gets a chance to consume it.
+	commanded_dash = commanded_dash or dash
 
 
 var player_index := 0
