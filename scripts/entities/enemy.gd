@@ -53,6 +53,17 @@ const SPEED_RAMP_CAP := 34.0
 ## Experience per kill rises with the run, so a level-up curve steep enough to
 ## last twenty-five minutes is not paid for entirely by killing more things.
 const XP_PER_DIFFICULTY := 0.20
+## Two bodies now arrive for every one the old schedule produced. At 42% per
+## kill, clearing the whole doubled wave yields about 84% of the former XP:
+## progression is genuinely slower without making individual drops pointless.
+## Boss rewards are assigned after this scale and stay intact because bosses
+## were not doubled.
+const XP_YIELD_MULTIPLIER := 0.42
+## A doubled field can land several contacts in the same instant. Ordinary and
+## elite bodies therefore carry less damage each; the crowd remains the threat,
+## while an overlap no longer deals twice the old unavoidable burst. Bosses are
+## not doubled and retain their authored damage.
+const HORDE_CONTACT_DAMAGE_MULTIPLIER := 0.48
 ## Difficulty at which every drop moves up one rung — about minute nine.
 const DIFFICULTY_PER_GRADE := 9.0
 const EARLY_GAME_DIFFICULTY := 1.4
@@ -219,7 +230,7 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 			radius = 9.0
 			max_health = 10.0
 			contact_damage = 4.0
-			xp_value = 3
+			xp_value = 3 ## Scaled to one point by XP_YIELD_MULTIPLIER below.
 			enemy_color = Color("9bf6ff")
 		"bulwark":
 			xp_grade = 2
@@ -310,7 +321,8 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		xp_value = stats[4]
 		xp_grade = 2 if archetype in ["hedgehog", "owl"] else 1
 	max_health += difficulty * 5.0 + radius * 0.3
-	xp_value = maxi(1, int(round(float(xp_value) * (1.0 + difficulty * XP_PER_DIFFICULTY))))
+	xp_value = maxi(1, int(round(float(xp_value) * (1.0 + difficulty * XP_PER_DIFFICULTY)
+		* XP_YIELD_MULTIPLIER)))
 	# Spawn pacing alone cannot protect a pair whose first ring closes from an
 	# unlucky set of angles. Let contact damage teach pressure before it fully
 	# punishes it, reaching the original value near 87 seconds. The quadratic
@@ -333,6 +345,8 @@ func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool =
 		radius *= 1.3
 		contact_damage *= 1.4
 		xp_grade = maxi(xp_grade, 2)
+	if not boss:
+		contact_damage *= HORDE_CONTACT_DAMAGE_MULTIPLIER
 	if boss:
 		# One explicit multiplier instead of elite x boss, and a gentler contact
 		# hit: two touches killing an unupgraded survivor left no fight in it.

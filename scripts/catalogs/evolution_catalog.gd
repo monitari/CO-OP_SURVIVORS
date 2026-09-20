@@ -59,7 +59,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "arcane",
 			"behavior_tag": "pierce",
 			"description": "유도탄이 관통 광선을 끌고 다니며 지나간 자리를 모두 꿰뚫습니다.",
-			"weapon": {"damage": 33.0, "cooldown": 0.72, "count": 3, "speed": 500.0, "range": 445.0, "width": 23.0, "reach": 1.0},
+			"weapon": {"damage": 29.0, "cooldown": 0.72, "count": 3, "speed": 500.0, "pierce": 1, "range": 480.0, "width": 32.0, "reach": 1.20},
 		},
 		{
 			"base_weapon_id": "lightning",
@@ -69,7 +69,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "lightning",
 			"behavior_tag": "storm",
 			"description": "연쇄를 버리고 사거리 안의 모든 적을 동시에 내리칩니다.",
-			"weapon": {"damage": 27.0, "cooldown": 1.28, "range": 480.0, "reach": 2.05},
+			"weapon": {"damage": 23.4, "cooldown": 1.28, "range": 520.0, "reach": 2.50},
 		},
 		{
 			"base_weapon_id": "flame",
@@ -79,7 +79,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "fire",
 			"behavior_tag": "explosion",
 			"description": "불씨를 흩뿌린 뒤 그 자리에서 거대한 2차 폭발을 일으킵니다.",
-			"weapon": {"damage": 25.0, "cooldown": 1.46, "count": 12, "speed": 325.0, "radius": 205.0, "reach": 2.4},
+			"weapon": {"damage": 21.2, "cooldown": 1.46, "count": 14, "speed": 325.0, "radius": 235.0, "reach": 2.75},
 		},
 		{
 			"base_weapon_id": "frost",
@@ -89,7 +89,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "frost",
 			"behavior_tag": "aura",
 			"description": "상시 냉기를 두르고, 오라 안에서 이미 얼어붙은 적을 계속 파쇄합니다.",
-			"weapon": {"damage": 23.0, "cooldown": 1.78, "radius": 228.0, "slow": 0.14, "reach": 3.5},
+			"weapon": {"damage": 19.0, "cooldown": 1.78, "radius": 260.0, "slow": 0.14, "reach": 4.0},
 		},
 		{
 			"base_weapon_id": "scythe",
@@ -99,7 +99,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "shadow",
 			"behavior_tag": "melee",
 			"description": "부채꼴을 버리고 몸 주위를 두 번 완전히 베어냅니다.",
-			"weapon": {"damage": 50.0, "cooldown": 1.15, "range": 238.0, "arc": 6.28, "reach": 1.05},
+			"weapon": {"damage": 46.0, "cooldown": 1.15, "range": 275.0, "arc": 6.28, "reach": 1.16},
 		},
 		{
 			"base_weapon_id": "chain",
@@ -109,7 +109,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "holy",
 			"behavior_tag": "chain",
 			"description": "사슬이 성흔으로 타오르며 적을 태우고 두 사람을 함께 회복시킵니다.",
-			"weapon": {"damage": 38.0, "cooldown": 1.08, "width": 82.0, "heal": 2.2, "reach": 1.5},
+			"weapon": {"damage": 34.0, "cooldown": 1.08, "width": 105.0, "heal": 2.2, "reach": 1.65},
 		},
 		{
 			"base_weapon_id": "orbit",
@@ -119,7 +119,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "arcane",
 			"behavior_tag": "aura",
 			"description": "안팎으로 반대로 도는 두 겹의 궤도가 주변을 통째로 갈아냅니다.",
-			"weapon": {"damage": 17.0, "cooldown": 5.5, "count": 5, "radius": 104.0, "speed": 3.0, "reach": 3.0},
+			"weapon": {"damage": 15.0, "cooldown": 5.5, "count": 5, "radius": 124.0, "speed": 3.0, "reach": 3.35},
 		},
 		{
 			"base_weapon_id": "lance",
@@ -129,7 +129,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "holy",
 			"behavior_tag": "projectile",
 			"description": "정면과 양 측면을 동시에 꿰뚫는 세 갈래 심판을 내립니다.",
-			"weapon": {"damage": 45.0, "cooldown": 1.28, "range": 530.0, "width": 34.0, "reach": 1.15},
+			"weapon": {"damage": 41.0, "cooldown": 1.28, "range": 560.0, "width": 50.0, "reach": 1.25},
 		},
 		{
 			"base_weapon_id": "mine",
@@ -139,7 +139,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "shadow",
 			"behavior_tag": "control",
 			"description": "한 발이 아니라 결계 한 무리를 원형으로 심어 둘 주위를 밭으로 만듭니다.",
-			"weapon": {"damage": 34.0, "cooldown": 2.05, "count": 5, "radius": 84.0, "reach": 1.75},
+			"weapon": {"damage": 30.0, "cooldown": 2.05, "count": 5, "radius": 112.0, "reach": 2.10},
 		},
 		{
 			"base_weapon_id": "boomerang",
@@ -149,7 +149,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "frost",
 			"behavior_tag": "tracking",
 			"description": "장난감이 한 번 왕복하는 대신 사방으로 튕기며 계속 지나갑니다.",
-			"weapon": {"damage": 42.0, "cooldown": 1.95, "range": 320.0, "count": 3, "reach": 2.3},
+			"weapon": {"damage": 38.0, "cooldown": 1.95, "range": 385.0, "count": 3, "reach": 2.55},
 		},
 		{
 			"base_weapon_id": "milk",
@@ -159,7 +159,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "frost",
 			"behavior_tag": "control",
 			"description": "웅덩이가 아니라 밀려오는 해일이 되어 바닥을 통째로 덮습니다.",
-			"weapon": {"damage": 19.0, "cooldown": 2.6, "range": 360.0, "count": 7, "radius": 92.0, "slow": 0.45, "reach": 7.4},
+			"weapon": {"damage": 16.0, "cooldown": 2.6, "range": 400.0, "count": 7, "radius": 120.0, "slow": 0.45, "reach": 8.7},
 		},
 		{
 			"base_weapon_id": "gravity",
@@ -169,7 +169,7 @@ static func all_evolutions() -> Array[Dictionary]:
 			"primary_tag": "arcane",
 			"behavior_tag": "storm",
 			"description": "끌어모은 자리를 한 번 더 무너뜨려 두 번 붕괴시킵니다.",
-			"weapon": {"damage": 27.0, "cooldown": 1.92, "radius": 216.0, "pull": 200.0, "reach": 3.0},
+			"weapon": {"damage": 23.4, "cooldown": 1.92, "radius": 260.0, "pull": 240.0, "reach": 3.4},
 		},
 	]
 

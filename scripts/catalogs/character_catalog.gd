@@ -296,7 +296,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": -20.0,
 			"might": 1.12, "area": 0.86, "haste": 0.90, "recovery": 0.0,
 			"projectile_speed": 1.18, "dodge": 0.06,
-			"weapon": {"damage": 34.0, "cooldown": 1.12, "count": 1, "speed": 415.0, "reach": 1.0, "tier": 1}
+			"weapon": {"damage": 29.0, "cooldown": 1.12, "count": 1, "speed": 415.0, "pierce": 1, "reach": 1.20, "tier": 1}
 		},
 		{
 			"id": "volta",
@@ -314,7 +314,7 @@ static func all_characters() -> Array[Dictionary]:
 			"pickup": 1.0,
 			"chain": 10.0,
 			"might": 1.0, "area": 1.08, "haste": 0.96, "recovery": 0.2,
-			"weapon": {"damage": 27.5, "cooldown": 1.78, "jumps": 2, "range": 375.0, "reach": 2.05, "tier": 1}
+			"weapon": {"damage": 23.4, "cooldown": 1.78, "jumps": 3, "range": 395.0, "reach": 2.50, "tier": 1}
 		},
 		{
 			"id": "ignis",
@@ -333,11 +333,11 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 25.0,
 			"might": 1.08, "area": 1.12, "haste": 1.08, "recovery": 0.25,
 			# Radial shots trade reliability for coverage, and the opening version
-			# now has very little of it: three embers is a direction you picked
-			# badly or well, not a wall. Everything that raises 개수 — the weapon's
+			# now has very little of it: four embers still leave meaningful gaps
+			# that positioning can exploit. Everything that raises 개수 — the weapon's
 			# own cards, 증폭 treasures, a survivor's amount — turns this into the
 			# nebula the name promises, which is the point of starting it small.
-			"weapon": {"damage": 26.5, "cooldown": 2.02, "count": 3, "speed": 280.0, "reach": 2.4, "tier": 1}
+			"weapon": {"damage": 22.2, "cooldown": 2.02, "count": 4, "speed": 280.0, "reach": 2.75, "tier": 1}
 		},
 		{
 			"id": "neve",
@@ -356,7 +356,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 65.0,
 			"might": 0.90, "area": 1.25, "haste": 1.10, "recovery": 0.9,
 			"resolve": 2.0,
-			"weapon": {"damage": 22.5, "cooldown": 2.56, "radius": 116.0, "slow": 0.58, "reach": 3.5, "tier": 1}
+			"weapon": {"damage": 19.0, "cooldown": 2.56, "radius": 132.0, "slow": 0.58, "reach": 4.0, "tier": 1}
 		},
 		{
 			"id": "moro",
@@ -380,7 +380,7 @@ static func all_characters() -> Array[Dictionary]:
 			"dodge": 0.04,
 			# Melee carries a low reach factor because it only hits what you face,
 			# so it is allowed a much higher per-swing number than the auras.
-			"weapon": {"damage": 52.0, "cooldown": 1.65, "range": 190.0, "arc": 1.85, "reach": 1.05, "tier": 1}
+			"weapon": {"damage": 48.0, "cooldown": 1.65, "range": 220.0, "arc": 2.05, "reach": 1.16, "tier": 1}
 		},
 		{
 			"id": "serin",
@@ -404,7 +404,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 85.0,
 			"might": 0.88, "area": 1.0, "haste": 1.08, "recovery": 1.3,
 			"thorns": 0.10, "resolve": 3.0,
-			"weapon": {"damage": 38.0, "cooldown": 1.65, "width": 48.0, "reach": 1.5, "tier": 1}
+			"weapon": {"damage": 35.0, "cooldown": 1.65, "width": 62.0, "reach": 1.65, "tier": 1}
 		},
 		{
 			"id": "kael",
@@ -429,7 +429,7 @@ static func all_characters() -> Array[Dictionary]:
 			# multi-projectile weapon now starts. Shards hit whatever walks into
 			# them without any aiming at all, so the per-shard number stays small
 			# and reach carries the weight.
-			"weapon": {"damage": 24.0, "cooldown": 6.6, "count": 1, "radius": 86.0, "speed": 2.85, "reach": 3.0, "tier": 1}
+			"weapon": {"damage": 21.0, "cooldown": 6.6, "count": 1, "radius": 102.0, "speed": 2.85, "reach": 3.35, "tier": 1}
 		},
 		{
 			"id": "rian",
@@ -448,7 +448,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 15.0,
 			"might": 1.10, "area": 0.82, "haste": 1.0, "recovery": 0.0,
 			"projectile_speed": 1.25, "pierce": 1,
-			"weapon": {"damage": 51.5, "cooldown": 1.89, "range": 445.0, "width": 29.0, "beams": 1, "reach": 1.15, "tier": 1}
+			"weapon": {"damage": 47.0, "cooldown": 1.89, "range": 465.0, "width": 42.0, "beams": 1, "reach": 1.25, "tier": 1}
 		},
 		{
 			"id": "tera",
@@ -467,7 +467,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 40.0,
 			"might": 0.98, "area": 1.16, "haste": 1.10, "recovery": 0.7,
 			"resolve": 2.0,
-			"weapon": {"damage": 46.0, "cooldown": 3.66, "count": 1, "radius": 84.0, "reach": 1.75, "tier": 1}
+			"weapon": {"damage": 40.0, "cooldown": 3.66, "count": 1, "radius": 110.0, "reach": 2.10, "tier": 1}
 		},
 		{
 			"id": "nova",
@@ -489,7 +489,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 5.0,
 			"might": 1.0, "area": 1.20, "haste": 1.05, "recovery": 0.2,
 			"projectile_speed": 0.90,
-			"weapon": {"damage": 30.0, "cooldown": 2.87, "radius": 182.0, "pull": 135.0, "cast_range": 460.0, "reach": 3.0, "tier": 1}
+			"weapon": {"damage": 25.4, "cooldown": 2.87, "radius": 220.0, "pull": 165.0, "cast_range": 480.0, "reach": 3.4, "tier": 1}
 		}
 	]
 	# 에코 throws the toy out, catches nothing, and lets it carry straight on
@@ -499,7 +499,7 @@ static func all_characters() -> Array[Dictionary]:
 		"tags": ["frost", "tracking"], "description": "생선 장난감이 나갔다가 돌아오고, 멈추지 않고 반대편까지 지나갑니다.",
 		"color": Color("d59356"), "health": 101.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.0, "chain": -10.0,
 		"might": 1.06, "area": 0.95, "haste": 0.98, "recovery": 0.1,
-		"weapon": {"damage": 39.0, "cooldown": 2.5, "range": 260.0, "count": 1, "reach": 2.3, "tier": 1}})
+		"weapon": {"damage": 35.0, "cooldown": 2.5, "range": 315.0, "count": 1, "reach": 2.55, "tier": 1}})
 	# 라떼 does not aim at anything. Milk lands where it lands, and what it
 	# lands on stands in it — the one weapon in the roster whose value is
 	# decided by where the pair chooses to fight rather than by what it hits.
@@ -507,5 +507,5 @@ static func all_characters() -> Array[Dictionary]:
 		"tags": ["frost", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
 		"color": Color("f2e2c4"), "health": 121.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
 		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
-		"weapon": {"damage": 15.0, "cooldown": 3.1, "range": 300.0, "count": 1, "radius": 74.0, "slow": 0.55, "reach": 7.4, "tier": 1}})
+		"weapon": {"damage": 12.5, "cooldown": 3.1, "range": 330.0, "count": 1, "radius": 96.0, "slow": 0.55, "reach": 8.7, "tier": 1}})
 	return roster

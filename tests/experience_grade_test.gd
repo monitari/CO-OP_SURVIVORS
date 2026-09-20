@@ -26,6 +26,8 @@ func _run() -> void:
 	grades.append(boss.xp_grade)
 	boss.free()
 	check(values[0] < values[1] and values[1] < values[2] and values[2] < values[3], "harder enemies award progressively more XP")
+	check(values == [1, 3, 11, 150],
+		"ordinary XP is nerfed to 42%% while the undoubled boss reward stays intact (%s)" % str(values))
 	check(grades == [0, 1, 2, 3], "enemy tiers map to four distinct gem grades")
 
 	var system := Experience.new() as ExperienceSystem

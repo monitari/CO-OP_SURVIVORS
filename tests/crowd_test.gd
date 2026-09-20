@@ -215,7 +215,10 @@ func _test_enemies_are_pushed_out_of_survivors(main: Node) -> void:
 ## actually turns up, this pins that the schedule can produce it at all.
 func _test_the_late_game_can_fill_the_screen(main: Node) -> void:
 	var director: WaveDirector = main.wave_director
-	_check(director.enemy_cap >= 600, "the field is allowed to hold a real horde (%d)" % director.enemy_cap)
+	_check(director.enemy_cap >= 1200, "the field is allowed to hold a doubled horde (%d)" % director.enemy_cap)
+	director.wave_index = 0
+	_check(director.spawn_batch_size() == 4,
+		"ordinary waves send twice the old two-body batch (%d)" % director.spawn_batch_size())
 	_check("deluge" in WaveDirector.ENCOUNTER_ORDER, "the rota contains the screen-filling encounter")
 
 	# Held back: the deluge is a climax, not an opening.
@@ -229,7 +232,7 @@ func _test_the_late_game_can_fill_the_screen(main: Node) -> void:
 
 	var late: Array[ChaserEnemy] = []
 	director._run_encounter("deluge", 1200.0 / WaveDirector.DIFFICULTY_SECONDS, Vector2.ZERO, 0, late)
-	_check(late.size() >= 60, "a late deluge is a screenful (%d bodies)" % late.size())
+	_check(late.size() >= 120, "a late deluge is a doubled screenful (%d bodies)" % late.size())
 	var radii: Dictionary = {}
 	for enemy in late:
 		radii[roundi(enemy.global_position.length() / 50.0)] = true

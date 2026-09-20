@@ -33,7 +33,7 @@ const WARMUP_FRAMES := 30
 
 ## The crowd sizes worth knowing about: a busy mid-run screen, and the spawn cap
 ## the late game actually reaches.
-const CROWD_SIZES := [200, 400, 620]
+const CROWD_SIZES := [200, 620, 1240]
 
 var failures: Array[String] = []
 ## Cost per enemy at each crowd size, so the assertions can talk about how the
@@ -187,7 +187,7 @@ func _assert_scaling() -> void:
 		smallest, small, largest, large, growth,
 	])
 	_check(growth < 2.0,
-		"tripling the crowd does not raise the cost of one enemy (%.2fx)" % growth)
+		"scaling to the doubled cap does not raise the cost of one enemy (%.2fx)" % growth)
 	# A loose ceiling that only a catastrophe trips. It exists so a change that
 	# makes the tick several times slower still fails the suite rather than
 	# merely printing a worse number nobody reads.

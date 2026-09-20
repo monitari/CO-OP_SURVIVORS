@@ -1212,7 +1212,8 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.lifetime *= float(state.get("duration", 1.0))
 		projectile.spawn_lifetime = projectile.lifetime
 		projectile.projectile_color = color
-		projectile.remaining_hits = 1 + _caster_pierce() + int(state.get("tech_pierce", 0))
+		projectile.remaining_hits = (1 + int(state.get("pierce", 0))
+			+ _caster_pierce() + int(state.get("tech_pierce", 0)))
 		_give_projectile_height(projectile, "homing")
 	return true
 

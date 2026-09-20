@@ -1,6 +1,11 @@
 class_name WaveDirector
 extends Node2D
 
+## This pass deliberately doubles both throughput and field capacity. Keeping
+## the multiplier explicit makes every arrival source obey the same promise:
+## the horde is twice as large, not just the ordinary trickle.
+const HORDE_MULTIPLIER := 2
+
 ## Spawning used to be one continuous trickle whose interval shrank with time,
 ## which gave a run no shape at all — no build-up, no relief, nothing to read
 ## as "here comes another one". It now runs in waves: an assault stretch that
@@ -82,9 +87,9 @@ const ENCOUNTER_NAMES := {
 ## screen. It is held back until the pair has a build to answer it with — before
 ## this it is not a climax, it is a wall.
 const DELUGE_UNLOCK_TIME := 420.0
-const DELUGE_BASE_COUNT := 46
-const DELUGE_PER_MINUTE := 5.0
-const BOSS_CORDON_COUNT := 12
+const DELUGE_BASE_COUNT := 46 * HORDE_MULTIPLIER
+const DELUGE_PER_MINUTE := 5.0 * HORDE_MULTIPLIER
+const BOSS_CORDON_COUNT := 12 * HORDE_MULTIPLIER
 const BOSS_CORDON_RADIUS := 900.0
 
 var enemy_pool: Array[ChaserEnemy] = []
@@ -94,7 +99,7 @@ var swarm_timer := SWARM_UNLOCK_TIME
 var boss_spawned := false ## True once the first boss of the run has arrived.
 var bosses_spawned := 0
 var boss_active := false ## Kept current by main; holds the next boss back while one is still alive.
-var enemy_cap := 620
+var enemy_cap := 620 * HORDE_MULTIPLIER
 ## Host returns the number of ordinary enemies recycled for scheduled arrivals.
 var reclaim_capacity: Callable
 
@@ -131,7 +136,7 @@ func spawn_interval() -> float:
 
 
 func spawn_batch_size() -> int:
-	return 2 + int(float(wave_index) / 3.0)
+	return (2 + int(float(wave_index) / 3.0)) * HORDE_MULTIPLIER
 
 
 func is_surge_wave(index: int) -> bool:
@@ -182,8 +187,8 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 		# Wave openers grow with the run rather than being a fixed handful, so a
 		# late surge actually lands as a surge.
 		var growth := int(float(wave_index) * 0.8)
-		var surge := (10 + growth * 2) if is_surge_wave(wave_index) else (
-			FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4 + growth)
+		var surge := ((10 + growth * 2) if is_surge_wave(wave_index) else (
+			FIRST_REINFORCEMENT_COUNT if wave_index == 1 else 4 + growth)) * HORDE_MULTIPLIER
 		# One wave opener is one colony. Rolling per body produced a sampler pack
 		# of every unlocked behaviour instead of a readable mass.
 		var reinforcement_archetype := _pick_archetype(elapsed)
@@ -219,7 +224,10 @@ func step(delta: float, elapsed: float, center: Vector2, active_count: int) -> A
 	# not a guarantee that nothing happens.
 	if elite_timer <= 0.0 and active_count + spawned.size() < enemy_cap:
 		elite_timer = 38.0
-		spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, true, false))
+		for _index in HORDE_MULTIPLIER:
+			if active_count + spawned.size() >= enemy_cap:
+				break
+			spawned.append(_acquire_enemy(_pick_archetype(elapsed), difficulty, center, true, false))
 
 	# A swarm pack is its own event on its own clock, and it ignores the lull
 	# for the same reason elites do: the calm is a breather from pressure, not
@@ -317,9 +325,9 @@ func _cell_seed(cell_x: int, cell_y: int) -> int:
 
 func encounter_size(elapsed: float) -> int:
 	match String(ENCOUNTER_ORDER[encounters_run % ENCOUNTER_ORDER.size()]):
-		"stampede": return 12
-		"ring_siege": return 16
-		"elite_squad": return 4
+		"stampede": return 12 * HORDE_MULTIPLIER
+		"ring_siege": return 16 * HORDE_MULTIPLIER
+		"elite_squad": return 4 * HORDE_MULTIPLIER
 		"deluge":
 			if elapsed >= DELUGE_UNLOCK_TIME:
 				return DELUGE_BASE_COUNT + int(elapsed / 60.0 * DELUGE_PER_MINUTE)
@@ -331,7 +339,7 @@ func scheduled_slots(delta: float, elapsed: float) -> int:
 	if bosses_spawned < BOSS_COUNT and not boss_active and elapsed >= next_boss_time():
 		count += 1 + BOSS_CORDON_COUNT
 	if elite_timer <= delta:
-		count += 1
+		count += HORDE_MULTIPLIER
 	if encounter_timer <= delta:
 		count += encounter_size(elapsed)
 	return mini(enemy_cap, count)
@@ -357,11 +365,11 @@ func _run_encounter(
 			# One bearing, one line. The answer is to move sideways, which the
 			# chain makes a decision rather than a reflex.
 			var bearing := randf() * TAU
-			for index in 12:
+			for index in 12 * HORDE_MULTIPLIER:
 				if not budget.call():
 					return
 				var enemy := _acquire_enemy("charger", difficulty, center, false, false)
-				var lateral := float(index - 6) * 62.0
+				var lateral := (float(index) - float(12 * HORDE_MULTIPLIER - 1) * 0.5) * 42.0
 				enemy.position = (center + Vector2.from_angle(bearing) * 980.0
 					+ Vector2.from_angle(bearing + PI * 0.5) * lateral)
 				spawned.append(enemy)
@@ -369,7 +377,7 @@ func _run_encounter(
 			# The surrounded problem stated plainly: a closed circle with no
 			# gap, which is what the wide-reach weapons and the fused forms
 			# exist to answer.
-			var count := 16
+			var count := 16 * HORDE_MULTIPLIER
 			for index in count:
 				if not budget.call():
 					return
@@ -389,7 +397,7 @@ func _run_encounter(
 				enemy.position = center + Vector2.from_angle(angle) * (BOSS_CORDON_RADIUS + stagger)
 				spawned.append(enemy)
 		"elite_squad":
-			for index in 4:
+			for index in 4 * HORDE_MULTIPLIER:
 				if not budget.call():
 					return
 				spawned.append(_acquire_enemy(_pick_archetype(difficulty * DIFFICULTY_SECONDS), difficulty, center, true, false))
@@ -471,4 +479,5 @@ func _fortify_wall(enemy: ChaserEnemy, health_scale: float) -> void:
 ## back half of a twenty-five-minute run does not spend its whole enemy budget
 ## on things worth three experience each.
 func _swarm_pack_size(elapsed: float) -> int:
-	return mini(46, 7 + int(elapsed / 70.0) * 4)
+	return mini(46 * HORDE_MULTIPLIER,
+		(7 + int(elapsed / 70.0) * 4) * HORDE_MULTIPLIER)

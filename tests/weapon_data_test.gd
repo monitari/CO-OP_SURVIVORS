@@ -44,8 +44,9 @@ func _init() -> void:
 	_check_tags()
 	_check_resonances()
 	_check_internal_ids()
+	_check_horde_weapon_shapes()
 	if failures.is_empty():
-		print("WEAPON_DATA_PASS: routes, enhancements, primitives, tags, resonance coverage and internal ids")
+		print("WEAPON_DATA_PASS: routes, enhancements, horde coverage, tags, resonances and internal ids")
 	else:
 		for failure in failures:
 			printerr("WEAPON_DATA_FAIL: " + failure)
@@ -60,6 +61,26 @@ func _weapon_ids() -> Array:
 		if id not in ids:
 			ids.append(id)
 	return ids
+
+
+## Twice the bodies makes narrow starting attacks fall behind while large areas
+## scale for free. Every base weapon therefore declares enough crowd coverage
+## for its own delivery shape; damage was trimmed separately in the catalogue.
+func _check_horde_weapon_shapes() -> void:
+	var minimums := {
+		"homing": ["pierce", 1.0], "lightning": ["jumps", 3.0],
+		"flame": ["count", 4.0], "frost": ["radius", 130.0],
+		"scythe": ["range", 215.0], "chain": ["width", 60.0],
+		"orbit": ["radius", 100.0], "lance": ["width", 40.0],
+		"mine": ["radius", 105.0], "gravity": ["radius", 215.0],
+		"boomerang": ["range", 310.0], "milk": ["radius", 95.0],
+	}
+	for character in Cats.all_characters():
+		var weapon_id := String(character["weapon_id"])
+		var spec: Array = minimums[weapon_id]
+		var field := String(spec[0])
+		var value := float((character["weapon"] as Dictionary).get(field, 0.0))
+		_check(value >= float(spec[1]), "%s keeps its doubled-horde coverage (%s %.1f)" % [weapon_id, field, value])
 
 
 ## §3, §5. Two routes per weapon, A is the 화력 one and B is the 속도 one, and
