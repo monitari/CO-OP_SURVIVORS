@@ -11,7 +11,7 @@ extends SceneTree
 
 const MainScene := preload("res://scenes/main.tscn")
 const TestHarness := preload("res://tests/test_harness.gd")
-const FAMILY := "MemomentKkukkukk.ttf"
+const FAMILY := "GriunXHangeul_Gowoon-Rg.ttf"
 
 var failures: Array[String] = []
 var checked := 0
@@ -30,7 +30,7 @@ func _run() -> void:
 		return
 	_check(_is_family(ThemeDB.fallback_font),
 		"ThemeDB fallback is the bundled family, so un-themed text cannot drift")
-	var import_settings := FileAccess.get_file_as_string("res://assets/fonts/MemomentKkukkukk.ttf.import")
+	var import_settings := FileAccess.get_file_as_string("res://assets/fonts/GriunXHangeul_Gowoon-Rg.ttf.import")
 	_check(import_settings.contains("multichannel_signed_distance_field=false")
 		and import_settings.contains("oversampling=2.0"),
 		"the handwritten font avoids MSDF contour damage and uses 2x oversampling")

@@ -4,16 +4,14 @@ extends RefCounted
 
 ## The one typeface in the game.
 ##
-## Memoment Kkukkukk is a pressed-pen hand the scrapbook screens are written in.
-## It carries every Hangul syllable but not the handful of symbols the UI leans
-## on (the middle dot between clauses, ✓, ✦, ↻, the thumbs), so Jua stays behind
-## it as the fallback: a missing glyph comes out of the rounded face the game
-## used before instead of out of whatever the operating system has.
+## Griun Hangul Gowoon gives every screen a calm, legible handwritten voice.
+## Jua stays behind it as the fallback for any symbol the primary family lacks,
+## so missing glyphs never depend on whichever font the operating system chooses.
 ##
 ## `adopt()` puts it on ThemeDB as well as on the HUD host's theme, which is what
 ## non-Control draws (damage numbers, P1/P2 badges, the downed prompt) and any
 ## un-themed Label actually read.
-const FAMILY := preload("res://assets/fonts/MemomentKkukkukk.ttf")
+const FAMILY := preload("res://assets/fonts/GriunXHangeul_Gowoon-Rg.ttf")
 const SYMBOL_FALLBACK := preload("res://assets/fonts/Jua-Regular.ttf")
 
 

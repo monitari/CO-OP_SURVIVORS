@@ -25,7 +25,7 @@ const SnapshotIgnisNeve := preload("res://assets/ui/title_snapshot_ignis_neve_v1
 const SnapshotTeraNova := preload("res://assets/ui/title_snapshot_tera_nova_v1.png")
 const SnapshotSquad := preload("res://assets/ui/title_snapshot_squad_v1.png")
 const SnapshotPrank := preload("res://assets/ui/title_snapshot_prank_v1.png")
-const CombatFont := preload("res://assets/fonts/MemomentKkukkukk.ttf")
+const CombatFont := preload("res://assets/fonts/GriunXHangeul_Gowoon-Rg.ttf")
 const HudPaw := preload("res://assets/ui/frames/hud_paw.svg")
 const PLAYSTYLE := {
 	"homing": "유도 별탄    단일 적 추적", "lightning": "연쇄 번개    적 사이로 전이",
@@ -172,7 +172,7 @@ static func _title(main: Node) -> void:
 	ambience.setup_backdrop(ScrapbookBackdrop)
 	screen.add_child(ambience)
 	screen.move_child(ambience, 0)
-	var brand := icon(screen, TitleLogo, Rect2(250, -28, 560, 262))
+	var brand := icon(screen, TitleLogo, Rect2(36, 18, 392, 196))
 	brand.name = "BrandLockup"
 	brand.set_meta("decorative_overhang", true)
 	var collage := Control.new()
@@ -181,13 +181,13 @@ static func _title(main: Node) -> void:
 	collage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	screen.add_child(collage)
 	_snapshot(collage, "SnapshotIgnisNeve", SnapshotIgnisNeve,
-		Rect2(690, 210, 240, 240), -0.095)
+		Rect2(640, 115, 230, 230), -0.12)
 	_snapshot(collage, "SnapshotTeraNova", SnapshotTeraNova,
-		Rect2(865, 190, 250, 250), 0.075)
+		Rect2(870, 155, 225, 225), 0.085)
 	_snapshot(collage, "SnapshotSquad", SnapshotSquad,
-		Rect2(660, 390, 255, 255), 0.055)
+		Rect2(680, 350, 245, 245), 0.065)
 	_snapshot(collage, "SnapshotPrank", SnapshotPrank,
-		Rect2(875, 400, 225, 225), -0.09)
+		Rect2(890, 305, 210, 210), -0.115)
 	label(screen, "", Rect2(392, 40, 400, 40), 27, Palette.INK).name = "TitleEyebrow"
 	for index in main.title_rows.size():
 		var row: Label = main.title_rows[index]
@@ -404,10 +404,13 @@ static func _lobby(main: Node) -> void:
 	for slot in 2:
 		var item: Label = main.lobby_p1_label if slot == 0 else main.lobby_p2_label
 		item.name = "LobbyPlayer%d" % slot
-		place(item, G.inner(0, 0, 0.5 + slot * 6.0, 4.65, 5.5, 1.25), Palette.TYPE_HEADING, Palette.owner_ink(slot))
+		place(item, G.inner(0, 0, 0.5 + slot * 6.0, 4.65, 5.5, 1.25), 16, Palette.owner_ink(slot))
 		item.add_theme_stylebox_override("normal", Palette.surface(Palette.CARD))
 		var style := item.get_theme_stylebox("normal") as StyleBoxFlat
-		style.set_content_margin_all(22)
+		style.content_margin_left = 22
+		style.content_margin_right = 22
+		style.content_margin_top = 8
+		style.content_margin_bottom = 8
 		var accent := Palette.P1 if slot == 0 else Palette.P2
 		var cat_center_x := 147.0 if slot == 0 else 957.0
 		var connector := ColorRect.new()
@@ -630,9 +633,9 @@ static func refresh_characters(main: Node) -> void:
 				String(cat["description"]), main._route_note(cat), main._chain_note(cat)]
 			# 392..444 in screen terms: the second stat row ends at 392 and the
 			# navigation buttons start at 448, so this is the whole of the room
-			# there is. Three lines of 11 fit it; three of 12 did not, and the
+			# there is. Three lines of 10 fit the Gowoon metrics; larger text did not, and the
 			# box ran into 이전 / 다음.
-			place(body, Rect2(x + 192, panel.position.y + 216, 352, 52), 11)
+			place(body, Rect2(x + 192, panel.position.y + 216, 352, 52), 10)
 		else:
 			portrait_bed.position = Vector2(x + 16, panel.position.y + 48)
 			portrait_bed.size = Vector2(160, 216)
@@ -819,10 +822,10 @@ static func _hud(main: Node) -> void:
 		caption.position = bar.position
 		caption.size = bar.size
 		caption.add_theme_font_override("font", CombatFont)
-		caption.add_theme_font_size_override("font_size", 17)
+		caption.add_theme_font_size_override("font_size", 14)
 		caption.add_theme_color_override("font_color", Color.WHITE)
 		caption.add_theme_color_override("font_outline_color", Color("071125"))
-		caption.add_theme_constant_override("outline_size", 4)
+		caption.add_theme_constant_override("outline_size", 2)
 		main.hud_portrait_icons[slot].position = Vector2(24 if slot == 0 else 1212, 16)
 		main.hud_portrait_icons[slot].size = Vector2(44, 44)
 		label(main.combat_hud, "%s" % main.player_label(slot), Rect2(x + 58, 11, 32, 20), 13, accent).name = "PlayerNumber%d" % slot
@@ -851,7 +854,7 @@ static func _hud(main: Node) -> void:
 	for caption: Label in [main.chain_distance_text_label, main.chain_integrity_text_label]:
 		caption.position.y = SHARED_TOP + 37.0
 		caption.add_theme_font_override("font", CombatFont)
-		caption.add_theme_font_size_override("font_size", 16)
+		caption.add_theme_font_size_override("font_size", 13)
 		caption.add_theme_color_override("font_color", Palette.INK)
 		caption.add_theme_constant_override("outline_size", 0)
 	for meter: ProgressBar in [main.chain_bar, main.chain_integrity_bar]:
@@ -863,7 +866,7 @@ static func _hud(main: Node) -> void:
 		var meter_fill := Palette.surface(Palette.GOLD.darkened(0.12), 3)
 		meter_fill.set_border_width_all(0)
 		meter.add_theme_stylebox_override("fill", meter_fill)
-	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 16, Palette.P2_INK)
+	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 13, Palette.P2_INK)
 	main.resonance_status_label.add_theme_font_override("font", CombatFont)
 	main.resonance_status_label.add_theme_constant_override("outline_size", 0)
 	main.resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1149,7 +1152,7 @@ static func _results(main: Node) -> void:
 		portrait.position = Vector2(x + G.GUTTER, 260)
 		portrait.size = Vector2(64, 64)
 		label(screen, "", Rect2(x + 92, 256, half.size.x - 108, 26), 20, Palette.owner_ink(slot)).name = "ResultName%d" % slot
-		var player_stats := label(screen, "", Rect2(x + 92, 285, half.size.x - 108, 40), 14, Palette.MUTED)
+		var player_stats := label(screen, "", Rect2(x + 92, 285, half.size.x - 108, 40), 12, Palette.MUTED)
 		player_stats.name = "ResultPlayerStats%d" % slot
 		player_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		for index in 4:
@@ -1170,7 +1173,7 @@ static func _results(main: Node) -> void:
 		# occupy the same rows: the moon-fish row arrived on this screen after the
 		# button and nothing shifted to make space, so the button sat across two of
 		# the six cards. Their names were unreadable and they could not be clicked.
-		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 494, card_width, 66), 13, Palette.INK)
+		var card := label(screen, "", Rect2(G.GUTTER + index * (card_width + 8.0), 494, card_width, 66), 11, Palette.INK)
 		card.name = "MetaUpgrade%d" % index
 		card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		card.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

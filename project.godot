@@ -25,7 +25,7 @@ window/stretch/mode="canvas_items"
 
 [gui]
 
-theme/custom_font="res://assets/fonts/MemomentKkukkukk.ttf"
+theme/custom_font="res://assets/fonts/GriunXHangeul_Gowoon-Rg.ttf"
 
 [rendering]
 

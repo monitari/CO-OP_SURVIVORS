@@ -75,7 +75,7 @@ godot --headless --path . --export-release "Windows Desktop"
 
 <img src="docs/screenshots/equipment-slots.png" width="520" alt="체력 막대 아래 무기 네 칸과 보물 네 칸, 둥근 쿨타임 테두리와 음영, 모서리 레벨 칩">
 
-글꼴은 손글씨체 **메모먼트 꾹꾹체**(`assets/fonts/MemomentKkukkukk.ttf`) 하나입니다. 한글은 모두 들어 있지만 가운뎃점(·)·✓·✦·↻·엄지 이모지 같은 기호가 없어서, 빠진 글자는 **Jua**가 대신 그립니다(`CatTheme.adopt()`가 폴백으로 연결). 메모먼트 글꼴은 획이 서로 겹치는 손글씨 구조라 MSDF에서 검은 가시와 획 파손이 생기므로 일반 안티앨리어싱으로 가져오고, 1920×1080 확대 품질은 2배 오버샘플링으로 확보합니다.
+글꼴은 **Griun 한글 고운체**(`assets/fonts/GriunXHangeul_Gowoon-Rg.ttf`)입니다. 빠진 특수기호는 **Jua**가 대신 그립니다(`CatTheme.adopt()`가 폴백으로 연결). 고운체는 일반 안티앨리어싱과 2배 오버샘플링으로 가져와 1920×1080에서도 획이 깨지지 않게 표시합니다.
 
 | | P1 | P2 | 게임패드 |
 |---|---|---|---|

@@ -29,7 +29,7 @@ static func button(parent: Control, caption: String, rect: Rect2, action: Callab
 	b.position = rect.position
 	b.size = rect.size
 	b.focus_mode = Control.FOCUS_NONE # Menus use explicit two-player cursors.
-	b.add_theme_font_size_override("font_size", Palette.TYPE_BODY)
+	b.add_theme_font_size_override("font_size", Palette.TYPE_BODY - 1)
 	b.add_theme_color_override("font_color", Palette.INK)
 	b.add_theme_color_override("font_hover_color", Palette.INK)
 	b.add_theme_color_override("font_pressed_color", Palette.INK)

@@ -21,9 +21,15 @@ func _run() -> void:
 	_check(ambience.has_node("SceneBackdrop"), "scrapbook rooftop background is a separate layer")
 	_check((ambience.get_node("SceneBackdrop") as TextureRect).texture.get_width() == 1920,
 		"background is authored at the default window width")
+	var backdrop := ambience.get_node("SceneBackdrop") as TextureRect
+	_check(backdrop.size.x > 1280.0 and backdrop.size.y > 720.0,
+		"background bleeds past every viewport edge")
 	var brand := main.title_overlay.get_node("BrandLockup") as TextureRect
 	_check(brand != null and String(brand.texture.resource_path).ends_with("moonroof_title_scrapbook_v4.png"),
 		"title uses the new image-authored scrapbook logo")
+	_check(absf(brand.get_rect().get_center().x - main.title_rows[0].get_rect().get_center().x) <= 10.0
+		and brand.position.y + brand.size.y <= main.title_rows[0].position.y,
+		"title logo sits above the first menu card")
 	var collage: Control = main.title_overlay.get_node("SnapshotCollage") as Control
 	_check(collage.get_child_count() == 4, "the title carries four independent snapshots")
 	for photo in collage.get_children():
@@ -35,10 +41,14 @@ func _run() -> void:
 			"%s has no caption" % photo.name)
 	_check(not is_equal_approx((collage.get_child(0) as Control).size.x,
 		(collage.get_child(1) as Control).size.x), "snapshots vary in size")
-	_check((collage.get_child(0) as Control).get_rect().intersects(
-		(collage.get_child(1) as Control).get_rect()), "top snapshots overlap naturally")
-	_check((collage.get_child(2) as Control).get_rect().intersects(
-		(collage.get_child(3) as Control).get_rect()), "bottom snapshots overlap naturally")
+	_check(absf((collage.get_child(0) as Control).position.y
+		- (collage.get_child(1) as Control).position.y) >= 30.0
+		and absf((collage.get_child(2) as Control).position.y
+		- (collage.get_child(3) as Control).position.y) >= 30.0,
+		"snapshots are scattered at distinct heights")
+	_check((collage.get_child(0) as Control).position.y < 160.0
+		and (collage.get_child(3) as Control).position.y < 330.0,
+		"the snapshot collage sits higher on the page")
 	_check(not main.title_note.visible, "no description line under the menu")
 	_check(main.title_rows[0].position.x < 100.0 and main.title_rows[4].position.y > 480.0,
 		"menu is a left-hand vertical paper stack")

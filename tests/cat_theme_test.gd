@@ -21,8 +21,8 @@ func _run() -> void:
 	var host: Control = main.hud_layer.get_node("ThemeHost")
 	_check(main.lobby_title.get_theme_font("font") == host.theme.default_font,
 		"Korean font theme reaches labels, not an empty sibling")
-	_check(String(host.theme.default_font.resource_path).ends_with("MemomentKkukkukk.ttf"),
-		"the bundled rounded Korean font drives the UI on every machine")
+	_check(String(host.theme.default_font.resource_path).ends_with("GriunXHangeul_Gowoon-Rg.ttf"),
+		"the bundled Gowoon Korean font drives the UI on every machine")
 	_check(main.lobby_overlay.has_node("LobbyAmbience/SceneBackdrop"),
 		"LAN lobby shares the new title background")
 	_check(main.lobby_overlay.has_node("LobbyBrandLockup"),

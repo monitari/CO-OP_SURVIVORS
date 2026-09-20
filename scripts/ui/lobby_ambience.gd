@@ -30,6 +30,9 @@ var backdrop_origin := Vector2(-48.0, -40.0)
 const FILM_SHADER := preload("res://scripts/ui/scrapbook_film.gdshader")
 const PRINT_SHADER := preload("res://scripts/ui/scrapbook_print.gdshader")
 const FILM_HEIGHT := 22.0
+## Extra bleed prevents the underlying legacy backdrop from peeking through in
+## decorated or unusually wide windows.
+const BACKDROP_BOUNDS := Vector2(1376.0, 774.0)
 
 const STARS := [
 	Vector2(72, 84), Vector2(164, 52), Vector2(929, 75), Vector2(1017, 132),
@@ -61,7 +64,7 @@ func setup_backdrop(backdrop_texture: Texture2D) -> void:
 	motion_enabled = false
 	scrapbook_enabled = true
 	backdrop_origin = Vector2(-90.0, -55.0)
-	scrapbook_backdrop = _texture(backdrop_texture, backdrop_origin, Vector2(1280.0, 720.0))
+	scrapbook_backdrop = _texture(backdrop_texture, backdrop_origin, BACKDROP_BOUNDS)
 	scrapbook_backdrop.name = "SceneBackdrop"
 	scrapbook_backdrop.set_meta("decorative_overhang", true)
 	scrapbook_backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
@@ -76,7 +79,7 @@ func setup_backdrop(backdrop_texture: Texture2D) -> void:
 ## `print_size` is each polaroid's size; `names` their handwritten captions.
 func enable_scrapbook(backdrop_texture: Texture2D, print_size: Vector2, names: Array) -> void:
 	scrapbook_enabled = true
-	scrapbook_backdrop = _texture(backdrop_texture, backdrop_origin, Vector2(1280.0, 720.0))
+	scrapbook_backdrop = _texture(backdrop_texture, backdrop_origin, BACKDROP_BOUNDS)
 	scrapbook_backdrop.name = "ScrapbookBackdrop"
 	# Bleeds past the page margins to the screen edge (see layout_test).
 	scrapbook_backdrop.set_meta("decorative_overhang", true)

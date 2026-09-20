@@ -83,9 +83,9 @@ func _run() -> void:
 			and (panel.get_theme_stylebox("panel") as StyleBoxFlat).bg_color.a < 1.0,
 			"player %d dossier is drawn as an overlay" % slot)
 		_check(previous.size == Vector2(260, 40) and next.size == Vector2(260, 40),
-			"player %d secondary buttons share one template" % slot)
+			"player %d secondary buttons share one template; got %s / %s" % [slot, previous.size, next.size])
 		_check(confirm.size == Vector2(528, 40),
-			"player %d ready button fills its inset row" % slot)
+			"player %d ready button fills its inset row; got %s" % [slot, confirm.size])
 		_check(not previous.get_rect().intersects(confirm.get_rect())
 			and not next.get_rect().intersects(confirm.get_rect()),
 			"player %d button rows do not overlap" % slot)
