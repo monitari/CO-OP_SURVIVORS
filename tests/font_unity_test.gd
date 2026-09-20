@@ -10,12 +10,10 @@ extends SceneTree
 ## `gui/theme/custom_font` plus CatTheme.adopt), and this walks the live tree to
 ## keep it that way.
 ##
-## There are two bundled faces and the split between them is the point, so the
-## walk accepts either: Gowoon's handwriting is the voice, Jua is what the fight
-## is read in. What it will not accept is a third — an engine or system face that
-## nothing in the project chose. The combat readouts are then checked by name for
-## Jua specifically, because the whole reason the second face exists is that the
-## handwriting was illegible at 13px over the rooftop.
+## There are two bundled faces and the split between them is the point. Gowoon
+## now owns the backed top HUD as well as the menus; Jua remains for small text
+## drawn directly over the moving world and the bottom XP strip. What this will
+## not accept is a third engine or system face that nobody chose.
 
 const MainScene := preload("res://scenes/main.tscn")
 const CatTheme := preload("res://scripts/ui/cat_theme.gd")
@@ -81,19 +79,23 @@ func _run() -> void:
 	_check(numbers > 0, "a damage number was actually spawned to check")
 	_check(_is_readout(main.players[0].UIFont), "the survivor badge drawn onto the world")
 	_check(_is_readout(EdgePointer.UIFont), "the off-screen pointer's distance")
-	# The top strip, which is what the second face was adopted for.
-	var readouts: Array[String] = [
+	# The rebuilt top strip sits on opaque paper, so it shares the regular family
+	# with the rest of the interface instead of reading as a bold separate skin.
+	var paper_readouts: Array[String] = [
 		"WaveReadout", "ObjectiveReadout", "PlayerNumber0", "PlayerNumber1",
+		"PlayerIdentity0", "PlayerIdentity1",
 	]
-	for name in readouts:
+	for name in paper_readouts:
 		var found: Label = main.combat_hud.get_node_or_null(name)
-		_check(found != null and _is_readout(found.get_theme_font("font")),
+		_check(found != null and _is_family(found.get_theme_font("font")),
 			"combat HUD reading: %s" % name)
 	for reading: Label in [main.hud_label, main.chain_distance_text_label,
 			main.chain_integrity_text_label, main.resonance_status_label,
-			main.p1_health_text_label, main.p2_health_text_label, main.xp_text_label]:
-		_check(_is_readout(reading.get_theme_font("font")),
+			main.p1_health_text_label, main.p2_health_text_label]:
+		_check(_is_family(reading.get_theme_font("font")),
 			"combat HUD reading: %s" % reading.name)
+	_check(_is_readout(main.xp_text_label.get_theme_font("font")),
+		"bottom XP strip keeps the compact readout face")
 	# Growth, pause and result.
 	main.progression.experience = main.progression.required_experience
 	main._begin_level_up()

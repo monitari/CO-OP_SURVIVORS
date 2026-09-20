@@ -248,23 +248,17 @@ func _throw_toy(player_index: int, state: Dictionary, damage: float, color: Colo
 ## the newest, which is what the weapon was always doing in spirit — milk that
 ## fell eight seconds ago is not where the fight is.
 const MILK_POOL_BUDGET := 30
+const MILK_VIEW_MARGIN := 54.0
+const MILK_PLAYER_CLEARANCE := 110.0
 
 
 func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
-	var origin := players[player_index].global_position
-	var spread := float(state["range"])
 	var count := maxi(1, int(state.get("count", 1)))
 	_retire_oldest_pools(count)
-	for index in count:
-		# The first one lands underfoot, so a cast is never entirely wasted by
-		# an unlucky scatter and the survivor always has one patch of ground
-		# they know is theirs. The rest divide the circle and are then jittered,
-		# so a cast covers the area around the pair rather than clumping on one
-		# bearing — and never lands in the same pattern twice.
-		var at := origin
-		if index > 0:
-			var angle := TAU * (float(index) + randf() * 0.7) / float(count)
-			at = origin + Vector2.from_angle(angle) * spread * sqrt(randf_range(0.16, 1.0))
+	for _index in count:
+		var at := _random_visible_world_point(
+			maxf(MILK_VIEW_MARGIN, float(state["radius"]) + 18.0),
+			maxf(MILK_PLAYER_CLEARANCE, float(state["radius"]) * 0.9))
 		var pool := MilkPoolScript.new() as MilkPool
 		pool.batched = milk_renderer != null
 		pool.configure(at, spatial_grid, damage, float(state["radius"]),
@@ -272,6 +266,34 @@ func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Col
 			current_source_player, current_source_weapon)
 		add_child(pool)
 	cue_requested.emit("weapon_milk")
+
+
+## Picks a point inside the camera's current canvas, leaving room for the pool
+## rim and rejecting the space directly under either survivor. Canvas inversion
+## keeps this correct while the camera follows the pair or a SubViewport scales.
+func _random_visible_world_point(margin: float, player_clearance: float) -> Vector2:
+	var viewport := get_viewport()
+	var visible := viewport.get_visible_rect()
+	var inset_x := minf(margin, visible.size.x * 0.4)
+	var inset_y := minf(margin, visible.size.y * 0.4)
+	var canvas_inverse := viewport.get_canvas_transform().affine_inverse()
+	var best := canvas_inverse * visible.get_center()
+	var best_distance := -1.0
+	for _attempt in 18:
+		var screen_point := Vector2(
+			randf_range(visible.position.x + inset_x, visible.end.x - inset_x),
+			randf_range(visible.position.y + inset_y, visible.end.y - inset_y))
+		var world_point := canvas_inverse * screen_point
+		var nearest_player := INF
+		for player in players:
+			nearest_player = minf(nearest_player,
+				world_point.distance_squared_to(player.global_position))
+		if nearest_player >= player_clearance * player_clearance:
+			return world_point
+		if nearest_player > best_distance:
+			best_distance = nearest_player
+			best = world_point
+	return best
 
 
 ## Retires the oldest puddles until `incoming` more of them will fit under

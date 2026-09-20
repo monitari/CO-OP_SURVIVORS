@@ -426,8 +426,8 @@ func _test_the_toy_carries_on_through(main: Node) -> void:
 	await _clear_enemies(main)
 
 
-## 우유 흩뿌리기 is the one weapon that does not aim. It scatters, one pool lands
-## underfoot so a cast is never wasted, and what stands in a pool keeps taking
+## 우유 흩뿌리기 is the one weapon that does not aim. It scatters across the
+## visible roof away from both cats, and what stands in a pool keeps taking
 ## damage and keeps being slowed.
 func _test_milk_lands_where_it_lands(main: Node) -> void:
 	await _clear_enemies(main)
@@ -457,16 +457,24 @@ func _test_milk_lands_where_it_lands(main: Node) -> void:
 			pools.append(pool)
 	_check(pools.size() == int(milk["count"]),
 		"a cast spills every pool it says it does (%d of %d)" % [pools.size(), int(milk["count"])])
-	var nearest := INF
-	var furthest := 0.0
+	var nearest_player := INF
+	var all_inside_view := true
+	var viewport: Viewport = main.weapon_controller.get_viewport()
+	var visible: Rect2 = viewport.get_visible_rect()
+	var canvas: Transform2D = viewport.get_canvas_transform()
 	for pool in pools:
-		var distance: float = pool.global_position.distance_to(main.players[0].global_position)
-		nearest = minf(nearest, distance)
-		furthest = maxf(furthest, distance)
-	_check(nearest < 1.0, "one lands underfoot, so a cast is never wasted (%.0fpx)" % nearest)
-	_check(furthest > 40.0, "and the rest are scattered rather than stacked (%.0fpx)" % furthest)
+		for player in main.players:
+			nearest_player = minf(nearest_player,
+				pool.global_position.distance_to(player.global_position))
+		var screen_point: Vector2 = canvas * pool.global_position
+		all_inside_view = all_inside_view and visible.has_point(screen_point)
+	_check(nearest_player >= WeaponController.MILK_PLAYER_CLEARANCE - 1.0,
+		"milk never lands directly under either player (nearest %.0fpx)" % nearest_player)
+	_check(all_inside_view, "every milk pool lands inside the current camera view")
 
 	# It is a place, not a hit: standing in it costs more the longer you stand.
+	underfoot.global_position = pools[0].global_position
+	main.spatial_grid.rebuild(main.enemies)
 	var after_one := 0.0
 	for step in 120:
 		for pool in pools:
@@ -478,8 +486,8 @@ func _test_milk_lands_where_it_lands(main: Node) -> void:
 	_check(after_one > 0.0, "a pool damages what stands in it (%.0f)" % after_one)
 	_check(total > after_one, "and keeps doing it (%.0f then %.0f)" % [after_one, total])
 	_check(underfoot.slow_timer > 0.0 or underfoot.slow_multiplier < 1.0, "and slows it")
-	print("MILK_METRICS: %d pools, nearest %.0fpx, furthest %.0fpx, %.0f damage over 2s" % [
-		pools.size(), nearest, furthest, total])
+	print("MILK_METRICS: %d pools, nearest player %.0fpx, %.0f damage over 2s" % [
+		pools.size(), nearest_player, total])
 	for pool in pools:
 		if is_instance_valid(pool):
 			pool.queue_free()

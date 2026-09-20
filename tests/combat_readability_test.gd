@@ -33,6 +33,15 @@ func run() -> void:
 	enemy.take_damage(100000.0)
 	check(main.kills == 18 and main.players[0].health == 40.0 and main.players[1].health == 40.0, "18 kills no longer grant free healing")
 	main._update_hud()
+	var local_frame: Panel = main.combat_hud.get_node("P1Frame")
+	var shared_frame: Panel = main.combat_hud.get_node("SharedFrame")
+	check(local_frame.visible and shared_frame.visible,
+		"Top HUD readings have stable scrapbook surfaces over combat")
+	check(main.hud_label.get_theme_font("font") == main.CatTheme.FAMILY
+		and main.combat_hud.get_node("WaveReadout").get_theme_font("font") == main.CatTheme.FAMILY,
+		"Top HUD uses the regular interface face instead of the bold readout face")
+	check(String(main.combat_hud.get_node("PlayerIdentity0").text) == main.players[0].character_name,
+		"The survivor card names the cat above its health and equipment")
 	var holder: Control = main.combat_hud.get_node("Carried0")
 	var socket: Control = holder.get_node("WeaponSlot0")
 	check(socket.size.x == socket.size.y, "Equipment sockets are square")

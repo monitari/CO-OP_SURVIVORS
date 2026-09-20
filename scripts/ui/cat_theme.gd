@@ -7,13 +7,10 @@ extends RefCounted
 ## Griun Hangul Gowoon is the game's voice: a thin, calm handwriting for titles,
 ## card names, dialogue and anything read at leisure on paper.
 ##
-## Jua is the readout face. The HUD strip is read in the corner of the eye while
-## something is chasing you, at 13-16px, and Gowoon's hairline strokes simply do
-## not survive that — the clock, the boss timer, the wave and kill counts and the
-## three meter captions were all but invisible over the paper note. Jua carries
-## the same rounded, friendly character at four times the stroke weight, and is
-## marginally *narrower* at every size used here, so nothing had to be re-laid
-## out to adopt it.
+## Jua is the compact readout face for text drawn directly over the moving world:
+## damage, survivor badges, edge distances, boss details and the bottom XP strip.
+## The rebuilt top HUD has its own opaque paper surfaces, so its clock, names and
+## meters use Gowoon like the rest of the interface without losing contrast.
 ##
 ## Memoment Kkukkukk is the fallback under both. It is the only bundled face
 ## with the full 11,172 Hangul syllables, and the only one with the punctuation

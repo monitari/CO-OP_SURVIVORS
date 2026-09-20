@@ -30,23 +30,39 @@ func _run() -> void:
 
 	var system := Experience.new() as ExperienceSystem
 	root.add_child(system)
-	# Spread out on purpose: drops landing within MERGE_RADIUS of each other now
-	# join into one gem, which is what keeps a per-kill drop from burying the
-	# roof. This check is about the value-to-grade inference, so it gives each
-	# gem its own patch of floor.
+	# Spread out so this first check only measures value-to-grade inference.
 	for index in 4:
-		system.spawn_gem(Vector2(index * ExperienceSystem.MERGE_RADIUS * 3.0, 0.0), [3, 8, 26, 150][index])
+		system.spawn_gem(Vector2(index * 150.0, 0.0), [3, 8, 26, 150][index])
 	var spawned: Array[int] = []
 	for gem in system.active_gems: spawned.append(gem.grade)
 	check(spawned == [0, 1, 2, 3], "gem grade is inferred safely when a caller omits it")
-	# All of these land on the first gem. Merged drops must not allocate hidden
-	# child nodes; that leak used to grow with lifetime kill count despite the
-	# visible gem cap and became expensive in late waves.
+	var cluster_start := system.active_gems.size()
+	for index in 4:
+		system.spawn_gem(Vector2(800.0, 100.0), 3)
+	var cluster_positions: Dictionary = {}
+	for index in range(cluster_start, system.active_gems.size()):
+		cluster_positions[str((system.active_gems[index] as ExperienceGem).position.round())] = true
+	check(system.active_gems.size() == cluster_start + 4,
+		"overlapping kills each create a visible experience gem")
+	check(cluster_positions.size() == 4,
+		"overlapping experience drops fan out instead of hiding on one pixel")
+	while system.active_gems.size() < ExperienceSystem.MAX_ACTIVE:
+		var index := system.active_gems.size()
+		system.spawn_gem(Vector2(float(index % 20) * 80.0, 300.0 + float(index / 20) * 80.0), 1)
+	# Once capped, later kills add value without allocating hidden nodes.
 	var children_before := system.get_child_count()
+	var value_before := 0
+	for gem: ExperienceGem in system.active_gems:
+		value_before += gem.value
 	for index in 1000:
 		system.spawn_gem(Vector2.ZERO, 3)
-	check(system.get_child_count() == children_before, "1,000 merged drops allocate no hidden gem nodes")
-	check(system.active_gems.size() == 4, "merged drops preserve the active gem count")
+	var value_after := 0
+	for gem: ExperienceGem in system.active_gems:
+		value_after += gem.value
+	check(system.get_child_count() == children_before, "1,000 capped drops allocate no hidden gem nodes")
+	check(system.active_gems.size() == ExperienceSystem.MAX_ACTIVE,
+		"the visible experience field stays at its hard cap")
+	check(value_after == value_before + 3000, "capped drops preserve every point of experience")
 	if failures.is_empty(): print("XP_GRADE_PASS: four readable drops and stronger-enemy rewards")
 	else:
 		for failure in failures: push_error("XP_GRADE_FAIL: " + failure)

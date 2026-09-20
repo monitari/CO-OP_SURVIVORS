@@ -242,11 +242,14 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 			and holder.position.x + holder.size.x <= bar.position.x + bar.size.x + 0.5,
 			"P%d equipment sits under its own health bar" % (slot + 1))
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
-		_check(not frame.visible,
-			"P%d health and equipment remain unboxed" % (slot + 1))
-		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).visible
-			and not main.combat_hud.get_node("PlayerNumber%d" % slot).visible,
-			"P%d name and player label stay hidden" % (slot + 1))
+		_check(frame.visible and frame.get_global_rect().encloses(holder.get_global_rect())
+			and frame.get_global_rect().encloses(bar.get_global_rect()),
+			"P%d health and equipment share one readable card" % (slot + 1))
+		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
+		var player_number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
+		_check(identity.visible and player_number.visible
+			and not identity.text.is_empty() and not player_number.text.is_empty(),
+			"P%d card names the survivor and player role" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
 			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)

@@ -24,21 +24,37 @@ static func hud(main: Node) -> void:
 		var caption: Label = main.p1_health_text_label if slot == 0 else main.p2_health_text_label
 		# Every client reads itself on the left and its partner on the right. Both
 		# sides use identical geometry, mirrored around the screen centre.
-		bar.position = Vector2(76, 27) if own else Vector2(884, 27)
+		bar.position = Vector2(76, 38) if own else Vector2(884, 38)
 		bar.size = Vector2(320, 22)
 		bar.fill_mode = ProgressBar.FILL_BEGIN_TO_END if own else ProgressBar.FILL_END_TO_BEGIN
 		caption.position = bar.position
 		caption.size = bar.size
 		var portrait: Control = main.hud_portrait_icons[slot]
-		portrait.position = Vector2(24, 16) if own else Vector2(1212, 16)
-		portrait.size = Vector2(44, 44)
+		portrait.position = Vector2(25, 18) if own else Vector2(1213, 18)
+		portrait.size = Vector2(42, 42)
 		portrait.scale = Vector2.ONE
 		portrait.show()
-		main.combat_hud.get_node("PlayerNumber%d" % slot).hide()
-		main.combat_hud.get_node("PlayerIdentity%d" % slot).hide()
+		var number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
+		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
+		if own:
+			number.position = Vector2(76, 10)
+			number.size = Vector2(50, 24)
+			number.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			identity.position = Vector2(130, 8)
+			identity.size = Vector2(266, 26)
+			identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		else:
+			identity.position = Vector2(884, 8)
+			identity.size = Vector2(266, 26)
+			identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			number.position = Vector2(1154, 10)
+			number.size = Vector2(50, 24)
+			number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		number.show()
+		identity.show()
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		frame.position = Vector2(14, 8) if own else Vector2(874, 8)
-		frame.hide()
+		frame.show()
 		# Carried equipment sits under the bar it belongs to, left-aligned with it
 		# on the left and right-aligned (and mirrored) on the right.
 		var carried: Control = main.combat_hud.get_node("Carried%d" % slot)

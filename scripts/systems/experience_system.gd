@@ -18,43 +18,65 @@ const MAGNET_ITEM_MAX_SPEED := 4200.0
 var magnet_radius := 155.0
 var pickup_radius := 34.0
 
-## Every kill drops its own gem, which on its own is unbounded: an automated
-## fifteen-minute run left 1,987 of them lying on the roof and still climbing,
-## each one a node redrawing itself every frame. So a drop that lands on top of
-## a gem already on the floor merges into it, and once the field is carrying
-## MAX_ACTIVE the next drop merges into the nearest gem however far that is.
-##
-## Nothing is ever thrown away — the gem simply gets heavier and, if the new
-## drop outranks it, brighter. The pair still sees a drop for every kill; what
-## they stop seeing is a thousand separate specks none of which was worth
-## walking to.
-const MERGE_RADIUS := 46.0
+## A crowded kill used to merge into an existing gem inside 46px. Its value was
+## preserved, but the new drop never appeared, so two overlapping bodies looked
+## as if only one of them paid experience. Below the field budget every kill now
+## gets a visible gem and crowded drops fan out just enough to read separately.
+## At the hard cap values still merge into the nearest gem, keeping the late-run
+## node and draw budget bounded without losing any experience.
+const DROP_SPACING := 18.0
+const DROP_SCATTER_STEP := 16.0
+const DROP_SCATTER_CANDIDATES := 24
 const MAX_ACTIVE := 320
 
 
 func spawn_gem(spawn_position: Vector2, value: int, grade := -1) -> void:
 	if grade < 0:
 		grade = 3 if value >= 100 else (2 if value >= 24 else (1 if value >= 7 else 0))
-	# Find a merge target before acquiring a node. The previous order allocated
-	# an inactive child for every merged drop, so a long run accumulated one
-	# invisible processing node per kill even though active_gems stayed capped.
-	var host := _merge_target(spawn_position)
+	# Merge only at the cap. Before it, every enemy gets a distinct, visible
+	# payout even when several bodies die on the same pixel.
+	var host := _merge_target(spawn_position) if active_gems.size() >= MAX_ACTIVE else null
 	if host != null:
 		host.absorb(value, grade)
 		return
+	var visible_position := _separated_drop_position(spawn_position)
 	var gem: ExperienceGem
 	if gem_pool.is_empty():
 		gem = GemScript.new() as ExperienceGem
 		add_child(gem)
 	else:
 		gem = gem_pool.pop_back()
-	gem.activate(spawn_position, value, grade)
+	gem.activate(visible_position, value, grade)
 	active_gems.append(gem)
 
 
-## The gem a new drop should join, or null when it deserves its own node.
-## Magnetised gems are never merge targets: they are already on their way home,
-## so pouring a fresh drop into one would teleport it to the players.
+## Finds a free nearby point for a crowded drop. The golden-angle walk avoids
+## rows and keeps a whole pack's payout centred on where the pack died.
+func _separated_drop_position(at: Vector2) -> Vector2:
+	if _drop_position_is_clear(at):
+		return at
+	var phase := float(active_gems.size()) * 2.399963
+	for index in range(1, DROP_SCATTER_CANDIDATES + 1):
+		var ring := ceili(float(index) / 6.0)
+		var candidate := at + Vector2.from_angle(phase + float(index) * 2.399963) \
+			* DROP_SCATTER_STEP * float(ring)
+		if _drop_position_is_clear(candidate):
+			return candidate
+	return at + Vector2.from_angle(phase) * DROP_SCATTER_STEP * 5.0
+
+
+func _drop_position_is_clear(at: Vector2) -> bool:
+	for candidate in active_gems:
+		var gem := candidate as ExperienceGem
+		if (is_instance_valid(gem) and gem.active
+				and gem.global_position.distance_squared_to(at) < DROP_SPACING * DROP_SPACING):
+			return false
+	return true
+
+
+## The gem a capped field should join. Magnetised gems are never merge targets:
+## they are already on their way home, so a fresh drop must not teleport into
+## the pickup stream.
 func _merge_target(at: Vector2) -> ExperienceGem:
 	var nearest: ExperienceGem = null
 	var nearest_distance := INF
@@ -68,9 +90,7 @@ func _merge_target(at: Vector2) -> ExperienceGem:
 			nearest = gem
 	if nearest == null:
 		return null
-	if nearest_distance <= MERGE_RADIUS * MERGE_RADIUS:
-		return nearest
-	return nearest if active_gems.size() >= MAX_ACTIVE else null
+	return nearest
 
 
 func step(players: Array[ChainPlayer], delta: float) -> void:

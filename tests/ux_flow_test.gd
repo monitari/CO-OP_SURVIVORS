@@ -44,8 +44,9 @@ func _run() -> void:
 	for slot in 2:
 		var frame: Panel = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		var surface := frame.get_theme_stylebox("panel") as StyleBoxFlat
-		_check(is_equal_approx(surface.bg_color.a, main.CatTheme.HUD.a) and frame.size.y <= 152,
-			"player HUD uses the current theme with compact geometry")
+		_check(surface.bg_color.get_luminance() > 0.75 and surface.bg_color.a >= 0.94
+			and frame.size.y <= 152,
+			"player HUD uses a readable scrapbook surface with compact geometry")
 		_check(not main.combat_hud.get_node("PlayerIdentity%d" % slot).text.contains("개인 Lv."),
 			"player identity omits the redundant personal level")
 	_check(main.chain_distance_text_label.text.contains("거리"), "the distance bar names what it measures")

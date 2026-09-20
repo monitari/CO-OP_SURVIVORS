@@ -154,6 +154,21 @@ func _test_enemy_pool_and_archetypes(main: Node) -> void:
 		"an ordinary kill drops its own gem (%d)" % main.experience_system.active_gems.size())
 	var first := main.experience_system.active_gems[0] as ExperienceGem
 	_check(first.value > 0, "and the gem carries the kill's experience (%d)" % first.value)
+	var crowded_start: int = main.experience_system.active_gems.size()
+	for index in 3:
+		var crowded := main.wave_director._acquire_enemy(
+			"chaser", 0.0, center, false, false) as ChaserEnemy
+		crowded.position = center
+		main._register_enemy(crowded)
+		crowded.take_damage(99999.0)
+	_check(main.experience_system.active_gems.size() == crowded_start + 3,
+		"three overlapping enemy deaths produce three visible experience drops")
+	var crowded_positions: Dictionary = {}
+	for index in range(crowded_start, main.experience_system.active_gems.size()):
+		var drop := main.experience_system.active_gems[index] as ExperienceGem
+		crowded_positions[str(drop.position.round())] = true
+	_check(crowded_positions.size() == 3,
+		"overlapping enemy drops separate instead of hiding on the same pixel")
 	
 	var early := ChaserEnemy.new()
 	early.setup(0.0, "charger")
