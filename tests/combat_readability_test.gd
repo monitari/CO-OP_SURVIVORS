@@ -35,11 +35,14 @@ func run() -> void:
 	main._update_hud()
 	var local_frame: Panel = main.combat_hud.get_node("P1Frame")
 	var shared_frame: Panel = main.combat_hud.get_node("SharedFrame")
-	check(local_frame.visible and shared_frame.visible,
-		"Top HUD readings have stable scrapbook surfaces over combat")
-	check(main.hud_label.get_theme_font("font") == main.CatTheme.FAMILY
-		and main.combat_hud.get_node("WaveReadout").get_theme_font("font") == main.CatTheme.FAMILY,
-		"Top HUD uses the regular interface face instead of the bold readout face")
+	check(not local_frame.visible and shared_frame.visible,
+		"Player HUD floats without boxes while shared readings keep one stable surface")
+	check(main.hud_label.get_theme_font("font") == main.CatTheme.READOUT
+		and main.combat_hud.get_node("WaveReadout").get_theme_font("font") == main.CatTheme.READOUT,
+		"Top HUD uses Jua Regular")
+	check(main.p1_health_text_label.get_theme_color("font_shadow_color").a == 0.0
+		and main.p1_health_text_label.get_theme_constant("outline_size") == 0,
+		"Health text has no shadow or artificial bold outline")
 	check(String(main.combat_hud.get_node("PlayerIdentity0").text) == main.players[0].character_name,
 		"The survivor card names the cat above its health and equipment")
 	var holder: Control = main.combat_hud.get_node("Carried0")

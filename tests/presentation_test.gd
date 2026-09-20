@@ -248,9 +248,9 @@ func _test_palette(main: Node) -> void:
 	_check(closest > 0.35,
 		"the boss colour is not mistakable for a survivor (nearest %s at %.2f)" % [closest_name, closest])
 	var partner_frame := main.combat_hud.get_node("P2Frame") as Panel
-	var partner_surface := partner_frame.get_theme_stylebox("panel") as StyleBoxFlat
-	_check(partner_surface.border_color.is_equal_approx(main.CatTheme.P2_INK),
-		"partner HUD owns the readable warm orange ink colour")
+	_check(not partner_frame.visible
+		and main.combat_hud.get_node("PlayerIdentity1").get_theme_color("font_color").is_equal_approx(main.CatTheme.P2),
+		"partner HUD has no box and owns the warm orange colour")
 
 
 ## Friendly rings and enemy telegraphs both draw circles on the field, and the

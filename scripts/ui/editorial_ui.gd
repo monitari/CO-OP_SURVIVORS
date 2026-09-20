@@ -855,19 +855,25 @@ static func _hud(main: Node) -> void:
 		var accent := Palette.P1 if slot == 0 else Palette.P2
 		bar.position = Vector2(x, 38)
 		bar.size = Vector2(320, 22)
-		var track := Palette.surface(Palette.PAPER_SHADE, Palette.RADIUS)
-		track.border_color = Color(Palette.INK_LINE, 0.48)
-		var fill_color := Palette.PAPER_LIGHT.lerp(
-			Palette.P1 if slot == 0 else Palette.P2, 0.58)
-		var fill := Palette.surface(fill_color, Palette.RADIUS)
+		var track := Palette.surface(Color("0b1628cc"), Palette.RADIUS)
+		track.border_color = Color.TRANSPARENT
+		track.set_border_width_all(0)
+		track.shadow_size = 0
+		track.shadow_color = Color.TRANSPARENT
+		var fill := Palette.surface(Palette.P1 if slot == 0 else Palette.P2, Palette.RADIUS)
 		fill.set_border_width_all(0)
+		fill.shadow_size = 0
+		fill.shadow_color = Color.TRANSPARENT
 		bar.add_theme_stylebox_override("background", track)
 		bar.add_theme_stylebox_override("fill", fill)
 		caption.position = bar.position
 		caption.size = bar.size
-		caption.add_theme_font_override("font", Palette.FAMILY)
+		caption.add_theme_font_override("font", ReadoutFont)
 		caption.add_theme_font_size_override("font_size", 15)
-		caption.add_theme_color_override("font_color", Palette.INK)
+		caption.add_theme_color_override("font_color", Palette.CREAM)
+		caption.add_theme_color_override("font_shadow_color", Color.TRANSPARENT)
+		caption.add_theme_constant_override("shadow_offset_x", 0)
+		caption.add_theme_constant_override("shadow_offset_y", 0)
 		caption.add_theme_constant_override("outline_size", 0)
 		main.hud_portrait_icons[slot].position = Vector2(25 if slot == 0 else 1213, 18)
 		main.hud_portrait_icons[slot].size = Vector2(42, 42)
@@ -876,7 +882,10 @@ static func _hud(main: Node) -> void:
 		var identity := label(main.combat_hud, "", Rect2(x + 54, 8, 266, 26), 17, accent)
 		identity.name = "PlayerIdentity%d" % slot
 		for tag: Label in [number, identity]:
-			tag.add_theme_font_override("font", Palette.FAMILY)
+			tag.add_theme_font_override("font", ReadoutFont)
+			tag.add_theme_color_override("font_shadow_color", Color.TRANSPARENT)
+			tag.add_theme_constant_override("shadow_offset_x", 0)
+			tag.add_theme_constant_override("shadow_offset_y", 0)
 			tag.add_theme_constant_override("outline_size", 0)
 	# Three readings, three equal columns, one shape each. The strip used to hold
 	# two meters and a loose string ("공명 1/3") beside them, so the one reading
@@ -899,9 +908,12 @@ static func _hud(main: Node) -> void:
 	# Put text above thin meters so a full fill cannot wash out its label.
 	for caption: Label in [main.chain_distance_text_label, main.chain_integrity_text_label]:
 		caption.position.y = SHARED_TOP + 37.0
-		caption.add_theme_font_override("font", Palette.FAMILY)
+		caption.add_theme_font_override("font", ReadoutFont)
 		caption.add_theme_font_size_override("font_size", 15)
 		caption.add_theme_color_override("font_color", Palette.INK)
+		caption.add_theme_color_override("font_shadow_color", Color.TRANSPARENT)
+		caption.add_theme_constant_override("shadow_offset_x", 0)
+		caption.add_theme_constant_override("shadow_offset_y", 0)
 		caption.add_theme_constant_override("outline_size", 0)
 	for meter: ProgressBar in [main.chain_bar, main.chain_integrity_bar]:
 		meter.position.y = SHARED_TOP + 60.0
@@ -913,7 +925,7 @@ static func _hud(main: Node) -> void:
 		meter_fill.set_border_width_all(0)
 		meter.add_theme_stylebox_override("fill", meter_fill)
 	place(main.resonance_status_label, Rect2(columns[1], SHARED_TOP + 37.0, column, 20), 14, Palette.P2_INK)
-	main.resonance_status_label.add_theme_font_override("font", Palette.FAMILY)
+	main.resonance_status_label.add_theme_font_override("font", ReadoutFont)
 	main.resonance_status_label.add_theme_font_size_override("font_size", 15)
 	main.resonance_status_label.add_theme_constant_override("outline_size", 0)
 	main.resonance_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -922,7 +934,7 @@ static func _hud(main: Node) -> void:
 		main.resonance_pips.position = Vector2(columns[1], SHARED_TOP + 60.0)
 		main.resonance_pips.size = Vector2(column, 6)
 	place(main.chain_status_label, Rect2(strip_left, SHARED_TOP + 72.0, strip_width, 20), 14, Palette.MUTED)
-	main.chain_status_label.add_theme_font_override("font", Palette.FAMILY)
+	main.chain_status_label.add_theme_font_override("font", ReadoutFont)
 	main.chain_status_label.add_theme_constant_override("outline_size", 0)
 	main.chain_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# Clear of the shared frame (8..104) rather than tucked against it: the boss
@@ -951,8 +963,8 @@ static func _hud(main: Node) -> void:
 	main.xp_text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# The clock is the page's centre line, so it is centred on the content span
 	# rather than snapped to a column edge — 48..1232 has its middle at 640.
-	place(main.hud_label, Rect2(574, SHARED_TOP + 1.0, 132, 36), 29, Palette.INK)
-	main.hud_label.add_theme_font_override("font", Palette.FAMILY)
+	place(main.hud_label, Rect2(574, SHARED_TOP + 1.0, 132, 36), 27, Palette.INK)
+	main.hud_label.add_theme_font_override("font", ReadoutFont)
 	main.hud_label.add_theme_constant_override("outline_size", 0)
 	main.hud_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 274.0, SHARED_TOP + 10.0, 152, 25), 16, Palette.INK)
@@ -961,7 +973,7 @@ static func _hud(main: Node) -> void:
 	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 18.0, SHARED_TOP + 10.0, 166, 25), 16, Palette.GOLD_INK)
 	objective_readout.name = "ObjectiveReadout"
 	for readout: Label in [wave_readout, objective_readout]:
-		readout.add_theme_font_override("font", Palette.FAMILY)
+		readout.add_theme_font_override("font", ReadoutFont)
 		readout.add_theme_constant_override("outline_size", 0)
 	# What each survivor carries, directly under their health bar: weapons on the
 	# first row, treasures on the second, only what has actually been picked up,
@@ -990,7 +1002,7 @@ static func _hud(main: Node) -> void:
 				# The level is a small chip hung on the corner rather than a number
 				# printed across the art.
 				var tier := label(art, "", Rect2(CARRIED_CELL - 20, CARRIED_CELL - 17, 16, 13), 10, Palette.CREAM)
-				tier.add_theme_font_override("font", Palette.FAMILY)
+				tier.add_theme_font_override("font", ReadoutFont)
 				var chip := Palette.surface(Color("08111fee"), 5)
 				chip.border_color = Color(Palette.OUTLINE, 0.9)
 				chip.content_margin_left = 2
@@ -1014,7 +1026,7 @@ static func _hud(main: Node) -> void:
 	alert.hide()
 	var action := label(alert, "", Rect2(14, 4, 476, 38), 19, Palette.CREAM)
 	action.name = "Action"
-	action.add_theme_font_override("font", Palette.FAMILY)
+	action.add_theme_font_override("font", ReadoutFont)
 	action.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
@@ -1061,6 +1073,7 @@ static func _install_hud_frames(main: Node) -> void:
 		var panel := plate(main.combat_hud, Rect2(x, 8, 392, 136), Palette.PAPER_LIGHT)
 		panel.name = "P%dFrame" % (slot + 1)
 		panel.z_index = -2
+		panel.hide()
 		var style := Palette.paper(Color(Palette.PAPER_LIGHT, 0.96), true)
 		style.border_color = Palette.owner_ink(slot)
 		style.set_border_width_all(2)
@@ -1113,23 +1126,19 @@ static func refresh_hud(main: Node) -> void:
 		var fill := health.get_theme_stylebox("fill") as StyleBoxFlat
 		var endangered: bool = main.players[slot].downed or main.players[slot].health <= main.players[slot].max_health * 0.25
 		var accent := Palette.P1 if slot == main.local_view_slot() else Palette.P2
-		UIWrite.bg_color(fill, Palette.PAPER_LIGHT.lerp(
-			Color("e06b72") if endangered else accent, 0.62))
+		UIWrite.bg_color(fill, Color("e06b72") if endangered else accent)
 		var number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
 		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
 		number.text = main.player_label(slot)
 		identity.text = main.players[slot].character_name
-		UIWrite.font_color(number, Palette.owner_ink(0 if slot == main.local_view_slot() else 1))
-		UIWrite.font_color(identity, Palette.owner_ink(0 if slot == main.local_view_slot() else 1))
+		UIWrite.font_color(number, accent)
+		UIWrite.font_color(identity, accent)
 		holder.visible = not bool(holder.get_meta("compact", false)) and not (main.resonance_vote_active or main.pause_active or main.game_over)
 		_refresh_carried_row(holder, "Weapon", main.weapon_loadouts[slot], true)
 		_refresh_carried_row(holder, "Treasure", main.treasure_loadouts[slot], false)
 		var frame: Control = main.combat_hud.get_node("P%dFrame" % (slot + 1))
 		frame.size.y = 136.0
-		var frame_style := frame.get_theme_stylebox("panel") as StyleBoxFlat
-		UIWrite.border_color(frame_style,
-			Palette.owner_ink(0 if slot == main.local_view_slot() else 1))
-		frame.show()
+		frame.hide()
 
 
 ## Explicit level captions distinguish equipment levels from item quantities.
