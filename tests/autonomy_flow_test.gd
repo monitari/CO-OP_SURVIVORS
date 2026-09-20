@@ -50,6 +50,51 @@ func run() -> void:
 	check(command.movement.x < 0.0, "Rescue overrides chain positioning")
 	main.players[0].downed = false
 	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
+	var boss := main.wave_director._acquire_enemy("brute", 3.0, Vector2(0.0, -220.0), false, true) as ChaserEnemy
+	boss.position = Vector2(0.0, -220.0)
+	main._register_enemy(boss)
+	main.players[1].position = Vector2.ZERO
+	main.players[0].position = Vector2(170.0, 0.0)
+	boss.boss_slam_point = main.players[1].position
+	boss.boss_slam_windup = 0.8
+	var slam_point := boss.boss_slam_point
+	main.spatial_grid.rebuild(main.enemies)
+	command = Bot.command(main.players[1], main.players[0], main.spatial_grid, [], 400.0, main)
+	check(command.dash and command.movement.x > 0.5
+		and String(main.players[1].get_meta("ai_intent", "")) == "보스 강타 회피",
+		"AI leaves a boss slam circle toward the safe side of its partner")
+	for frame in 18:
+		command = Bot.command(main.players[1], main.players[0], main.spatial_grid, [], 400.0, main)
+		main.players[1].set_command(command.movement, command.dash)
+		main.players[1].step_movement(1.0 / 60.0)
+		main._apply_chain_constraint()
+	check(main.players[1].position.distance_to(slam_point) > boss.BOSS_SLAM_RADIUS + main.players[1].radius,
+		"AI's real movement clears the slam before impact")
+	boss.boss_slam_windup = 0.0
+	boss.charge_windup = 0.5
+	boss.telegraph_direction = Vector2.DOWN
+	main.players[1].position = Vector2(10.0, 0.0)
+	main.players[0].position = Vector2(170.0, 0.0)
+	main.players[1].dash_timer = 0.0
+	main.players[1].dash_cooldown = 0.0
+	command = Bot.command(main.players[1], main.players[0], main.spatial_grid, [], 400.0, main)
+	check(command.dash and command.movement.x > 0.5
+		and String(main.players[1].get_meta("ai_intent", "")) == "보스 돌진 회피",
+		"AI crosses out of a telegraphed boss charge lane instead of following it")
+	for frame in 15:
+		command = Bot.command(main.players[1], main.players[0], main.spatial_grid, [], 400.0, main)
+		main.players[1].set_command(command.movement, command.dash)
+		main.players[1].step_movement(1.0 / 60.0)
+		main._apply_chain_constraint()
+	check(absf(main.players[1].position.x - boss.position.x) > boss.radius + main.players[1].radius,
+		"AI's real movement clears the boss charge body width")
+	main.players[1].position = Vector2(190.0, 0.0)
+	main.players[1].dash_timer = 0.0
+	main.players[1].dash_cooldown = 0.0
+	command = Bot.command(main.players[1], main.players[0], main.spatial_grid, [], 400.0, main)
+	check(not command.dash, "AI does not waste a dash when already clear of the charge lane")
+	main._cull_enemy(boss)
+	main.weapon_loadouts[1] = [main._build_weapon_state(main.selected_characters[1])]
 	main._update_hud()
 	check(main.combat_hud.get_node("Carried0").visible and main.combat_hud.get_node("Carried1").visible,
 		"Both loadouts sit under their health bars")

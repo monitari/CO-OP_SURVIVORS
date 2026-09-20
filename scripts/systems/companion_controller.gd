@@ -2,6 +2,12 @@ extends RefCounted
 
 const CharacterCatalog := preload("res://scripts/catalogs/character_catalog.gd")
 
+## Telegraphs need more room than ordinary body avoidance. These paddings add
+## the survivor body and a small reaction margin to the attack's real shape.
+const BOSS_SLAM_SAFE_PADDING := 28.0
+const BOSS_CHARGE_LANE_PADDING := 30.0
+const BOSS_CHARGE_LOOKAHEAD := 340.0
+
 ## Produces the same movement/dash command that a remote peer can supply.
 ## Decisions use nearby bodies only; combat still uses the normal weapon system.
 static func command(player: ChainPlayer, partner: ChainPlayer, grid: EnemySpatialGrid,
@@ -67,7 +73,6 @@ static func command(player: ChainPlayer, partner: ChainPlayer, grid: EnemySpatia
 			desired += (player.global_position - partner.global_position).normalized() * 0.65
 	if rescuing:
 		intent = "동료 구조"
-	player.set_meta("ai_intent", intent)
 	var avoidance := Vector2.ZERO
 	var danger := false
 	for enemy in grid.query_radius(player.global_position, 155.0):
@@ -86,14 +91,80 @@ static func command(player: ChainPlayer, partner: ChainPlayer, grid: EnemySpatia
 		if away.length() < 65.0:
 			avoidance += away.normalized() * 1.5
 			danger = true
+	var boss_escape := _boss_telegraph_escape(player, partner, main)
+	if not boss_escape.is_empty():
+		avoidance += Vector2(boss_escape["direction"]) * (2.4 + float(boss_escape["urgency"]))
+		intent = String(boss_escape["intent"])
+		danger = true
 	# Stay within rescue distance unless a hit is imminent.
 	if rescuing and distance < 72.0 and not danger:
 		avoidance *= 0.1
 	desired = (desired + avoidance * (0.65 if rescuing else 1.15)).limit_length(1.0)
 	if distance > leash * 0.72:
 		desired = (desired + offset.normalized() * 2.0).normalized()
+	player.set_meta("ai_intent", intent)
 	return {"movement": desired, "dash": danger and not player.downed and desired.length() > 0.3
 		and (distance < leash * 0.6 or desired.dot(offset) > 0.0)}
+
+
+## Reads the boss's committed warning shapes instead of waiting for proximity
+## avoidance to notice the boss body. The strongest overlapping warning wins,
+## which keeps two simultaneous escape vectors from cancelling each other.
+static func _boss_telegraph_escape(player: ChainPlayer, partner: ChainPlayer,
+		main: Node) -> Dictionary:
+	if main == null:
+		return {}
+	var best_direction := Vector2.ZERO
+	var best_urgency := 0.0
+	var best_intent := ""
+	var enemy := main.boss_enemy as ChaserEnemy
+	if enemy == null or not is_instance_valid(enemy) or not enemy.active or not enemy.boss:
+		return {}
+	if enemy.boss_slam_windup > 0.0:
+		var from_impact := player.global_position - enemy.boss_slam_point
+		var safe_radius := enemy.BOSS_SLAM_RADIUS + player.radius + BOSS_SLAM_SAFE_PADDING
+		var impact_distance := from_impact.length()
+		if impact_distance < safe_radius:
+			var escape := from_impact.normalized()
+			if escape.is_zero_approx():
+				escape = (partner.global_position - enemy.boss_slam_point).normalized()
+			if escape.is_zero_approx():
+				escape = enemy.global_position.direction_to(enemy.boss_slam_point)
+			if escape.is_zero_approx():
+				escape = Vector2.RIGHT
+			var urgency := 1.0 + (safe_radius - impact_distance) / safe_radius
+			if urgency > best_urgency:
+				best_direction = escape
+				best_urgency = urgency
+				best_intent = "보스 강타 회피"
+	if enemy.charge_windup > 0.0 or enemy.charge_timer > 0.0:
+		var heading := enemy.telegraph_direction if enemy.charge_windup > 0.0 else enemy.charge_direction
+		if not heading.is_zero_approx():
+			heading = heading.normalized()
+			var lookahead := BOSS_CHARGE_LOOKAHEAD
+			if enemy.charge_windup <= 0.0:
+				lookahead = maxf(140.0, enemy.move_speed * 2.6 * (enemy.charge_timer + 0.22))
+			var relative := player.global_position - enemy.global_position
+			var along := relative.dot(heading)
+			var lane_radius := enemy.radius + player.radius + BOSS_CHARGE_LANE_PADDING
+			if along >= -lane_radius and along <= lookahead:
+				var closest := enemy.global_position + heading * clampf(along, 0.0, lookahead)
+				var lateral := player.global_position - closest
+				var lane_distance := lateral.length()
+				if lane_distance < lane_radius:
+					var escape := lateral.normalized()
+					if escape.is_zero_approx():
+						escape = heading.orthogonal()
+						if (partner.global_position - closest).dot(escape) < 0.0:
+							escape = -escape
+					var urgency := 1.2 + (lane_radius - lane_distance) / lane_radius
+					if urgency > best_urgency:
+						best_direction = escape
+						best_urgency = urgency
+						best_intent = "보스 돌진 회피"
+	if best_urgency <= 0.0:
+		return {}
+	return {"direction": best_direction, "urgency": best_urgency, "intent": best_intent}
 
 
 static func choose(main: Node, slot: int, choices: Array) -> int:

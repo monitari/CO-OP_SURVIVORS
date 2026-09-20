@@ -81,6 +81,20 @@ func _test_weapon(main: Node, character_index: int) -> void:
 
 	var health_before := enemy.health
 	main._perform_character_attack(0)
+	if weapon_id == "milk":
+		# Milk intentionally lands at a random visible point. Move the fixture onto
+		# the real spawned puddle so this remains a damage smoke test instead of a
+		# probability test whose result depends on the random landing coordinate.
+		await process_frame
+		var puddle: MilkPool
+		for child in main.weapon_controller.get_children():
+			if child is MilkPool:
+				puddle = child
+				break
+		_check(puddle != null, "milk weapon creates a visible puddle")
+		if puddle != null:
+			enemy.position = puddle.global_position
+			main.spatial_grid.rebuild(main.enemies)
 	await create_timer(0.75).timeout
 	var dealt_damage := is_instance_valid(enemy) and enemy.health < health_before
 	_check(dealt_damage, "%s weapon deals damage" % weapon_id)
