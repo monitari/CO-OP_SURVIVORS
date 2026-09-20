@@ -252,12 +252,20 @@ func _test_play_field_hud_alignment(main: Node) -> void:
 		var identity: Label = main.combat_hud.get_node("PlayerIdentity%d" % slot)
 		var player_number: Label = main.combat_hud.get_node("PlayerNumber%d" % slot)
 		var player_level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
-		_check(identity.visible and player_number.visible and player_level.visible
-			and not identity.text.is_empty() and not player_number.text.is_empty()
+		_check(identity.visible and not player_number.visible and player_level.visible
+			and not identity.text.is_empty()
 			and player_level.text.begins_with("기여 ")
 			and is_equal_approx(identity.position.y, bar.position.y)
 			and is_equal_approx(player_level.position.y, bar.position.y),
-			"P%d row aligns survivor, role, contribution level and health" % (slot + 1))
+			"P%d row aligns survivor, contribution level and health without a role spacer" % (slot + 1))
+		var identity_level_gap := (player_level.position.x - identity.get_rect().end.x
+			if identity.position.x < bar.position.x
+			else identity.position.x - player_level.get_rect().end.x)
+		var level_bar_gap := (bar.position.x - player_level.get_rect().end.x
+			if identity.position.x < bar.position.x
+			else player_level.position.x - bar.get_rect().end.x)
+		_check(identity_level_gap <= 4.0 and level_bar_gap <= 4.0,
+			"P%d identity, contribution and health stay in one tight cluster" % (slot + 1))
 		for row: String in ["Weapon", "Treasure"]:
 			var carried: Array = main.weapon_loadouts[slot] if row == "Weapon" else main.treasure_loadouts[slot]
 			var cap: int = int(main.WEAPON_LOADOUT_CAP if row == "Weapon" else main.TREASURE_LOADOUT_CAP)

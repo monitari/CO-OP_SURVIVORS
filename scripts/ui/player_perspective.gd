@@ -39,21 +39,16 @@ static func hud(main: Node) -> void:
 		var level: Label = main.combat_hud.get_node("PlayerLevel%d" % slot)
 		if own:
 			identity.position = Vector2(UI.PLAYER_IDENTITY_LEFT, UI.PLAYER_ROW_TOP)
-			identity.size = Vector2(80, 24)
+			identity.size = Vector2(UI.PLAYER_IDENTITY_WIDTH, 24)
 			identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 			level.position = Vector2(UI.PLAYER_LEVEL_LEFT, UI.PLAYER_ROW_TOP)
-			number.position = Vector2(UI.PLAYER_ROLE_LEFT, UI.PLAYER_ROW_TOP)
-			number.size = Vector2(28, 24)
-			number.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		else:
 			identity.position = Vector2(UI.PLAYER_IDENTITY_RIGHT, UI.PLAYER_ROW_TOP)
-			identity.size = Vector2(80, 24)
+			identity.size = Vector2(UI.PLAYER_IDENTITY_WIDTH, 24)
 			identity.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 			level.position = Vector2(UI.PLAYER_LEVEL_RIGHT, UI.PLAYER_ROW_TOP)
-			number.position = Vector2(UI.PLAYER_ROLE_RIGHT, UI.PLAYER_ROW_TOP)
-			number.size = Vector2(28, 24)
-			number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		number.show()
+		level.size = Vector2(UI.PLAYER_LEVEL_WIDTH, 24)
+		number.hide()
 		identity.show()
 		level.show()
 		var ring: Control = main.combat_hud.get_node("PlayerPortraitRing%d" % slot)
@@ -65,7 +60,7 @@ static func hud(main: Node) -> void:
 		# Carried equipment forms a compact row below each player's combined
 		# identity, contribution and health line.
 		var carried: Control = main.combat_hud.get_node("Carried%d" % slot)
-		carried.position = Vector2(90, 50) if own else Vector2(1190 - carried.size.x, 50)
+		carried.position = Vector2(84, 50) if own else Vector2(1196 - carried.size.x, 50)
 		carried.set_meta("compact", false)
 		UI.layout_carried(carried, not own)
 

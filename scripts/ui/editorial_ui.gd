@@ -877,14 +877,14 @@ static func _hud(main: Node) -> void:
 		caption.add_theme_constant_override("outline_size", 0)
 		main.hud_portrait_icons[slot].position = Vector2(20 if slot == 0 else 1208, 14)
 		main.hud_portrait_icons[slot].size = Vector2(52, 52)
-		var number_x := PLAYER_ROLE_LEFT if slot == 0 else PLAYER_ROLE_RIGHT
 		var identity_x := PLAYER_IDENTITY_LEFT if slot == 0 else PLAYER_IDENTITY_RIGHT
 		var level_x := PLAYER_LEVEL_LEFT if slot == 0 else PLAYER_LEVEL_RIGHT
-		var number := label(main.combat_hud, "%s" % main.player_label(slot), Rect2(number_x, PLAYER_ROW_TOP, 28, 24), 11, accent)
+		var number := label(main.combat_hud, "%s" % main.player_label(slot), Rect2(), 11, accent)
 		number.name = "PlayerNumber%d" % slot
-		var identity := label(main.combat_hud, "", Rect2(identity_x, PLAYER_ROW_TOP, 80, 24), 17, accent)
+		number.hide()
+		var identity := label(main.combat_hud, "", Rect2(identity_x, PLAYER_ROW_TOP, PLAYER_IDENTITY_WIDTH, 24), 16, accent)
 		identity.name = "PlayerIdentity%d" % slot
-		var level := label(main.combat_hud, "", Rect2(level_x, PLAYER_ROW_TOP, 56, 24), 12, Palette.CREAM)
+		var level := label(main.combat_hud, "", Rect2(level_x, PLAYER_ROW_TOP, PLAYER_LEVEL_WIDTH, 24), 11, Palette.CREAM)
 		level.name = "PlayerLevel%d" % slot
 		var level_style := Palette.surface(Color(accent, 0.88), 10)
 		level_style.set_border_width_all(0)
@@ -1045,15 +1045,15 @@ static func _hud(main: Node) -> void:
 const SHARED_LEFT := 430.0
 const SHARED_TOP := 8.0
 const SHARED_WIDTH := 420.0
-const PLAYER_IDENTITY_LEFT := 90.0
-const PLAYER_IDENTITY_RIGHT := 1110.0
-const PLAYER_ROLE_LEFT := 174.0
-const PLAYER_ROLE_RIGHT := 1078.0
-const PLAYER_LEVEL_LEFT := 204.0
-const PLAYER_LEVEL_RIGHT := 1020.0
-const PLAYER_BAR_LEFT := 264.0
-const PLAYER_BAR_RIGHT := 860.0
-const PLAYER_BAR_WIDTH := 156.0
+const PLAYER_IDENTITY_LEFT := 84.0
+const PLAYER_IDENTITY_RIGHT := 1140.0
+const PLAYER_IDENTITY_WIDTH := 56.0
+const PLAYER_LEVEL_LEFT := 144.0
+const PLAYER_LEVEL_RIGHT := 1086.0
+const PLAYER_LEVEL_WIDTH := 50.0
+const PLAYER_BAR_LEFT := 198.0
+const PLAYER_BAR_RIGHT := 938.0
+const PLAYER_BAR_WIDTH := 144.0
 const PLAYER_ROW_TOP := 18.0
 const CARRIED_CELL := 36.0
 const CARRIED_PITCH := 40.0
