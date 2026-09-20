@@ -6331,14 +6331,7 @@ func _update_hud() -> void:
 	UIWrite.font_color(p1_health_text_label, Color("ffcfdf") if players[0].downed else Color("f4f8ff"))
 	UIWrite.font_color(p2_health_text_label, Color("ffcfdf") if players[1].downed else Color("f4f8ff"))
 	chain_bar.value = tension * 100.0
-	var distance_state := "안정"
-	if chain_overloaded or tension >= 0.95:
-		distance_state = "한계"
-	elif tension >= CHAIN_WARNING_RATIO:
-		distance_state = "과충전"
-	elif tension >= CHAIN_RESIST_RATIO:
-		distance_state = "팽팽"
-	chain_distance_text_label.text = "거리 · %s  %d%%" % [distance_state, int(round(tension * 100.0))]
+	chain_distance_text_label.text = "거리  %d%%" % int(round(tension * 100.0))
 	var chain_state := ""
 	var chain_color := Color("43d9ff")
 	if chain_overloaded:

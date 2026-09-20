@@ -103,7 +103,8 @@ func _run() -> void:
 	main.players[0].position = Vector2(-overcharge_gap, 0)
 	main.players[1].position = Vector2(overcharge_gap, 0)
 	main._update_hud()
-	check(main.chain_status_label.text.contains("+35%"), "HUD reflects upgraded overcharge")
+	check(is_equal_approx(main._tension_damage_multiplier(), 1.35),
+		"upgraded overcharge still grants 35 percent without a separate state row")
 	# Measured crit damage, not merely a stat field.
 	main.weapon_loadouts[0] = [main._build_weapon_state(main.character_catalog[3])]
 	var dummy := ChaserEnemy.new()

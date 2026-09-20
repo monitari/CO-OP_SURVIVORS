@@ -56,8 +56,7 @@ func _run() -> void:
 	main._update_chain_visual()
 	main._update_hud()
 	_check(main._tension_damage_multiplier() > 1.0, "gold overcharge stage grants the advertised bonus")
-	_check(main.chain_status_label.text.contains("과충전"), "HUD names the beneficial chain stage")
-	_check(main.chain_status_label.visible, "a chain state worth acting on is shown")
+	_check(not main.chain_status_label.visible, "the compact HUD omits the separate chain-state row")
 	main.players[0].position = Vector2(-20.0, 0.0)
 	main.players[1].position = Vector2(20.0, 0.0)
 	main._update_hud()
@@ -154,7 +153,7 @@ func _test_chain_integrity(main: Node) -> void:
 	_check(main.players[0].health < health_before, "overload jolts both survivors")
 	_check(main._tension_damage_multiplier() < 1.0, "an overloaded chain penalises damage instead of boosting it")
 	main._update_hud()
-	_check(main.chain_status_label.text.contains("과부하"), "HUD names the overload state")
+	_check(not main.chain_status_label.visible, "overload does not restore the removed chain-state row")
 	_check(main.chain_integrity_bar.value <= 0.0, "the integrity bar bottoms out rather than repeating the number in text")
 
 	# Closing up is the only way back, and it must actually clear the penalty.

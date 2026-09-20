@@ -299,17 +299,15 @@ func _test_layout(main: Node) -> void:
 	_check(main.p1_health_text_label.position == main.p1_health_bar.position
 		and main.p1_health_text_label.size == main.p1_health_bar.size,
 		"P1 health text is aligned inside its bar")
-	# The two chain meters are thin strips in the shared panel at the top, with
-	# their captions on the line above.
+	# The compact shared panel writes each value directly inside its own bar.
 	for pair in [[main.chain_distance_text_label, main.chain_bar], [main.chain_integrity_text_label, main.chain_integrity_bar]]:
 		var caption: Label = pair[0]
 		var meter: ProgressBar = pair[1]
-		_check(is_equal_approx(caption.position.x, meter.position.x) and is_equal_approx(caption.size.x, meter.size.x),
-			"upper HUD labels align with their meter widths")
+		_check(caption.get_rect() == meter.get_rect(),
+			"upper HUD values are written inside their meters")
 		var shared_frame: Control = main.combat_hud.get_node("SharedFrame")
-		_check(caption.position.y + caption.size.y <= meter.position.y
-			and meter.position.y + meter.size.y <= shared_frame.position.y + shared_frame.size.y,
-			"meter labels stay above the thin top bars without overlapping their fill")
+		_check(meter.position.y + meter.size.y <= shared_frame.position.y + shared_frame.size.y,
+			"compact meters stay inside the shared panel")
 	# The shared experience meter is the exception, and used to be checked by the
 	# same rule as the two above. It is no longer a strip at the top of the play
 	# field: it is a full-width bar on the bottom edge with the number written on
