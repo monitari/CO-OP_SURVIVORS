@@ -39,7 +39,7 @@ func spawn_gem(spawn_position: Vector2, value: int, grade := -1) -> void:
 	if host != null:
 		host.absorb(value, grade)
 		return
-	var visible_position := _separated_drop_position(spawn_position)
+	var visible_position := RoofLayout.clear_spot(_separated_drop_position(spawn_position))
 	var gem: ExperienceGem
 	if gem_pool.is_empty():
 		gem = GemScript.new() as ExperienceGem

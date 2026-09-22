@@ -401,6 +401,10 @@ func _event(_peer_id: int, payload: Dictionary) -> void:
 				Vector2(payload.get("direction", Vector2.RIGHT)),
 				Color(payload.get("color", Color.WHITE)),
 				clampf(float(payload.get("radius", 64.0)), 32.0, 220.0))
+			# The same cast beat the host draws, so the joining player's cats
+			# swell and spark on their casts too.
+			game.cast_flourish(int(payload.get("player", -1)), String(payload.get("weapon", "")),
+				Vector2(payload.get("origin", Vector2.ZERO)), Color(payload.get("color", Color.WHITE)))
 
 
 func _control(peer_id: int, payload: Dictionary) -> void:

@@ -109,12 +109,19 @@ func run() -> void:
 		main._update_camera(1.0 / 60.0)
 	main._update_hud()
 	await capture("opening")
-	var prop: RooftopProp = main.rooftop_props.living_props()[0]
-	main.players[0].position = prop.screen_rect().get_center()
+	# Furniture used to fade to a tenth whenever a cat came near, which kept the
+	# fight clear and flattened the roof. It now stays standing: a cat walking
+	# over a crate's footprint is simply in front of it. roof_decor_test covers
+	# the two cases that do thin a piece (a hidden cat, a hidden drop).
+	var prop: RoofDecor = null
+	for candidate in main.rooftop_props.living_props():
+		if candidate.kind != "water_tower_back" and (prop == null or candidate.ground.length() < prop.ground.length()):
+			prop = candidate
+	main.players[0].position = prop.ground + Vector2(0, 20)
 	main.players[1].position = main.players[0].position + Vector2(120, 0)
 	for i in 40:
 		main.rooftop_props.update_visibility(main.players, 1.0 / 60.0)
-	check(prop.modulate.a < 0.15, "Furniture gently clears the immediate fight")
+	check(prop.modulate.a > 0.95, "A cat in front of furniture does not fade it")
 	for i in 40:
 		main._update_camera(1.0 / 60.0)
 	main._update_chain_visual()
@@ -123,7 +130,7 @@ func run() -> void:
 	main.players[1].position += Vector2(900, 0)
 	for i in 40:
 		main.rooftop_props.update_visibility(main.players, 1.0 / 60.0)
-	check(prop.modulate.a > 0.6, "Scenery returns when the pair leaves")
+	check(prop.modulate.a > 0.95, "Scenery stays solid when the pair leaves")
 	# The viewport must never run past the generated floor, even at max zoom-out
 	# and far beyond the original authored patch.
 	var far := Vector2(120000, -90000)

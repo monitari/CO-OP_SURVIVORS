@@ -16,6 +16,11 @@ const ProjectileRendererScript := preload("res://scripts/effects/projectile_rend
 
 signal cue_requested(cue_id: String)
 signal attack_visual(player_index: int, weapon_id: String, origin: Vector2, color: Color, radius: float)
+## A blast big enough to be felt across the roof: shockwaves and boss flares.
+signal impact(centre: Vector2, radius: float)
+## Shared cosmetic marks: impact flares, embers, debris. Optional — every call is
+## guarded, so a controller built without one (a test, the showcase) still works.
+var particles: ParticleField
 
 var players: Array[ChainPlayer] = []
 var weapon_loadouts: Array = []
@@ -911,6 +916,7 @@ func _play_resonance_flare(center: Vector2, resonance: Dictionary) -> void:
 
 
 func play_boss_flare(center: Vector2, enraged := false) -> void:
+	impact.emit(center, 520.0)
 	_spawn_combat_flare(center, Color("ff334f") if enraged else Color("c1121f"), Color("fff275"), 235.0 if enraged else 205.0, 0.72)
 
 
@@ -1274,6 +1280,10 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		projectile.projectile_color = color
 		_give_projectile_height(projectile, "flame")
 	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
+	# Embers thrown out ahead of the ring, so the nova reads as something that
+	# burst rather than as a ring that appeared.
+	if is_instance_valid(particles):
+		particles.emit_burst(players[player_index].global_position, color.lightened(0.3), 8, 300.0)
 
 
 func _give_projectile_height(projectile: HomingProjectile, weapon_id: String) -> void:
@@ -1424,6 +1434,12 @@ func _on_mine_detonated(centre: Vector2, damage: float, radius: float, color: Co
 	EnemyProjectile.break_within(enemy_shots, centre, radius)
 	_draw_ring(centre, radius, color, 6.0)
 	_spawn_combat_flare(centre, color, color.lightened(0.4), radius * 0.5, 0.22)
+	# A mine is the one weapon that is literally an explosion: a flash, sparks,
+	# and roof thrown up where it stood.
+	if is_instance_valid(particles):
+		particles.emit_flare(centre, color.lightened(0.4), radius * 0.45, 0.24)
+		particles.emit_burst(centre, color.lightened(0.3), 8, 320.0)
+		particles.emit_chips(centre, Color("59605e"), 5, 200.0)
 
 
 ## Drags everything in range toward one point before hitting it, which turns a
@@ -1436,6 +1452,8 @@ func _collapse_gravity(player_index: int, state: Dictionary, damage: float, colo
 func _collapse_gravity_at(centre: Vector2, _player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var radius := float(state["radius"])
 	var pull := float(state.get("pull", 160.0))
+	if is_instance_valid(particles):
+		particles.emit_implode(centre, radius, color.lightened(0.35), 12)
 	var field = WeaponFieldScript.new()
 	field.configure_gravity(centre, spatial_grid, damage, radius, pull, color, func() -> void: cue_requested.emit("gravity_collapse"), current_source_player, current_source_weapon)
 	add_child(field)
@@ -1677,6 +1695,7 @@ func _lance_from(origin: Vector2, heading: Vector2, reach: float, width: float, 
 ## should look like it. `inward` reverses the motion, which is what the magnet
 ## needs — its ring collapses toward the pair rather than expanding from them.
 func play_shockwave(centre: Vector2, radius: float, color: Color, duration: float, inward := false) -> void:
+	impact.emit(centre, radius)
 	var wave := Line2D.new()
 	wave.position = centre
 	wave.width = 14.0
@@ -1722,6 +1741,10 @@ func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
 	var beam = LanceStrikeScript.new()
 	beam.setup(from, to, width, color)
 	add_child(beam)
+	# The beam leaves with a flash at the muzzle and ends in one where it stops.
+	if is_instance_valid(particles):
+		particles.emit_flare(from, color.lightened(0.4), 18.0 + width * 0.4, 0.16)
+		particles.emit_flare(to, color.lightened(0.4), 14.0 + width * 0.5, 0.2)
 	_spawn_reactive_light(to, color, 72.0 + width * 0.8, 0.16, 0.30)
 
 
@@ -1789,6 +1812,22 @@ func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> 
 	bolt.antialiased = true
 	bolt.points = path
 	add_child(bolt)
+	# A fork off the middle of the bolt. Real lightning branches, and one short
+	# branch is enough to stop the bolt reading as a drawn line.
+	var fork_at := path[randi_range(2, 4)]
+	var heading := (to - from).normalized()
+	var fork_dir := heading.rotated(randf_range(0.45, 0.8) * (1.0 if randf() < 0.5 else -1.0))
+	var fork_len := from.distance_to(to) * randf_range(0.18, 0.3)
+	var fork := Line2D.new()
+	fork.width = width * 0.8
+	fork.default_color = color.lightened(0.35)
+	fork.antialiased = true
+	fork.points = PackedVector2Array([fork_at,
+		fork_at + fork_dir * fork_len * 0.55 + fork_dir.orthogonal() * randf_range(-6.0, 6.0),
+		fork_at + fork_dir * fork_len])
+	bolt.add_child(fork)
+	if is_instance_valid(particles):
+		particles.emit_flare(to, color.lightened(0.45), 12.0 + width * 1.6, 0.16)
 	if Moonlight.enabled:
 		var spill := Line2D.new()
 		spill.width = width * 4.6

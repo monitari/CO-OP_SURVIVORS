@@ -386,6 +386,15 @@ func _probed_draw() -> void:
 			draw_arc(Vector2.ZERO, visible_radius, trail, current, 18, Color(color.lightened(0.35), 0.95), 18.0, true)
 			var tip := Vector2.from_angle(current) * visible_radius
 			draw_line(Vector2.from_angle(current) * visible_radius * 0.22, tip, Color.WHITE, 3.0, true)
+			# An afterimage just inside the edge, lagging the blade: the smear a fast
+			# swing leaves on the eye, which is what makes it read as fast.
+			var echo := maxf(start, current - 0.28)
+			if current - echo > 0.001:
+				draw_arc(Vector2.ZERO, visible_radius * 0.84, echo, current - 0.06, 10,
+					Color(Color.WHITE, 0.35 * (1.0 - progress)), 5.0, true)
+			# The glint on the edge, brightest mid-swing.
+			var glint := sin(progress * PI)
+			draw_circle(tip, 5.0 + glint * 7.0, Color(1.0, 1.0, 1.0, 0.75 * glint))
 		Kind.GRAVITY:
 			var visible_radius := _visible_radius()
 			var progress := clampf(age / duration, 0.0, 1.0)

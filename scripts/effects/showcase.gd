@@ -42,6 +42,18 @@ const REWARD_STAGGER := 0.5
 const CHEST_BURST_AT := 0.72
 ## Same weight as CatPanel's veil over the growth and pause screens.
 const CHEST_VEIL := 0.22
+## A reward's trip out of the box: an arc up and over into its place in the row,
+## then a short landing. Flight plus landing stays under half a second so the
+## next reward (REWARD_STAGGER) never leaves before the last one has settled.
+const REWARD_FLIGHT := 0.36
+const REWARD_LANDING := 0.12
+## How high above the straight line the arc peaks, in screen pixels.
+const REWARD_ARC := 250.0
+## Coins and confetti fall under this, in screen pixels per second squared.
+const BIT_GRAVITY := 1500.0
+const MAX_BITS := 260
+const COIN := Color("ffd166")
+const CONFETTI := [Color("ffd166"), Color("43d9ff"), Color("c77dff"), Color("ff9fbd"), Color("80ed99")]
 
 var mode := Mode.FUSION
 var age := 0.0
@@ -57,6 +69,14 @@ var reward_cards: Array[Control] = []
 var caption: Label
 var sub_caption: Label
 var reward_summary: Label
+## Drawn over the reward cards: the shine that sweeps a card once it lands.
+## Everything else a chest draws is under them, because the cards are what the
+## player is reading.
+var overlay: Control
+## Screen-space flecks: coins and confetti out of the burst, twinkles behind a
+## card in flight. {position, velocity, age, life, kind, color, spin}
+var bits: Array = []
+var _burst_thrown := false
 
 
 func _init() -> void:
@@ -128,6 +148,15 @@ func play_chest(entries: Array) -> void:
 		card.get_node("Recommendation").visible = false
 		add_child(card)
 		card.modulate.a = 0.0
+		card.set_meta("tint", tint)
+		# Every card leaves the box face down and turns over in the air: the
+		# reward is revealed by the throw, not listed.
+		var back := Control.new()
+		back.name = "CardBack"
+		back.size = card.size
+		back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		back.draw.connect(_paint_card_back.bind(back, tint))
+		card.add_child(back)
 		_add_owner_tag(card, owner, tint)
 		reward_icons.append(card.get_node("Icon"))
 		reward_cards.append(card)
@@ -160,6 +189,12 @@ func _ready() -> void:
 	sub_caption = _make_label(18, Color("f4efe2"))
 	caption.text = headline
 	sub_caption.text = subtitle
+	overlay = Control.new()
+	overlay.name = "Overlay"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.draw.connect(_draw_overlay)
+	add_child(overlay)
 
 
 func _make_label(font_size: int, ink: Color) -> Label:
@@ -204,7 +239,10 @@ func _process(delta: float) -> void:
 			_step_resonance()
 		Mode.CHEST:
 			_step_chest()
+			_step_bits(delta)
 	queue_redraw()
+	if overlay != null:
+		overlay.queue_redraw()
 	if age >= duration:
 		finished.emit()
 		queue_free()
@@ -265,6 +303,11 @@ func _reward_beat(index: int) -> float:
 	return CHEST_BURST_AT + 0.18 + float(index) * REWARD_STAGGER
 
 
+## When reward `index` has finished landing and lies in the row.
+func _reward_landed(index: int) -> float:
+	return _reward_beat(index) + REWARD_FLIGHT + REWARD_LANDING
+
+
 ## Horizontal step between reward cards at full size: the growth card plus a
 ## gutter. One row always, like a dealt hand; a box too full for the row deals
 ## the same cards smaller rather than a second, differently shaped layout.
@@ -277,21 +320,122 @@ func reward_scale() -> float:
 	return minf(1.0, REWARD_ROW_SPAN / (float(maxi(1, reward_cards.size())) * REWARD_PITCH))
 
 
-func _step_chest() -> void:
-	var centre := _centre()
-	var settle := reward_scale()
+func _reward_target(index: int) -> Vector2:
 	var width := size.x if size.x > 0.0 else 1280.0
+	var x := width * 0.5 + (float(index) - float(reward_cards.size() - 1) * 0.5) * REWARD_PITCH * reward_scale()
+	return Vector2(x, REWARD_ROW_Y)
+
+
+## Where the rewards leave from: the mouth of the open box.
+func _mouth() -> Vector2:
+	return _centre() + Vector2(0.0, -34.0)
+
+
+## A card's centre `travel` of the way along its throw: up out of the box, over
+## the top of an arc, and down into its place.
+func _flight_point(index: int, travel: float) -> Vector2:
+	var start := _mouth()
+	var target := _reward_target(index)
+	var peak := (start + target) * 0.5 + Vector2((target.x - start.x) * 0.12, -REWARD_ARC)
+	var inverse := 1.0 - travel
+	return start * inverse * inverse + peak * 2.0 * inverse * travel + target * travel * travel
+
+
+func _step_chest() -> void:
+	var settle := reward_scale()
+	var tail := minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
 	for index in reward_cards.size():
 		var card := reward_cards[index]
-		var pop := smoothstep(_reward_beat(index), _reward_beat(index) + 0.34, age)
-		var x := width * 0.5 + (float(index) - float(reward_cards.size() - 1) * 0.5) * REWARD_PITCH * settle
-		var target := Vector2(x, REWARD_ROW_Y)
-		card.position = centre.lerp(target, pop) - card.size * 0.5
-		card.scale = Vector2.ONE * lerpf(0.1, settle, pop)
-		card.rotation = (1.0 - pop) * 0.3
-		card.modulate.a = pop * minf(1.0, smoothstep(0.0, 0.25, duration - age) * 3.0)
+		var since := age - _reward_beat(index)
+		if since < 0.0:
+			card.modulate.a = 0.0
+			continue
+		var flight := clampf(since / REWARD_FLIGHT, 0.0, 1.0)
+		# Fast out of the box, slowing into place: a throw, not a slide.
+		var travel := 1.0 - pow(1.0 - flight, 3.0)
+		var at := _flight_point(index, travel)
+		var target := _reward_target(index)
+		var side := -1.0 if target.x < _mouth().x else 1.0
+		# Grows as it comes toward the viewer and overshoots its size a little,
+		# so the landing has something to settle out of.
+		var span := lerpf(0.22, settle * 1.1, travel)
+		var squash := Vector2.ONE
+		if flight >= 1.0:
+			var land := clampf((since - REWARD_FLIGHT) / REWARD_LANDING, 0.0, 1.0)
+			var bounce := sin(land * PI) * (1.0 - land * 0.5)
+			span = lerpf(settle * 1.1, settle, ease(land, 0.6))
+			squash = Vector2(1.0 + 0.08 * bounce, 1.0 - 0.1 * bounce)
+			if land >= 1.0:
+				span = settle
+				squash = Vector2.ONE
+				# At rest it floats a little, each card on its own beat.
+				at.y += sin((since - REWARD_FLIGHT - REWARD_LANDING) * 2.4 + float(index) * 1.3) * 3.0
+		# Face down leaving the box, turned over by the top of the arc. The turn
+		# is a squeeze of the width through zero, which is what a card flipping
+		# edge-on to the viewer looks like.
+		var turn := clampf(flight / 0.8, 0.0, 1.0)
+		var face := absf(cos(turn * PI))
+		var face_down := turn < 0.5
+		var back := card.get_node_or_null("CardBack")
+		if back != null:
+			back.visible = face_down
+		var owner_tag := card.get_node_or_null("Owner")
+		if owner_tag != null:
+			owner_tag.visible = not face_down
+		card.rotation = (1.0 - travel) * 0.5 * side
+		card.scale = Vector2(span * maxf(0.03, face) * squash.x, span * squash.y)
+		card.position = at - card.size * 0.5
+		card.modulate.a = minf(1.0, since / 0.06) * tail
 	# Under the top HUD rather than over it, and above the row of cards.
-	_place_captions(Vector2(centre.x, 22.0), smoothstep(0.5, 0.85, age))
+	_place_captions(Vector2(_centre().x, 22.0), smoothstep(0.5, 0.85, age))
+
+
+## Coins, confetti and the sparkle each card trails in flight.
+func _step_bits(delta: float) -> void:
+	if not _burst_thrown and age >= CHEST_BURST_AT:
+		_burst_thrown = true
+		_throw_burst()
+	for index in reward_cards.size():
+		var since := age - _reward_beat(index)
+		if since >= 0.0 and since < REWARD_FLIGHT:
+			var at := _flight_point(index, 1.0 - pow(1.0 - since / REWARD_FLIGHT, 3.0))
+			_add_bit({"position": at + Vector2(randf_range(-30.0, 30.0), randf_range(-40.0, 40.0)),
+				"velocity": Vector2(randf_range(-40.0, 40.0), randf_range(-60.0, 10.0)),
+				"age": 0.0, "life": randf_range(0.35, 0.55), "kind": "twinkle",
+				"color": (reward_cards[index].get_meta("tint", accent) as Color).lightened(0.4), "spin": 0.0})
+	var alive: Array = []
+	for bit in bits:
+		bit["age"] = float(bit["age"]) + delta
+		if float(bit["age"]) >= float(bit["life"]):
+			continue
+		var velocity := bit["velocity"] as Vector2
+		if String(bit["kind"]) != "twinkle":
+			velocity.y += BIT_GRAVITY * delta
+			velocity.x *= maxf(0.0, 1.0 - delta * 0.9)
+		bit["velocity"] = velocity
+		bit["position"] = (bit["position"] as Vector2) + velocity * delta
+		bit["spin"] = float(bit["spin"]) + delta * 9.0
+		alive.append(bit)
+	bits = alive
+
+
+## The haul announces itself before the first card lands: more in the box, more
+## thrown out of it.
+func _throw_burst() -> void:
+	var count := 22 + reward_cards.size() * 6
+	for index in count:
+		var coin := index % 5 < 3
+		var colour: Color = COIN if coin else CONFETTI[index % CONFETTI.size()]
+		_add_bit({"position": _mouth() + Vector2(randf_range(-40.0, 40.0), 0.0),
+			"velocity": Vector2(randf_range(-460.0, 460.0), randf_range(-1050.0, -560.0)),
+			"age": 0.0, "life": randf_range(1.3, 1.9), "kind": "coin" if coin else "confetti",
+			"color": colour, "spin": randf() * TAU})
+
+
+func _add_bit(bit: Dictionary) -> void:
+	if bits.size() >= MAX_BITS:
+		return
+	bits.append(bit)
 
 
 func _place_captions(centre: Vector2, reveal: float) -> void:
@@ -370,58 +514,200 @@ func _draw_resonance(centre: Vector2, veil: float) -> void:
 		draw_circle(centre + Vector2.from_angle(angle) * reach, 3.0, Color(accent, 0.55 * veil))
 
 
-## A box that resists, then gives. The shake is on the drawn lid, not on the
-## camera, so it reads as the chest struggling rather than as an impact.
+## A box that resists, then gives. It shivers, crouches, springs, and the lid is
+## thrown off; the cards come out of the open box one at a time.
 func _draw_chest(centre: Vector2, veil: float) -> void:
 	var burst_at := CHEST_BURST_AT
-	var struggle := clampf(age / burst_at, 0.0, 1.0)
-	if age < burst_at:
-		var shake := Vector2(sin(age * 46.0), cos(age * 39.0)) * (2.0 + struggle * 9.0)
-		var box := Rect2(centre - Vector2(76.0, 58.0) + shake, Vector2(152.0, 116.0))
-		draw_rect(box, Color("8a5a2b", veil))
-		draw_rect(Rect2(box.position, Vector2(box.size.x, 34.0)), Color("a9713a", veil))
-		draw_rect(Rect2(box.position + Vector2(box.size.x * 0.5 - 11.0, 0.0), Vector2(22.0, box.size.y)),
-			Color(accent, 0.9 * veil))
-		draw_circle(box.get_center() + Vector2(0.0, -6.0), 13.0, Color("f2dcae", veil))
-		# Light escaping from the seam, brighter the closer it is to opening.
-		draw_rect(Rect2(box.position + Vector2(0.0, 32.0), Vector2(box.size.x, 4.0)),
-			Color(1.0, 0.96, 0.8, struggle * struggle * veil))
-		return
 	var since := age - burst_at
-	# More in the box, more coming out of it: the burst itself reports the haul
-	# before the first icon has even landed.
-	var spokes := 18 + reward_icons.size() * 6
+	var bottom := centre + Vector2(0.0, 58.0)
+	# Light turning behind everything once the box is open.
+	if since > 0.0:
+		var rise := smoothstep(0.0, 0.35, since)
+		for ray in 12:
+			var angle := since * 0.35 + TAU * float(ray) / 12.0
+			var spread := 0.07 if ray % 2 == 0 else 0.045
+			draw_colored_polygon(PackedVector2Array([_mouth(),
+				_mouth() + Vector2.from_angle(angle - spread) * 760.0,
+				_mouth() + Vector2.from_angle(angle + spread) * 760.0]),
+				Color(accent.lightened(0.3), 0.07 * rise * veil))
+	# Coins and confetti, under the cards.
+	for bit in bits:
+		_draw_bit(self, bit, veil)
+	if age < burst_at:
+		var struggle := clampf(age / burst_at, 0.0, 1.0)
+		var rattle := Vector2(sin(age * 46.0), cos(age * 39.0)) * (1.5 + struggle * 7.0)
+		# Crouch, then spring: the squash before the stretch is what sells the
+		# burst as the box's own effort.
+		var crouch := smoothstep(0.55, 0.84, struggle)
+		var spring := smoothstep(0.84, 1.0, struggle)
+		var squash := Vector2(1.0 + 0.16 * crouch, 1.0 - 0.2 * crouch).lerp(Vector2(0.9, 1.2), spring)
+		var hop := -26.0 * spring
+		_draw_box(bottom + rattle * (1.0 - crouch * 0.6) + Vector2(0.0, hop), squash, veil, true, struggle)
+		return
+	# The box, open, and its lid flying off and falling away.
+	var settle := 1.0 - clampf(since / 0.18, 0.0, 1.0)
+	_draw_box(bottom, Vector2(1.0 - 0.08 * settle, 1.0 + 0.1 * settle), veil, false, 1.0)
+	var lid_age := since
+	if lid_age < 1.1:
+		var lid_at := bottom + Vector2(-76.0, -116.0) + Vector2(-190.0 * lid_age, -640.0 * lid_age + 0.5 * BIT_GRAVITY * lid_age * lid_age)
+		draw_set_transform(lid_at + Vector2(76.0, 17.0), -lid_age * 7.0, Vector2.ONE)
+		var lid_alpha := veil * (1.0 - smoothstep(0.7, 1.1, lid_age))
+		draw_rect(Rect2(-76.0, -17.0, 152.0, 34.0), Color("a9713a", lid_alpha))
+		draw_rect(Rect2(-11.0, -17.0, 22.0, 34.0), Color(accent, 0.9 * lid_alpha))
+		draw_rect(Rect2(-76.0, -17.0, 152.0, 34.0), Color(0.1, 0.06, 0.03, 0.7 * lid_alpha), false, 3.0)
+		draw_set_transform(Vector2.ZERO)
+	var flash := 1.0 - clampf(since / 0.2, 0.0, 1.0)
+	if flash > 0.0:
+		draw_circle(_mouth(), 40.0 + flash * 460.0, Color(1.0, 1.0, 1.0, 0.42 * flash))
+	# The shock of the burst: rays thrown out, reporting the haul by how many.
+	var spokes := 18 + reward_cards.size() * 6
 	var rays := clampf(1.0 - since / 0.8, 0.0, 1.0)
 	if rays > 0.0:
 		for index in spokes:
 			var angle := TAU * float(index) / float(spokes) + since * 1.4
-			var length := 60.0 + (1.0 - rays) * (520.0 + reward_icons.size() * 60.0)
-			draw_line(centre + Vector2.from_angle(angle) * 40.0,
-				centre + Vector2.from_angle(angle) * length,
-				Color(accent.lightened(0.3), rays * 0.75 * veil), 6.0 * rays + 1.0, true)
-	var flash := 1.0 - clampf(since / 0.2, 0.0, 1.0)
-	if flash > 0.0:
-		draw_circle(centre, 40.0 + flash * 460.0, Color(1.0, 1.0, 1.0, 0.5 * flash))
-	# A soft column the rewards rise out of, and three rings still leaving it.
-	draw_rect(Rect2(centre.x - 90.0, centre.y - 40.0, 180.0, 260.0), Color(accent, 0.07 * veil))
+			var length := 60.0 + (1.0 - rays) * (520.0 + reward_cards.size() * 60.0)
+			draw_line(_mouth() + Vector2.from_angle(angle) * 40.0,
+				_mouth() + Vector2.from_angle(angle) * length,
+				Color(accent.lightened(0.3), rays * 0.7 * veil), 6.0 * rays + 1.0, true)
 	for wave in 3:
 		var phase := fmod(since * 0.7 + float(wave) / 3.0, 1.0)
-		draw_arc(centre, 50.0 + phase * 300.0, 0.0, TAU, 48,
-			Color(accent, (1.0 - phase) * 0.3 * veil), 4.0 * (1.0 - phase) + 1.0, true)
-	# One halo per reward, fired on that reward's own beat, so a four-item chest
-	# is four distinct moments rather than one long one.
-	for index in reward_icons.size():
-		var at := _reward_beat(index)
-		var pulse := 1.0 - clampf((age - at) / 0.42, 0.0, 1.0)
-		if pulse <= 0.0 or age < at:
+		draw_arc(_mouth(), 50.0 + phase * 300.0, 0.0, TAU, 48,
+			Color(accent, (1.0 - phase) * 0.28 * veil), 4.0 * (1.0 - phase) + 1.0, true)
+	# Each card's arrival: a glow behind the landed card and a halo where it hit.
+	for index in reward_cards.size():
+		var landed := _reward_beat(index) + REWARD_FLIGHT
+		if age < landed:
 			continue
 		var card := reward_cards[index]
-		var landing := card.position + card.size * 0.5
-		draw_arc(landing, 26.0 + (1.0 - pulse) * 70.0, 0.0, TAU, 32,
-			Color(Color.WHITE, pulse * 0.75 * veil), 5.0 * pulse + 1.0, true)
-		for spark in 8:
-			var angle := TAU * float(spark) / 8.0 + float(index)
-			var reach := 30.0 + (1.0 - pulse) * 54.0
-			draw_line(landing + Vector2.from_angle(angle) * reach * 0.55,
-				landing + Vector2.from_angle(angle) * reach,
-				Color(accent.lightened(0.4), pulse * 0.8 * veil), 3.0 * pulse + 0.6, true)
+		var tint: Color = card.get_meta("tint", accent)
+		var drawn := Rect2(card.position + card.size * 0.5 * (Vector2.ONE - card.scale), card.size * card.scale)
+		var breathe := 0.75 + 0.25 * sin(age * 3.0 + float(index))
+		for glow in 3:
+			draw_rect(drawn.grow(6.0 + float(glow) * 7.0), Color(tint, 0.1 * breathe * veil * (1.0 - float(glow) * 0.28)), false, 7.0)
+		var pulse := 1.0 - clampf((age - landed) / 0.42, 0.0, 1.0)
+		if pulse <= 0.0:
+			continue
+		var at := drawn.get_center()
+		draw_arc(at, 40.0 + (1.0 - pulse) * 130.0, 0.0, TAU, 40,
+			Color(Color.WHITE, pulse * 0.7 * veil), 6.0 * pulse + 1.0, true)
+		for spark in 10:
+			var angle := TAU * float(spark) / 10.0 + float(index)
+			var reach := 50.0 + (1.0 - pulse) * 110.0
+			draw_line(at + Vector2.from_angle(angle) * reach * 0.6,
+				at + Vector2.from_angle(angle) * reach,
+				Color(tint.lightened(0.4), pulse * 0.85 * veil), 3.5 * pulse + 0.6, true)
+
+
+## The chest itself, standing on `bottom` and scaled about it. `closed` draws the
+## lid on; `strain` is how close the seam is to giving.
+func _draw_box(bottom: Vector2, squash: Vector2, veil: float, closed: bool, strain: float) -> void:
+	draw_set_transform(bottom, 0.0, squash)
+	var body := Rect2(-76.0, -116.0, 152.0, 116.0)
+	draw_rect(Rect2(-70.0, -4.0, 140.0, 10.0), Color(0.0, 0.0, 0.0, 0.3 * veil))
+	draw_rect(body, Color("8a5a2b", veil))
+	for plank in 3:
+		var y := -84.0 + float(plank) * 28.0
+		draw_line(Vector2(-76.0, y), Vector2(76.0, y), Color(0.25, 0.14, 0.06, 0.55 * veil), 2.0)
+	draw_rect(Rect2(-11.0, -116.0, 22.0, 116.0), Color(accent, 0.9 * veil))
+	if closed:
+		draw_rect(Rect2(-76.0, -116.0, 152.0, 34.0), Color("a9713a", veil))
+		draw_rect(Rect2(-11.0, -116.0, 22.0, 34.0), Color(accent.lightened(0.1), veil))
+		draw_circle(Vector2(0.0, -64.0), 13.0, Color("f2dcae", veil))
+		# Light escaping from the seam, and in the last moments through it.
+		draw_rect(Rect2(-76.0, -84.0, 152.0, 4.0), Color(1.0, 0.96, 0.8, strain * strain * veil))
+		if strain > 0.5:
+			var leak := (strain - 0.5) * 2.0
+			for beam in 5:
+				var x := -60.0 + float(beam) * 30.0
+				draw_line(Vector2(x, -82.0), Vector2(x * 1.6, -82.0 - 60.0 * leak), Color(1.0, 0.95, 0.75, 0.35 * leak * veil), 3.0, true)
+	else:
+		# Open: the inside glowing with whatever is still in there.
+		draw_rect(Rect2(-68.0, -116.0, 136.0, 16.0), Color("2a1a0c", veil))
+		draw_rect(Rect2(-68.0, -116.0, 136.0, 16.0), Color(accent.lightened(0.4), 0.55 * veil))
+	draw_rect(body, Color(0.1, 0.06, 0.03, 0.7 * veil), false, 3.0)
+	draw_set_transform(Vector2.ZERO)
+
+
+static func _draw_bit(canvas: CanvasItem, bit: Dictionary, veil: float) -> void:
+	var progress := float(bit["age"]) / float(bit["life"])
+	var fade := (1.0 - smoothstep(0.7, 1.0, progress)) * veil
+	var at := bit["position"] as Vector2
+	var colour := bit["color"] as Color
+	var spin := float(bit["spin"])
+	match String(bit["kind"]):
+		"coin":
+			# A spinning coin is an ellipse whose width follows the spin.
+			var width := 9.0 * absf(cos(spin)) + 1.5
+			canvas.draw_set_transform(at, 0.0, Vector2(width / 9.0, 1.0))
+			canvas.draw_circle(Vector2.ZERO, 9.0, Color(colour.darkened(0.25), fade))
+			canvas.draw_circle(Vector2(-1.5, -1.5), 6.5, Color(colour, fade))
+			canvas.draw_set_transform(Vector2.ZERO)
+		"confetti":
+			var turn := Vector2.from_angle(spin) * 6.0
+			var side := turn.orthogonal() * 0.45 * absf(sin(spin * 0.7))
+			canvas.draw_colored_polygon(PackedVector2Array([at + turn + side, at - turn + side, at - turn - side, at + turn - side]),
+				Color(colour, fade))
+		_:
+			var twinkle := sin(progress * PI)
+			var reach := 7.0 * twinkle + 1.0
+			canvas.draw_line(at - Vector2(reach, 0.0), at + Vector2(reach, 0.0), Color(colour, fade * twinkle), 2.0, true)
+			canvas.draw_line(at - Vector2(0.0, reach), at + Vector2(0.0, reach), Color(colour, fade * twinkle), 2.0, true)
+
+
+## Over the cards: a band of light sweeping across each card once it has landed,
+## the moment it becomes a thing you own rather than a thing in the air.
+func _draw_overlay() -> void:
+	if mode != Mode.CHEST:
+		return
+	var veil := _veil()
+	for index in reward_cards.size():
+		var shine := (age - _reward_landed(index) + 0.04) / 0.5
+		if shine <= 0.0 or shine >= 1.0:
+			continue
+		var card := reward_cards[index]
+		var drawn := Rect2(card.position + card.size * 0.5 * (Vector2.ONE - card.scale), card.size * card.scale)
+		var edge := PackedVector2Array([drawn.position, Vector2(drawn.end.x, drawn.position.y), drawn.end, Vector2(drawn.position.x, drawn.end.y)])
+		var x := drawn.position.x + lerpf(-0.5, 1.5, ease(shine, 0.7)) * drawn.size.x
+		var lean := drawn.size.y * 0.35
+		for band: Vector2 in [Vector2(0.0, 34.0), Vector2(46.0, 12.0)]:
+			var left := x + band.x
+			var strip := PackedVector2Array([Vector2(left + lean, drawn.position.y), Vector2(left + lean + band.y, drawn.position.y),
+				Vector2(left - lean + band.y, drawn.end.y), Vector2(left - lean, drawn.end.y)])
+			for piece in Geometry2D.intersect_polygons(strip, edge):
+				overlay.draw_colored_polygon(piece, Color(1.0, 1.0, 1.0, 0.3 * sin(shine * PI) * veil))
+
+
+## The face-down side every reward shows as it leaves the box.
+static func _paint_card_back(back: Control, tint: Color) -> void:
+	var area := Rect2(Vector2.ZERO, back.size)
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color("16213d")
+	panel.border_color = tint.lightened(0.15)
+	panel.set_border_width_all(5)
+	panel.set_corner_radius_all(14)
+	back.draw_style_box(panel, area)
+	var inner := area.grow(-16.0)
+	back.draw_rect(inner, Color("e8c98a", 0.55), false, 2.0)
+	# A lattice, so the back is a pattern and not an empty panel.
+	var step := 28.0
+	var lines := PackedVector2Array()
+	var y := inner.position.y
+	while y < inner.end.y:
+		var x := inner.position.x
+		while x < inner.end.x:
+			var centre := Vector2(x + step * 0.5, y + step * 0.5)
+			if inner.has_point(centre):
+				lines.append_array([centre + Vector2(0.0, -6.0), centre + Vector2(6.0, 0.0),
+					centre + Vector2(6.0, 0.0), centre + Vector2(0.0, 6.0),
+					centre + Vector2(0.0, 6.0), centre + Vector2(-6.0, 0.0),
+					centre + Vector2(-6.0, 0.0), centre + Vector2(0.0, -6.0)])
+			x += step
+		y += step
+	back.draw_multiline(lines, Color(tint, 0.25), 1.5)
+	# The paw seal in the middle.
+	var mid := area.get_center()
+	back.draw_circle(mid, 46.0, Color("16213d"))
+	back.draw_arc(mid, 46.0, 0.0, TAU, 40, Color("e8c98a", 0.9), 3.0, true)
+	back.draw_circle(mid + Vector2(0.0, 8.0), 16.0, Color("e8c98a"))
+	for toe: Vector2 in [Vector2(-17.0, -12.0), Vector2(-6.0, -21.0), Vector2(6.0, -21.0), Vector2(17.0, -12.0)]:
+		back.draw_circle(mid + toe, 7.0, Color("e8c98a"))

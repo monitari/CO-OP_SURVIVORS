@@ -312,7 +312,8 @@ func _spawn_planters_near(center: Vector2, difficulty: float, spawn_limit := PLA
 				at.x = clampf(at.x, cell_origin.x + PLANTER_CELL_MARGIN, cell_origin.x + PLANTER_CELL - PLANTER_CELL_MARGIN)
 				at.y = clampf(at.y, cell_origin.y + PLANTER_CELL_MARGIN, cell_origin.y + PLANTER_CELL - PLANTER_CELL_MARGIN)
 				var planter := _acquire_enemy("planter", difficulty, center, false, false)
-				planter.position = at
+				# A breakable planter half inside a crate reads as a glitch.
+				planter.position = RoofLayout.clear_spot(at)
 				planters_alive += 1
 				spawned.append(planter)
 	return spawned

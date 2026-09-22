@@ -149,18 +149,26 @@ func _test_floor_is_endless() -> void:
 
 
 ## An endless roof still has to be a place: the same patch has to look the same
-## every time the pair crosses it, or the world is noise.
+## every time the pair crosses it, or the world is noise. What stands where is
+## RoofLayout's to decide, so that is what is asked.
 func _test_floor_is_stable() -> void:
-	var floor_node := ArenaFloorScript.new() as ArenaFloor
-	root.add_child(floor_node)
-	var first := floor_node._cell_seed(7, -3)
-	var again := floor_node._cell_seed(7, -3)
+	var first := _layout_signature(Vector2i(7, -3))
+	RoofLayout._cache.clear()
+	var again := _layout_signature(Vector2i(7, -3))
 	_check(first == again, "a cell generates the same contents twice")
-	_check(floor_node._cell_seed(7, -3) != floor_node._cell_seed(-3, 7),
-		"mirrored cells are different places")
-	_check(floor_node._cell_seed(1, 1) != floor_node._cell_seed(2, 2), "neighbouring cells differ")
-	_check(floor_node._cell_seed(0, 0) >= 0, "seeds are usable by RandomNumberGenerator")
-	floor_node.free()
+	_check(_layout_signature(Vector2i(-3, 7)) != first, "mirrored cells are different places")
+	_check(_layout_signature(Vector2i(1, 1)) != _layout_signature(Vector2i(2, 2)), "neighbouring cells differ")
+
+
+## A cell's contents measured from its own corner, so two cells only compare
+## equal if they really hold the same things in the same places.
+func _layout_signature(cell: Vector2i) -> String:
+	var origin := Vector2(cell) * float(RoofLayout.CELL)
+	var parts: Array[String] = []
+	var contents := RoofLayout.cell(cell)
+	for entry in contents["pieces"] + contents["decals"]:
+		parts.append("%s@%s" % [entry["kind"], str((entry["at"] as Vector2) - origin)])
+	return ",".join(parts)
 
 
 ## The route is now a plan, not a spoiler: character select must name every

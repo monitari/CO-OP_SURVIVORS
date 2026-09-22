@@ -62,6 +62,12 @@ func _probed_draw() -> void:
 		var color := Color(burst["color"] as Color, fade * 0.85)
 		var origin := burst["position"] as Vector2
 		var base_radius := float(burst["radius"])
+		# The instant of the kill: a hot core for the first sliver of the burst,
+		# gone before the ring has spread. It is what makes the pop read as a pop
+		# rather than as a ring appearing.
+		var core := 1.0 - clampf(progress / 0.28, 0.0, 1.0)
+		if core > 0.0:
+			draw_circle(origin, base_radius * (0.35 + 0.5 * core), Color(1.0, 0.98, 0.9, 0.7 * core))
 		draw_arc(origin, base_radius * (0.6 + progress * 1.9), 0.0, TAU, 18, color, 3.0 * fade + 0.6, true)
 		var start_angle := float(burst["seed"])
 		for index in SHARDS:

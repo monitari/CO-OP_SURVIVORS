@@ -178,6 +178,9 @@ var flight_field: FlightField
 ## fusions, and a chest can contain one — they play in order rather than on
 ## top of each other.
 var showcase_queue: Array[Dictionary] = []
+## Weapon id -> the colour it was last cast in. A hit is tinted by what landed
+## it, so a screen of mixed hits says which weapon is doing the work.
+var weapon_tints: Dictionary = {}
 var cinematic_active := false
 var cinematic_continuation := Callable()
 var cinematic_resume_paused := false
@@ -517,11 +520,14 @@ func _ready() -> void:
 	add_child(weapon_controller)
 	weapon_controller.configure(players, weapon_loadouts, spatial_grid)
 	weapon_controller.flight_field = flight_field
+	weapon_controller.particles = particles
 	# Handed over rather than copied: four weapons knock shots down, and they do
 	# it from inside the controller and from inside the fields it spawns.
 	weapon_controller.enemy_shots = enemy_shots
 	weapon_controller.cue_requested.connect(feedback.play_cue)
 	weapon_controller.attack_visual.connect(_on_player_attack_visual)
+	weapon_controller.impact.connect(func(centre: Vector2, radius: float) -> void:
+		rooftop_props.shake_at(centre, radius, 0.8))
 	_create_hud()
 	ReviewUI.install(self)
 	CoopSelectionUI.install(self)
@@ -1007,7 +1013,7 @@ func _create_world() -> void:
 	world_stage.z_index = WORLD_STAGE_Z
 	add_child(world_stage)
 	rooftop_props = RooftopPropFieldScript.new() as RooftopPropField
-	rooftop_props.configure(world_stage)
+	rooftop_props.configure(world_stage, field_items)
 	add_child(rooftop_props)
 	rooftop_props.follow(Vector2.ZERO)
 	# The ordinary crowd is drawn in batches rather than by each enemy node;
@@ -1072,7 +1078,9 @@ func set_combat_visuals_enabled(enabled: bool) -> void:
 ## every frame: the rooftop window, the actors, and the chain's halo material.
 func _apply_moonlight() -> void:
 	chain_flow.visible = Moonlight.enabled
-	arena_floor.queue_redraw()
+	arena_floor.refresh()
+	if is_instance_valid(rooftop_props):
+		rooftop_props.redraw_all()
 	for player in players:
 		if is_instance_valid(player):
 			player.queue_redraw()
@@ -2712,7 +2720,9 @@ func _update_camera(delta: float) -> void:
 	# there is no edge to reach however far the pair kites.
 	var coverage := rooftop_view.view_size * EndlessRooftopView.OVERSCAN * 0.5 / world_camera.zoom
 	arena_floor.follow(world_camera.position, maxf(coverage.x, coverage.y) + ArenaFloor.REDRAW_STEP)
-	rooftop_props.follow(world_camera.position)
+	# The furniture only has to exist where the camera can see it, plus the
+	# height of the tallest piece below the frame's bottom edge.
+	rooftop_props.follow(world_camera.position, coverage)
 	rooftop_props.update_visibility(players, delta)
 
 
@@ -2868,8 +2878,25 @@ func _step_enemy_shots(delta: float) -> void:
 
 func _on_player_attack_visual(player_index: int, weapon_id: String,
 		origin: Vector2, color: Color, radius: float) -> void:
+	weapon_tints[weapon_id] = color
+	cast_flourish(player_index, weapon_id, origin, color)
 	if online != null:
 		online.send_player_attack(player_index, weapon_id, origin, color, radius)
+
+
+## The beat every attack gets as it leaves a cat: the body swells, a small ring
+## and a few sparks leave it in the weapon's colour. An evolved weapon gets a
+## visibly bigger one and a flare — the growth the pair built is something the
+## roof shows every time it fires, not only a number on a card.
+func cast_flourish(player_index: int, weapon_id: String, origin: Vector2, color: Color) -> void:
+	var grand := EvolutionCatalog.is_evolved(weapon_id)
+	var tone := color.lightened(0.28)
+	particles.emit_pulse(origin, tone, 46.0 if grand else 30.0, 0.26 if grand else 0.2)
+	particles.emit_burst(origin, tone, 6 if grand else 3, 270.0 if grand else 190.0)
+	if grand:
+		particles.emit_flare(origin, tone, 30.0, 0.22)
+	if player_index >= 0 and player_index < players.size() and is_instance_valid(players[player_index]):
+		players[player_index].kick(1.0 if grand else 0.6)
 
 
 ## A shot knocked out of the air by 월식 낫, 결속 파동, 궤도 파편 or 지뢰 결계.
@@ -2904,6 +2931,7 @@ func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) ->
 			hit_someone = player.hurt(damage) or hit_someone
 	chain_integrity = maxf(0.0, chain_integrity - BOSS_SLAM_INTEGRITY_DRAIN)
 	camera_shake = maxf(camera_shake, 13.0)
+	rooftop_props.shake_at(impact_point, radius * 2.5, 1.0)
 	feedback.play_cue("warning")
 	_show_message("사슬 강타    내구도 주의" if hit_someone else "충격 회피    내구도 주의", Color("ff5d8f"))
 
@@ -2914,12 +2942,21 @@ func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	FrameProbe.add(&"hit_feedback (incl)", probe_started)
 
 
+const HIT_SPARK := Color("fff4cf")
+
+
 func _probed_on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	feedback.show_damage(enemy.global_position, amount, Color("fff4cf"))
 	# Sparks scale with the hit rather than being constant, so a chip and a
 	# critical do not look identical, and a screenful of swarm hits does not
 	# spend the whole particle budget on chip damage.
-	particles.emit_sparks(enemy.global_position, Color("fff4cf"), 2 if amount < 40.0 else 5, 150.0 + amount)
+	var tint: Color = weapon_tints.get(enemy.last_damage_weapon, HIT_SPARK)
+	var spark := tint.lerp(Color.WHITE, 0.45)
+	particles.emit_sparks(enemy.global_position, spark, 2 if amount < 40.0 else 5, 150.0 + amount)
+	# A heavy blow on something big gets a flare. Not on the swarm: late in a run
+	# every hit is heavy for a rat, and a flare on each would be a white screen.
+	if (enemy.elite or enemy.boss) and amount >= enemy.max_health * 0.04:
+		particles.emit_flare(enemy.global_position, spark, 16.0 + minf(amount, 300.0) * 0.05, 0.18)
 	# The weapon that landed the blow picks the impact sound, so a lightning
 	# tick and a scythe sweep are different events to the ear as well as to the
 	# eye. Reported rather than played: an area weapon can land dozens of these
@@ -3515,6 +3552,10 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 			CONTRIBUTION_BOSS_KILL if defeated_boss else CONTRIBUTION_ELITE_KILL if was_elite else CONTRIBUTION_KILL)
 	_drop_experience(death_position, dropped_xp, dropped_grade, was_elite or defeated_boss)
 	bursts.spawn(death_position, enemy.enemy_color, 2.6 if defeated_boss else (1.7 if was_elite else 1.0))
+	# The body comes apart onto the roof: a few chips thrown up that fall and
+	# settle for a moment, so a kill leaves something behind for half a second.
+	particles.emit_chips(death_position, enemy.enemy_color.lightened(0.12),
+		8 if defeated_boss else (5 if was_elite else 2), 170.0 if defeated_boss or was_elite else 120.0)
 	# Only the named kills light the roof. An ordinary body dies several times a
 	# second in a late wave, and a light on each of them would fill the whole
 	# budget with flickers and leave nothing for the thing that earned one.

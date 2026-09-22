@@ -75,6 +75,9 @@ func item_color(item_id: String) -> Color:
 
 
 func spawn_item(spawn_position: Vector2, item_id: String) -> FieldItem:
+	# Moved out from inside or behind roof furniture, which is drawn over every
+	# drop wherever the two are sorted.
+	spawn_position = RoofLayout.clear_spot(spawn_position)
 	var item: FieldItem
 	if item_pool.is_empty():
 		item = FieldItemScript.new() as FieldItem

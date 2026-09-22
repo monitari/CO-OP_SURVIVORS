@@ -115,6 +115,10 @@ var dash_direction := Vector2.RIGHT
 var tail_phase := 0.0 ## Drives the tail sway; advanced by step_movement.
 var facing := Vector2.RIGHT ## Smoothed heading; drawing reads this, movement does not.
 var lean := 0.0 ## Signed turn rate, smoothed. Drives the body tilt.
+## A cast leaving the cat, 0 to 1 and falling back fast: the body swells for a
+## moment as the weapon goes. Every attack in the roster fires from a cat, and
+## without this the cat stood perfectly still while the roof lit up around it.
+var cast_kick := 0.0
 var footfall_timer := 0.0
 ## How far off the roof this cat's body is drawn, with the contact shadow left
 ## behind on the floor. Zero everywhere the roof is flat, which is every screen
@@ -178,6 +182,9 @@ func step_movement(delta: float) -> void:
 	# A moving cat's tail swings faster than a sitting one's.
 	var previous_phase := tail_phase
 	tail_phase += delta * (2.2 + current_input.length() * 4.5)
+	if cast_kick > 0.0:
+		cast_kick = maxf(0.0, cast_kick - delta * 6.5)
+		queue_redraw()
 	if absf(sin(tail_phase) - sin(previous_phase)) > 0.03:
 		queue_redraw()
 	dash_cooldown = maxf(0.0, dash_cooldown - delta)
@@ -298,6 +305,13 @@ func heal(healing: float) -> void:
 
 ## Regenerates health from the recovery attribute. Downed survivors are
 ## excluded — they are on the bleedout clock and only a revive brings them back.
+## A weapon just left this cat. `strength` 1 for an evolved weapon, less for a
+## base one, so a grown build is felt in the body as well as seen on the roof.
+func kick(strength := 0.6) -> void:
+	cast_kick = maxf(cast_kick, strength)
+	queue_redraw()
+
+
 func step_recovery(delta: float) -> void:
 	if downed or recovery <= 0.0 or health >= max_health:
 		return
@@ -354,7 +368,11 @@ func _probed_draw() -> void:
 	# A running bob rather than a constant squash: tail_phase already speeds up
 	# with movement, so reusing it keeps the body and the tail on one rhythm.
 	var bob := sin(tail_phase * 2.0) * 0.05 * minf(1.0, current_input.length())
-	draw_set_transform_matrix(RooftopSpace.upright_basis(self, lift + lunge) * Transform2D(tilt, Vector2.ZERO).scaled_local(Vector2(1.0 + bob, 1.0 - bob)))
+	# The cast swell: a touch wider than tall, so it reads as a push outward
+	# rather than as the cat growing.
+	var swell := cast_kick * cast_kick
+	draw_set_transform_matrix(RooftopSpace.upright_basis(self, lift + lunge) * Transform2D(tilt, Vector2.ZERO).scaled_local(
+		Vector2(1.0 + bob + swell * 0.11, 1.0 - bob + swell * 0.07)))
 	if portrait == null:
 		draw_circle(Vector2.ZERO, radius, color)
 		_draw_ears(color)
