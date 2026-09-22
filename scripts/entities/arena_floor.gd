@@ -20,7 +20,7 @@ const VIEW_MARGIN := 1400.0 ## Half-width of the drawn window; comfortably past 
 const REDRAW_STEP := 384.0 ## How far the camera travels before the window is rebuilt.
 const PROP_CELL := 512
 const EnemyIcons := preload("res://scripts/ui/enemy_icons.gd")
-const RooftopTexture := preload("res://assets/environment/moonroof_slate_tile.png")
+const RooftopTexture := preload("res://assets/environment/moonroof_slate_tile_v2.png")
 ## The boxy props throw a hard-edged shadow the length of their own height.
 ## These used to be per-prop offsets that disagreed about direction as well as
 ## length; now only the length differs, which is the part that should.

@@ -38,7 +38,7 @@ extends Node2D
 ## plane. The trapezoid is entirely the projection's doing — nothing here knows
 ## how wide its own far edge ends up.
 
-const SLATE := preload("res://assets/environment/moonroof_slate_tile.png")
+const SLATE := preload("res://assets/environment/moonroof_slate_tile_v2.png")
 ## How thick the parapet is on the ground, and how far it rises off the floor.
 const PARAPET_DEPTH := 34.0
 const PARAPET_HEIGHT := 54.0
