@@ -288,8 +288,17 @@ static func toggle_character_details(main: Node) -> void:
 static func _detail_card(parent: Control, x: float, y: float, icon_id: String, title: String, node_name: String) -> void:
 	var card := UI.plate(parent, Rect2(x, y, DETAIL_CARD_WIDTH, DETAIL_CARD_HEIGHT), Palette.CARD)
 	card.name = node_name
+	var accent := Palette.P2_INK
+	match icon_id:
+		"might": accent = Palette.DANGER_INK
+		"vitality": accent = Palette.P1_INK
+		"overcharge": accent = Palette.GOLD_INK
+	var card_style := Palette.surface(Palette.CARD)
+	card_style.set_border_width_all(2)
+	card_style.border_color = Color(accent, 0.68)
+	card.add_theme_stylebox_override("panel", card_style)
 	UI.icon(card, Icons.upgrade(icon_id), Rect2(14, 12, 30, 30))
-	UI.label(card, title, Rect2(52, 13, DETAIL_CARD_WIDTH - 60.0, 26), 17, Palette.GOLD_INK)
+	UI.label(card, title, Rect2(52, 13, DETAIL_CARD_WIDTH - 60.0, 26), 17, accent)
 	# 12px becomes 13.7px in large-text mode: still larger than the normal
 	# presentation, while keeping the longest English Utility row to four lines.
 	var value := UI.label(card, "", Rect2(14, 43, DETAIL_CARD_WIDTH - 28.0, 86), 12, Palette.INK)
@@ -332,6 +341,7 @@ static func refresh_pause(main: Node) -> void:
 	var order := [0, 7, 9, 10, 11, 12, 13, 1, 2, 3, 4, 8] if main.pause_settings else [0, 7, 5, 6]
 	for index in PAUSE_ITEM_COUNT:
 		var button: Button = screen.get_node("PauseAction%d" % index)
+		button.clip_text = true
 		button.visible = index < 2 if main.restart_pending else index in order
 		var slot: Rect2 = PAUSE_SLOTS[index]
 		if not main.pause_settings:
@@ -368,6 +378,8 @@ static func refresh_pause(main: Node) -> void:
 			button.add_theme_font_size_override("font_size", 16)
 			button.text = main.tr("취소") if index == 0 else main.tr("종료") if main.pending_quits else main.tr("메뉴로 돌아가기")
 		button.add_theme_stylebox_override("normal", Palette.button_surface("hover" if index == main.pause_cursor else "normal", Palette.GOLD, index == main.pause_cursor))
+		if main.restart_pending and index < 2:
+			UI.fit_text(button, button.text, 16, 12)
 	var details: Button = screen.get_node("PauseDetails")
 	details.visible = not main.restart_pending and not main.pause_settings
 	details.position = Vector2(20, 302)

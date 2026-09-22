@@ -13,10 +13,8 @@ extends RefCounted
 ## scales its sprite by the texture's longer edge, so empty margin would shrink
 ## the enemy on the field.
 ##
-## The checked-in art was produced in several poses: some silhouettes look to
-## the right, while the bosses and several enemies face the camera. Record that
-## authored pose instead of pretending every PNG faces +X. A future left-facing
-## asset is supported too, without another renderer special case.
+## The v2 sheet authors every creature facing right, including boss bodies.
+## The standalone planter has no directional pose.
 const FALLBACK := "chaser"
 const FACING_FRONT := 0
 const FACING_RIGHT := 1
@@ -27,13 +25,13 @@ const SOURCE_FACING := {
 	"hedgehog": FACING_RIGHT,
 	"wasp": FACING_RIGHT,
 	"mole": FACING_RIGHT,
-	"swarm": FACING_FRONT,
-	"charger": FACING_FRONT,
-	"shooter": FACING_FRONT,
-	"chain_hunter": FACING_FRONT,
-	"bulwark": FACING_FRONT,
-	"brute": FACING_FRONT,
-	"owl": FACING_FRONT,
+	"swarm": FACING_RIGHT,
+	"charger": FACING_RIGHT,
+	"shooter": FACING_RIGHT,
+	"chain_hunter": FACING_RIGHT,
+	"bulwark": FACING_RIGHT,
+	"brute": FACING_RIGHT,
+	"owl": FACING_RIGHT,
 	"planter": FACING_FRONT,
 }
 

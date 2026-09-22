@@ -37,11 +37,11 @@ func caption(parent: Control, text: String, at: Vector2, font_size: int) -> void
 
 func tile(parent: Control, texture: Texture2D, title: String, at: Vector2) -> void:
 	var art := TextureRect.new()
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.texture = texture
 	art.position = at
-	art.size = Vector2(132, 132)
-	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.size = Vector2(132, 132)
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	parent.add_child(art)
 	caption(parent, title, at + Vector2(0, 137), 16)

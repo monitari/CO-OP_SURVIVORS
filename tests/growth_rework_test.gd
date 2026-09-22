@@ -42,8 +42,21 @@ func run() -> void:
 	failing.ranks["might"] = 2
 	failing.points = 7
 	check(not failing.reset_upgrades() and failing.rank("might") == 2 and failing.points == 7, "failed reset rolls back")
+	check(not failing.discard_points() and failing.rank("might") == 2 and failing.points == 7,
+		"failed fish reset rolls back currency and keeps ranks")
 	main.title_mode = "meta"
 	main._refresh_title_ui()
+	var first_row := main.title_rows[0] as Label
+	check(first_row.horizontal_alignment == HORIZONTAL_ALIGNMENT_LEFT,
+		"permanent growth names are left aligned")
+	check(first_row.get_node("StatIcon").visible and first_row.get_node("StatIcon").texture != null,
+		"permanent growth cards use their stat asset icons")
+	check(main.title_overlay.get_node("MetaInfoDelta").visible
+		and String(main.title_overlay.get_node("MetaInfoDelta").text).contains("+"),
+		"the lower readout emphasizes the changed stat")
+	check(is_equal_approx(main.title_rows[7].position.y, main.title_rows[8].position.y)
+		and main.title_rows[7].position.x < main.title_rows[8].position.x,
+		"growth reset and fish reset sit beside each other")
 	await shot("meta")
 	main._activate_title_item(6)
 	check(main.meta_page == 1, "second growth page")
@@ -55,6 +68,17 @@ func run() -> void:
 	main._activate_title_item(7)
 	main._activate_title_item(1)
 	check(meta.rank("armor") == 0, "confirmed reset")
+	meta.points = 13
+	var rank_before_discard := meta.rank("vitality")
+	main._activate_title_item(8)
+	check(main.meta_fish_reset_pending and String(main.title_note.text).contains("되돌릴 수 없습니다"),
+		"fish reset opens a destructive warning")
+	main._activate_title_item(0)
+	check(meta.points == 13, "fish reset cancel preserves currency")
+	main._activate_title_item(8)
+	main._activate_title_item(1)
+	check(meta.points == 0 and meta.rank("vitality") == rank_before_discard,
+		"confirmed fish reset discards currency but keeps growth ranks")
 	main.title_mode = "modes"
 	main._activate_title_item(0)
 	main._start_selected_run()

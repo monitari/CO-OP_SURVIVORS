@@ -34,6 +34,7 @@ signal ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 signal damage_taken(enemy: ChaserEnemy, amount: float)
 signal chain_slam(impact_point: Vector2, damage: float, radius: float)
 signal enraged(enemy: ChaserEnemy)
+signal attack_warning(origin: Vector2)
 
 ## Past this point a pair can be carrying four weapons each, stacked personal
 ## attributes and up to three active resonances, while enemies were still only
@@ -667,10 +668,12 @@ func _step_boss(players: Array[ChainPlayer], target_position: Vector2, speed_sca
 			charge_direction = direction
 			telegraph_direction = direction
 			charge_windup = BOSS_CHARGE_WINDUP
+			attack_warning.emit(global_position)
 		else:
 			boss_slam_point = _closest_point_on_chain(players)
 			telegraph_direction = position.direction_to(boss_slam_point)
 			boss_slam_windup = BOSS_SLAM_WINDUP_ENRAGED if boss_enraged else BOSS_SLAM_WINDUP
+			attack_warning.emit(boss_slam_point)
 
 
 ## The point on the players' current chain segment closest to the boss right

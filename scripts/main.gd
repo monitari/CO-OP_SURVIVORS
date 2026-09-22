@@ -305,6 +305,7 @@ var debug_run_tainted := false
 var meta_cursor := 0
 var meta_page := 0
 var meta_reset_pending := false
+var meta_fish_reset_pending := false
 var boss_enemy: ChaserEnemy
 var camera_shake := 0.0
 ## The camera follow, before it is rounded onto the battlefield buffer's texel
@@ -338,6 +339,7 @@ var run_stats := RunStatsTemplate.create()
 var chain_max_length := 370.0
 var chain_integrity := CHAIN_INTEGRITY_MAX
 var chain_overloaded := false
+var chain_tutorial_stage := 0
 var simulation_phase := 0
 ## Opt-in frame breakdown, off during play. Timing an algorithm on its own says
 ## how fast that algorithm is, not where a frame actually goes; the performance
@@ -508,6 +510,7 @@ func _ready() -> void:
 	feedback.sound_volume = settings.sound_volume if settings.sound_enabled else 0.0
 	feedback.music_volume = settings.music_volume if settings.music_enabled else 0.0
 	feedback.refresh_music()
+	feedback.refresh_sound()
 	feedback.damage_numbers_enabled = settings.damage_numbers_enabled
 	screen_shake_enabled = settings.screen_shake_enabled
 	weapon_controller = WeaponControllerScript.new() as WeaponController
@@ -1727,6 +1730,7 @@ const TITLE_CREDITS := ["뒤로"]
 
 
 func _begin_title() -> void:
+	feedback.play_music("title")
 	title_active = true
 	_set_lobby_exit_confirm(false)
 	title_mode = "menu"
@@ -1752,18 +1756,23 @@ func _title_rows() -> Array:
 			var rows: Array = []
 			if meta_reset_pending:
 				return ["취소", "성장 초기화    사용한 생선 전액 환급"]
+			if meta_fish_reset_pending:
+				return ["취소", "생선 0개로 초기화    되돌릴 수 없음"]
 			for entry in MetaProgression.UPGRADES.slice(meta_page * 6, meta_page * 6 + 6):
 				rows.append(String(entry["name"]))
 			rows.append(tr("다음 성장 분야  %d / %d") % [meta_page + 1, ceili(MetaProgression.UPGRADES.size() / 6.0)])
 			rows.append("성장 초기화    전액 환급")
+			rows.append("생선 초기화    보유량 0")
 			return rows
 		"credits": return TITLE_CREDITS
 	return TITLE_MENU
 
 
 func _leave_title_subpage() -> void:
-	if title_mode == "meta" and meta_reset_pending:
+	feedback.play_cue("cancel")
+	if title_mode == "meta" and (meta_reset_pending or meta_fish_reset_pending):
 		meta_reset_pending = false
+		meta_fish_reset_pending = false
 		title_cursor = 0
 		_refresh_title_ui()
 		return
@@ -1837,10 +1846,14 @@ func _activate_title_item(index: int) -> void:
 			_join_lobby_slot(1, -1, "키보드 방향키")
 		return
 	if title_mode == "meta":
-		if meta_reset_pending:
+		if meta_reset_pending or meta_fish_reset_pending:
 			if index == 1:
-				meta_progression.reset_upgrades()
+				if meta_fish_reset_pending:
+					meta_progression.discard_points()
+				else:
+					meta_progression.reset_upgrades()
 			meta_reset_pending = false
+			meta_fish_reset_pending = false
 			title_cursor = 0
 			_refresh_title_ui()
 			return
@@ -1854,9 +1867,14 @@ func _activate_title_item(index: int) -> void:
 			title_cursor = 0
 			_refresh_title_ui()
 			return
+		if index == 8:
+			meta_fish_reset_pending = true
+			title_cursor = 0
+			_refresh_title_ui()
+			return
 		var entry: Dictionary = MetaProgression.UPGRADES[meta_page * 6 + index]
 		if meta_progression.purchase(String(entry["id"])):
-			feedback.play_cue("fusion")
+			feedback.play_cue("purchase")
 		_refresh_title_ui()
 		return
 	if title_mode == "credits":
@@ -2006,6 +2024,7 @@ func _cancel_growth_choice(slot: int) -> void:
 		online.request_growth_cancel()
 	elif selected_upgrade_indices[slot] >= 0 and selected_upgrade_indices[1 - slot] < 0:
 		selected_upgrade_indices[slot] = -1
+		feedback.play_cue("cancel")
 		_refresh_level_up_ui()
 
 
@@ -2058,9 +2077,10 @@ func _refresh_lobby_ui() -> void:
 func _format_lobby_slot(slot: int) -> String:
 	var heading := "P%d  ·  %s" % [slot + 1, player_label(slot)]
 	if lobby_joined[slot]:
-		return tr("%s    ✓ 참가 완료\n%s") % [heading, tr(lobby_device_names[slot])]
-	var hint := tr("WASD  /  패드 1 아무 버튼") if slot == 0 else tr("방향키  /  패드 2 아무 버튼")
-	return tr("%s    ○ 참가 대기\n%s") % [heading, hint]
+		return (tr("%s    ✓ 참가 완료\n%s") % [heading, tr(lobby_device_names[slot])]).replace("\n", "    ")
+	# The control hints are already in the footer. Keeping this card to one line
+	# prevents the second line from disappearing behind its padded paper frame.
+	return (tr("%s    ○ 참가 대기\n%s") % [heading, ""]).strip_edges()
 
 
 func _begin_character_select() -> void:
@@ -2269,6 +2289,7 @@ func _start_selected_run() -> void:
 	chain_max_length = CharacterCatalog.chain_length_for(selected_characters[0], selected_characters[1])
 	chain_integrity = CHAIN_INTEGRITY_MAX
 	chain_overloaded = false
+	chain_tutorial_stage = 0
 	chain_ward_remaining = 0.0
 	chain_ward_pulse_timer = 0.0
 	guard_remaining = 0.0
@@ -2483,7 +2504,7 @@ func _update_chain_integrity(delta: float) -> void:
 		chain_integrity = minf(CHAIN_INTEGRITY_MAX, chain_integrity + CHAIN_INTEGRITY_RECOVERY * delta)
 		if chain_overloaded and chain_integrity >= CHAIN_OVERLOAD_CLEAR:
 			chain_overloaded = false
-			feedback.play_cue("revive")
+			feedback.play_cue("chain_repaired")
 			_show_message("사슬 복구 — 과충전을 다시 쓸 수 있습니다", Color("80ed99"))
 
 
@@ -2493,7 +2514,7 @@ func _trigger_chain_overload() -> void:
 	for player in players:
 		player.hurt(CHAIN_OVERLOAD_DAMAGE, Vector2.INF, false)
 	camera_shake = maxf(camera_shake, 14.0)
-	feedback.play_cue("down")
+	feedback.play_cue("chain_overload")
 	_show_message("사슬 과부하    서로 가까이!", Color("ff5d8f"))
 
 
@@ -2517,6 +2538,15 @@ func _update_chain_visual() -> void:
 	if chain_warded():
 		stage = 0
 		chain_color = Color("fff275").lerp(Color.WHITE, 0.35 + sin(elapsed * 22.0) * 0.25)
+	# Teach the risk and the recovery on their first real use. This visual update
+	# runs on both the host and the remote client, so each player sees the cue.
+	if not (level_up_active or resonance_vote_active or pause_active or cinematic_active or game_over) and not chain_warded():
+		if chain_tutorial_stage == 0 and stage >= 2 and not chain_overloaded:
+			chain_tutorial_stage = 1
+			_show_message(tr("사슬 과충전  공격 +25% · 내구도 감소"), Color("fff275"))
+		elif chain_tutorial_stage == 1 and stage == 3:
+			chain_tutorial_stage = 2
+			_show_message(tr("붙어서 사슬 내구도를 회복하세요"), Color("80ed99"))
 	# The visible leash, its running light and the weapon hit path all come from
 	# one sampled rope. A slack tether therefore bows toward the viewer, settles
 	# close to the roof, and attacks exactly where the player sees it lying.
@@ -2723,6 +2753,8 @@ func _register_enemy(enemy: ChaserEnemy) -> void:
 		enemy.damage_taken.connect(_on_enemy_damaged)
 	if not enemy.chain_slam.is_connected(_on_boss_chain_slam):
 		enemy.chain_slam.connect(_on_boss_chain_slam)
+	if not enemy.attack_warning.is_connected(_on_boss_attack_warning):
+		enemy.attack_warning.connect(_on_boss_attack_warning)
 	if not enemy.enraged.is_connected(_on_boss_enraged):
 		enemy.enraged.connect(_on_boss_enraged)
 	if enemy not in enemies:
@@ -2853,8 +2885,13 @@ func _on_enemy_shot_broken(at: Vector2) -> void:
 ## anyone still standing inside the telegraphed impact radius when it lands.
 ## The boss crossing half health changes how the fight is played, so it gets
 ## an announcement of its own rather than passing silently.
+func _on_boss_attack_warning(origin: Vector2) -> void:
+	feedback.play_cue_at("danger", origin)
+
+
 func _on_boss_enraged(_enemy: ChaserEnemy) -> void:
-	feedback.play_cue("boss_enrage")
+	feedback.play_cue_at("boss_enrage", _enemy.global_position)
+	feedback.play_music("boss_enraged")
 	weapon_controller.play_boss_flare(_enemy.global_position, true)
 	camera_shake = maxf(camera_shake, 12.0)
 	_show_message("청소 로봇 폭주    속도 증가", Color("ff5d8f"))
@@ -2925,13 +2962,13 @@ func _apply_lifesteal(actual_damage: float) -> void:
 
 func _on_player_damaged(player: ChainPlayer, amount: float) -> void:
 	feedback.show_damage(player.global_position, amount, Color("ff8fab"))
-	feedback.play_cue("warning")
+	feedback.play_cue_at("hurt", player.global_position)
 	camera_shake = maxf(camera_shake, 7.0)
 	Input.start_joy_vibration(player.player_index - 1, 0.25, 0.55, 0.16)
 
 
 func _on_player_downed(player: ChainPlayer) -> void:
-	feedback.play_cue("down")
+	feedback.play_cue_at("down", player.global_position)
 	camera_shake = 12.0
 	_show_message(tr("%s 다운 — 18초 안에 가까이 머물러 구조하세요!") % player.character_name, Color("ff5d8f"))
 
@@ -2997,7 +3034,7 @@ func _on_player_revived(player: ChainPlayer) -> void:
 		var rescuer_index := 1 - revived_index
 		run_stats["revives_by_player"][rescuer_index] = int(run_stats["revives_by_player"][rescuer_index]) + 1
 		_award_contribution(rescuer_index, CONTRIBUTION_REVIVE)
-	feedback.play_cue("revive")
+	feedback.play_cue_at("revive", player.global_position)
 	_show_message(tr("%s 부활 — 사슬이 다시 이어집니다") % player.character_name, Color("80ed99"))
 
 
@@ -3278,6 +3315,7 @@ func _volume_step(value: float, direction := 1, wrap_choice := true) -> float:
 func _step_sound_volume(direction := 1, wrap_choice := true) -> void:
 	feedback.sound_volume = _volume_step(feedback.sound_volume, direction, wrap_choice)
 	feedback.sound_enabled = feedback.sound_volume > 0.0
+	feedback.refresh_sound()
 
 
 func _step_music_volume(direction := 1, wrap_choice := true) -> void:
@@ -3515,7 +3553,8 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		# answered by something the pair watched happen rather than by a rule.
 		if enemy.boss_rank <= ResonanceSystem.MAX_ACTIVE_RESONANCES:
 			_award_resonance_core()
-		feedback.play_music("moonlight" if enemy.boss_rank % 2 == 1 else "field")
+		var field_track := "moonlight" if enemy.boss_rank % 2 == 1 else "field"
+		feedback.play_music(field_track + ("_late" if enemy.boss_rank >= 2 else ""))
 		feedback.play_cue("victory")
 		_show_message(tr("%s 격파    남은 보스 %d    둘의 체력 +%d") % [
 			boss_name(enemy.boss_rank), wave_director.bosses_remaining(), roundi(restored)
@@ -5609,6 +5648,7 @@ func _handle_level_up_input() -> void:
 		if selected_upgrade_indices[slot] != -1:
 			if selected_upgrade_indices[slot] >= 0 and Input.is_action_just_pressed(prefix + "cancel") and selected_upgrade_indices[1 - slot] < 0:
 				selected_upgrade_indices[slot] = -1
+				feedback.play_cue("cancel")
 				_refresh_level_up_ui()
 			continue
 		if slot != focused_growth_slot():
@@ -5655,7 +5695,7 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 		return
 	if selected_upgrade_indices[slot] != -1:
 		return
-	feedback.play_cue("select")
+	feedback.play_cue("confirm")
 	selected_upgrade_indices[slot] = choice_index
 	upgrade_cursors[slot] = choice_index
 	_refresh_level_up_ui()
@@ -6095,7 +6135,7 @@ func _confirm_resonance_vote(slot: int, index: int) -> void:
 		return
 	resonance_cursors[slot] = chosen
 	resonance_votes[slot] = chosen
-	feedback.play_cue("select")
+	feedback.play_cue("confirm")
 	_resolve_resonance_votes()
 
 
@@ -6107,6 +6147,7 @@ func _cancel_resonance_vote(slot: int) -> void:
 		online.request_resonance_action("cancel", resonance_cursors[slot])
 		return
 	resonance_votes[slot] = -1
+	feedback.play_cue("cancel")
 	_refresh_resonance_vote_ui()
 	if online != null:
 		online.send_resonance_state()
@@ -6609,7 +6650,7 @@ func _handle_result_input() -> void:
 		elif Input.is_action_just_pressed("meta_buy"):
 			var entry: Dictionary = MetaProgression.UPGRADES[meta_cursor]
 			if meta_progression.purchase(String(entry["id"])):
-				feedback.play_cue("select")
+				feedback.play_cue("purchase")
 			_refresh_meta_result_ui()
 	if Input.is_action_just_pressed("restart"):
 		_retry_same_pair()
@@ -6719,8 +6760,7 @@ func _end_run(victory: bool = false, grant_rewards := true) -> void:
 	if debug_run_tainted:
 		result_overlay.get_node("ResultReason").text = "디버그 조작을 사용한 런입니다. 보상과 발견 기록은 저장되지 않습니다."
 	_update_hud()
-	feedback.stop_music()
-	feedback.play_cue("victory" if victory else "down")
+	feedback.play_music("result_win" if victory else "result_loss")
 	if online != null:
 		online.send_result(victory, grant_rewards and victory and not debug_run_tainted
 			and int(run_stats["bosses"]) >= WaveDirectorScript.BOSS_COUNT)

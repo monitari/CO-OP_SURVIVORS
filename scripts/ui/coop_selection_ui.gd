@@ -15,7 +15,7 @@ static func install(main: Node) -> void:
 	# Wrapped, not clipped: a Label with its wrapping off takes its own text as a
 	# minimum width and pushes its box open, and this sentence is wider than the
 	# column in Korean, so the box grew under the 방 만들기 button beside it.
-	UI.label(host_section, "이 PC에서 방을 열고 친구를 기다립니다", Rect2(16, 34, 290, 46),
+	UI.label(host_section, "이 PC에서 방을 열고 친구를 기다립니다", Rect2(16, 34, 290, 56),
 		Palette.TYPE_CAPTION, Palette.MUTED).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var host := Review.button(host_section, "LAN 방 만들기   [H]", Rect2(318, 18, 200, 58),
 		func() -> void: main.online.host_game())

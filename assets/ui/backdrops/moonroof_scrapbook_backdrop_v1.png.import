@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cilmiisyo1ri1"
-path="res://.godot/imported/moonroof_scrapbook_backdrop_v1.png-004b687c6752d8fce7646d6f22401dd7.ctex"
+path="res://.godot/imported/moonroof_scrapbook_backdrop_v1.png-cd2401173b9e1efea0de3442e634d72e.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/moonroof_scrapbook_backdrop_v1.png"
-dest_files=["res://.godot/imported/moonroof_scrapbook_backdrop_v1.png-004b687c6752d8fce7646d6f22401dd7.ctex"]
+source_file="res://assets/ui/backdrops/moonroof_scrapbook_backdrop_v1.png"
+dest_files=["res://.godot/imported/moonroof_scrapbook_backdrop_v1.png-cd2401173b9e1efea0de3442e634d72e.ctex"]
 
 [params]
 

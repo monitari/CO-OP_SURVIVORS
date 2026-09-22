@@ -1,6 +1,6 @@
 extends ColorRect
 ## Generated illustration and nine-slice chrome; labels stay live controls.
-const BACKDROP_ART := preload("res://assets/ui/moonroof_backdrop_v3.png")
+const BACKDROP_ART := preload("res://assets/ui/backdrops/moonroof_backdrop_v3.png")
 const CatStyle := preload("res://scripts/ui/cat_theme.gd")
 var backdrop := false
 ## A backdrop can either replace what is behind it (lobby, character select,

@@ -1,0 +1,18 @@
+{
+  "image": "enemies_sheet_v2.png",
+  "columns": 4,
+  "rows": 8,
+  "cell_size": 320,
+  "source_facing": "right",
+  "order": [
+    "chaser", "swarm", "charger", "shooter",
+    "chain_hunter", "bulwark", "brute", "rat_runner",
+    "wasp", "owl", "mole", "hedgehog",
+    "terrier", "hound", "shepherd", "coyote",
+    "wolf", "fox", "weasel", "badger",
+    "hawk", "eagle", "falcon", "stoat",
+    "viper", "cobra", "rattlesnake", "python",
+    "hornet", "scorpion", "monitor_lizard", "jackal"
+  ],
+  "separate_prop": "planter_v2.png"
+}

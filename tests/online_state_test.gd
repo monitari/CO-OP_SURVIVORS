@@ -151,6 +151,10 @@ func _run() -> void:
 		Vector2.LEFT, Vector2(20, 30), true,
 	]])
 	_check(is_instance_valid(main.boss_enemy), "client creates the replicated boss")
+	_check(main.feedback._current_track == "boss_enraged",
+		"client music follows replicated boss enrage")
+	_check(main.feedback._tone_cache.has("danger"),
+		"client hears the replicated boss windup")
 	_check(main.boss_bar.visible and is_equal_approx(float(main.boss_bar.ratio), 480.0 / 600.0),
 		"client shows the replicated boss health (%.2f of the bar)" % main.boss_bar.ratio)
 	_check(String(main.boss_bar.health_text) == "480 / 600",
@@ -271,6 +275,10 @@ func _run() -> void:
 	_check(String(ProjectSettings.get_setting("display/window/stretch/aspect", "")) == "keep",
 		"non-16:9 fullscreen keeps the authored aspect ratio")
 	paused = false
+	main.queue_free()
+	await process_frame
+	# AudioServer releases playback objects on its own clock.
+	await create_timer(0.15).timeout
 	if failures.is_empty():
 		print("ONLINE_STATE_PASS: snapshots, combat state, resonance, pause, reward, result actions and display aspect")
 		quit(0)

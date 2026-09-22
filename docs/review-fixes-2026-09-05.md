@@ -39,8 +39,8 @@ $env:CHAINBOUND_TEST_SEED = '20260905'
 ## 아트 생성 기록
 
 - 모드: 내장 imagegen (별도 CLI/API 키 사용 없음).
-- 스타일 참조: `assets/atlases/survivors.png`.
-- 최종 에셋: `assets/atlases/enemies.png`, 1774×887 RGBA. 알파 확인 완료.
+- 스타일 참조: `art/originals/cats/survivors_sheet.png`.
+- 최종 에셋: `art/originals/enemies/enemies_sheet.png`, 1774×887 RGBA. 알파 확인 완료.
 - 최초 생성은 바탕에 체크무늬가 포함되어 배경 제거 편집을 한 차례 수행. 게임은 `scripts/ui/enemy_icons.gd`의 명시적 영역과 알파 경계를 사용해 개별 그림을 추출합니다.
 
 생성 프롬프트:

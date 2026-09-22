@@ -1,8 +1,8 @@
 # 밸런스 확장 아이콘 제작 기록
 
 2026-09-06 · 내장 imagegen 사용 · 투명 PNG. 생성 결과의 배경 알파를 검사한 뒤
-개별 파일로 잘랐습니다. 제작 원본은 `art/atlases/hybrid_fusions.png`와
-`art/atlases/new_treasures.png`, 런타임 파일은 `assets/sprites/`에 있습니다.
+개별 파일로 잘랐습니다. 제작 원본은 `art/originals/weapons/hybrid_fusions_sheet.png`와
+`art/originals/upgrades/new_treasures_sheet.png`, 런타임 파일은 `assets/sprites/`에 있습니다.
 
 ## 무기+무기 합성 6종
 

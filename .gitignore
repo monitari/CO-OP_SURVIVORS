@@ -2,3 +2,4 @@
 builds/
 .godot_runtime/
 docs/screenshots/*.import
+__pycache__/

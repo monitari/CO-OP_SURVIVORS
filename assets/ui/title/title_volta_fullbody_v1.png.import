@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cmioxdgtyx2xm"
-path="res://.godot/imported/title_snapshot_tera_nova_v1.png-ae62e2b59f27cfa75f026ef3c7e50c7d.ctex"
+uid="uid://c1kvarx1ay2dm"
+path="res://.godot/imported/title_volta_fullbody_v1.png-a4d9b58c1668390b90d2f91760882281.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/title_snapshot_tera_nova_v1.png"
-dest_files=["res://.godot/imported/title_snapshot_tera_nova_v1.png-ae62e2b59f27cfa75f026ef3c7e50c7d.ctex"]
+source_file="res://assets/ui/title/title_volta_fullbody_v1.png"
+dest_files=["res://.godot/imported/title_volta_fullbody_v1.png-a4d9b58c1668390b90d2f91760882281.ctex"]
 
 [params]
 

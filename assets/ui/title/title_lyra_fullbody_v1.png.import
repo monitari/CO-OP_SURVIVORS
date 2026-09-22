@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c1kvarx1ay2dm"
-path="res://.godot/imported/title_volta_fullbody_v1.png-a1e1d0ea8765b5424750de61a0d99059.ctex"
+uid="uid://cgvc0d1jqbv1l"
+path="res://.godot/imported/title_lyra_fullbody_v1.png-7cd658d5a6c79cf1d34cfcbcbc8044e3.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/title_volta_fullbody_v1.png"
-dest_files=["res://.godot/imported/title_volta_fullbody_v1.png-a1e1d0ea8765b5424750de61a0d99059.ctex"]
+source_file="res://assets/ui/title/title_lyra_fullbody_v1.png"
+dest_files=["res://.godot/imported/title_lyra_fullbody_v1.png-7cd658d5a6c79cf1d34cfcbcbc8044e3.ctex"]
 
 [params]
 

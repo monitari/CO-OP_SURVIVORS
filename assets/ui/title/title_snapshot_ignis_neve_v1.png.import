@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dpnd1pubhgvgf"
-path="res://.godot/imported/moonroof_title_v3.png-5d4e3682a130207111fb90113b56cb1d.ctex"
+uid="uid://0pblt55ydkj3"
+path="res://.godot/imported/title_snapshot_ignis_neve_v1.png-b35dd6cf50bf1366d272af990db478ff.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/moonroof_title_v3.png"
-dest_files=["res://.godot/imported/moonroof_title_v3.png-5d4e3682a130207111fb90113b56cb1d.ctex"]
+source_file="res://assets/ui/title/title_snapshot_ignis_neve_v1.png"
+dest_files=["res://.godot/imported/title_snapshot_ignis_neve_v1.png-b35dd6cf50bf1366d272af990db478ff.ctex"]
 
 [params]
 

@@ -7,14 +7,14 @@ extends SceneTree
 
 const JOBS := [
 	{
-		"source": "res://art/originals/ui/title_lyra_fullbody_v1_raw.png",
-		"archive": "res://art/originals/ui/title_lyra_fullbody_v1.png",
-		"runtime": "res://assets/ui/title_lyra_fullbody_v1.png",
+		"source": "res://art/originals/ui/title/title_lyra_fullbody_v1_raw.png",
+		"archive": "res://art/originals/ui/title/title_lyra_fullbody_v1.png",
+		"runtime": "res://assets/ui/title/title_lyra_fullbody_v1.png",
 	},
 	{
-		"source": "res://art/originals/ui/title_volta_fullbody_v1_raw.png",
-		"archive": "res://art/originals/ui/title_volta_fullbody_v1.png",
-		"runtime": "res://assets/ui/title_volta_fullbody_v1.png",
+		"source": "res://art/originals/ui/title/title_volta_fullbody_v1_raw.png",
+		"archive": "res://art/originals/ui/title/title_volta_fullbody_v1.png",
+		"runtime": "res://assets/ui/title/title_volta_fullbody_v1.png",
 	},
 ]
 
@@ -43,17 +43,17 @@ func _init() -> void:
 			quit(1)
 			return
 		print("CHROMA_KEY_OK %s %dx%d" % [job["runtime"], target_width, target_height])
-	var backdrop := Image.load_from_file("res://art/originals/ui/moonroof_backdrop_v4.png")
+	var backdrop := Image.load_from_file("res://art/originals/ui/backdrops/moonroof_backdrop_v4.png")
 	if backdrop == null or backdrop.is_empty():
 		push_error("Cannot load generated title backdrop")
 		quit(1)
 		return
 	backdrop.resize(1280, 720, Image.INTERPOLATE_LANCZOS)
-	if backdrop.save_png("res://assets/ui/moonroof_backdrop_v4.png") != OK:
+	if backdrop.save_png("res://assets/ui/backdrops/moonroof_backdrop_v4.png") != OK:
 		push_error("Cannot save runtime title backdrop")
 		quit(1)
 		return
-	print("BACKDROP_OK res://assets/ui/moonroof_backdrop_v4.png 1280x720")
+	print("BACKDROP_OK res://assets/ui/backdrops/moonroof_backdrop_v4.png 1280x720")
 	quit()
 
 

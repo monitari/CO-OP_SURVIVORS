@@ -49,7 +49,7 @@ func _run() -> void:
 		func(encounter_id: String) -> void: seen_encounters[encounter_id] = true)
 	var level_marks: Array[float] = []
 	var last_level: int = main.progression.level
-	for frame in 4700:
+	for frame in 5600:
 		if main.progression.level != last_level:
 			last_level = main.progression.level
 			level_marks.append(main.elapsed)
@@ -77,7 +77,7 @@ func _run() -> void:
 
 	Engine.time_scale = 1.0
 	var wall_elapsed := Time.get_ticks_msec() - wall_start
-	_check(main.elapsed >= 180.0 or main.run_won, "accelerated run reaches three minutes or completes with boss victory")
+	_check(main.run_won, "the accelerated run defeats the fifth boss and reaches victory")
 	_check(main.wave_director.boss_spawned, "the run's first boss spawns on schedule (%.0fs of %.0fs)" % [main.elapsed, WaveDirector.BOSS_INTERVAL])
 	_check(main.enemies.size() <= main.wave_director.enemy_cap, "active enemy count respects cap")
 	_check(main.kills > 0, "automated pair kills enemies")
@@ -136,14 +136,14 @@ func _run() -> void:
 	# if it does not, the schedule is not actually running.
 	_check(seen_encounters.size() >= WaveDirector.ENCOUNTER_ORDER.size(),
 		"every named encounter fires over a full run (%s)" % str(seen_encounters.keys()))
-	_check(main.wave_director.bosses_spawned >= 4,
-		"the run sends its bosses on schedule (%d of %d)" % [
+	_check(main.wave_director.bosses_spawned == WaveDirector.BOSS_COUNT,
+		"the run sends all five bosses on schedule (%d of %d)" % [
 			main.wave_director.bosses_spawned, WaveDirector.BOSS_COUNT])
 	# The bot circles at a fixed radius and takes whatever card is first, so
 	# this is a floor rather than a target: if even that build cannot finish
-	# three bosses, the rank scaling has outrun what a run can produce.
-	_check(int(main.run_stats["bosses"]) >= 3,
-		"bosses stay killable as their rank climbs (%d killed)" % int(main.run_stats["bosses"]))
+	# all five bosses, the rank scaling has outrun what a run can produce.
+	_check(int(main.run_stats["bosses"]) == WaveDirector.BOSS_COUNT,
+		"the full build defeats every boss (%d killed)" % int(main.run_stats["bosses"]))
 
 	print("SOAK_METRICS: simulated=%.1fs wall=%dms kills=%d level=%d sec_per_level=%.1f early_gap=%.1f late_gap=%.1f bosses=%d killed=%d won=%s active=%d pooled_enemies=%d pooled_gems=%d archetypes=%d encounters=%d" % [
 		main.elapsed, wall_elapsed, main.kills, main.progression.level, seconds_per_level, early_gap, late_gap,

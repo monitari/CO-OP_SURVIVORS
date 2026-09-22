@@ -58,8 +58,8 @@ func _run() -> void:
 	directional.setup(0.0, "bulwark")
 	directional.rotation = PI
 	directional._update_body_facing()
-	_check(not directional.faces_along_heading and not directional.body_sprite.flip_h,
-		"front-facing bulwark art keeps its authored pose")
+	_check(directional.faces_along_heading and directional.body_sprite.flip_h,
+		"remade bulwark mirrors toward a leftward heading")
 	var remade := EnemyScript.new() as ChaserEnemy
 	remade.setup(0.0, "chaser")
 	remade.rotation = PI

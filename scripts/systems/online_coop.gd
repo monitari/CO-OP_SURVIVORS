@@ -773,7 +773,10 @@ func _apply_snapshot(payload: Dictionary) -> void:
 		game.players[slot].position = game.players[slot].position.lerp(Vector2(state["position"]), 0.55)
 		game.players[slot].health = float(state["health"])
 		game.players[slot].max_health = float(state["max_health"])
+		var was_downed: bool = game.players[slot].downed
 		game.players[slot].downed = bool(state["downed"])
+		if was_downed != game.players[slot].downed and not game.game_over:
+			game.feedback.play_cue_at("down" if game.players[slot].downed else "revive", game.players[slot].global_position)
 		game.players[slot].bleedout_remaining = float(state["bleedout"])
 		game.players[slot].revive_progress = float(state["revive"])
 		game.players[slot].queue_redraw()
@@ -781,7 +784,10 @@ func _apply_snapshot(payload: Dictionary) -> void:
 	game.kills = int(payload.get("kills", game.kills))
 	game.chain_integrity = float(payload.get("chain_integrity", game.chain_integrity))
 	game.chain_max_length = float(payload.get("chain_max_length", game.chain_max_length))
+	var was_overloaded: bool = game.chain_overloaded
 	game.chain_overloaded = bool(payload.get("chain_overloaded", game.chain_overloaded))
+	if was_overloaded != game.chain_overloaded and not game.game_over:
+		game.feedback.play_cue("chain_overload" if game.chain_overloaded else "chain_repaired")
 	game.chain_ward_remaining = float(payload.get("chain_ward_remaining", game.chain_ward_remaining))
 	game.guard_remaining = float(payload.get("guard_remaining", game.guard_remaining))
 	game.frenzy_remaining = float(payload.get("frenzy_remaining", game.frenzy_remaining))
@@ -874,6 +880,8 @@ func _clear_replicas() -> void:
 
 
 func _sync_enemies(states: Array) -> void:
+	var previous_boss_rank := int(game.boss_enemy.boss_rank) if is_instance_valid(game.boss_enemy) else 0
+	var audio_active: bool = not game.game_over and not game.title_active
 	var live: Dictionary = {}
 	var synced: Array[ChaserEnemy] = []
 	for state: Array in states:
@@ -890,6 +898,8 @@ func _sync_enemies(states: Array) -> void:
 			game.world_stage.add_child(enemy)
 			enemy.z_index = 0
 			replica_enemies[id] = enemy
+		var was_enraged := enemy.boss_enraged
+		var was_winding_up := enemy.charge_windup > 0.0 or enemy.boss_slam_windup > 0.0
 		enemy.position = enemy.position.lerp(Vector2(state[EnemyField.POSITION]), 0.65)
 		enemy.rotation = float(state[EnemyField.ROTATION])
 		enemy.health = float(state[EnemyField.HEALTH])
@@ -909,6 +919,14 @@ func _sync_enemies(states: Array) -> void:
 		enemy.telegraph_direction = Vector2(state[EnemyField.TELEGRAPH_DIRECTION])
 		enemy.boss_slam_point = Vector2(state[EnemyField.BOSS_SLAM_POINT])
 		enemy.boss_enraged = bool(state[EnemyField.BOSS_ENRAGED])
+		if enemy.boss and audio_active:
+			if enemy.boss_enraged and not was_enraged:
+				game.feedback.play_cue_at("boss_enrage", enemy.global_position)
+			if not was_winding_up and (enemy.charge_windup > 0.0 or enemy.boss_slam_windup > 0.0):
+				game.feedback.play_cue_at("danger", enemy.boss_slam_point if enemy.boss_slam_windup > 0.0 else enemy.global_position)
+			if previous_boss_rank == 0 and not enemy.boss_enraged:
+				game.feedback.play_cue("boss")
+			game.feedback.play_music("boss_enraged" if enemy.boss_enraged else "boss")
 		enemy.queue_redraw()
 		if enemy.boss:
 			game.boss_enemy = enemy
@@ -942,4 +960,7 @@ func _sync_enemies(states: Array) -> void:
 	else:
 		game.boss_enemy = null
 		game._hide_boss_readout()
+		if previous_boss_rank > 0 and audio_active:
+			var track := "moonlight" if previous_boss_rank % 2 == 1 else "field"
+			game.feedback.play_music(track + ("_late" if previous_boss_rank >= 2 else ""))
 	game.spatial_grid.rebuild(game.enemies)

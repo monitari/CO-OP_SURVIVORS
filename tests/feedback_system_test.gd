@@ -16,14 +16,17 @@ func _run() -> void:
 	await _test_tone_cache_and_player_pool()
 	await _test_cue_coverage()
 	await _test_music_slot()
+	await _test_mixing_settings()
 	await _test_synthesis_quality()
 	await _test_weapon_fire_and_impact()
 	await _test_batching_and_voices()
 	await _test_chain_limit()
 	await _test_cat_palette()
+	# The audio mixer releases stopped playback objects on its own clock.
+	await create_timer(0.15).timeout
 
 	if failures.is_empty():
-		print("FEEDBACK_TEST_PASS: damage numbers capped, tones cached, players pooled, every cue defined, music slot loops, cues are a cat-themed stereo palette at 48k, fire and impact differ per weapon, combat cues batch under a voice cap, the leash only sounds at its limit")
+		print("FEEDBACK_TEST_PASS: damage numbers capped, tones cached, players pooled, every cue defined, 80s combat loops, menu/end themes, stable volume, warning ducking and directional cues, cues are a cat-themed stereo palette at 48k, fire and impact differ per weapon, combat cues batch under a voice cap, the leash only sounds at its limit")
 		quit(0)
 	else:
 		for failure in failures:
@@ -137,6 +140,9 @@ func _test_cue_coverage() -> void:
 	for cue in feedback._tone_cache.keys():
 		var stream: AudioStreamWAV = feedback._tone_cache[cue]
 		_check(stream.data.size() > 0, "cue %s renders non-empty audio" % cue)
+	for cue: String in feedback.SIGNAL_FILES.keys():
+		_check(feedback._tone_cache[cue] == feedback._signal_streams[cue],
+			"the %s alert uses its dedicated WAV sample" % cue)
 
 	feedback.queue_free()
 	await process_frame
@@ -149,24 +155,26 @@ func _test_music_slot() -> void:
 
 	feedback.play_music("field")
 	_check(feedback._current_track == "field", "the music slot tracks what should be playing")
-	_check(feedback._music_cache.has("field"), "the field bed is rendered on first use")
+	_check(feedback._music_cache.has("field"), "the field theme loads on first use")
 	var field_stream: AudioStreamWAV = feedback._music_cache["field"]
-	_check(field_stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "a music bed loops instead of playing once")
-	_check(field_stream.data.size() > 0, "the field bed renders non-empty audio")
-	for track_id: String in feedback.MUSIC_TRACKS.keys():
-		for note: Array in (feedback.MUSIC_TRACKS[track_id] as Dictionary)["notes"]:
-			_check(String(note[4]) not in ["saw", "square"],
-				"music track %s has no repeating hard-edged pulse" % track_id)
+	_check(field_stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "the field theme loops")
+	_check(field_stream.get_length() >= 79.9, "the field phrase lasts eighty seconds")
+	_check(field_stream.data.size() > 0, "the field theme contains audio")
 
 	feedback.play_music("field")
-	_check(feedback._music_cache["field"] == field_stream, "replaying the same track reuses the rendered bed")
+	_check(feedback._music_cache["field"] == field_stream, "replaying the same track reuses its stream")
 
 	feedback.play_music("boss")
-	_check(feedback._current_track == "boss", "the boss bed replaces the field bed")
-	_check(feedback._music_cache.has("boss"), "the boss bed renders on first use")
+	_check(feedback._current_track == "boss", "the boss theme replaces the field theme")
+	_check(feedback._music_cache.has("boss"), "the boss theme loads on first use")
+	_check(feedback._music_other_player.playing and feedback._music_fade == 0.0,
+		"the prior theme keeps playing during the crossfade")
+	feedback._probed_process(feedback.MUSIC_FADE_SECONDS)
+	_check(not feedback._music_other_player.playing and feedback._music_player.playing,
+		"the old theme stops when the crossfade ends")
 	feedback.play_music("moonlight")
 	_check(feedback._current_track == "moonlight", "the alternate field theme has its own music slot")
-	_check(feedback._music_cache.has("moonlight"), "the alternate field theme renders on first use")
+	_check(feedback._music_cache.has("moonlight"), "the alternate field theme loads on first use")
 
 	feedback.stop_music()
 	_check(feedback._current_track.is_empty(), "stopping clears the current track")
@@ -231,11 +239,10 @@ func _test_synthesis_quality() -> void:
 	_check(absf(FeedbackScript._soft_clip(4.0)) <= 1.0 and absf(FeedbackScript._soft_clip(-4.0)) <= 1.0,
 		"the soft knee bounds anything handed to it")
 
-	# The beds are allowed their own rate, but they have to declare it, or they
-	# would play back at the wrong pitch.
+	# Imported music declares its sample rate, or it would play at the wrong pitch.
 	feedback.play_music("moonlight")
 	var bed: AudioStreamWAV = feedback._music_cache["moonlight"]
-	_check(bed.mix_rate == feedback.MUSIC_MIX_RATE, "a music bed carries the rate it was rendered at")
+	_check(bed.mix_rate == feedback.MUSIC_MIX_RATE, "a music stream carries the rate it was rendered at")
 
 	feedback.queue_free()
 	await process_frame
@@ -417,5 +424,111 @@ func _test_cat_palette() -> void:
 	_check(float(feedback.BELL_PARTIALS[1]) != 2.0,
 		"a bell's partials are inharmonic, which is what makes it metal rather than organ")
 
+	feedback.queue_free()
+	await process_frame
+
+
+func _test_mixing_settings() -> void:
+	var feedback := FeedbackScript.new() as FeedbackSystem
+	root.add_child(feedback)
+	await process_frame
+	feedback.set_process(false)
+	feedback.set_physics_process(false)
+	var viewport := feedback.get_viewport()
+	var inverse := viewport.get_canvas_transform().affine_inverse()
+	var width := viewport.get_visible_rect().size.x
+	feedback.play_cue_at("revive", inverse * Vector2(width * 0.1, 0))
+	_check(feedback._voices.back().bus == "SignalsLeft", "world position on the left produces a left-hand signal")
+	feedback.play_cue_at("revive", inverse * Vector2(width * 0.9, 0))
+	_check(feedback._voices.back().bus == "SignalsRight", "world position on the right produces a right-hand signal")
+	for track in feedback.MUSIC_FILES:
+		var stream := feedback._music_streams[track] as AudioStreamWAV
+		_check(stream != null and stream.data.size() > 0, "music asset exists: " + track)
+		if track not in feedback.RESULT_TRACKS and track != "title":
+			_check(is_equal_approx(stream.get_length(), 80.0), "combat arrangement has an 80-second A/B form: " + track)
+	feedback.play_music("field")
+	feedback._music_player.seek(8.0)
+	await create_timer(0.06).timeout
+	var original_player := feedback._music_player
+	feedback.music_volume = 0.25
+	feedback.refresh_music()
+	_check(feedback._music_player == original_player and not feedback._music_other_player.playing,
+		"adjusting volume does not start a duplicate copy of the song")
+	_check(feedback._music_player.get_playback_position() > 7.9, "volume changes preserve music position")
+	feedback.play_music("boss")
+	feedback._probed_process(0.4)
+	var fade_before := feedback._music_fade
+	original_player = feedback._music_player
+	feedback.music_volume = 0.5
+	feedback.refresh_music()
+	_check(feedback._music_player == original_player and is_equal_approx(feedback._music_fade, fade_before),
+		"changing volume during a transition does not restart the crossfade")
+
+	feedback.play_cue("weapon_gravity")
+	var combat: AudioStreamPlayer = feedback._voices.back()
+	_check(combat.bus == "Combat", "ordinary attacks use the duckable combat bus")
+	feedback.play_cue("down", 0.0, 1.0, -1)
+	var alert: AudioStreamPlayer = feedback._voices.back()
+	_check(alert.bus == "SignalsLeft", "left-hand alert bypasses the combat bus")
+	feedback._probed_process(0.05)
+	var music_bus := AudioServer.get_bus_index("Music")
+	var sfx_bus := AudioServer.get_bus_index("SFX")
+	var combat_bus := AudioServer.get_bus_index("Combat")
+	_check(AudioServer.get_bus_volume_db(combat_bus) < -6.0,
+		"an urgent alert lowers already playing attacks")
+	_check(AudioServer.get_bus_volume_db(music_bus) < linear_to_db(0.5) - 4.0,
+		"an urgent alert temporarily lowers the music")
+	feedback._probed_process(2.0)
+	_check(is_zero_approx(AudioServer.get_bus_volume_db(combat_bus)),
+		"combat loudness recovers after the alert")
+	_check(is_equal_approx(AudioServer.get_bus_volume_db(music_bus), linear_to_db(0.5)),
+		"duck recovery respects the selected music volume")
+
+	feedback.sound_volume = 0.25
+	feedback.refresh_sound()
+	_check(is_equal_approx(AudioServer.get_bus_volume_db(sfx_bus), linear_to_db(0.25)),
+		"SFX volume affects the whole bus including existing voices")
+	feedback.sound_enabled = false
+	feedback.refresh_sound()
+	_check(AudioServer.is_bus_mute(sfx_bus), "sound mute silences ongoing voices and directional alerts")
+	feedback.sound_enabled = true
+	feedback.refresh_sound()
+	_check(not AudioServer.is_bus_mute(sfx_bus), "unmuting restores the selected SFX volume")
+
+	feedback.music_enabled = false
+	feedback.refresh_music()
+	_check(not feedback._music_player.playing and AudioServer.is_bus_mute(music_bus), "music mute stops both sources")
+	feedback.play_music("moonlight_late")
+	feedback.music_enabled = true
+	feedback.refresh_music()
+	_check(feedback._current_track == "moonlight_late" and feedback._music_player.playing,
+		"unmuting follows a scene change that occurred while muted")
+	feedback.play_music("result_win")
+	_check(feedback._music_player.stream.loop_mode == AudioStreamWAV.LOOP_DISABLED,
+		"result music plays once rather than repeating its fanfare")
+	_check(feedback._music_player.get_playback_position() < 0.2, "results begin at the opening phrase")
+	feedback.play_music("title")
+	_check(feedback._music_player.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD, "title music loops")
+	feedback.music_enabled = false
+	feedback.refresh_music()
+	feedback.play_music("result_loss")
+	feedback.music_enabled = true
+	feedback.refresh_music()
+	_check(feedback._music_player.playing, "an ending entered while muted can still be heard after unmuting")
+
+	feedback.play_cue("kill")
+	feedback._cue_cooldowns.clear()
+	feedback.play_cue("kill")
+	var pitches: Array[float] = []
+	for voice in feedback._voices:
+		if voice.playing and voice.stream == feedback._tone_cache["kill"]:
+			pitches.append(voice.pitch_scale)
+	_check(pitches.size() == 2 and not is_equal_approx(pitches[0], pitches[1]),
+		"successive common impacts use different pitches")
+	var pattern := RegEx.new()
+	pattern.compile('play_cue\\("([^"]+)"')
+	for hit in pattern.search_all(FileAccess.get_file_as_string("res://scripts/main.gd")):
+		_check(feedback.CUE_PARAMS.has(hit.get_string(1)),
+			"every literal main-game cue is defined: " + hit.get_string(1))
 	feedback.queue_free()
 	await process_frame

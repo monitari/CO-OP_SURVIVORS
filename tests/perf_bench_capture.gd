@@ -26,7 +26,7 @@ const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Techs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
 const Growth := preload("res://scripts/systems/weapon_growth.gd")
 
-const CROWD := 620
+const CROWD := 1240
 const LOADOUTS := [["homing", "milk", "frost", "gravity"], ["flame", "orbit", "mine", "scythe"]]
 const TREASURE_SET := ["might", "area", "amount", "haste"]
 const WARMUP := 150

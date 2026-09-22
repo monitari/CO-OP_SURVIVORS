@@ -12,20 +12,18 @@ const L := preload("res://scripts/systems/loc.gd")
 ## icon and a line like "범위 118%".
 ##
 ## Sized from the longest line the roster can produce, not from a round number:
-## at 49px of text plus an 18px icon and real margins, four cells only fit that
-## column if the stride is 89 and the gap between them is 5. The previous 80/88
-## pair left the text 40px and silently cut the percent sign off every
-## three-digit stat.
+## The handwritten menu font needs up to 60px for a three-digit percentage.
+## A compact 14px icon leaves 61px of text inside each 84px cell.
 const STAT_CELL := 84.0
 const STAT_STRIDE := 89.0
-const STAT_ICON := 18.0
+const STAT_ICON := 14.0
 
-const ScrapbookBackdrop := preload("res://assets/ui/moonroof_scrapbook_backdrop_v2.png")
-const TitleLogo := preload("res://assets/ui/moonroof_title_scrapbook_v4.png")
-const SnapshotIgnisNeve := preload("res://assets/ui/title_snapshot_ignis_neve_v1.png")
-const SnapshotTeraNova := preload("res://assets/ui/title_snapshot_tera_nova_v1.png")
-const SnapshotSquad := preload("res://assets/ui/title_snapshot_squad_v1.png")
-const SnapshotPrank := preload("res://assets/ui/title_snapshot_prank_v1.png")
+const ScrapbookBackdrop := preload("res://assets/ui/backdrops/moonroof_scrapbook_backdrop_v2.png")
+const TitleLogo := preload("res://assets/ui/title/moonroof_title_scrapbook_v4.png")
+const SnapshotIgnisNeve := preload("res://assets/ui/title/title_snapshot_ignis_neve_v1.png")
+const SnapshotTeraNova := preload("res://assets/ui/title/title_snapshot_tera_nova_v1.png")
+const SnapshotSquad := preload("res://assets/ui/title/title_snapshot_squad_v1.png")
+const SnapshotPrank := preload("res://assets/ui/title/title_snapshot_prank_v1.png")
 ## The fight's readout face. Everything the HUD asks you to read at a glance —
 ## the clock, the boss timer, the wave and kill counts, the meter captions, both
 ## health bars and the carried-item levels — is set in it rather than in the
@@ -249,6 +247,24 @@ static func _title(main: Node) -> void:
 		state.name = "State"
 		state.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var stat_icon := icon(row, null, Rect2(12, 10, 36, 36))
+		stat_icon.name = "StatIcon"
+		stat_icon.visible = false
+	# Permanent growth uses this compact readout instead of a paragraph. The
+	# changed stat gets the strongest colour and the wallet stays on the right.
+	var meta_icon := icon(screen, null, Rect2(282, 502, 48, 48))
+	meta_icon.name = "MetaInfoIcon"
+	meta_icon.visible = false
+	var meta_name := label(screen, "", Rect2(344, 491, 350, 28), 16, Palette.INK)
+	meta_name.name = "MetaInfoName"
+	meta_name.visible = false
+	var meta_delta := label(screen, "", Rect2(344, 519, 350, 42), 23, Palette.P1_INK)
+	meta_delta.name = "MetaInfoDelta"
+	meta_delta.visible = false
+	var meta_cost := label(screen, "", Rect2(702, 493, 198, 66), 16, Palette.GOLD_INK)
+	meta_cost.name = "MetaInfoCost"
+	meta_cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	meta_cost.visible = false
 	# Tall enough for the credits, which is the longest of the three pages.
 	place(main.title_note, G.inner(0, 0, 5.0, 3.9, 5.8, 2.3), 15, Palette.MUTED)
 	var version_text := String(ProjectSettings.get_setting("application/config/version", "개발판"))
@@ -276,6 +292,18 @@ static func _snapshot(parent: Control, node_name: String, texture: Texture2D,
 	parent.add_child(photo)
 	photo.setup(texture, "", Palette.INK)
 	photo.subject.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+
+
+## Stat families keep the same accent everywhere they are compared: red is
+## offense, teal is survival, amber is tempo/economy, orange is utility/co-op.
+static func _meta_accent(id: String) -> Color:
+	if id in ["might", "crit"]:
+		return Palette.DANGER_INK
+	if id in ["vitality", "armor", "recovery"]:
+		return Palette.P1_INK
+	if id in ["haste", "move", "luck"]:
+		return Palette.GOLD_INK
+	return Palette.P2_INK
 
 
 static func refresh_title(main: Node) -> void:
@@ -328,6 +356,7 @@ static func refresh_title(main: Node) -> void:
 		place(main.title_note, Rect2(264, 482, 656, 100), 15, Palette.INK)
 		main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		main.title_note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		main.title_note.add_theme_color_override("font_color", Palette.INK)
 	elif settings_page:
 		var note := Palette.surface(Palette.PAPER_SHADE, 2)
 		note.shadow_size = 0
@@ -355,14 +384,16 @@ static func refresh_title(main: Node) -> void:
 			row.pivot_offset = row.size * 0.5
 			row.rotation = TITLE_MENU_TILT[index]
 		elif meta:
-			if main.meta_reset_pending:
+			if main.meta_reset_pending or main.meta_fish_reset_pending:
 				place(row, Rect2(344, 240 + index * 72, 496, 56), 18)
 			elif index < 6:
 				var column: int = index % 2
 				var grid_row: int = index / 2
 				place(row, Rect2(264 + column * 336, 144 + grid_row * 64, 320, 56), 15)
+			elif index == 6:
+				place(row, Rect2(264, 352, 656, 54), 17)
 			else:
-				place(row, Rect2(264, 352 + (index - 6) * 62, 656, 54), 17)
+				place(row, Rect2(264 + (index - 7) * 336, 414, 320, 54), 15)
 		elif credits:
 			place(row, Rect2(392, 512, 400, 52), 19)
 		elif main.title_mode == "modes":
@@ -373,7 +404,7 @@ static func refresh_title(main: Node) -> void:
 			place(row, Rect2(264 + column * 336, 148 + grid_row * 54, 320, 46), 15)
 		else:
 			place(row, Rect2(304, 128 + index * 58, 576, 50), 17)
-		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if settings_page else HORIZONTAL_ALIGNMENT_CENTER
+		row.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if settings_page or meta else HORIZONTAL_ALIGNMENT_CENTER
 		row.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.visible = index < rows.size()
 		if not row.visible:
@@ -382,6 +413,9 @@ static func refresh_title(main: Node) -> void:
 		# Toggles carry their own state on the row. A settings list that only
 		# names the setting makes a player press it to find out what it was.
 		var state: Label = row.get_node("State")
+		var stat_icon: TextureRect = row.get_node("StatIcon")
+		stat_icon.visible = false
+		state.position = Vector2.ZERO
 		state.size = Vector2(row.size.x - 22, row.size.y)
 		state.text = ""
 		if settings_page and index == 0:
@@ -411,13 +445,17 @@ static func refresh_title(main: Node) -> void:
 		elif settings_page and index == 9:
 			state.text = main.language_label()
 			state.add_theme_color_override("font_color", Palette.GOLD_INK)
-		elif main.title_mode == "meta" and not main.meta_reset_pending and index < 6:
+		elif main.title_mode == "meta" and not (main.meta_reset_pending or main.meta_fish_reset_pending) and index < 6:
 			var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + index]
 			var id := String(entry["id"])
 			var rank: int = main.meta_progression.rank(id)
 			var price: int = main.meta_progression.cost(id)
-			state.text = L.f("Lv.%d/%d    %s", [rank, int(entry["max_rank"]), "MAX" if price <= 0 else L.f("%d개", price)])
+			state.position = Vector2(176, 0)
+			state.size = Vector2(row.size.x - 194, row.size.y)
+			state.text = L.f("Lv.%d/%d  ·  %s", [rank, int(entry["max_rank"]), "MAX" if price <= 0 else L.f("%d개", price)])
 			state.add_theme_color_override("font_color", Palette.GOLD_INK if price <= main.meta_progression.points and price > 0 else Palette.MUTED)
+			stat_icon.texture = Icons.upgrade(id)
+			stat_icon.visible = true
 		row.text = ("▶  " if main.title_cursor == index and not menu else "") + main.tr(caption)
 		var focused: bool = main.title_cursor == index
 		# Paper cards; the one under the cursor is coloured in with a marker and
@@ -430,9 +468,21 @@ static func refresh_title(main: Node) -> void:
 		# stack's gaps apart.
 		style.content_margin_top = 2
 		style.content_margin_bottom = 2
+		if meta and not (main.meta_reset_pending or main.meta_fish_reset_pending) and index < 6:
+			var meta_entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + index]
+			var accent := _meta_accent(String(meta_entry["id"]))
+			style.content_margin_left = 56
+			style.content_margin_right = 138
+			style.border_color = accent if focused else Color(accent, 0.45)
 		if not menu and not focused:
 			style.shadow_offset = Vector2(2, 3)
 		row.add_theme_stylebox_override("normal", style)
+	var meta_info_icon := main.title_overlay.get_node("MetaInfoIcon") as TextureRect
+	var meta_info_name := main.title_overlay.get_node("MetaInfoName") as Label
+	var meta_info_delta := main.title_overlay.get_node("MetaInfoDelta") as Label
+	var meta_info_cost := main.title_overlay.get_node("MetaInfoCost") as Label
+	for item in [meta_info_icon, meta_info_name, meta_info_delta, meta_info_cost]:
+		item.visible = false
 	match main.title_mode:
 		"menu":
 			main.title_note.text = ""
@@ -445,15 +495,36 @@ static func refresh_title(main: Node) -> void:
 				main.title_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 				main.title_note.text = "저장할 수 없습니다. 저장 공간과 폴더 권한을 확인해 주세요."
 		"meta":
-			if main.meta_reset_pending or main.title_cursor == 7:
-				main.title_note.text = L.f("성장 초기화 · 사용한 생선 %d개 전액 환급 · 발견한 무기 기록 유지", main.meta_progression.refund_value())
+			if main.meta_fish_reset_pending or main.title_cursor == 8:
+				main.title_note.text = L.f("경고: 보유한 달빛 생선 %d개를 모두 버립니다.\n성장 단계와 발견 기록은 유지되며, 이 작업은 되돌릴 수 없습니다.", main.meta_progression.points)
+				main.title_note.add_theme_color_override("font_color", Palette.DANGER_INK)
+			elif main.meta_reset_pending or main.title_cursor == 7:
+				main.title_note.text = L.f("성장 단계 초기화 · 사용한 생선 %d개 전액 환급\n발견한 무기와 보유 생선은 유지됩니다.", main.meta_progression.refund_value())
 			elif main.title_cursor == 6:
-				main.title_note.text = "성장 분야 전환    기초: 체력·위력·공속·이동·자력·행운    전문화: 방어·재생·치명·범위·지속·구조"
+				main.title_note.text = "성장 분야 전환    기초 ↔ 전문화"
 			else:
 				var entry: Dictionary = MetaProgressionData.UPGRADES[main.meta_page * 6 + main.title_cursor]
-				main.title_note.text = L.f("보유 %d 달빛 생선    ·    %s\n%s · 단계마다 적용 · 다음 원정부터 반영", [
-					main.meta_progression.points, L.t(String(entry["name"])), L.t(String(entry["summary"]))])
+				var id := String(entry["id"])
+				var rank: int = main.meta_progression.rank(id)
+				var price: int = main.meta_progression.cost(id)
+				var capped: bool = price <= 0
+				main.title_note.text = ""
+				meta_info_icon.texture = Icons.upgrade(id)
+				meta_info_icon.visible = true
+				meta_info_name.text = L.f("%s    Lv.%d → %s", [L.t(String(entry["name"])), rank,
+					"MAX" if capped else "Lv.%d" % (rank + 1)])
+				meta_info_name.visible = true
+				meta_info_delta.text = L.t("최대 성장 완료") if capped else L.t(String(entry["summary"]))
+				meta_info_delta.add_theme_color_override("font_color", _meta_accent(id))
+				meta_info_delta.visible = true
+				meta_info_cost.text = L.f("보유 %d\n%s", [main.meta_progression.points,
+					"MAX" if capped else L.f("비용 %d", price)])
+				meta_info_cost.add_theme_color_override("font_color", Palette.GOLD_INK
+					if capped or price <= main.meta_progression.points else Palette.DANGER_INK)
+				meta_info_cost.visible = true
 			if main.meta_progression.last_save_error != OK:
+				for item in [meta_info_icon, meta_info_name, meta_info_delta, meta_info_cost]:
+					item.visible = false
 				main.title_note.text = "저장할 수 없습니다. 진행 상황은 변경되지 않았어요.\n\n저장 공간과 폴더 권한을 확인한 뒤 다시 시도해 주세요."
 		"credits":
 			main.title_note.text = "달빛 옥상 간식 수호대\n\n사슬로 묶인 두 고양이가\n달빛 든 옥상을 지키는 2인 협동 서바이버\n\n기획 · 프로그래밍 · 아트    monitari\n엔진    Godot 4\n\n함께 놀아준 모두에게 고맙습니다."
@@ -629,11 +700,11 @@ static func _characters(main: Node) -> void:
 			stat_bed.name = "CatStatBed%d_%d" % [slot, stat]
 			stat_bed.add_theme_stylebox_override("panel", _chip_surface())
 			icon(screen, Icons.upgrade(String(entry["icon"])),
-				Rect2(cell_x + 6.0, cell_y + 11.0, STAT_ICON, STAT_ICON)
+				Rect2(cell_x + 4.0, cell_y + 13.0, STAT_ICON, STAT_ICON)
 			).name = "CatStatIcon%d_%d" % [slot, stat]
 			var value := label(screen, "", Rect2(
-				cell_x + 6.0 + STAT_ICON + 4.0, cell_y + 4.0,
-				STAT_CELL - STAT_ICON - 16.0, 32), 11)
+				cell_x + 4.0 + STAT_ICON + 2.0, cell_y + 4.0,
+				STAT_CELL - STAT_ICON - 9.0, 32), 11)
 			value.name = "CatStat%d_%d" % [slot, stat]
 		var body: Label = main.character_p1_label if slot == 0 else main.character_p2_label
 		place(body, Rect2(x + 240, card.position.y + 176, 304, 88), 14)
@@ -648,7 +719,7 @@ static func _characters(main: Node) -> void:
 	leash.name = "ChainPlate"
 	icon(leash, Icons.upgrade("resolve"), Rect2(8, 4, 24, 24))
 	label(leash, "연결 거리", Rect2(40, 4, 88, 24), 12, Palette.MUTED)
-	var leash_value := label(leash, "", Rect2(144, 4, 120, 24), 17)
+	var leash_value := label(leash, "", Rect2(132, 4, 140, 24), 17)
 	leash_value.name = "ChainLength"
 	place(main.character_synergy_label,
 		Rect2(312, 560, 848, 32),
@@ -726,7 +797,7 @@ static func refresh_characters(main: Node) -> void:
 			portrait_bed.size = Vector2(160, 216)
 			portrait.position = Vector2(x + 24, panel.position.y + 56)
 			portrait.size = Vector2(144, 200)
-			body.text = "%s  ·  %s\n%s\n\n%s" % [
+			body.text = "%s  ·  %s\n%s\n%s" % [
 				main.tr("시작 무기"), main.tr(String(cat["weapon_name"])),
 				main.tr(String(PLAYSTYLE.get(String(cat["weapon_id"]), "자동 공격"))),
 				main._chain_note(cat)]
@@ -1034,7 +1105,7 @@ static func _hud(main: Node) -> void:
 	# The English readout grows to 16px in large-text mode. Give its left edge
 	# the otherwise unused gap beside the clock so "Wave" cannot be clipped by
 	# the right-aligned kill count.
-	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + SHARED_WIDTH - 144.0, SHARED_TOP + 9.0, 130.0, 26.0), 14, Palette.INK)
+	var wave_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + SHARED_WIDTH - 162.0, SHARED_TOP + 9.0, 148.0, 26.0), 14, Palette.INK)
 	wave_readout.name = "WaveReadout"
 	wave_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var objective_readout := label(main.combat_hud, "", Rect2(SHARED_LEFT + 14.0, SHARED_TOP + 9.0, 116.0, 26.0), 13, Palette.GOLD_INK)
@@ -1330,6 +1401,7 @@ static func _results(main: Node) -> void:
 		var player_stats := label(screen, "", Rect2(x + 92, 285, half.size.x - 108, 40), 12, Palette.MUTED)
 		player_stats.name = "ResultPlayerStats%d" % slot
 		player_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		player_stats.add_theme_font_override("font", ReadoutFont)
 		for index in 4:
 			var weapon_x := x + 92 + index * 82
 			icon(screen, null, Rect2(weapon_x, 330, 44, 44)).name = "ResultWeapon%d_%d" % [slot, index]
@@ -1341,9 +1413,10 @@ static func _results(main: Node) -> void:
 	# to two lines, so at its old 430 it finished six pixels inside the clear
 	# reward line under it.
 	label(screen, "함께 지킨 기록    획득물", Rect2(G.GUTTER, 398, wide, 22), 16, Palette.GOLD_INK)
-	var coop := label(screen, "", Rect2(G.GUTTER, 422, wide, 44), 15, Palette.MUTED)
+	var coop := label(screen, "", Rect2(G.GUTTER, 422, wide, 44), 13, Palette.MUTED)
 	coop.name = "CoopRecord"
 	coop.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	coop.add_theme_font_override("font", ReadoutFont)
 	var meta_title := label(screen, "", Rect2(G.GUTTER, 468, wide, 22), 16, Palette.GOLD_INK)
 	meta_title.name = "MetaTitle"
 	for index in 6:
@@ -1361,6 +1434,7 @@ static func _results(main: Node) -> void:
 	# Sized to its own text rather than to the panel: an 850px plate holding one
 	# centred phrase read as two empty boxes with a button wedged between them.
 	place(main.result_label, Rect2(G.GUTTER, 616, wide, 18), 13, Palette.MUTED)
+	main.result_label.add_theme_font_override("font", ReadoutFont)
 	main.result_label.remove_theme_stylebox_override("normal")
 	main.result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 

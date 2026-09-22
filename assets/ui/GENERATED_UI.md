@@ -11,20 +11,20 @@ keyboard/gamepad/mouse navigation keep working.
 The title screen and menu backdrops share the same flat, outlined rendering as
 the runtime cat portraits.
 
-- Background source: `art/originals/ui/moonroof_backdrop_v3.png` (1672 x 941)
-- Background runtime: `assets/ui/moonroof_backdrop_v3.png` (1280 x 720)
-- Logo source: `art/originals/ui/moonroof_title_v3.png` (1774 x 887)
-- Logo runtime: `assets/ui/moonroof_title_v3.png` (1024 x 512, transparent)
+- Background source: `art/originals/ui/backdrops/moonroof_backdrop_v3.png` (1672 x 941)
+- Background runtime: `assets/ui/backdrops/moonroof_backdrop_v3.png` (1280 x 720)
+- Logo source: `art/originals/ui/title/moonroof_title_v3.png` (1774 x 887)
+- Logo runtime: `assets/ui/title/moonroof_title_v3.png` (1024 x 512, transparent)
 - Final prompts and selection notes: `art/prompts/ui-main-visual-v3.md`
 
 ## Static title composition v4
 
-- Simplified background source: `art/originals/ui/moonroof_backdrop_v4.png`
-- Simplified background runtime: `assets/ui/moonroof_backdrop_v4.png` (1280 x 720)
-- Lyra source: `art/originals/ui/title_lyra_fullbody_v1.png`
-- Lyra runtime: `assets/ui/title_lyra_fullbody_v1.png` (transparent, 768 px high)
-- Volta source: `art/originals/ui/title_volta_fullbody_v1.png`
-- Volta runtime: `assets/ui/title_volta_fullbody_v1.png` (transparent, 768 px high)
+- Simplified background source: `art/originals/ui/backdrops/moonroof_backdrop_v4.png`
+- Simplified background runtime: `assets/ui/backdrops/moonroof_backdrop_v4.png` (1280 x 720)
+- Lyra source: `art/originals/ui/title/title_lyra_fullbody_v1.png`
+- Lyra runtime: `assets/ui/title/title_lyra_fullbody_v1.png` (transparent, 768 px high)
+- Volta source: `art/originals/ui/title/title_volta_fullbody_v1.png`
+- Volta runtime: `assets/ui/title/title_volta_fullbody_v1.png` (transparent, 768 px high)
 - Final prompts and selection notes: `art/prompts/ui-title-cats-v1.md`
 - Runtime layout: static logo, one full-body cat on each side, no floating head
   portraits, no procedural title stars or character bobbing.
@@ -62,9 +62,9 @@ texture not mockup screenshot.
 ## character_panel_v3.png
 
 Status: runtime copy removed — menu panels are now drawn as translucent overlays
-(`CatTheme.image_surface`). The source stays under `art/originals/ui/`.
+(`CatTheme.image_surface`). The source stays under `art/originals/ui/frames/`.
 
-- Source: `art/originals/ui/character_panel_v3.png` (1536 x 1024)
+- Source: `art/originals/ui/frames/character_panel_v3.png` (1536 x 1024)
 - Runtime: `assets/ui/character_panel_v3.png` (384 x 256)
 - Godot use: shared `StyleBoxTexture` with 16 px texture margins
 

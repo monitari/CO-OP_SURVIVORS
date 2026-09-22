@@ -760,7 +760,9 @@ spend it next expedition"
 "피해 완전 회피","피해 완전 회피","Ignore damage outright"
 "치명타 1회 무효","치명타 1회 무효","Negates one fatal hit"
 "공격 축 추가","공격 축 추가","Adds an attack axis"
-"예상 화력 +%d%%","예상 화력 +%d%%","Projected damage +%d%%"
+"예상 화력 +%d%%","예상 화력 +%d%%","Est. DPS +%d%%"
+"사슬 과충전  공격 +25% · 내구도 감소","사슬 과충전  공격 +25% · 내구도 감소","Chain overcharge  +25% damage · durability drains"
+"붙어서 사슬 내구도를 회복하세요","붙어서 사슬 내구도를 회복하세요","Stay close to restore chain durability"
 "후속 무기 준비","후속 무기 준비","Sets up your next weapon"
 "%s   마지막 칸","%s   마지막 칸","%s   last slot"
 "%s   빈 칸 %d","%s   빈 칸 %d","%s   %d slots free"
@@ -1045,3 +1047,21 @@ Level %d — requires %s Lv.%d"
 "%s Lv.%d가 진화에 필요합니다","%s Lv.%d가 진화에 필요합니다","Requires %s Lv.%d to evolve"
 "%s 진화 재료","%s 진화 재료","Evolution material for %s"
 "%s 조합","%s 조합","Combine with %s"
+"생선 초기화    보유량 0","생선 초기화    보유량 0","Reset Fish    set held to 0"
+"생선 0개로 초기화    되돌릴 수 없음","생선 0개로 초기화    되돌릴 수 없음","Set fish to 0    cannot be undone"
+"경고: 보유한 달빛 생선 %d개를 모두 버립니다.
+성장 단계와 발견 기록은 유지되며, 이 작업은 되돌릴 수 없습니다.","경고: 보유한 달빛 생선 %d개를 모두 버립니다.
+성장 단계와 발견 기록은 유지되며, 이 작업은 되돌릴 수 없습니다.","Warning: all %d held Moonfish will be discarded.
+Growth ranks and discoveries remain. This cannot be undone."
+"성장 단계 초기화 · 사용한 생선 %d개 전액 환급
+발견한 무기와 보유 생선은 유지됩니다.","성장 단계 초기화 · 사용한 생선 %d개 전액 환급
+발견한 무기와 보유 생선은 유지됩니다.","Reset growth ranks · refund all %d spent fish
+Discovered weapons and held fish remain."
+"성장 분야 전환    기초 ↔ 전문화","성장 분야 전환    기초 ↔ 전문화","Switch growth field    Core ↔ Specialization"
+"최대 성장 완료","최대 성장 완료","Growth complete"
+"비용 %d","비용 %d","Cost %d"
+"%s    Lv.%d → %s","%s    Lv.%d → %s","%s    Lv.%d → %s"
+"보유 %d
+%s","보유 %d
+%s","Held %d
+%s"

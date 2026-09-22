@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ib8a0j6frsku"
-path="res://.godot/imported/moonroof_backdrop_v3.png-cd3949aa6754f6adc12e7234f0a9b96f.ctex"
+uid="uid://bjkrmhmq77uxn"
+path="res://.godot/imported/title_snapshot_prank_v1.png-8366a6afff4de39026861269a821f147.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/moonroof_backdrop_v3.png"
-dest_files=["res://.godot/imported/moonroof_backdrop_v3.png-cd3949aa6754f6adc12e7234f0a9b96f.ctex"]
+source_file="res://assets/ui/title/title_snapshot_prank_v1.png"
+dest_files=["res://.godot/imported/title_snapshot_prank_v1.png-8366a6afff4de39026861269a821f147.ctex"]
 
 [params]
 

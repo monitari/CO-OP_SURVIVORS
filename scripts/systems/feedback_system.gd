@@ -1,10 +1,10 @@
 class_name FeedbackSystem
 extends Node2D
 
-## All audio is synthesised at runtime — the project ships no sound files — so
-## a cue is described by a waveform, a frequency sweep and an envelope rather
-## than by a sample. Each distinct cue is rendered once and cached; playback
-## reuses a pool of AudioStreamPlayers so a busy fight does not allocate.
+## Combat cues are synthesised at runtime from waveforms, sweeps and envelopes.
+## The longer music phrases are rendered ahead of time by tools/generate_music.py
+## so changing combat state never synthesises seconds of audio on the main thread.
+## Each cue is rendered once and cached; playback reuses AudioStreamPlayers.
 ##
 ## **The palette is a cat's, not an oscillator's.** Raw saw and square waves are
 ## what a synthesiser sounds like when nobody has decided what it is playing,
@@ -43,12 +43,28 @@ extends Node2D
 ## old 22 kHz meant every stream was resampled on its way out and put its own
 ## Nyquist at 11 kHz, right in the middle of where a bell's shine lives.
 const MIX_RATE := 48000
-## The music beds render at half that, deliberately. They are bass and bells
-## with nothing above 1 kHz in them, so 24 kHz is transparent for the material —
-## and a bed is rendered at the moment the run changes state, where the cost of
-## synthesising eight seconds of audio in GDScript is a hitch the player feels.
-## Cues are short enough that their cost never shows.
+## The source music files are 24 kHz mono; every instrument is deliberately
+## band-limited below that rate's Nyquist frequency.
 const MUSIC_MIX_RATE := 24000
+const MUSIC_FADE_SECONDS := 1.5
+const MUSIC_FILES := {
+	"field": "res://assets/audio/field.wav",
+	"field_late": "res://assets/audio/field_late.wav",
+	"moonlight_late": "res://assets/audio/moonlight_late.wav",
+	"moonlight": "res://assets/audio/moonlight.wav",
+	"boss": "res://assets/audio/boss.wav",
+	"boss_enraged": "res://assets/audio/boss_enraged.wav",
+	"title": "res://assets/audio/title.wav",
+	"result_win": "res://assets/audio/result_win.wav",
+	"result_loss": "res://assets/audio/result_loss.wav",
+}
+const RESULT_TRACKS := ["result_win", "result_loss"]
+const ALERT_CUES := ["down", "chain_overload", "boss", "boss_enrage", "danger"]
+const VARIANT_PITCHES := [1.0, 0.975, 1.02, 0.99]
+const SIGNAL_FILES := {
+	"down": "res://assets/audio/down.wav",
+	"chain_strained": "res://assets/audio/chain_strained.wav",
+}
 
 ## An AoE hitting dozens of enemies used to spawn one Label + one Tween per
 ## hit in the same physics tick. The number is still legible well below this
@@ -117,6 +133,11 @@ const CUE_PARAMS := {
 	# Browsing and committing need to sound different, or a menu that two
 	# people drive at once gives no feedback about which of them just acted.
 	"select": {"freq": 784.0, "to": 1175.0, "dur": 0.11, "vol": 0.11, "wave": "chime", "curve": 2.0, "prio": 6},
+	"confirm": {"freq": 659.0, "to": 988.0, "dur": 0.22, "vol": 0.13, "wave": "pluck", "prio": 6},
+	"cancel": {"freq": 660.0, "to": 440.0, "dur": 0.14, "vol": 0.10, "wave": "pluck", "prio": 6},
+	"purchase": {"freq": 880.0, "to": 1760.0, "dur": 0.38, "vol": 0.18, "wave": "chime", "tail": 0.15, "prio": 7},
+	"hurt": {"freq": 240.0, "to": 120.0, "dur": 0.15, "vol": 0.17, "wave": "pat", "gap": 0.08, "prio": 8},
+	"danger": {"freq": 440.0, "to": 220.0, "dur": 0.32, "vol": 0.20, "wave": "bell", "gap": 0.5, "prio": 9},
 	"reroll": {"freq": 392.0, "to": 784.0, "dur": 0.20, "vol": 0.13, "wave": "pluck", "curve": 1.5, "prio": 6},
 	"dash": {"freq": 1400.0, "to": 520.0, "dur": 0.16, "vol": 0.11, "wave": "air", "curve": 2.0, "prio": 4},
 	"resonance": {"freq": 659.0, "to": 1318.0, "dur": 0.52, "vol": 0.22, "wave": "chime", "curve": 1.0, "attack": 0.012, "tail": 0.30, "prio": 9},
@@ -273,39 +294,6 @@ const PLUCK_DAMPING := 0.996
 const MEW_FORMANTS := [2.6, 5.4]
 const MEW_RESONANCE := 0.16
 
-## Looping beds, rendered from note lists the same way cues are rendered from
-## sweeps. Entries are [start seconds, frequency, duration, volume, waveform].
-const MUSIC_TRACKS := {
-	"field": {
-		"length": 4.0,
-		"notes": [
-			[0.0, 440.0, 0.35, 0.05, "sine"], [0.5, 523.25, 0.35, 0.05, "sine"],
-			[1.0, 659.25, 0.35, 0.05, "sine"], [1.5, 523.25, 0.35, 0.05, "sine"],
-			[2.0, 440.0, 0.35, 0.05, "sine"], [2.5, 659.25, 0.35, 0.05, "sine"],
-			[3.0, 392.0, 0.35, 0.05, "sine"], [3.5, 659.25, 0.35, 0.05, "sine"],
-		],
-	},
-	"boss": {
-		"length": 3.0,
-		"notes": [
-			[0.0, 293.66, 0.20, 0.05, "sine"], [0.75, 415.30, 0.20, 0.05, "sine"],
-			[1.5, 293.66, 0.20, 0.05, "sine"], [2.25, 415.30, 0.20, 0.05, "sine"],
-		],
-	},
-	# A second field theme appears after odd-numbered boss checkpoints. Its
-	# syncopated bell melody stays light without a metronomic low-frequency pulse.
-	"moonlight": {
-		"length": 8.0,
-		"notes": [
-			[0.0, 587.33, 0.24, 0.045, "sine"], [0.75, 783.99, 0.18, 0.045, "sine"],
-			[1.5, 659.25, 0.30, 0.05, "sine"], [2.5, 880.0, 0.20, 0.045, "sine"],
-			[3.25, 739.99, 0.30, 0.05, "sine"], [4.0, 659.25, 0.22, 0.045, "sine"],
-			[5.0, 987.77, 0.18, 0.05, "sine"], [5.75, 880.0, 0.26, 0.045, "sine"],
-			[6.5, 739.99, 0.28, 0.05, "sine"], [7.25, 587.33, 0.38, 0.05, "sine"],
-		],
-	},
-}
-
 var sound_enabled := true
 var music_enabled := true
 var sound_volume := 0.75
@@ -317,6 +305,8 @@ var damage_numbers_this_frame := 0
 var _cue_cooldowns: Dictionary = {}
 var _tone_cache: Dictionary = {}
 var _music_cache: Dictionary = {}
+var _music_streams: Dictionary = {}
+var _signal_streams: Dictionary = {}
 var _player_pool: Array[AudioStreamPlayer] = []
 ## Every voice ever created, idle or sounding, which is what the cap counts and
 ## what a steal picks from.
@@ -327,7 +317,14 @@ var _voice_priority: Dictionary = {}
 ## end of it as one cue apiece.
 var _batched: Dictionary = {}
 var _music_player: AudioStreamPlayer
+var _music_other_player: AudioStreamPlayer
 var _current_track := ""
+var _music_fade := 1.0
+var _duck_remaining := 0.0
+var _duck_amount := 0.0
+var _cue_variants: Dictionary = {}
+var _muted_music_position := 0.0
+var _muted_track := ""
 ## The synthesiser's own source of randomness, kept off the global one on
 ## purpose. The noise-based generators draw thousands of values per cue, and a
 ## cue renders the first time it happens to be played — so sharing the global
@@ -339,15 +336,23 @@ var _noise_source := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_noise_source.seed = 0x6D6F6F6E
+	for track_id in MUSIC_FILES:
+		_music_streams[track_id] = load(String(MUSIC_FILES[track_id]))
+	for cue in SIGNAL_FILES:
+		_signal_streams[cue] = load(String(SIGNAL_FILES[cue]))
 	_ensure_buses()
 	_music_player = AudioStreamPlayer.new()
 	_music_player.bus = "Music"
-	_refresh_volume()
 	add_child(_music_player)
+	_music_other_player = AudioStreamPlayer.new()
+	_music_other_player.bus = "Music"
+	add_child(_music_other_player)
+	_refresh_volume()
+	refresh_sound()
 
 
-## Separate SFX and Music buses so the two can be balanced (and later exposed
-## as sliders) independently. Created at runtime because the project has no
+## SFX owns the user volume; Combat is its duckable child. Directional alerts
+## bypass Combat so a warning stays clear while attacks recede. Created at runtime because the project has no
 ## bus layout resource to ship.
 ##
 ## The SFX bus also carries a limiter, which is the last line of defence behind
@@ -356,13 +361,17 @@ func _ready() -> void:
 ## scale and clipping — digital clipping being the harshest sound this game is
 ## capable of making.
 func _ensure_buses() -> void:
-	for bus_name in ["SFX", "Music"]:
+	for bus_name in ["SFX", "Music", "Combat", "SignalsLeft", "SignalsRight"]:
 		if AudioServer.get_bus_index(bus_name) >= 0:
 			continue
 		var index := AudioServer.bus_count
 		AudioServer.add_bus(index)
 		AudioServer.set_bus_name(index, bus_name)
-		AudioServer.set_bus_send(index, "Master")
+		AudioServer.set_bus_send(index, "SFX" if bus_name in ["Combat", "SignalsLeft", "SignalsRight"] else "Master")
+		if bus_name in ["SignalsLeft", "SignalsRight"]:
+			var panner := AudioEffectPanner.new()
+			panner.pan = -0.45 if bus_name == "SignalsLeft" else 0.45
+			AudioServer.add_bus_effect(index, panner)
 		if bus_name == "SFX":
 			var limiter := _make_limiter()
 			if limiter != null:
@@ -396,6 +405,16 @@ func _process(delta: float) -> void:
 
 
 func _probed_process(delta: float) -> void:
+	if _duck_remaining > 0.0 or _duck_amount > 0.0:
+		_duck_remaining = maxf(0.0, _duck_remaining - delta)
+		_duck_amount = move_toward(_duck_amount, 1.0 if _duck_remaining > 0.0 else 0.0,
+			delta / (0.04 if _duck_remaining > 0.0 else 0.45))
+		_refresh_mix()
+	if _music_fade < 1.0:
+		_music_fade = minf(1.0, _music_fade + delta / MUSIC_FADE_SECONDS)
+		_refresh_volume()
+		if _music_fade >= 1.0:
+			_music_other_player.stop()
 	for cue in _cue_cooldowns.keys():
 		var remaining: float = float(_cue_cooldowns[cue]) - delta
 		if remaining <= 0.0:
@@ -407,8 +426,8 @@ func _probed_process(delta: float) -> void:
 ## Plays a cue now. `gain_db` and `pitch` exist for the batched flush, which
 ## needs the same rendered waveform to carry a different weight — a stream is
 ## cached per cue, never per loudness.
-func play_cue(cue: String, gain_db := 0.0, pitch := 1.0) -> void:
-	if not sound_enabled:
+func play_cue(cue: String, gain_db := 0.0, pitch := 1.0, direction := 0) -> void:
+	if not sound_enabled or sound_volume <= 0.0:
 		return
 	if _cue_cooldowns.has(cue):
 		return
@@ -423,14 +442,32 @@ func play_cue(cue: String, gain_db := 0.0, pitch := 1.0) -> void:
 	# synthesising it here means the first time it *does* win is not also the
 	# first time it is built.
 	if not _tone_cache.has(cue):
-		_tone_cache[cue] = _render_cue(params)
+		var sample := _signal_streams.get(cue) as AudioStreamWAV
+		_tone_cache[cue] = sample if sample != null else _render_cue(params)
 	var player := _acquire_player(int(params.get("prio", DEFAULT_PRIORITY)))
 	if player == null:
 		return
 	player.stream = _tone_cache[cue]
-	player.volume_db = -5.0 + gain_db + linear_to_db(maxf(sound_volume, 0.001))
+	var combat := cue == "hit" or cue == "kill" or cue == "xp" or cue == "dash" or cue.begins_with("weapon_") or cue.begins_with("impact_") or cue in ["mine_blast", "gravity_pull", "gravity_collapse", "chain_snap"]
+	player.bus = "Combat" if combat else ("SignalsLeft" if direction < 0 else ("SignalsRight" if direction > 0 else "SFX"))
+	if cue == "hit" or cue == "kill" or cue.begins_with("impact_"):
+		var variant := int(_cue_variants.get(cue, 0))
+		pitch *= float(VARIANT_PITCHES[variant % VARIANT_PITCHES.size()])
+		_cue_variants[cue] = variant + 1
+	player.volume_db = -5.0 + gain_db
 	player.pitch_scale = pitch
 	player.play()
+	if cue in ALERT_CUES:
+		_duck_remaining = maxf(_duck_remaining, player.stream.get_length() / pitch + 0.15)
+
+
+## Screen-relative and gentle: both ears can still hear urgent cues.
+func play_cue_at(cue: String, world_position: Vector2) -> void:
+	var viewport := get_viewport()
+	var screen_position := viewport.get_canvas_transform() * world_position
+	var width := viewport.get_visible_rect().size.x
+	var direction := -1 if screen_position.x < width * 0.4 else (1 if screen_position.x > width * 0.6 else 0)
+	play_cue(cue, 0.0, 1.0, direction)
 
 
 ## Convenience wrappers so callers name the thing that happened rather than
@@ -511,37 +548,108 @@ func play_chain_limit(stage: int, previous_stage: int) -> void:
 func play_music(track_id: String) -> void:
 	if track_id == _current_track:
 		return
+	var previous_track := _current_track
+	if track_id == "title" or track_id in RESULT_TRACKS:
+		_duck_remaining = 0.0
+		_duck_amount = 0.0
+		_batched.clear()
+		for voice in _voices:
+			voice.stop()
+		_player_pool.assign(_voices)
 	_current_track = track_id
-	if not music_enabled or not MUSIC_TRACKS.has(track_id):
+	if not music_enabled or music_volume <= 0.0 or not MUSIC_FILES.has(track_id):
+		_muted_track = track_id
+		_muted_music_position = 0.0
 		_music_player.stop()
+		_music_other_player.stop()
 		return
 	if not _music_cache.has(track_id):
-		_music_cache[track_id] = _render_music(MUSIC_TRACKS[track_id])
+		var stream := _music_streams.get(track_id) as AudioStreamWAV
+		if stream == null:
+			push_error("Missing music track: " + track_id)
+			return
+		stream.loop_mode = AudioStreamWAV.LOOP_DISABLED if track_id in RESULT_TRACKS else AudioStreamWAV.LOOP_FORWARD
+		stream.loop_begin = 0
+		stream.loop_end = roundi(stream.get_length() * stream.mix_rate)
+		_music_cache[track_id] = stream
+	var from_position := _music_player.get_playback_position() if _music_player.playing else 0.0
+	# Combat arrangements share a timeline; menus and endings start at their opening.
+	if previous_track == "title" or track_id == "title" or previous_track in RESULT_TRACKS or track_id in RESULT_TRACKS:
+		from_position = 0.0
+	if _muted_track == track_id:
+		from_position = _muted_music_position
+	_muted_track = ""
+	if _music_player.playing:
+		var previous := _music_player
+		_music_player = _music_other_player
+		_music_other_player = previous
+		_music_fade = 0.0
+	else:
+		_music_other_player.stop()
+		_music_fade = 1.0
+	_music_player.stop()
 	_music_player.stream = _music_cache[track_id]
-	_music_player.play()
+	_music_player.play(fposmod(from_position, _music_player.stream.get_length()))
+	_refresh_volume()
 
 
 func stop_music() -> void:
 	_current_track = ""
+	_muted_track = ""
 	_music_player.stop()
+	_music_other_player.stop()
+	_music_fade = 1.0
 
 
 ## Re-applies the music toggle without losing which track should be playing,
 ## so flipping it off and on again resumes the right bed.
 func refresh_music() -> void:
 	_refresh_volume()
-	var track := _current_track
-	_current_track = ""
-	if music_enabled and not track.is_empty():
-		play_music(track)
-	else:
-		_current_track = track
+	if not music_enabled or music_volume <= 0.0:
+		if _music_player.playing:
+			_muted_track = _current_track
+			_muted_music_position = _music_player.get_playback_position()
 		_music_player.stop()
+		_music_other_player.stop()
+		_music_fade = 1.0
+	elif not _current_track.is_empty() and not _music_player.playing:
+		# A completed ending stays completed when its volume is adjusted.
+		if _current_track in RESULT_TRACKS and _muted_track != _current_track:
+			return
+		var track := _current_track
+		_current_track = ""
+		play_music(track)
+
+
+func refresh_sound() -> void:
+	var index := AudioServer.get_bus_index("SFX")
+	if index < 0:
+		return
+	AudioServer.set_bus_mute(index, not sound_enabled or sound_volume <= 0.0)
+	AudioServer.set_bus_volume_db(index, linear_to_db(maxf(sound_volume, 0.001)))
+	if not sound_enabled or sound_volume <= 0.0:
+		_batched.clear()
+		_duck_remaining = 0.0
+		_duck_amount = 0.0
+		_refresh_mix()
+
+
+func _refresh_mix() -> void:
+	var music_index := AudioServer.get_bus_index("Music")
+	if music_index >= 0:
+		AudioServer.set_bus_mute(music_index, not music_enabled or music_volume <= 0.0)
+		AudioServer.set_bus_volume_db(music_index, linear_to_db(maxf(music_volume, 0.001)) - 5.0 * _duck_amount)
+	var combat_index := AudioServer.get_bus_index("Combat")
+	if combat_index >= 0:
+		AudioServer.set_bus_volume_db(combat_index, -7.0 * _duck_amount)
 
 
 func _refresh_volume() -> void:
+	_refresh_mix()
 	if _music_player != null:
-		_music_player.volume_db = -14.0 + linear_to_db(maxf(music_volume, 0.001))
+		_music_player.volume_db = -10.0 + linear_to_db(maxf(_music_fade, 0.001))
+	if _music_other_player != null:
+		_music_other_player.volume_db = -10.0 + linear_to_db(maxf(1.0 - _music_fade, 0.001))
 
 
 func show_damage(world_position: Vector2, amount: float, color: Color = Color.WHITE) -> void:
@@ -604,7 +712,7 @@ func _render_cue(params: Dictionary) -> AudioStreamWAV:
 	for index in frames:
 		bytes.encode_s16(index * 4, int(_soft_clip(left[index] * trim) * 32767.0))
 		bytes.encode_s16(index * 4 + 2, int(_soft_clip(right[index] * trim) * 32767.0))
-	return _make_stream(bytes, false, MIX_RATE, true)
+	return _make_stream(bytes)
 
 
 ## One channel's worth of a cue, at `pitch_ratio` times its written pitch.
@@ -750,51 +858,12 @@ func _partial_stack(phase: float, progress: float, ratios: Array, gains: Array, 
 	return value / maxf(0.001, total) * 1.7
 
 
-func _render_music(track: Dictionary) -> AudioStreamWAV:
-	var length := float(track["length"])
-	var sample_count := maxi(1, int(length * MUSIC_MIX_RATE))
-	var mix := PackedFloat32Array()
-	mix.resize(sample_count)
-
-	for entry in track["notes"]:
-		var note: Array = entry
-		var start := int(float(note[0]) * MUSIC_MIX_RATE)
-		var freq := float(note[1])
-		var note_samples := int(float(note[2]) * MUSIC_MIX_RATE)
-		var volume := float(note[3])
-		var shape: int = int(SHAPES.get(String(note[4]), SHAPE_SINE))
-		var step := freq / float(MUSIC_MIX_RATE)
-		var phase := 0.0
-		for offset in note_samples:
-			var index := start + offset
-			if index >= sample_count:
-				break
-			phase = fposmod(phase + step, 1.0)
-			# Soft attack as well as decay: a hard edge on a looping bed
-			# reads as a click every time the note starts.
-			var progress := float(offset) / float(note_samples)
-			var envelope := minf(1.0, progress * 12.0) * pow(1.0 - progress, 1.5)
-			mix[index] += _wave_sample(shape, phase, step) * envelope * volume
-
-	var bytes := PackedByteArray()
-	bytes.resize(sample_count * 2)
-	for index in sample_count:
-		bytes.encode_s16(index * 2, int(_soft_clip(mix[index]) * 32767.0))
-	return _make_stream(bytes, true, MUSIC_MIX_RATE, false)
-
-
-func _make_stream(bytes: PackedByteArray, looping: bool, rate: int, stereo: bool) -> AudioStreamWAV:
+func _make_stream(bytes: PackedByteArray) -> AudioStreamWAV:
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = rate
-	stream.stereo = stereo
+	stream.mix_rate = MIX_RATE
+	stream.stereo = true
 	stream.data = bytes
-	if looping:
-		stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		stream.loop_begin = 0
-		# Counted in frames, which is the same number as samples only while the
-		# stream is mono.
-		stream.loop_end = bytes.size() / (4 if stereo else 2)
 	return stream
 
 

@@ -4,10 +4,10 @@ Generated with the built-in `image_gen` workflow on 2026-09-14.
 
 Outputs:
 
-- `art/originals/ui/moonroof_backdrop_v3.png`
-- `art/originals/ui/moonroof_title_v3.png`
-- `assets/ui/moonroof_backdrop_v3.png`
-- `assets/ui/moonroof_title_v3.png`
+- `art/originals/ui/backdrops/moonroof_backdrop_v3.png`
+- `art/originals/ui/title/moonroof_title_v3.png`
+- `assets/ui/backdrops/moonroof_backdrop_v3.png`
+- `assets/ui/title/moonroof_title_v3.png`
 
 ## Background prompt
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dnsx33drgtmbt"
-path="res://.godot/imported/moonroof_title_scrapbook_v4.png-cdbe6406fe8d1fc35c62ff6b510cc2cc.ctex"
+uid="uid://dpnd1pubhgvgf"
+path="res://.godot/imported/moonroof_title_v3.png-aa6837aa978878402e1275db789a6e3a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/moonroof_title_scrapbook_v4.png"
-dest_files=["res://.godot/imported/moonroof_title_scrapbook_v4.png-cdbe6406fe8d1fc35c62ff6b510cc2cc.ctex"]
+source_file="res://assets/ui/title/moonroof_title_v3.png"
+dest_files=["res://.godot/imported/moonroof_title_v3.png-aa6837aa978878402e1275db789a6e3a.ctex"]
 
 [params]
 

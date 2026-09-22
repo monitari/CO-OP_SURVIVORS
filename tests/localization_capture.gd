@@ -40,7 +40,7 @@ func run() -> void:
 
 	main.lobby_joined.assign([true, true])
 	main.lobby_devices.assign([0, 1])
-	main._begin_character_select()
+	main._finish_lobby()
 	main._refresh_character_select_ui()
 	await shot("character")
 

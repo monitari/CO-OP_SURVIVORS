@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cgvc0d1jqbv1l"
-path="res://.godot/imported/title_lyra_fullbody_v1.png-67f87648b06bc955006888886caf5734.ctex"
+uid="uid://dd1jhftciounx"
+path="res://.godot/imported/moonroof_scrapbook_backdrop_v2.png-903d6b1212e03ab65871dc3d932c6a80.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/title_lyra_fullbody_v1.png"
-dest_files=["res://.godot/imported/title_lyra_fullbody_v1.png-67f87648b06bc955006888886caf5734.ctex"]
+source_file="res://assets/ui/backdrops/moonroof_scrapbook_backdrop_v2.png"
+dest_files=["res://.godot/imported/moonroof_scrapbook_backdrop_v2.png-903d6b1212e03ab65871dc3d932c6a80.ctex"]
 
 [params]
 

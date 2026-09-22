@@ -185,6 +185,17 @@ func reset_upgrades() -> bool:
 	return true
 
 
+## Deliberately discards only unspent currency. Permanent ranks and discoveries
+## stay intact; saving is transactional so a failed write cannot eat the fish.
+func discard_points() -> bool:
+	var previous := points
+	points = 0
+	if save_progress() != OK:
+		points = previous
+		return false
+	return true
+
+
 func mark_discovered(fusion_id: String) -> void:
 	if fusion_id.is_empty() or discoveries.has(fusion_id):
 		return

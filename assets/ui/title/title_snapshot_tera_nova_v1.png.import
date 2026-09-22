@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bjkrmhmq77uxn"
-path="res://.godot/imported/title_snapshot_prank_v1.png-4ea0d833078c181a940f6c6c64348b3e.ctex"
+uid="uid://cmioxdgtyx2xm"
+path="res://.godot/imported/title_snapshot_tera_nova_v1.png-fe94129f1abf9be13600c9fb15383bbf.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ui/title_snapshot_prank_v1.png"
-dest_files=["res://.godot/imported/title_snapshot_prank_v1.png-4ea0d833078c181a940f6c6c64348b3e.ctex"]
+source_file="res://assets/ui/title/title_snapshot_tera_nova_v1.png"
+dest_files=["res://.godot/imported/title_snapshot_tera_nova_v1.png-fe94129f1abf9be13600c9fb15383bbf.ctex"]
 
 [params]
 
