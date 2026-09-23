@@ -39,6 +39,48 @@ const INK := Color(0.05, 0.09, 0.12, 0.6)
 ## the cardboard and the milk crate were the brightest things on screen, which
 ## on a night roof is the actors' and the drops' place, not the furniture's.
 const VALUE_CAP := 0.7
+## The painted props. Every kind shares one texture, so a crowded roof batches
+## them and they share one mip chain; the individual PNGs stay in
+## assets/environment/props for editing. Built by
+## scripts/tools/normalize_roof_prop_sprites.gd from art/originals.
+const PROP_ATLAS: Texture2D = preload("res://assets/environment/roof_props_atlas.png")
+## Where each kind sits in the atlas, in game units. The atlas holds SPRITE_TEXELS
+## texels per unit, so a sprite is sharp at the ~1.5 screen pixels per unit a
+## 1080p window shows the roof at, and the mip chain handles zooming out.
+const PROP_REGIONS := {
+	"water_tower": Rect2(0, 0, 116, 222),
+	"laundry": Rect2(118, 0, 224, 128),
+	"lights": Rect2(344, 0, 268, 118),
+	"antenna": Rect2(614, 0, 80, 204),
+	"tree_pot": Rect2(696, 0, 112, 212),
+	"parasol": Rect2(810, 0, 128, 186),
+	"chimney": Rect2(0, 224, 62, 170),
+	"ac_unit": Rect2(64, 224, 100, 100),
+	"boxes": Rect2(166, 224, 88, 126),
+	"milk_crate": Rect2(256, 224, 66, 84),
+	"garden": Rect2(324, 224, 158, 104),
+	"bench": Rect2(484, 224, 128, 104),
+	"turbine": Rect2(614, 224, 56, 88),
+	"cat_house": Rect2(672, 224, 80, 120),
+	"fish_rack": Rect2(754, 224, 148, 102),
+	"pots": Rect2(0, 396, 96, 98),
+	"solar": Rect2(98, 396, 112, 96),
+	"skylight": Rect2(212, 396, 118, 82),
+	"dish": Rect2(332, 396, 76, 104),
+}
+const SPRITE_TEXELS := 2.0
+## Transparent margin under every sprite, so its visible foot sits on the origin.
+const SPRITE_BOTTOM_PAD := 4.0
+## Painted sprites or the drawn shapes. The shapes stay as the fallback and for
+## side-by-side comparison, the way the moonlight pass keeps its off switch.
+static var painted := true
+## Kinds that still redraw while on screen once painted: the parts of them that
+## move or glow (smoke, a warning light, bulbs, fireflies) are drawn over the
+## sprite each frame. Everything else is one texture quad drawn once.
+const PAINTED_MOTION := ["chimney", "antenna", "lights", "tree_pot", "garden"]
+## Constant lean in the shared wind, for the tall and leafy. Applied as a shear
+## of the whole node, like a knock, so it costs no redraw.
+const WIND_LEAN := {"tree_pot": 0.025, "antenna": 0.012}
 ## The colour a piece near string lights or a lit skylight takes on its lit
 ## edges, so the roof's two lights — cold moon, warm lamps — touch the same things.
 const WARM_RIM := Color("ffc98a")
@@ -107,6 +149,8 @@ func setup(piece_kind: String, at: Vector2, piece_variant := 0) -> void:
 	cover = info.get("cover", Rect2())
 	tall = bool(info.get("tall", false))
 	animated = bool(info.get("animated", false))
+	if painted and (PROP_REGIONS.has(kind) or kind == "water_tower_back"):
+		animated = kind in PAINTED_MOTION
 	phase = float(variant % 997) * 0.173
 	z_index = 0
 	queue_redraw()
@@ -132,6 +176,8 @@ func screen_rect() -> Rect2:
 ## how a post or a pot reacts, and it costs a transform rather than a redraw.
 func stand_upright(basis: Transform2D) -> void:
 	var lean := jolt * float(WOBBLE.get(kind, 0.035)) * sin(clock * 17.0 + phase) * jolt_side
+	if painted:
+		lean += wind * float(WIND_LEAN.get(kind, 0.0))
 	transform = Transform2D(basis.x, basis.y + Vector2(lean * basis.y.y, 0.0), ground)
 
 
@@ -143,6 +189,8 @@ func _draw() -> void:
 
 func _probed_draw() -> void:
 	drawn_jolt = jolt
+	if painted and _draw_painted():
+		return
 	match kind:
 		"water_tower":
 			_draw_water_tower()
@@ -184,6 +232,95 @@ func _probed_draw() -> void:
 			_draw_skylight()
 		"dish":
 			_draw_dish()
+
+
+# --- Painted sprites ------------------------------------------------------------
+
+## Draws the painted version of this kind, and anything on it that moves. False
+## when there is no sprite for it, so the drawn shapes take over.
+func _draw_painted() -> bool:
+	# The painted water tower has all four stilts in one picture; its back-stilt
+	# node has nothing left to draw.
+	if kind == "water_tower_back":
+		return true
+	if not PROP_REGIONS.has(kind):
+		return false
+	var region: Rect2 = PROP_REGIONS[kind]
+	var source := Rect2(region.position * SPRITE_TEXELS, region.size * SPRITE_TEXELS)
+	var place := Rect2(Vector2(-region.size.x * 0.5, -region.size.y + SPRITE_BOTTOM_PAD), region.size)
+	draw_texture_rect_region(PROP_ATLAS, place, source, _sprite_tint())
+	match kind:
+		"chimney":
+			_smoke(Vector2(0.0, -region.size.y + SPRITE_BOTTOM_PAD - 2.0))
+		"antenna":
+			_warning_light(Vector2(0.0, -region.size.y + SPRITE_BOTTOM_PAD + 6.0))
+		"lights":
+			_bulb_glow(region.size)
+		"tree_pot":
+			var crown := Vector2(0.0, -region.size.y * 0.66)
+			_fireflies(crown, 60.0, 3)
+			_shaken_leaves([crown + Vector2(-24, -20), crown + Vector2(18, -8), crown + Vector2(0, 26)])
+		"garden":
+			_fireflies(Vector2(0.0, -region.size.y * 0.55), 70.0, 2)
+	return true
+
+
+## The sprites are painted for the moonlit roof already, so the only grade they
+## take is the lamp warmth of pieces standing near the roof's warm lights.
+func _sprite_tint() -> Color:
+	return Color.WHITE.lerp(WARM_RIM, warmth * 0.14)
+
+
+func _smoke(flue: Vector2) -> void:
+	for puff in 5:
+		var life := fmod(clock * 0.3 + float(puff) * 0.2 + phase, 1.0)
+		var at := flue + Vector2((wind * 38.0 + 16.0 + jolt * jolt_side * 40.0) * life + sin(life * 6.0 + float(puff)) * 4.0, -78.0 * life)
+		var alpha := 0.2 * (1.0 - life) * smoothstep(0.0, 0.12, life)
+		draw_circle(at, 7.0 + 16.0 * life, Color(0.74, 0.8, 0.88, alpha))
+
+
+func _warning_light(tip: Vector2) -> void:
+	if fmod(clock * 0.8 + phase, 1.0) < 0.18:
+		draw_circle(tip, 12.0, Color("ff4d5e", 0.2))
+		draw_circle(tip, 6.0, Color("ff4d5e", 0.35))
+		draw_circle(tip, 2.6, Color("ffb3ba"))
+
+
+## The painted bulbs are lit already; this is the breath on top of them — a soft
+## halo along the sag of the cable that swells and dims bulb by bulb, and two
+## moths. Kept faint, because it is laid over the painting rather than on the
+## bulbs' exact pixels.
+func _bulb_glow(size: Vector2) -> void:
+	var left := Vector2(-size.x * 0.4, -size.y * 0.8)
+	var right := Vector2(size.x * 0.4, -size.y * 0.8)
+	var sag := size.y * 0.16 + _knock(8.0) * 6.0
+	for bulb in 9:
+		var t := (float(bulb) + 0.5) / 9.0
+		var at := left.lerp(right, t) + Vector2(0.0, sag * 4.0 * t * (1.0 - t) + 8.0)
+		var tone: Color = WARM[(bulb + variant) % WARM.size()]
+		var bright := 0.6 + 0.4 * sin(clock * 2.4 + float(bulb) * 1.9 + phase)
+		draw_circle(at, 12.0, Color(tone, 0.07 * bright))
+		draw_circle(at, 6.0, Color(tone, 0.12 * bright))
+	for moth in 2:
+		var t := (2.5 + float(moth) * 4.0) / 9.0
+		var home := left.lerp(right, t) + Vector2(0.0, sag * 4.0 * t * (1.0 - t) + 8.0)
+		var loop := clock * (3.1 + float(moth)) + phase + float(moth) * 2.0
+		var at := home + Vector2(cos(loop) * 11.0, sin(loop * 1.7) * 7.0) * (1.0 + jolt * 3.0)
+		draw_circle(at, 1.7, Color(0.95, 0.92, 0.84, 0.85))
+		draw_line(at + Vector2(-2.6, -1.0), at + Vector2(2.6, -1.0), Color(0.95, 0.92, 0.84, 0.6), 1.0)
+
+
+## A knocked tree lets a few leaves go; they drift down as the knock fades.
+func _shaken_leaves(crown: Array) -> void:
+	if jolt <= 0.02:
+		return
+	var fall := 1.0 - jolt
+	for leaf in 5:
+		var loose: Vector2 = crown[leaf % crown.size()] + Vector2((float(leaf) - 2.0) * 10.0, 8.0)
+		var at := loose + Vector2(sin(fall * 6.0 + float(leaf)) * 10.0, fall * 100.0)
+		draw_set_transform(at, fall * 5.0 + float(leaf), Vector2(1.0, 0.5))
+		draw_circle(Vector2.ZERO, 4.0, Color(_g(LEAF, 0.1), clampf(jolt * 1.6, 0.0, 1.0)))
+		draw_set_transform(Vector2.ZERO)
 
 
 # --- Shared vocabulary ---------------------------------------------------------

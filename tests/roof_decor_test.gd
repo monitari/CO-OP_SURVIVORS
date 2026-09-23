@@ -32,6 +32,7 @@ func capture(label: String) -> void:
 
 func run() -> void:
 	_check_layout()
+	_check_painted_atlas()
 	var main = MainScene.instantiate()
 	root.add_child(main)
 	await process_frame
@@ -109,10 +110,37 @@ func _check_layout() -> void:
 	check(buried == 0, "clear_spot always finds open roof close by (%d misses)" % buried)
 	check(clustered == 0, "No random vignette lands on the opening (%d did)" % clustered)
 	check(crowded == 0, "No two pieces stand in the same spot (%d pairs)" % crowded)
-	# Roughly 0.72 vignettes of ~2.2 pieces per 640 cell: enough that a screen
-	# always has something on it, not so many the fight has nowhere to go.
+	# Roughly 0.34 vignettes of ~2.2 pieces per 640 cell. The painted silhouettes
+	# stay readable because the roof now gives each cluster more negative space.
 	var per_cell := float(pieces.size()) / 400.0
-	check(per_cell > 1.0 and per_cell < 2.4, "Furniture density stays in its band (%.2f per cell)" % per_cell)
+	check(per_cell > 0.45 and per_cell < 1.25, "Furniture density stays in its band (%.2f per cell)" % per_cell)
+
+
+## Every kind has a painted sprite, inside the atlas, whose feet actually reach
+## the ground point. A sprite floating a few texels above its origin would stand
+## a few units above its own shadow.
+func _check_painted_atlas() -> void:
+	var atlas: Image = RoofDecor.PROP_ATLAS.get_image()
+	check(atlas.get_size() == Vector2i(1024, 512) * int(RoofDecor.SPRITE_TEXELS),
+		"The atlas holds the sprites at their authored density (%s)" % str(atlas.get_size()))
+	for kind in RoofLayout.KINDS.keys():
+		check(RoofDecor.PROP_REGIONS.has(kind), "%s has a painted sprite" % kind)
+		if not RoofDecor.PROP_REGIONS.has(kind):
+			continue
+		var region: Rect2 = RoofDecor.PROP_REGIONS[kind]
+		var texels := Rect2i(Vector2i(region.position * RoofDecor.SPRITE_TEXELS), Vector2i(region.size * RoofDecor.SPRITE_TEXELS))
+		check(Rect2i(Vector2i.ZERO, atlas.get_size()).encloses(texels), "%s lies inside the atlas" % kind)
+		var lowest := -1
+		for y in range(texels.end.y - 1, texels.position.y, -1):
+			for x in range(texels.position.x, texels.end.x, 2):
+				if atlas.get_pixel(x, y).a > 0.5:
+					lowest = y
+					break
+			if lowest >= 0:
+				break
+		var gap := float(texels.end.y - 1 - lowest) / RoofDecor.SPRITE_TEXELS
+		check(lowest >= 0 and absf(gap - RoofDecor.SPRITE_BOTTOM_PAD) <= 2.0,
+			"%s stands on its origin (feet %.1f units above the pad)" % [kind, gap - RoofDecor.SPRITE_BOTTOM_PAD])
 
 
 func _check_every_kind_draws(main) -> void:

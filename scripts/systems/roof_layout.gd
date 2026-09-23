@@ -29,7 +29,10 @@ const CELL := 640
 ## vignette reach about 200 either way, so two neighbouring vignettes are always
 ## separated by walkable roof rather than merging into one wall.
 const CLUSTER_MARGIN := 240.0
-const CLUSTER_CHANCE := 0.72
+## Painted props have strong silhouettes, so they need more breathing room than
+## the old procedural furniture. Roughly one in three cells gets a vignette;
+## the hand-placed opening landmarks are unaffected.
+const CLUSTER_CHANCE := 0.34
 ## Random vignettes keep out of the opening. The home layout below owns it, and
 ## the first movement lesson needs the terrace clear.
 const HOME_KEEP_OUT := Rect2(-900.0, -660.0, 1800.0, 1320.0)
