@@ -124,6 +124,21 @@ const OFFSCREEN_AI_BATCHES := 6
 ## accelerated one does not.
 const MAX_STAGGER_DELTA := 0.02
 
+## Hit stop. The world runs at this fraction of its speed while a blow lands —
+## not a full freeze, because a dead-stopped screen in a game with six hundred
+## bodies on it reads as a dropped frame rather than as impact.
+const HIT_STOP_SCALE := 0.18
+## What each kind of event is worth. A heavy blow on an elite is the common case
+## and stays short enough to disappear into the rhythm of a fight; a boss dying
+## is the one moment in a run worth stopping for. The player being hit is in
+## between: it has to be felt, but it arrives when the player is already in
+## trouble and a long stop there steals the recovery they are reaching for.
+const HIT_STOP_HEAVY := 0.045
+const HIT_STOP_PLAYER := 0.06
+const HIT_STOP_BOSS_DEATH := 0.13
+## Nothing may spend longer than this stopped, however the events pile up.
+const HIT_STOP_CEILING := 0.16
+
 ## P1 confirms with W and P2 with the up arrow — the same keys they move
 ## with. Without a beat of dead time the screen appearing mid-stride reads
 ## a movement key as a card confirmation and picks for them.
@@ -311,6 +326,15 @@ var meta_reset_pending := false
 var meta_fish_reset_pending := false
 var boss_enemy: ChaserEnemy
 var camera_shake := 0.0
+## Seconds of hit stop still owed. The roof already shook on a heavy blow, but
+## a shake moves the frame the hit is drawn in without holding it: the flare and
+## the sparks were gone by the time the eye arrived. Slowing the world to a
+## crawl for a few frames is what lets a blow land, and it costs nothing to draw.
+##
+## Owed rather than counted down as a freeze so a second blow inside the window
+## extends it instead of restarting it — a boss taking two hits in a tick should
+## read as one heavier event, not two stutters.
+var hit_stop_remaining := 0.0
 ## The camera follow, before it is rounded onto the battlefield buffer's texel
 ## grid, and the rounded value that was last handed to the camera. Everything
 ## that reads world_camera.position still gets the rounded one — the difference
@@ -821,6 +845,15 @@ func _probed_physics_process(delta: float) -> void:
 		_set_pause(true)
 		return
 
+	# Hit stop, applied once at the head of the run's step so everything below
+	# slows together: the crowd, the shots, the particles, the weapon cooldowns
+	# and the run clock. Scaling only the enemies would let a player walk at full
+	# speed through a frozen fight, which is a different and much worse effect.
+	# The stop is spent against the real delta, so it lasts the wall-clock time
+	# it asked for rather than being stretched by its own slowdown.
+	if hit_stop_remaining > 0.0:
+		hit_stop_remaining = maxf(0.0, hit_stop_remaining - delta)
+		delta *= HIT_STOP_SCALE
 	elapsed += delta
 	if profiling:
 		profile_frames += 1
@@ -895,6 +928,13 @@ func _probed_physics_process(delta: float) -> void:
 	_profile("grid_rebuild")
 	_separate_crowd()
 	crowd_renderer.dirty = true
+	# The crowd's walk is drawn from a render-frame delta, so anything that slows
+	# or stops this loop has to be handed to it separately. Time stop freezes the
+	# bodies outright and would otherwise leave them marching on the spot; a hit
+	# stop holds everything else on the roof and would otherwise leave the crowd
+	# as the one thing still moving through it.
+	crowd_renderer.gait_scale = (0.0 if time_stop_remaining > 0.0
+		else (HIT_STOP_SCALE if hit_stop_remaining > 0.0 else 1.0))
 	_profile("crowd_separation")
 	# Ticked here rather than in _gain_shared_xp so the queue drains on run
 	# time: the pair gets the gap back as play, not as a paused screen.
@@ -2303,6 +2343,10 @@ func _start_selected_run() -> void:
 	guard_remaining = 0.0
 	frenzy_remaining = 0.0
 	time_stop_remaining = 0.0
+	# A boss dying is the last thing that happens in a winning run, and its stop
+	# would otherwise still be owed when the next one starts.
+	hit_stop_remaining = 0.0
+	camera_shake = 0.0
 	for player in players:
 		player.field_move_multiplier = 1.0
 	# Cleared in place: the controller and its fields hold this same array.
@@ -2931,9 +2975,23 @@ func _on_boss_chain_slam(impact_point: Vector2, damage: float, radius: float) ->
 			hit_someone = player.hurt(damage) or hit_someone
 	chain_integrity = maxf(0.0, chain_integrity - BOSS_SLAM_INTEGRITY_DRAIN)
 	camera_shake = maxf(camera_shake, 13.0)
+	_ask_hit_stop(HIT_STOP_PLAYER if hit_someone else HIT_STOP_HEAVY)
 	rooftop_props.shake_at(impact_point, radius * 2.5, 1.0)
 	feedback.play_cue("warning")
 	_show_message("사슬 강타    내구도 주의" if hit_someone else "충격 회피    내구도 주의", Color("ff5d8f"))
+
+
+## Asks for `seconds` of hit stop, extending whatever is already owed up to the
+## ceiling.
+##
+## Online runs are exempt. The host's simulation is the one both machines agree
+## on, so slowing its clock for a blow only the host has seen would hand the
+## client a tick that does not match anything it predicted. A local run has no
+## such contract and can afford to stop.
+func _ask_hit_stop(seconds: float) -> void:
+	if online.is_online() or not screen_shake_enabled:
+		return
+	hit_stop_remaining = minf(HIT_STOP_CEILING, hit_stop_remaining + seconds)
 
 
 func _on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
@@ -2957,6 +3015,9 @@ func _probed_on_enemy_damaged(enemy: ChaserEnemy, amount: float) -> void:
 	# every hit is heavy for a rat, and a flare on each would be a white screen.
 	if (enemy.elite or enemy.boss) and amount >= enemy.max_health * 0.04:
 		particles.emit_flare(enemy.global_position, spark, 16.0 + minf(amount, 300.0) * 0.05, 0.18)
+		# The same blow that earns a flare earns the stop, so the two always
+		# arrive together and there is never a flare the frame has moved past.
+		_ask_hit_stop(HIT_STOP_HEAVY)
 	# The weapon that landed the blow picks the impact sound, so a lightning
 	# tick and a scythe sweep are different events to the ear as well as to the
 	# eye. Reported rather than played: an area weapon can land dozens of these
@@ -3001,6 +3062,7 @@ func _on_player_damaged(player: ChainPlayer, amount: float) -> void:
 	feedback.show_damage(player.global_position, amount, Color("ff8fab"))
 	feedback.play_cue_at("hurt", player.global_position)
 	camera_shake = maxf(camera_shake, 7.0)
+	_ask_hit_stop(HIT_STOP_PLAYER)
 	Input.start_joy_vibration(player.player_index - 1, 0.25, 0.55, 0.16)
 
 
@@ -3563,6 +3625,9 @@ func _on_enemy_died(enemy: ChaserEnemy) -> void:
 		weapon_controller._spawn_reactive_light(death_position, enemy.enemy_color.lerp(Color("fff4cf"), 0.3),
 			240.0 if defeated_boss else 140.0, 0.5 if defeated_boss else 0.3,
 			0.38 if defeated_boss else 0.22, 1.9)
+		# A boss falling is the one beat in a run that is allowed to stop the
+		# roof outright; an elite gets the ordinary heavy-blow hold.
+		_ask_hit_stop(HIT_STOP_BOSS_DEATH if defeated_boss else HIT_STOP_HEAVY)
 	feedback.report_kill()
 	wave_director.release_enemy(enemy)
 	if defeated_boss:

@@ -55,6 +55,33 @@ const ELITE_RING := Color("e8c98a")
 const RING_THICKNESS := 0.16
 const DASH_COUNT := 16
 
+## Gait. Every body on the roof was a still image sliding along the floor: the
+## crowd is most of the screen, so most of the screen did not move. These give
+## each one a step without an AnimationPlayer, a second sprite or a single extra
+## draw call — the walk is folded into the transform the batch was already
+## writing, so a thousand animated bodies cost exactly what a thousand frozen
+## ones did.
+##
+## Steps per second at a standstill, and how much a body's own speed adds. A
+## runner therefore takes quicker steps than a shambling brute without either
+## being hand-tuned, and the tie to `move_speed` means anything slowed by frost
+## visibly drags its feet.
+const GAIT_BASE := 3.4
+const GAIT_PER_SPEED := 0.030
+## Hop height and hover travel, as a share of the body's radius. Small on
+## purpose: this is a crowd read at a glance behind the pair's own effects, and
+## the moment a rat bounces far enough to notice individually it starts fighting
+## the thing the player is actually aiming at.
+const GAIT_LIFT := 0.085
+const HOVER_RISE := 0.11
+## Stretch at the top of a step and squash at the bottom, as a share of height.
+## The width moves against it at four fifths, which is enough to read as one
+## body keeping its volume without the silhouette visibly pumping.
+const GAIT_SQUASH := 0.055
+const GAIT_WIDTH_ANSWER := 0.8
+## How much of the contact shadow a body at the top of its step gives up.
+const SHADOW_LIFT_TIGHTEN := 0.16
+
 ## Keys of the shape cells packed next to the archetype art.
 const SHAPES := ["_shadow", "_block", "_disc", "_ring", "_arc65", "_arc100", "_dash"]
 
@@ -105,6 +132,19 @@ var dirty := true
 ## the frozen case without rebuilding for a camera that has merely drifted a
 ## pixel inside it.
 var _built_cull := Rect2()
+## One clock for every gait on the roof, advanced by the frame delta. The bodies
+## carry only their phase offset, so nothing has to be stepped per enemy and a
+## body that was culled and comes back walks in step with the rest instead of
+## restarting its cycle.
+var _gait_clock := 0.0
+## How fast the shared gait clock runs, written by the owner each tick.
+##
+## The gait is drawn from a render-frame delta while the fight is stepped from a
+## scaled physics one, so anything that slows or stops the simulation has to be
+## told to this clock as well. Without it a time-stopped crowd walks on the spot
+## and a hit stop holds every weapon, body and particle on the roof except the
+## six hundred pairs of feet.
+var gait_scale := 1.0
 
 var _shadows: MultiMeshInstance2D
 var _warnings: MultiMeshInstance2D
@@ -134,16 +174,20 @@ func _ready() -> void:
 	stage.add_child(_warnings)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var probe_started := FrameProbe.mark()
-	_probed_process(_delta)
+	_probed_process(delta)
 	FrameProbe.add(&"render_crowd", probe_started)
 
 
-func _probed_process(_delta: float) -> void:
+func _probed_process(delta: float) -> void:
 	# Only after a physics tick has moved something: on a high-refresh display
 	# most rendered frames have nothing new to batch.
 	if dirty and not get_tree().paused:
+		# A frozen fight holds its pose. The growth screen and a chest show the
+		# roof through, and a crowd that kept walking on the spot behind a card
+		# would be the only thing moving on a screen whose whole job is to stop.
+		_gait_clock += delta * gait_scale
 		dirty = false
 		refresh()
 		return
@@ -221,6 +265,48 @@ func refresh() -> void:
 				and cos(enemy.rotation) * float(enemy.source_facing) < 0.0:
 			width = -width
 		var height := span * aspect.y
+		# The gait. `body_y` carries it alone: the health bar, the elite ring and
+		# the attack warning all keep reading `local_y`, because a bar that bobs
+		# with its owner is unreadable and a telegraph that moves is unfair.
+		var body_y := local_y
+		# How far off the roof this body currently is, 0 to 1. The contact shadow
+		# reads it: a shadow that stays the same size under a body in the air is
+		# what makes a hop look like a sprite sliding up a wall.
+		var airborne := 0.0
+		if not enemy.scenery:
+			# Frost is carried by `slow_multiplier` rather than by `move_speed`,
+			# the same way the body's own step reads it, and it damps how far the
+			# body travels rather than how often. Slowing the rate instead would
+			# mean rescaling the whole accumulated clock the moment frost landed,
+			# which jumps the body to an unrelated point in its cycle; damping the
+			# travel follows the multiplier continuously, and a body chilled to a
+			# standstill settles rather than marching on the spot.
+			var chilled: float = enemy.slow_multiplier if enemy.slow_timer > 0.0 else 1.0
+			var gait: float = _gait_clock * (GAIT_BASE + enemy.move_speed * GAIT_PER_SPEED) + enemy.anim_phase
+			if enemy.flying:
+				var hover := sin(gait) * chilled
+				body_y -= hover * radius * HOVER_RISE * grow
+				airborne = hover * 0.5 + 0.5
+			else:
+				# Two beats to the cycle: the body rises on each footfall rather
+				# than once per stride, which is what reads as an animal trotting
+				# instead of a sprite drifting up and down.
+				var beat := absf(sin(gait))
+				var rise := beat * chilled
+				airborne = rise
+				# Stretched at the top of the hop, compressed at the moment of
+				# contact, and the width answers so the body keeps its volume.
+				# Damped about the middle of the cycle rather than about zero, so
+				# a body chilled to a standstill rests at its authored shape
+				# instead of holding the compressed half of a step forever.
+				var squash := (beat - 0.5) * 2.0 * GAIT_SQUASH * chilled
+				var stood := height
+				height *= 1.0 + squash
+				width *= 1.0 - squash * GAIT_WIDTH_ANSWER
+				# Scaling happens about the centre of the quad, so half of any
+				# height the body gained would otherwise push its feet through
+				# the roof. Lift the centre by that half and the foot line holds.
+				body_y -= (height - stood) * 0.5 + rise * radius * GAIT_LIFT * grow
 		var uv := enemy.render_uv
 		var health_ratio := enemy.health / enemy.max_health
 		var elite := enemy.elite
@@ -233,7 +319,7 @@ func refresh() -> void:
 			_band_data[band] = data
 		var i := used * STRIDE
 		data[i] = width; data[i + 1] = shear * height; data[i + 2] = 0.0; data[i + 3] = at.x
-		data[i + 4] = 0.0; data[i + 5] = k * height; data[i + 6] = 0.0; data[i + 7] = local_y
+		data[i + 4] = 0.0; data[i + 5] = k * height; data[i + 6] = 0.0; data[i + 7] = body_y
 		if enemy.slow_timer > 0.0 or enemy.hit_flash > 0.0 or enemy.boss_enraged:
 			var tint := enemy.modulate * enemy.body_sprite.modulate
 			data[i + 8] = tint.r; data[i + 9] = tint.g; data[i + 10] = tint.b; data[i + 11] = tint.a
@@ -245,7 +331,10 @@ func refresh() -> void:
 			if (_shadow_used + 1) * STRIDE > shadow_capacity:
 				_shadow_data.resize(maxi(SHADOW_MIN_CAPACITY, nearest_po2(_shadow_used + 1)) * STRIDE)
 				shadow_capacity = _shadow_data.size()
-			var reach := radius * shadow_grow * grow * 2.0
+			# Drawn from the ground position, so it stays on the roof while the body
+			# rises off it, and tightens as it goes. The shadow is the only thing
+			# telling the player a hop is a hop and not a body that has grown.
+			var reach := radius * shadow_grow * grow * 2.0 * (1.0 - airborne * SHADOW_LIFT_TIGHTEN)
 			var s := _shadow_used * STRIDE
 			_shadow_data[s] = reach; _shadow_data[s + 1] = 0.0; _shadow_data[s + 2] = 0.0
 			_shadow_data[s + 3] = at.x + shadow_offset.x * radius * grow

@@ -129,6 +129,16 @@ var boss_slam_point := Vector2.ZERO
 var boss_enraged := false
 var boss_rank := 0 ## 1-5 for the run's bosses, 0 for everything else.
 var hit_flash := 0.0
+## Where this body is in its own walk cycle, in radians, handed out at setup.
+## The crowd shares one clock, so without an offset per body a wave of rats
+## would rise and fall in lockstep and read as one object breathing rather than
+## as a hundred animals running. Never touched again once set: the phase is the
+## body's identity, and re-rolling it mid-life would make it visibly stutter.
+var anim_phase := 0.0
+## Flyers hover instead of taking steps. Both get the same vertical travel, but
+## a hover keeps its volume — squashing a wasp against the floor it is nowhere
+## near reads as a bug — so only walkers are allowed to deform.
+var flying := false
 ## Archetype tests that used to sit inside the per-frame step. Each `archetype in
 ## [...]` builds a fresh array every time it is evaluated — once per enemy per
 ## tick for the steering ones, and again on every transform notification for the
@@ -191,7 +201,11 @@ var pooled := false
 func setup(difficulty: float, new_archetype: String = "chaser", is_elite: bool = false, is_boss: bool = false, rank: int = 0) -> void:
 	archetype = new_archetype
 	scenery = archetype == "planter"
-	stand_height = 0.0 if scenery else (20.0 if archetype in ["wasp", "owl"] else (4.0 if archetype == "mole" else 8.0))
+	flying = archetype == "wasp" or archetype == "owl"
+	stand_height = 0.0 if scenery else (20.0 if flying else (4.0 if archetype == "mole" else 8.0))
+	# Rooftop planters are furniture and hold still; everything alive picks up
+	# its own place in the gait so a crowd never moves as one body.
+	anim_phase = 0.0 if scenery else randf() * TAU
 	immovable = is_boss or scenery
 	# Only genuinely side-facing art may be mirrored. Camera-facing assets such
 	# as the owl and cleaning-robot bosses must keep their authored pose; flipping
