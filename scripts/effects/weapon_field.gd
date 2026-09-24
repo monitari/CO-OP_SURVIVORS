@@ -38,6 +38,11 @@ var enemy_shots: Array = []
 var shatter_frozen := false
 var source_player := -1
 var source_weapon := ""
+## How big the weapon behind this field has grown (WeaponGrowth.presence). A
+## blade's edge and an orbit's stones are drawn at this multiple, and a stone's
+## contact grows with it: the stone the pair can see is the stone that hits.
+var presence := 1.0
+var stone_reach_scale := 1.0
 ## The light this field casts back onto the roof, for the two kinds that are a
 ## condition rather than an event. It travels with the field and lives as long as
 ## it does, which is why it is a child of this node instead of coming out of
@@ -207,9 +212,10 @@ func _hit_orbit() -> void:
 	for shard in count:
 		var point := global_position + Vector2.from_angle(phase + TAU * float(shard) / count) * effect_radius
 		var hits: Dictionary = shard_hits[shard]
-		for enemy in spatial_grid.query_radius(point, 34.0):
+		var reach := _shard_reach()
+		for enemy in spatial_grid.query_radius(point, reach + 8.0):
 			if not is_instance_valid(enemy) or enemy.dead: continue
-			if point.distance_to(enemy.global_position) > 26.0 + enemy.radius: continue
+			if point.distance_to(enemy.global_position) > reach + enemy.radius: continue
 			var key := enemy.get_instance_id()
 			if age - float(hits.get(key, -ORBIT_REHIT)) < ORBIT_REHIT: continue
 			hits[key] = age
@@ -225,7 +231,14 @@ func _break_orbit_shots() -> void:
 	var phase := age * speed
 	for shard in count:
 		var point := global_position + Vector2.from_angle(phase + TAU * float(shard) / count) * effect_radius
-		EnemyProjectile.break_within(enemy_shots, point, 26.0)
+		EnemyProjectile.break_within(enemy_shots, point, _shard_reach())
+
+
+## How close a stone has to pass to strike. 26 at Lv.1, and a third of the
+## drawn growth on top: the stone reads much bigger, but a ring that doubled its
+## contact with every level would stop being a ring and become a disc.
+func _shard_reach() -> float:
+	return 26.0 * stone_reach_scale * (1.0 + (presence - 1.0) * 0.35)
 
 
 func _update_orbit_fade() -> void:
@@ -353,13 +366,13 @@ func _probed_draw() -> void:
 			for shard in count:
 				var angle := phase + TAU * float(shard) / count
 				var point := Vector2.from_angle(angle) * visible_radius
-				halos.fill_circle(point, 20.0, Color(color, 0.10), 16)
+				halos.fill_circle(point, 20.0 * presence * stone_reach_scale, Color(color, 0.10), 16)
 				BatchPaint.arc_segments(trails, Vector2.ZERO, visible_radius, angle - 0.42, angle, 10)
-				var star := _star_points(point, 11.0)
+				var star := _star_points(point, 11.0 * presence * stone_reach_scale)
 				stars.fill_fan(point, star, color)
 				BatchPaint.loop_segments(outlines, star)
 			halos.flush(self)
-			draw_multiline(trails, Color(color, 0.42), 4.0, true)
+			draw_multiline(trails, Color(color, 0.42), 4.0 * presence, true)
 			stars.flush(self)
 			draw_multiline(outlines, Color.WHITE, 1.5, true)
 		Kind.FROST:
@@ -383,9 +396,9 @@ func _probed_draw() -> void:
 			if current - trail > 0.001:
 				draw_colored_polygon(_sector_points(visible_radius * 0.20, visible_radius, trail, current, 18), Color(color, 0.42))
 			draw_colored_polygon(_sector_points(visible_radius * 0.70, visible_radius * 1.04, current - 0.16, current + 0.035, 7), Color(color.lightened(0.42), 0.92))
-			draw_arc(Vector2.ZERO, visible_radius, trail, current, 18, Color(color.lightened(0.35), 0.95), 18.0, true)
+			draw_arc(Vector2.ZERO, visible_radius, trail, current, 18, Color(color.lightened(0.35), 0.95), 18.0 * presence, true)
 			var tip := Vector2.from_angle(current) * visible_radius
-			draw_line(Vector2.from_angle(current) * visible_radius * 0.22, tip, Color.WHITE, 3.0, true)
+			draw_line(Vector2.from_angle(current) * visible_radius * 0.22, tip, Color.WHITE, 3.0 * presence, true)
 			# An afterimage just inside the edge, lagging the blade: the smear a fast
 			# swing leaves on the eye, which is what makes it read as fast.
 			var echo := maxf(start, current - 0.28)
@@ -394,7 +407,7 @@ func _probed_draw() -> void:
 					Color(Color.WHITE, 0.35 * (1.0 - progress)), 5.0, true)
 			# The glint on the edge, brightest mid-swing.
 			var glint := sin(progress * PI)
-			draw_circle(tip, 5.0 + glint * 7.0, Color(1.0, 1.0, 1.0, 0.75 * glint))
+			draw_circle(tip, (5.0 + glint * 7.0) * presence, Color(1.0, 1.0, 1.0, 0.75 * glint))
 		Kind.GRAVITY:
 			var visible_radius := _visible_radius()
 			var progress := clampf(age / duration, 0.0, 1.0)

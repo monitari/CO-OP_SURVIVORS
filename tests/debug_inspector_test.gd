@@ -142,8 +142,8 @@ func _run() -> void:
 		var weapon: Dictionary = main.weapon_loadouts[slot][0]
 		_check(int(weapon.get("tier", 1)) >= Evolutions.EVOLUTION_TIER,
 			"fusion shortcut raises P%d's base weapon through real upgrade steps" % (slot + 1))
-		# The shortcut buys tiers; Lv.7 does the rest by itself, so what it has
-		# to produce is an enhanced weapon rather than a card offering one.
+		# The shortcut buys tiers and temporarily supplies the required Lv.4
+		# treasure, then produces the enhanced weapon through the real gate.
 		_check(bool(weapon.get("evolved", false)),
 			"fusion shortcut leaves P%d holding the enhanced weapon" % (slot + 1))
 	_check(float(main.weapon_loadouts[0][0]["damage"]) > opening_damage,

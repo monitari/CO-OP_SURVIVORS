@@ -10,38 +10,20 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 
-## Two questions, and they pull against each other on purpose.
-##
-## "Is this survivor fair?" is answered by one budget over the identity axes, so a
-## cat may be extreme anywhere as long as it pays for it somewhere else.
-##
-## "Are these survivors actually different?" is the question the old test never
-## asked, which is how the roster ended up varying by 25% in health, 18% in
-## speed and nothing else at all. A budget alone is perfectly satisfied by ten
-## identical cats, so the spread floors are asserted separately — and they are
-## what fails if someone flattens the roster back out to make the budget easier
-## to hit.
+## Non-weapon identity and roster data stay covered here. Live weapon fairness
+## is measured separately by weapon_balance_test.gd against crowds and a
+## single large target; reach-based catalogue budgets concealed the real gap.
 func _run() -> void:
 	var roster := CharacterCatalog.all_characters()
 	_check(roster.size() >= 2, "the roster has survivors in it")
 
 	var ids: Dictionary = {}
 	var weapon_ids: Dictionary = {}
-	var budget_line: Array[String] = []
-	var power_line: Array[String] = []
 	var extended_signatures: Dictionary = {}
 
 	for character in roster:
 		var name := String(character["name"])
-		var budget := CharacterCatalog.total_budget(character)
-		budget_line.append("%s %.3f" % [name, budget])
-		power_line.append("%s %.1f" % [name, CharacterCatalog.power_budget(character)])
-
-		_check(budget >= CharacterCatalog.TOTAL_BUDGET_MIN and budget <= CharacterCatalog.TOTAL_BUDGET_MAX,
-			"%s's total budget is inside the band (%.3f, band %.2f-%.2f)" % [
-				name, budget, CharacterCatalog.TOTAL_BUDGET_MIN, CharacterCatalog.TOTAL_BUDGET_MAX])
-
-		# A budget only means anything if every field it reads is actually there.
+		# Every roster entry needs the fields used by combat and character select.
 		for field: String in ["health", "speed", "armor", "crit", "pickup", "chain", "might", "area", "haste", "recovery"]:
 			_check(character.has(field), "%s declares %s" % [name, field])
 		var weapon: Dictionary = character["weapon"]
@@ -67,11 +49,8 @@ func _run() -> void:
 
 		extended_signatures["%.2f:%.2f:%.2f:%.2f" % [character["might"], character["area"], character["haste"], character["recovery"]]] = true
 
-	print("SURVIVOR_BUDGET: " + "  ·  ".join(budget_line))
-	print("SURVIVOR_POWER: " + "  ·  ".join(power_line))
 	_test_axes_are_wide(roster)
 	_test_leash_is_a_real_choice(roster)
-	_test_the_normaliser_still_matches_the_roster(roster)
 
 	# Difficulty labels no longer appear in character select. Distinct combat
 	# signatures are the useful choice now, and no two cats may collapse to the
@@ -79,13 +58,8 @@ func _run() -> void:
 	_check(extended_signatures.size() == roster.size(),
 		"every survivor has a distinct extended combat signature")
 
-	# The band is only useful if it is tighter than the spread it was drawn
-	# around; a band wide enough to admit anything asserts nothing.
-	var band := CharacterCatalog.TOTAL_BUDGET_MAX - CharacterCatalog.TOTAL_BUDGET_MIN
-	_check(band <= 0.15, "the budget band is tight enough to mean something (%.2f)" % band)
-
 	if failures.is_empty():
-		print("SURVIVOR_BALANCE_PASS: every survivor is inside the budget and the roster still spreads")
+		print("SURVIVOR_BALANCE_PASS: roster data and non-weapon axes still spread")
 		quit(0)
 	else:
 		for failure in failures:
@@ -131,26 +105,6 @@ func _test_leash_is_a_real_choice(roster: Array[Dictionary]) -> void:
 	_check(longest / shortest >= 1.5,
 		"the leash a pair ends up with is a real choice (%.0f to %.0f)" % [shortest, longest])
 	print("SURVIVOR_LEASH: %.0f - %.0f" % [shortest, longest])
-
-
-## The offense term divides by a constant that has to stay pinned to the
-## roster's actual power level. Nothing enforces that on its own, and the
-## failure is silent and total: rebalance every weapon downward and the divisor
-## stays where it was, so all ten survivors read as under-budget and the band —
-## the one thing keeping them fair to each other — starts rejecting a perfectly
-## fair roster. The tolerance is loose because the constant sits a little under
-## the mean by design (crit is priced on top of it); what it catches is the
-## constant being left behind entirely.
-func _test_the_normaliser_still_matches_the_roster(roster: Array[Dictionary]) -> void:
-	var mean := 0.0
-	for character in roster:
-		mean += CharacterCatalog.raw_power(character)
-	mean /= float(roster.size())
-	var drift: float = absf(mean - CharacterCatalog.OFFENSE_REFERENCE) / CharacterCatalog.OFFENSE_REFERENCE
-	_check(drift <= 0.15,
-		"the offense normaliser is still the roster mean (%.1f vs %.1f, %.0f%% off)" % [
-			CharacterCatalog.OFFENSE_REFERENCE, mean, drift * 100.0])
-	print("SURVIVOR_NORMALISER: reference %.1f  mean %.1f" % [CharacterCatalog.OFFENSE_REFERENCE, mean])
 
 
 func _check(condition: bool, label: String) -> void:

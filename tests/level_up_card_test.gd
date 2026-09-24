@@ -61,7 +61,7 @@ func _run() -> void:
 ##
 ##   1. a weapon takes at most one slot in a hand, whatever its own axes offer
 ##   2. owned growth and discovery are both weighted draws: either category can
-##      be absent, making rerolls and imperfect hands meaningful again
+##      be absent unless a required evolution material needs the last slot
 ##
 ## Sampled over many draws, since both are claims about every hand rather than
 ## about a lucky one.
@@ -112,9 +112,14 @@ func _test_hand_composition(main: Node) -> void:
 	_check(worst_crowding <= 1,
 		"no weapon takes more than one card in a hand (worst seen: %d in %d draws)"
 			% [worst_crowding, draws])
-	_check(discovery_missing > 0 and discovery_seen > 0,
-		"discovery is possible but not guaranteed (%d missing hands, %d cards over %d draws)"
-			% [discovery_missing, discovery_seen, draws])
+	var material_pressure: bool = main.treasure_loadouts[0].size() + main.TreasureReservationScript.missing_slots(
+		main.weapon_loadouts[0], main.treasure_loadouts[0]) >= main.TREASURE_LOADOUT_CAP
+	if material_pressure and not main._synergy_treasures(0).is_empty():
+		_check(discovery_missing == 0, "required material stays visible in every last-slot hand")
+	else:
+		_check(discovery_missing > 0 and discovery_seen > 0,
+			"ordinary discovery is possible but not guaranteed (%d missing hands, %d cards over %d draws)"
+				% [discovery_missing, discovery_seen, draws])
 	_check(weapon_missing > 0,
 		"owned weapon growth is not guaranteed (%d of %d hands omitted it)" % [weapon_missing, draws])
 

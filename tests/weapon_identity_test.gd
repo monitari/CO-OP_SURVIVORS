@@ -426,9 +426,8 @@ func _test_the_toy_carries_on_through(main: Node) -> void:
 	await _clear_enemies(main)
 
 
-## 우유 흩뿌리기 is the one weapon that does not aim. It scatters across the
-## visible roof away from both cats, and what stands in a pool keeps taking
-## damage and keeps being slowed.
+## With no elite or boss, milk scatters across the visible roof.
+## The live balance test covers its priority pool against a large elite.
 func _test_milk_lands_where_it_lands(main: Node) -> void:
 	await _clear_enemies(main)
 	var milk: Dictionary = main._build_weapon_state(_character_by_id("latte"))

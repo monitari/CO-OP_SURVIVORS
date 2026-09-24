@@ -19,6 +19,10 @@ var age := 0.0
 var struck: Dictionary = {}
 var source_player := -1
 var source_weapon := ""
+## How big this fish has grown with its weapon (WeaponGrowth.presence). It is
+## drawn at this scale and strikes at it: a fish the size of a cat that hit like
+## a sardine would read as a bug, not as an upgrade.
+var size_scale := 1.0
 const LIFETIME := 1.65
 ## Where the toy is along its path, as a multiple of `reach`. One and a half
 ## turns of a sine: out to +1, home through 0, and on to -1 where it is let go.
@@ -44,9 +48,10 @@ func _probed_physics_process(delta: float) -> void:
 	# times over the throw rather than once or continuously.
 	var pass_index := mini(2, int(progress * 3.0))
 	var travel := old_position.distance_to(global_position)
-	for enemy in grid.query_radius(global_position, HIT_RADIUS + 48.0 + travel):
+	var hit_radius := HIT_RADIUS * size_scale
+	for enemy in grid.query_radius(global_position, hit_radius + 48.0 + travel):
 		if Geometry2D.get_closest_point_to_segment(enemy.global_position, old_position, global_position)\
-				.distance_to(enemy.global_position) > enemy.radius + HIT_RADIUS:
+				.distance_to(enemy.global_position) > enemy.radius + hit_radius:
 			continue
 		var key := "%d:%d" % [enemy.get_instance_id(), pass_index]
 		if struck.has(key):
@@ -70,8 +75,8 @@ func _probed_draw() -> void:
 	# A short trail behind whichever way it is currently travelling, so the
 	# moment it turns around is visible rather than inferred.
 	var travelling := signf(cos(progress * SWEEP))
-	draw_line(Vector2.ZERO, -heading.rotated(-rotation) * travelling * 34.0, Color(tint, alpha * 0.28), 10.0, true)
-	draw_set_transform(Vector2.ZERO, age * 9.0)
+	draw_line(Vector2.ZERO, -heading.rotated(-rotation) * travelling * 34.0 * size_scale, Color(tint, alpha * 0.28), 10.0 * size_scale, true)
+	draw_set_transform(Vector2.ZERO, age * 9.0, Vector2.ONE * size_scale)
 	_draw_fish(alpha)
 
 

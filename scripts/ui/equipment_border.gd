@@ -66,12 +66,15 @@ func refresh() -> void:
 	# Guarded: an unconditional colour override re-shapes the label's text, and
 	# this runs every frame for sixteen sockets (see UIWrite).
 	UIWrite.font_color(tier, GOLD if resonating else SILVER)
-	# The ring is this weapon's own cooldown, always. It used to switch to the
-	# resonance's cooldown for a weapon a resonance was firing for, because that
-	# weapon had stopped attacking and its own timer meant nothing. Weapons keep
-	# attacking through a resonance now, so the ring showing anything but their
-	# own next shot would be the ring lying about when they fire.
-	if weapon and not continuous:
+	# The ring is when this slot next does something. For a weapon that is its
+	# own cooldown; for a weapon a resonance has absorbed it is the resonance's,
+	# because the absorbed weapon no longer fires and the resonance is what fires
+	# in its place. Showing the dead weapon timer would be the ring lying about
+	# when that slot next hits anything.
+	var bound: Dictionary = game.resonance_system.bound_entry(owner_slot, item_slot) if weapon else {}
+	if not bound.is_empty():
+		progress = 1.0 - float(bound["cooldown_remaining"]) / maxf(0.01, float(bound["cooldown"]))
+	elif weapon and not continuous:
 		var timers: Array = game.attack_timers[owner_slot]
 		var remaining: float = float(timers[item_slot]) if item_slot < timers.size() else 0.0
 		progress = 1.0 - remaining / maxf(0.01, game._weapon_interval(owner_slot, item_slot))

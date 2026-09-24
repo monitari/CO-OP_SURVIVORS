@@ -23,10 +23,8 @@ extends RefCounted
 ##   - how the attack is delivered (see BEHAVIORS below)
 ##   - which growth axes are efficient (see WeaponGrowth.focus)
 ##
-## A route deliberately does NOT decide whether the weapon can be enhanced,
-## which treasure the pair has to find, or which resonance they can reach. Those
-## used to hang off the route and made a Lv.3 card a decision about the rest of
-## the run that nobody had the information to make.
+## A route chooses the weapon's delivery, growth focus, and required Lv.4
+## treasure. The route card and full-stat view expose that recipe before Lv.7.
 const TECHS := {
 	"homing": [
 		{"id": "comet", "internal_id": "TECH_COMET_TRACKING", "name": "혜성 추적", "role": "a",
@@ -133,14 +131,14 @@ const BEHAVIORS := {
 		"comet": {"text": "적 둘을 관통하는 유도탄", "pierce": 2},
 		"pursuit": {"text": "유도탄 한 발 추가    피해 20% 감소", "count": 1, "damage_scale": 0.8}},
 	"lightning": {
-		"overload": {"text": "첫 적에게 집중 낙뢰와 착탄 폭발    연쇄 1회", "jumps_set": 1, "damage_scale": 1.65, "splash": 64.0},
-		"conductor": {"text": "연쇄 두 번 추가    피해 20% 감소", "jumps": 2, "damage_scale": 0.8}},
+		"overload": {"text": "첫 적에게 집중 낙뢰와 좁은 착탄 폭발    연쇄 1회", "jumps_set": 1, "damage_scale": 1.65, "splash": 44.0, "splash_damage_scale": 0.30},
+		"conductor": {"text": "연쇄 다섯 번 추가", "jumps": 5}},
 	"flame": {
 		"sun": {"text": "적 둘을 관통하는 방사형 불꽃", "pierce": 2},
-		"wildfire": {"text": "불꽃 세 발 추가    피해 25% 감소", "count": 3, "damage_scale": 0.75}},
+		"wildfire": {"text": "불꽃 네 발 추가    피해 10% 감소", "count": 4, "damage_scale": 0.90}},
 	"frost": {
 		"shatter": {"text": "둔화된 적에게 냉기 파쇄 추가 피해", "shatter": true, "damage_scale": 0.8},
-		"permafrost": {"text": "동료에게도 작은 냉기 영역 생성", "ally_aura": true, "damage_scale": 0.75}},
+		"permafrost": {"text": "동료에게도 냉기 영역 생성    피해 10% 감소", "ally_aura": true, "damage_scale": 0.90}},
 	"scythe": {
 		"execution": {"text": "좁은 부채꼴에 강한 집중 베기", "arc_scale": 0.6, "damage_scale": 1.6},
 		"dance": {"text": "앞뒤 동시 베기    피해 35% 감소", "rear_sweep": true, "damage_scale": 0.65}},
@@ -148,20 +146,20 @@ const BEHAVIORS := {
 		"vow": {"text": "사슬 발동마다 두 고양이 체력 회복", "team_heal": true},
 		"tether": {"text": "사슬 파동이 두 번 연달아 흐름    피해 30% 감소", "double_pulse": true, "damage_scale": 0.7}},
 	"orbit": {
-		"shards": {"text": "궤도 파편 두 개 추가    피해 25% 감소", "count": 2, "damage_scale": 0.75},
-		"ritual": {"text": "반대 방향 이중 궤도    피해 35% 감소", "double_orbit": true, "damage_scale": 0.65}},
+		"shards": {"text": "궤도 파편 두 개 추가    피해 10% 감소", "count": 2, "damage_scale": 0.90},
+		"ritual": {"text": "반대 방향 이중 궤도    피해 15% 감소", "double_orbit": true, "damage_scale": 0.85}},
 	"lance": {
 		"judgement": {"text": "한 줄에 집중하는 장거리 관통창", "beams_set": 1, "range_scale": 1.35, "damage_scale": 1.25},
 		"prism": {"text": "다른 적을 겨냥하는 광선 두 줄 추가", "beams": 2, "damage_scale": 0.65}},
 	"mine": {
 		"demolition": {"text": "전방에 지뢰 두 개 추가 매설", "count": 2, "damage_scale": 0.75},
-		"garden": {"text": "주변을 감싸는 원형 지뢰밭", "mine_ring": true, "damage_scale": 0.75}},
+		"garden": {"text": "주변을 감싸는 원형 지뢰밭    피해 10% 감소", "mine_ring": true, "damage_scale": 0.90}},
 	"gravity": {
 		"collapse": {"text": "흡인 뒤 중심부 추가 폭발", "collapse": true, "damage_scale": 0.75},
-		"maelstrom": {"text": "동료 위치에도 중력장 생성", "echo": true, "damage_scale": 0.65}},
+		"maelstrom": {"text": "동료 위치에도 중력장 생성    피해 15% 감소", "echo": true, "damage_scale": 0.85}},
 	"boomerang": {
 		"ricochet": {"text": "사방으로 펼쳐 던지는 왕복 공격", "radial_toys": true, "count": 2, "damage_scale": 0.7},
-		"tailwind": {"text": "왕복 거리가 60% 길어짐", "range_scale": 1.6}},
+		"tailwind": {"text": "부메랑 한 개 추가 · 왕복 거리 60% 증가", "count": 1, "range_scale": 1.6}},
 	"milk": {
 		"tide": {"text": "동료 발밑에도 둔화 웅덩이 생성", "echo": true, "damage_scale": 0.65},
 		"downpour": {"text": "작은 웅덩이 두 개 추가로 흩뿌리기", "count": 2, "radius_scale": 0.8}},
@@ -210,6 +208,8 @@ static func cast_state(state: Dictionary) -> Dictionary:
 	var splash := float(state.get("splash", 0.0)) + float(effect.get("splash", 0.0))
 	if splash > 0.0:
 		result["splash"] = splash
+	if effect.has("splash_damage_scale"):
+		result["splash_damage_scale"] = float(effect["splash_damage_scale"])
 	return result
 
 

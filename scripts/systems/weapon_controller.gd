@@ -2,6 +2,8 @@ class_name WeaponController
 extends Node2D
 
 const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
+const Growth := preload("res://scripts/systems/weapon_growth.gd")
+const Fusion := preload("res://scripts/systems/resonance_fusion.gd")
 const ProjectileScript := preload("res://scripts/entities/projectile.gd")
 const MilkPoolScript := preload("res://scripts/effects/milk_pool.gd")
 const CombatFlareScript := preload("res://scripts/effects/combat_flare.gd")
@@ -68,6 +70,14 @@ var enemy_shots: Array = []
 const MINE_CAP_PER_PLAYER := 10
 var current_source_player := -1
 var current_source_weapon := ""
+## How big whatever is being cast right now should be drawn, as a multiple of a
+## Lv.1 weapon (WeaponGrowth.presence). Set for the length of one cast, the same
+## way the two source fields above are, so every drawing helper below can read it
+## without each attack threading one more argument through.
+var current_presence := 1.0
+## What a resonance is drawn at. It is the biggest thing the pair can do and it
+## should never be mistaken for either of the weapons it absorbed.
+const RESONANCE_PRESENCE := 1.8
 
 
 func configure(
@@ -113,6 +123,9 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 	scaled["duration"] = owner_player.duration
 	if state.has("splash"):
 		scaled["splash"] = float(state["splash"]) * owner_player.area
+	var presence := Growth.presence(weapon_loadouts[player_index][weapon_slot])
+	scaled["presence"] = presence
+	current_presence = presence
 	var behavior := WeaponTechs.behavior(state)
 	play_cast_cue = _deliver_attack(player_index, weapon_slot, scaled, damage, color, behavior)
 	if bool(behavior.get("echo", false)) and not players[1 - player_index].downed:
@@ -124,9 +137,12 @@ func perform_attack(player_index: int, weapon_slot: int, damage_multiplier: floa
 		cue_requested.emit("weapon_" + weapon_id)
 		var visual_radius := maxf(float(scaled.get("radius", 0.0)), float(scaled.get("width", 0.0)) * 2.0)
 		visual_radius = maxf(visual_radius, float(scaled.get("range", 0.0)) * 0.22)
-		visual_radius = clampf(visual_radius, 52.0, 170.0)
+		# The cast flash grows with the weapon, past the old 170 ceiling: a Lv.12
+		# enhanced weapon going off should light the roof like one.
+		visual_radius = clampf(visual_radius * sqrt(presence), 52.0, 240.0)
 		attack_visual.emit(player_index, weapon_id, owner_player.global_position, color, visual_radius)
 		_light_the_cast(weapon_id, owner_player.global_position, color, visual_radius)
+	current_presence = 1.0
 
 
 func _deliver_attack(player_index: int, weapon_slot: int, scaled: Dictionary,
@@ -212,7 +228,7 @@ func _strike_lightning(origin: Vector2, state: Dictionary, damage: float, color:
 	_chain_lightning(origin, first, int(state["jumps"]), damage, color)
 	var splash := float(state.get("splash", 0.0))
 	if splash > 0.0:
-		_damage_area(impact, splash, damage * 0.55)
+		_damage_area(impact, splash, damage * float(state.get("splash_damage_scale", 0.55)))
 		_draw_ring(impact, splash, color.lightened(0.3), 7.0)
 	return true
 
@@ -234,14 +250,13 @@ func _throw_toy(player_index: int, state: Dictionary, damage: float, color: Colo
 		toy.tint = color
 		toy.source_player = current_source_player
 		toy.source_weapon = current_source_weapon
+		toy.size_scale = current_presence
 		toy.heading = aim.rotated((float(index) - float(count - 1) * 0.5) * fan)
 		add_child(toy)
 		toy.global_position = owner_player.global_position
 
 
-## 우유 흩뿌리기. Scattered around the caster rather than aimed: where the milk
-## lands is not a decision the weapon makes, which is why the survivor's own
-## position is the only thing that decides whether a cast was worth anything.
+## 우유 흩뿌리기. One pool follows a nearby elite or boss; the others scatter.
 ## How many milk puddles may be on the ground at once, across both survivors.
 ##
 ## A puddle lasts 4.6s times the owner's 지속 multiplier, and nothing ever retired
@@ -260,8 +275,9 @@ const MILK_PLAYER_CLEARANCE := 110.0
 func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var count := maxi(1, int(state.get("count", 1)))
 	_retire_oldest_pools(count)
-	for _index in count:
-		var at := _random_visible_world_point(
+	var priority := _priority_milk_target(players[player_index].global_position, float(state.get("range", 330.0)))
+	for index in count:
+		var at := priority.global_position if index == 0 and priority != null else _random_visible_world_point(
 			maxf(MILK_VIEW_MARGIN, float(state["radius"]) + 18.0),
 			maxf(MILK_PLAYER_CLEARANCE, float(state["radius"]) * 0.9))
 		var pool := MilkPoolScript.new() as MilkPool
@@ -273,9 +289,18 @@ func _spill_milk(player_index: int, state: Dictionary, damage: float, color: Col
 	cue_requested.emit("weapon_milk")
 
 
-## Picks a point inside the camera's current canvas, leaving room for the pool
-## rim and rejecting the space directly under either survivor. Canvas inversion
-## keeps this correct while the camera follows the pair or a SubViewport scales.
+## The priority pool follows the strongest nearby elite or boss.
+func _priority_milk_target(origin: Vector2, reach: float) -> ChaserEnemy:
+	var target: ChaserEnemy = null
+	for enemy in spatial_grid.query_radius(origin, reach):
+		if not is_instance_valid(enemy) or enemy.dead or not (enemy.boss or enemy.elite):
+			continue
+		if target == null or (enemy.boss and not target.boss) or (enemy.boss == target.boss and enemy.max_health > target.max_health):
+			target = enemy
+	return target
+
+
+## Random pools stay inside the camera canvas and away from both survivors.
 func _random_visible_world_point(margin: float, player_clearance: float) -> Vector2:
 	var viewport := get_viewport()
 	var visible := viewport.get_visible_rect()
@@ -325,10 +350,11 @@ func _retire_oldest_pools(incoming: int) -> void:
 		live[index].duration = live[index].age + MilkPool.FADE_TIME
 
 
-## Resonance now sits behind two fused weapons rather than two tier-3 base
-## ones, so it fires far later in a run and against far tougher enemies. The
-## per-effect numbers below were written for the old gate; this scales all of
-## them at once rather than rewriting twenty-five of them by hand.
+## A flat scale on every resonance's written numbers. It no longer decides how
+## hard a resonance hits: the multiplier main hands in is priced against the two
+## weapons the resonance absorbed (ResonancePowerCatalog), and that price was
+## measured with this scale already applied — so changing it changes nothing a
+## player sees until the calibration is run again, which then undoes it.
 ##
 ## Every resonance does what its description says. Several used to be one
 ## instant hit standing in for something that lasts or aims — a lightning field
@@ -350,15 +376,22 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 	var source := current_source_weapon
 	var m := damage_multiplier * ENDGAME_SCALE
 	var midpoint := _pair_midpoint()
+	current_presence = RESONANCE_PRESENCE
 	_play_resonance_flare(midpoint, resonance)
-	# 고유 공명이 있으면 그것을, 없으면 템플릿을 (§15). Everything with a case
-	# below is hand-written because its two tags mean something together that the
-	# generic shape cannot say; everything else — every element × behaviour
-	# combination the roster can produce — runs through one of nine templates, so
-	# a new weapon never arrives owing twelve new hand-written effects.
+	# 고유 공명이 있으면 그것을, 없으면 융합을 (§15). Everything with a case below
+	# is hand-written because its two tags mean something together that no
+	# carrier can say; everything else — every element × behaviour combination
+	# the roster can produce — is one weapon's delivery carrying the other's
+	# element (ResonanceFusion), so a new weapon never arrives owing twelve new
+	# hand-written effects.
 	if String(resonance.get("kind", "unique")) == "template":
-		_perform_template_resonance(resonance, source, midpoint, m)
-		return
+		Fusion.perform(self, resonance, source, midpoint, m)
+	else:
+		_perform_unique_resonance(resonance_id, source, midpoint, m)
+	current_presence = 1.0
+
+
+func _perform_unique_resonance(resonance_id: String, source: String, midpoint: Vector2, m: float) -> void:
 	match resonance_id:
 		"guided_thunder":
 			# Hunts the toughest body in reach and keeps striking it: one great
@@ -597,134 +630,6 @@ func perform_resonance(resonance: Dictionary, damage_multiplier: float) -> void:
 			_draw_ring(midpoint, 420.0, Color("ff7bd5"), 4.0)
 
 
-## The generic resonance layer: nine shapes, six elements, one effect each time
-## they are combined.
-##
-## Every resonance that is not hand-written is an element and a behaviour, and
-## this is where that becomes something on the roof. The behaviour decides the
-## shape — where it lands and how it is delivered — and the element decides the
-## colour and the rider that goes on top of it. Neither half knows about the
-## other, which is the whole point: a thirteenth weapon tagged `holy` + `storm`
-## already has a resonance with all twelve of the others, and nobody had to write
-## one.
-##
-## The numbers are shared across all of them on purpose. A generic resonance is
-## deliberately a little weaker than a hand-made one at the same cooldown — the
-## hand-made ones are the combinations somebody thought were worth building
-## toward, and they should stay worth it.
-const TEMPLATE_DAMAGE := 26.0
-const TEMPLATE_RADIUS := 250.0
-const TEMPLATE_TICKS := 5
-const TEMPLATE_TICK_RATE := 0.3
-
-const ELEMENT_COLORS := {
-	"fire": Color("ff8c42"), "frost": Color("8ecae6"), "lightning": Color("b892ff"),
-	"arcane": Color("bdb2ff"), "shadow": Color("ef476f"), "holy": Color("fff275"),
-}
-
-
-func _perform_template_resonance(resonance: Dictionary, source: String, midpoint: Vector2, m: float) -> void:
-	var element := String(resonance.get("element", "arcane"))
-	var color: Color = ELEMENT_COLORS.get(element, Color("bdb2ff"))
-	var damage := TEMPLATE_DAMAGE * m
-	match String(resonance.get("template", "blast")):
-		"barrage":
-			# Both survivors scatter a spread of shots, so the volley comes from
-			# wherever the pair happen to be standing rather than from a point.
-			for index in 2:
-				_fire_flame_nova(index, {"count": 9, "speed": 470.0, "tech_pierce": 0, "style": "star"},
-					damage * 0.42, color)
-		"lance":
-			# The two survivors are the ends of the beam: it runs through the
-			# gap between them and out the far side, which is the one shape that
-			# is only available to a pair.
-			var span := players[1].global_position - players[0].global_position
-			var heading := span.normalized() if span.length() > 1.0 else Vector2.RIGHT
-			for direction in [heading, -heading]:
-				_lance_from(midpoint, direction, 620.0, 46.0, damage * 0.9, color)
-			_element_rider(source, element, midpoint, 300.0, damage, color)
-		"cleave":
-			for index in 2:
-				_swing_scythe(index, {"range": 280.0, "arc": TAU}, damage * 0.85, color)
-			_element_rider(source, element, midpoint, 300.0, damage, color)
-		"conduit":
-			# Runs along the leash rather than around a point, so it is the chain
-			# itself that does the damage for a moment.
-			_repeat(source, 0.36, TEMPLATE_TICKS, func(_tick: int) -> void:
-				_damage_along_chain(76.0, damage * 0.3, 1.0)
-				_draw_chain_pulse(players[0].global_position, players[1].global_position, 76.0))
-			_element_rider(source, element, midpoint, 280.0, damage, color)
-		"field":
-			_draw_ring(midpoint, TEMPLATE_RADIUS, color, 7.0)
-			_repeat(source, TEMPLATE_TICK_RATE, TEMPLATE_TICKS, func(_tick: int) -> void:
-				_damage_area(midpoint, TEMPLATE_RADIUS, damage * 0.34))
-			_element_rider(source, element, midpoint, TEMPLATE_RADIUS, damage, color)
-		"bombard":
-			# Aims at where the bodies actually are rather than at the pair, so
-			# it clears a pack the survivors are running away from.
-			for target in _cluster_targets(midpoint, 700.0, BOMBARDMENT_SHELLS):
-				var landing: Vector2 = target.global_position
-				_launch_seeker(midpoint, target, damage * 0.5, 520.0, color, "star",
-					func() -> void:
-						_in_scope(source, func() -> void:
-							_damage_area(landing, 150.0, damage * 0.6)
-							_spawn_combat_flare(landing, color, Color.WHITE, 120.0, 0.28)))
-			_element_rider(source, element, midpoint, 320.0, damage, color)
-		"snare":
-			_draw_ring(midpoint, TEMPLATE_RADIUS * 1.2, color, 6.0)
-			_slow_area(midpoint, TEMPLATE_RADIUS * 1.2, 2.8, 0.25)
-			_repeat(source, 0.4, 4, func(_tick: int) -> void:
-				_damage_area(midpoint, TEMPLATE_RADIUS * 1.2, damage * 0.3, 0.35))
-			_element_rider(source, element, midpoint, TEMPLATE_RADIUS * 1.2, damage, color)
-		"tempest":
-			# Four strikes that each pick their own ground, so it covers a field
-			# instead of hammering one crater.
-			_repeat(source, 0.34, 4, func(_tick: int) -> void:
-				var centre := _pair_midpoint()
-				for target in _nearest_per_quadrant(centre, 520.0):
-					if target == null:
-						continue
-					var at: Vector2 = (target as ChaserEnemy).global_position
-					_damage_area(at, 170.0, damage * 0.4)
-					_draw_ring(at, 170.0, color, 5.0))
-			_element_rider(source, element, midpoint, 360.0, damage, color)
-		_:
-			_damage_area(midpoint, TEMPLATE_RADIUS, damage)
-			_draw_ring(midpoint, TEMPLATE_RADIUS, color, 10.0)
-			_spawn_combat_flare(midpoint, color, Color.WHITE, 160.0, 0.34)
-			_element_rider(source, element, midpoint, TEMPLATE_RADIUS, damage, color)
-
-
-## What the element adds on top of the shape. One clause each, and the same
-## clause the generated description promises (ResonanceSystem.ELEMENT_RIDERS),
-## so the card and the effect cannot drift apart.
-func _element_rider(source: String, element: String, centre: Vector2, radius: float, damage: float, color: Color) -> void:
-	match element:
-		"fire":
-			_burn(source, _enemies_within(centre, radius), damage * 0.22, 4, color)
-		"frost":
-			_slow_area(centre, radius, 2.6, 0.35)
-			_draw_ring(centre, radius, color, 5.0)
-		"lightning":
-			for target in _nearest_enemies(centre, radius, 3):
-				_chain_lightning(centre, target, 3, damage * 0.3, color, 220.0)
-		"arcane":
-			var well = WeaponFieldScript.new()
-			well.configure_gravity(centre, spatial_grid, damage * 0.2, radius * 1.3, 240.0, color,
-				Callable(), -1, source)
-			add_child(well)
-		"shadow":
-			# Finishes what the shape started rather than adding a flat hit, so
-			# it reads as an execution and not as "a bit more damage".
-			for enemy in _enemies_within(centre, radius):
-				if enemy.health < enemy.max_health * 0.4:
-					enemy.take_damage(damage * 0.55, current_source_player, current_source_weapon)
-		"holy":
-			for player in players:
-				player.heal(6.0)
-			EnemyProjectile.break_within(enemy_shots, centre, radius)
-
-
 ## Damage bonus 열충격 붕괴 deals to bodies the frost is still holding.
 const THERMAL_SHOCK := 1.6
 ## Damage bonus 황혼 추적 deals to elites and bosses.
@@ -740,14 +645,24 @@ func _pair_midpoint() -> Vector2:
 ## Runs `body` with this resonance as the damage source, then puts back whatever
 ## the controller was attributing before. Ticks and impacts land on later frames,
 ## after other weapons have cast and moved the attribution on.
-func _in_scope(source: String, body: Callable) -> void:
+##
+## The drawing size travels the same way. A resonance's later ticks are drawn at
+## resonance size; a weapon's own delayed tick (팽팽한 사슬's second pulse) at
+## the size it was cast at, which `_repeat` hands in.
+func _in_scope(source: String, body: Callable, presence := -1.0) -> void:
 	var previous_player := current_source_player
 	var previous_weapon := current_source_weapon
+	var previous_presence := current_presence
 	current_source_player = -1
 	current_source_weapon = source
+	if presence > 0.0:
+		current_presence = presence
+	elif source.begins_with("resonance:"):
+		current_presence = RESONANCE_PRESENCE
 	body.call()
 	current_source_player = previous_player
 	current_source_weapon = previous_weapon
+	current_presence = previous_presence
 
 
 ## `body(tick)` for `ticks` ticks, `interval` apart. With no delay the first tick
@@ -762,9 +677,10 @@ func _repeat(source: String, interval: float, ticks: int, body: Callable, first_
 		delay = interval
 	if ticks - first_index <= 0:
 		return
+	var presence := current_presence
 	var ticker = TickerScript.new()
 	ticker.setup(delay, interval, ticks - first_index, func(tick: int) -> void:
-		_in_scope(source, func() -> void: body.call(tick)), first_index)
+		_in_scope(source, func() -> void: body.call(tick), presence), first_index)
 	add_child(ticker)
 
 
@@ -884,7 +800,7 @@ func _slow_area(centre: Vector2, radius: float, duration: float, multiplier: flo
 
 ## One guided shot from anywhere, at a chosen body, that calls `impact` where it
 ## finally lands.
-func _launch_seeker(origin: Vector2, target: ChaserEnemy, damage: float, speed: float, color: Color, style: String, impact: Callable) -> void:
+func _launch_seeker(origin: Vector2, target: ChaserEnemy, damage: float, speed: float, color: Color, style: String, impact: Callable) -> HomingProjectile:
 	var projectile := _acquire_projectile()
 	projectile.global_position = origin
 	projectile.setup(origin.direction_to(target.global_position), target)
@@ -897,7 +813,9 @@ func _launch_seeker(origin: Vector2, target: ChaserEnemy, damage: float, speed: 
 	projectile.turn_speed = 12.0
 	projectile.projectile_color = color
 	projectile.on_impact = impact
+	projectile.radius = 8.0 * current_presence
 	_give_projectile_height(projectile, "homing")
+	return projectile
 
 
 func _play_resonance_flare(center: Vector2, resonance: Dictionary) -> void:
@@ -952,6 +870,7 @@ func perform_pounce(center: Vector2, damage: float, color: Color) -> void:
 
 
 func _spawn_combat_flare(center: Vector2, primary: Color, secondary: Color, radius: float, lifetime: float) -> void:
+	radius *= sqrt(current_presence)
 	var flare := CombatFlareScript.new()
 	flare.setup(center, primary, secondary, radius, lifetime)
 	add_child(flare)
@@ -1061,6 +980,9 @@ func clear_transients() -> void:
 	# Planted mines outlive the cast that placed them, so a restart or a test
 	# teardown has to sweep them or they detonate into the next run.
 	for child in get_children():
+		var pool := child as MilkPool
+		if pool != null:
+			pool.queue_free()
 		if child.get_script() == ReturningToyScript:
 			child.set_physics_process(false)
 			child.queue_free()
@@ -1218,6 +1140,9 @@ func _fire_homing(player_index: int, state: Dictionary, damage: float, color: Co
 		projectile.lifetime *= float(state.get("duration", 1.0))
 		projectile.spawn_lifetime = projectile.lifetime
 		projectile.projectile_color = color
+		# A star grows with its weapon (WeaponGrowth.presence), and hits with the
+		# size it is drawn at.
+		projectile.radius = 8.0 * float(state.get("presence", 1.0))
 		projectile.remaining_hits = (1 + int(state.get("pierce", 0))
 			+ _caster_pierce() + int(state.get("tech_pierce", 0)))
 		_give_projectile_height(projectile, "homing")
@@ -1275,15 +1200,21 @@ func _fire_flame_nova(player_index: int, state: Dictionary, damage: float, color
 		# ring, making Ignis survival depend heavily on random spawn angles.
 		# The modestly wider hit disc preserves the radial gaps but makes close
 		# interceptions reliable.
-		projectile.radius = 9.0
+		#
+		# And then it grows with the weapon. 작은 태양 at Lv.12 throws embers three
+		# times the size of the ones it opened the run with — the route is called
+		# "a little sun", and by the end of it that is what it fires.
+		projectile.radius = float(state.get("shot_radius", 9.0 * float(state.get("presence", current_presence))))
+		projectile.on_impact = state.get("impact", Callable())
 		projectile.style = String(state.get("style", "ember"))
 		projectile.projectile_color = color
 		_give_projectile_height(projectile, "flame")
-	_draw_ring(players[player_index].global_position, 40.0, color, 4.0)
+	_draw_ring(players[player_index].global_position, 40.0 * current_presence, color, 4.0)
 	# Embers thrown out ahead of the ring, so the nova reads as something that
 	# burst rather than as a ring that appeared.
 	if is_instance_valid(particles):
-		particles.emit_burst(players[player_index].global_position, color.lightened(0.3), 8, 300.0)
+		particles.emit_burst(players[player_index].global_position, color.lightened(0.3),
+			roundi(8 * current_presence), 300.0 * sqrt(current_presence))
 
 
 func _give_projectile_height(projectile: HomingProjectile, weapon_id: String) -> void:
@@ -1330,6 +1261,7 @@ func _swing_scythe(player_index: int, state: Dictionary, damage: float, color: C
 	var attack_owner := current_source_player if source_player == -2 else source_player
 	var weapon_id := current_source_weapon if source_weapon.is_empty() else source_weapon
 	field.configure_scythe(origin, direction, spatial_grid, damage, attack_range, float(state["arc"]), color, attack_owner, weapon_id)
+	field.presence = current_presence
 	field.enemy_shots = enemy_shots
 	add_child(field)
 
@@ -1359,6 +1291,8 @@ func _fire_chain_pulse(state: Dictionary, damage: float, pulses := 1) -> void:
 func _sweep_orbit(player_index: int, state: Dictionary, damage: float, color: Color) -> void:
 	var field = WeaponFieldScript.new()
 	field.configure_orbit(players[player_index], spatial_grid, damage, float(state["radius"]), maxi(1, int(state["count"])), float(state.get("speed", 2.4)), color, float(state.get("duration", 1.0)), player_index, current_source_weapon)
+	field.presence = current_presence
+	field.stone_reach_scale = float(state.get("stone_reach_scale", 1.0)) if String(state.get("tech_id", "")) == "ritual" else 1.0
 	field.enemy_shots = enemy_shots
 	add_child(field)
 
@@ -1602,12 +1536,17 @@ func _fire_supernova(player_index: int, state: Dictionary, damage: float, color:
 	var radius := float(state["radius"])
 	var source_player := current_source_player
 	var source_weapon := current_source_weapon
+	var presence := current_presence
 	var blast := func() -> void:
 		if not is_inside_tree():
 			return
+		current_presence = presence
 		_damage_area(centre, radius, damage * 1.6, 1.0, source_player, source_weapon)
 		_draw_ring(centre, radius, color.lightened(0.2), 10.0)
 		_spawn_combat_flare(centre, color, color.lightened(0.5), radius * 0.6, 0.3)
+		if is_instance_valid(particles):
+			particles.emit_burst(centre, color.lightened(0.3), roundi(10 * presence), 380.0)
+		current_presence = 1.0
 	get_tree().create_timer(0.45, false).timeout.connect(blast)
 
 
@@ -1618,9 +1557,12 @@ func _swing_black_moon(player_index: int, state: Dictionary, damage: float, colo
 	_swing_scythe(player_index, full, damage, color)
 	var source_player := current_source_player
 	var source_weapon := current_source_weapon
+	var presence := current_presence
 	var second := func() -> void:
 		if is_inside_tree():
+			current_presence = presence
 			_swing_scythe(player_index, full, damage, color.darkened(0.2), source_player, source_weapon)
+			current_presence = 1.0
 	get_tree().create_timer(0.18, false).timeout.connect(second)
 
 
@@ -1669,12 +1611,15 @@ func _collapse_event_horizon(player_index: int, state: Dictionary, damage: float
 	var radius := float(state["radius"])
 	var source_player := current_source_player
 	var source_weapon := current_source_weapon
+	var presence := current_presence
 	var implode := func() -> void:
 		if not is_inside_tree():
 			return
+		current_presence = presence
 		_damage_area(centre, radius * 0.7, damage * 2.0, 1.0, source_player, source_weapon)
 		_draw_ring(centre, radius * 0.7, color.lightened(0.35), 11.0)
 		_spawn_combat_flare(centre, color, Color.WHITE, radius * 0.4, 0.26)
+		current_presence = 1.0
 	get_tree().create_timer(0.55, false).timeout.connect(implode)
 
 
@@ -1715,6 +1660,37 @@ func play_shockwave(centre: Vector2, radius: float, color: Color, duration: floa
 	tween.chain().tween_callback(wave.queue_free)
 
 
+## A weapon card landing, shown on the survivor who took it: a ring in the
+## weapon's colour thrown out from their feet, sized by how big the weapon has
+## now grown (WeaponGrowth.presence). The growth screen is paused over the roof,
+## so this plays in the first moment the run resumes — which is exactly when the
+## pair is looking back at their cats to see what changed.
+func play_growth_pulse(player: ChainPlayer, color: Color, presence: float) -> void:
+	if not is_instance_valid(player):
+		return
+	var at := player.global_position
+	var radius := 46.0 + 34.0 * presence
+	var ring := Line2D.new()
+	ring.position = at
+	ring.width = 5.0 + 3.0 * presence
+	ring.default_color = Color(color.lightened(0.3), 0.95)
+	ring.z_index = 4
+	ring.antialiased = true
+	for index in 41:
+		ring.add_point(Vector2.from_angle(TAU * float(index) / 40.0) * radius)
+	ring.scale = Vector2.ONE * 0.2
+	add_child(ring)
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(ring, "scale", Vector2.ONE, 0.42).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(ring, "modulate:a", 0.0, 0.5).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(ring.queue_free)
+	if is_instance_valid(particles):
+		particles.emit_burst(at, color.lightened(0.35), roundi(6 + 4 * presence), 220.0 + 60.0 * presence)
+		particles.emit_flare(at, color.lightened(0.5), 18.0 + 10.0 * presence, 0.24)
+	_spawn_reactive_light(at, color, 80.0 + 40.0 * presence, 0.3, 0.3)
+
+
 ## Spokes thrown outward from a point. Only the purge uses this, and only
 ## because a screen-clear that looks the same as a nova is a wasted moment.
 func play_purge_rays(centre: Vector2, radius: float, color: Color) -> void:
@@ -1738,6 +1714,9 @@ func play_purge_rays(centre: Vector2, radius: float, color: Color) -> void:
 
 
 func _draw_beam(from: Vector2, to: Vector2, color: Color, width: float) -> void:
+	# Drawn a little wider than it hits as the weapon grows. The hit width is a
+	# stat with its own cards; this is only how heavy the beam looks doing it.
+	width *= lerpf(1.0, current_presence, 0.45)
 	var beam = LanceStrikeScript.new()
 	beam.setup(from, to, width, color)
 	add_child(beam)
@@ -1805,6 +1784,7 @@ func _draw_lightning(from: Vector2, to: Vector2, color: Color, width: float) -> 
 		if index > 0 and index < 7:
 			point += Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
 		path.append(point)
+	width *= current_presence
 	var bolt := Line2D.new()
 	bolt.width = width * 1.5
 	bolt.default_color = color.lightened(0.2)
@@ -1861,7 +1841,7 @@ func _draw_ring(center: Vector2, radius: float, color: Color, width: float) -> v
 	# boundaries. That worked and then some — they became invisible. They are
 	# legible again; what keeps them distinct from an enemy telegraph is that
 	# they flash once and expand away, while a telegraph pulses and fills.
-	ring.width = clampf(width * 0.8, 3.0, 9.0)
+	ring.width = clampf(width * 0.8, 3.0, 9.0) * minf(2.2, current_presence)
 	ring.default_color = Color(color, minf(color.a, 0.85))
 	ring.z_index = 2
 	ring.antialiased = true

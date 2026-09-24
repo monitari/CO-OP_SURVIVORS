@@ -693,12 +693,27 @@ func _prepare_fusions() -> void:
 		if target_slot < 0:
 			blocked.append("%s 진화 가능한 기본 무기 없음" % game.player_label(slot))
 			continue
-		# Lv.7 is the whole condition now, and reaching it enhances the weapon on
-		# the spot, so this only has to buy tiers — no treasure to find, no slot
-		# to make room for, and nothing that can block partway.
+		# The inspector temporarily supplies the route material at Lv.4, then
+		# restores the loadout after the real evolution gate has run.
 		while int(game.weapon_loadouts[slot][target_slot].get("tier", 1)) < Evolutions.EVOLUTION_TIER:
 			game._apply_upgrade(slot, {"id": "weapon_power", "weapon_slot": target_slot})
+		var required_id := String(game.weapon_loadouts[slot][target_slot].get("tech_synergy_treasure_id", ""))
+		var material_slot := -1
+		for index in game.treasure_loadouts[slot].size():
+			if String(game.treasure_loadouts[slot][index]["id"]) == required_id:
+				material_slot = index
+				break
+		var original_tier := 0
+		if material_slot < 0:
+			game.treasure_loadouts[slot].append({"id": required_id, "tier": Evolutions.REQUIRED_TREASURE_TIER})
+		else:
+			original_tier = int(game.treasure_loadouts[slot][material_slot]["tier"])
+			game.treasure_loadouts[slot][material_slot]["tier"] = Evolutions.REQUIRED_TREASURE_TIER
 		game._apply_pending_evolutions(slot)
+		if material_slot < 0:
+			game.treasure_loadouts[slot].pop_back()
+		else:
+			game.treasure_loadouts[slot][material_slot]["tier"] = original_tier
 		prepared.append("%s %s" % [game.player_label(slot), String(evolution["weapon_name"])])
 	if prepared.is_empty():
 		notice = "진화 준비 실패: %s" % ", ".join(blocked)

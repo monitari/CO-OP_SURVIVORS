@@ -13,15 +13,9 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 
-## The tech tree is base weapon → enhanced weapon → resonance, and the middle
-## rung is now a single visible number: Lv.7, reached, done. These checks pin
-## that shape — the route is chosen at Lv.3, the enhancement happens on its own
-## at Lv.7 with no card and no treasure, everything the weapon was grown by
-## survives it, and the weapon keeps climbing afterwards.
-##
-## The gate this test used to guard (a maxed weapon *and* a route-specific
-## treasure at Lv.4) is once again the recipe. Both halves are checked at their
-## boundary so neither ingredient can silently become optional.
+## The route is chosen at Lv.3. A weapon enhances automatically once it reaches
+## Lv.7 and its route treasure reaches Lv.4. Both boundaries are checked here,
+## along with complete growth carryover and continued growth after evolution.
 func _run() -> void:
 	var main := MainScene.instantiate()
 	root.add_child(main)

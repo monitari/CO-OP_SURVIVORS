@@ -29,19 +29,36 @@ const L := preload("res://scripts/systems/loc.gd")
 ## by a constant with no in-world referent.
 const MAX_ACTIVE_RESONANCES := 2
 
-## How hard the pair's move hits, against what the two weapons behind it do.
+## A resonance *absorbs* the two weapons behind it. From the moment it is
+## chosen those two stop attacking — they keep their slots and their levels, and
+## every card spent on them keeps counting — and the resonance attacks in their
+## place with what they were worth.
 ##
-## For a while a resonance took those two weapons out of service — they kept
-## their slots and their levels but stopped attacking, and the resonance attacked
-## in their place. These numbers were priced as the payment for that. The
-## silencing is gone (2026-09-16): the weapons fire, and the resonance fires as
-## well, so these are simply how strong the pair's move is.
-const TRADE_POWER := 1.65
-## How much one weapon tier above the enhancement gate adds to the pair's move,
-## per side. This plus TRADE_POWER is the whole growth formula — one common
-## expression (base power × the two weapons' average growth) rather than a
-## per-resonance scaling rule, which is what §16 asks for.
-const TRADE_TIER_BONUS := 0.15
+## That trade only means anything if it is a good one, so it is written down as
+## a number instead of left to how each effect happened to be tuned:
+##
+##     one resonance cast = RESONANCE_PREMIUM × what the two absorbed weapons
+##                          would have dealt over the same cooldown
+##
+## "What they would have dealt" is measured, not guessed. ResonancePowerCatalog
+## holds each enhanced weapon's damage per second and each resonance's damage
+## per cast, both taken on the same reference roof (a crowd, and a lone boss),
+## and main._resonance_power scales that by how far the two weapons have been
+## grown since. A pair who pours 화력 cards into the weapons they are about to
+## fuse is therefore pouring them into the resonance, which is what makes the
+## choice to fuse a payoff rather than a sacrifice.
+##
+## For a while (until 2026-09-23) the weapons kept firing alongside the
+## resonance and these numbers were a flat 1.65 plus a tier bonus. That made the
+## resonance a bonus bolted on top rather than the thing the two weapons turned
+## into, and its strength never followed the damage the weapons had actually
+## been grown to — late in a run it was a small fraction of either one.
+const RESONANCE_PREMIUM := 1.5
+## And the floor under it. The premium is applied to the geometric mean of the
+## crowd and boss reference fields, so a resonance that is all area and no
+## single-target (or the reverse) is priced fairly on average; this floor keeps
+## it from ever losing to the two weapons in the field it is weakest in.
+const RESONANCE_FLOOR := 1.1
 
 ## Cores held but not yet spent. A core is a right to pick, not a material for a
 ## particular recipe: there is no 화염용 or 냉기용 core, because a reward that
@@ -67,45 +84,73 @@ const TAG_NAMES := {
 	"pierce": "관통",
 }
 
-## The adjective each element contributes to a generated resonance's name, and
-## the noun each behaviour contributes. "서리 유도", "성광 탄막".
+## The adjective each element contributes to a fused resonance's name; the noun
+## comes from the carrier (CARRIERS). "업화 물수제비", "성광 지뢰밭".
 const ELEMENT_WORDS := {
 	"fire": "업화", "frost": "서리", "lightning": "뇌전", "arcane": "비전",
 	"shadow": "그믐", "holy": "성광",
 }
-const BEHAVIOR_WORDS := {
-	"projectile": "탄막", "melee": "참격", "chain": "회로", "aura": "장판",
-	"tracking": "추적", "control": "결계", "explosion": "폭발", "storm": "폭풍",
-	"pierce": "관통",
-}
 
-## What each element does on top of the shape, in one clause. Used to build the
-## generated descriptions, so the text and the effect cannot drift apart — the
-## same clause names the rider that WeaponController actually applies.
+## What each element does wherever the carrier lands, in one clause. The same
+## clause is the card's promise and the name of the payload WeaponController
+## runs (`_fusion_payload`), so the text and the effect cannot drift apart.
 const ELEMENT_RIDERS := {
-	"fire": "적을 불태웁니다",
-	"frost": "적을 얼려 둔화시킵니다",
-	"lightning": "가까운 적에게 번개가 옮겨붙습니다",
-	"arcane": "적을 중심으로 끌어당깁니다",
-	"shadow": "체력이 낮은 적에게 추가 피해를 줍니다",
-	"holy": "두 사람의 체력을 회복시킵니다",
+	"fire": "폭발이 일어납니다",
+	"frost": "얼리고, 언 적은 부서뜨립니다",
+	"lightning": "번개가 옆으로 옮겨붙습니다",
+	"arcane": "특이점이 적을 끌어모아 터집니다",
+	"shadow": "낫이 약해진 적을 처형합니다",
+	"holy": "빛기둥이 적 탄을 지우고 둘을 치유합니다",
 }
 
-## The shape each behaviour tag takes, as the generic template that runs it.
-## Nine shapes cover every element × behaviour combination the roster can
-## produce, which is what keeps a thirteenth weapon from needing twelve new
-## hand-written resonances (§15).
+## A generated resonance is not a generic shape any more. It is a **fusion**:
+## one weapon's delivery, blown up to resonance size, carrying the other
+## weapon's element to everything it touches. The behaviour tag names the
+## carrier and the element tag names the payload, so 초신성(화염) + 물수제비
+## 물고기(유도) is not "a fire barrage" but a giant fish skipping from enemy to
+## enemy and exploding every time it lands.
+##
+## That is the whole reason the two weapons' identities survive the fusion. The
+## nine old templates (barrage, lance, cleave …) were the same nine attacks in
+## six colours; the pair could not see either of their own weapons in them.
+##
+## The carrier is the weapon that actually supplied the behaviour tag (see
+## `bind_fusion`), so two weapons sharing a tag — 절대영도 and 천구 의식 are both
+## `aura` — still produce two different attacks. `carrier` below is only the
+## stand-in for when no pair is known, which is the codex and the catalogue tests.
 const BEHAVIOR_TEMPLATES := {
-	"projectile": {"template": "barrage", "cooldown": 5.4, "description": "두 사람이 동시에 %s 탄막을 흩뿌리고, %s."},
-	"pierce": {"template": "lance", "cooldown": 5.6, "description": "두 사람 사이를 잇는 %s 관통 광선이 뻗어 나가고, %s."},
-	"melee": {"template": "cleave", "cooldown": 5.0, "description": "두 사람 주위를 %s 참격이 크게 훑고, %s."},
-	"chain": {"template": "conduit", "cooldown": 6.0, "description": "사슬이 %s 회로가 되어 닿은 적을 태우고, %s."},
-	"aura": {"template": "field", "cooldown": 5.8, "description": "두 사람 주변에 %s 장판이 깔려 계속 타격하고, %s."},
-	"tracking": {"template": "bombard", "cooldown": 5.5, "description": "%s 유도탄이 가장 몰린 자리를 골라 떨어지고, %s."},
-	"control": {"template": "snare", "cooldown": 6.0, "description": "%s 결계가 넓게 퍼져 적을 묶어 두고, %s."},
-	"explosion": {"template": "blast", "cooldown": 5.6, "description": "두 사람 사이에서 %s 폭발이 터지고, %s."},
-	"storm": {"template": "tempest", "cooldown": 6.2, "description": "%s 폭풍이 넓은 범위를 거듭 때리고, %s."},
+	"pierce": {"template": "fusion", "carrier": "starpiercer", "cooldown": 5.6},
+	"storm": {"template": "fusion", "carrier": "thunder_god", "cooldown": 6.0},
+	"explosion": {"template": "fusion", "carrier": "supernova", "cooldown": 5.6},
+	"aura": {"template": "fusion", "carrier": "absolute_zero", "cooldown": 5.8},
+	"melee": {"template": "fusion", "carrier": "black_moon", "cooldown": 5.0},
+	"chain": {"template": "fusion", "carrier": "stigmata", "cooldown": 5.6},
+	"projectile": {"template": "fusion", "carrier": "judgement", "cooldown": 5.4},
+	"control": {"template": "fusion", "carrier": "ruin_garden", "cooldown": 6.0},
+	"tracking": {"template": "fusion", "carrier": "skipping_stone", "cooldown": 5.5},
 }
+
+## Each enhanced weapon as a carrier: the noun it lends the fused name, and the
+## clause that says how it delivers the payload. Written for the weapon rather
+## than for its tag — this is the part of the card where a pair recognises the
+## thing they built.
+const CARRIERS := {
+	"starpiercer": {"noun": "혜성포", "clause": "거대한 혜성이 무리를 꿰뚫고, 꿰뚫은 곳마다"},
+	"thunder_god": {"noun": "뇌운", "clause": "모든 적에게 벼락이 세 번 치고, 친 곳마다"},
+	"event_horizon": {"noun": "블랙홀", "clause": "블랙홀이 무리를 삼키고, 무너진 중심에서"},
+	"supernova": {"noun": "초신성", "clause": "거대한 불씨가 사방으로 터지고, 닿는 곳마다"},
+	"absolute_zero": {"noun": "빙결장", "clause": "냉기 파동이 세 번 퍼지고, 닿은 적마다"},
+	"celestial": {"noun": "천구", "clause": "궤도석이 돌다 가장 강한 적에게 떨어지고, 스친 적마다"},
+	"black_moon": {"noun": "초승달", "clause": "거대한 낫이 두 바퀴를 베고, 베인 적마다"},
+	"stigmata": {"noun": "성흔 사슬", "clause": "사슬이 불타며 채찍처럼 휘고, 닿는 곳마다"},
+	"judgement": {"noun": "심판의 비", "clause": "하늘에서 창이 쏟아지고, 박힌 자리마다"},
+	"ruin_garden": {"noun": "지뢰밭", "clause": "지뢰가 피어나 한꺼번에 터지고, 터진 곳마다"},
+	"cream_tide": {"noun": "크림 해일", "clause": "크림 해일이 적을 쓸어 가고, 젖은 적마다"},
+	"skipping_stone": {"noun": "물수제비", "clause": "거대한 물고기가 적 사이를 튀고, 튈 때마다"},
+}
+
+const FUSION_DESCRIPTION := "%s %s."
+
 
 ## The hand-made ones. A combination earns an entry here when the two tags
 ## together mean something the generic shape cannot say — 화염 + 냉기 is not a
@@ -231,9 +276,8 @@ static func _pair_key(requires: Array) -> String:
 
 
 ## The name a player reads. A hand-written resonance has one written name; a
-## generated one is an element word and a behaviour word, translated separately
-## so the roster does not need 54 hand-written English names to say the same
-## nine shapes in six elements.
+## fused one is an element word and its carrier's noun, translated separately
+## so the roster does not need a hand-written English name per combination.
 static func display_name(entry: Dictionary) -> String:
 	if entry.has("name_parts"):
 		var parts: Array = entry["name_parts"]
@@ -241,8 +285,8 @@ static func display_name(entry: Dictionary) -> String:
 	return L.t(String(entry.get("name", "")))
 
 
-## The sentence a player reads, built the same way: one translated shape with
-## the element's noun and the element's rider clause dropped into it.
+## The sentence a player reads, built the same way: the carrier's clause and the
+## payload's clause, each translated, joined by one translated frame.
 static func display_description(entry: Dictionary) -> String:
 	if entry.has("description_parts"):
 		var parts: Array = entry["description_parts"]
@@ -250,23 +294,20 @@ static func display_description(entry: Dictionary) -> String:
 	return L.t(String(entry.get("description", "")))
 
 
-## One generic resonance, built from the element's rider and the behaviour's
-## shape. Name, description and numbers all come from the same two tags, so
-## there is no text to keep in step with the effect by hand (§20).
-## A generated entry keeps the two words and the rider it was built from as well
-## as the Korean sentence, so `display_name` and `display_description` can build
-## the line again in whatever locale is current. Composing once and caching the
-## result would freeze the catalogue in the language it was first read in, and
-## the language can be changed from the pause menu mid-run.
+## One fused resonance for an element × behaviour pair. The entry names the
+## default carrier for the behaviour; `bind_fusion` swaps in the carrier the pair
+## actually holds once there is a pair to look at.
+##
+## A generated entry keeps the words it was built from as well as the Korean
+## sentence, so `display_name` and `display_description` can build the line
+## again in whatever locale is current. Composing once and caching the result
+## would freeze the catalogue in the language it was first read in, and the
+## language can be changed from the pause menu mid-run.
 static func _generated(element: String, behavior: String, requires: Array) -> Dictionary:
 	var shape: Dictionary = BEHAVIOR_TEMPLATES[behavior]
-	return {
+	var entry := {
 		"id": "%s_%s" % [element, behavior],
 		"internal_id": "RESONANCE_%s_%s" % [element.to_upper(), behavior.to_upper()],
-		"name": "%s %s" % [ELEMENT_WORDS[element], BEHAVIOR_WORDS[behavior]],
-		"description": String(shape["description"]) % [TAG_NAMES[element], ELEMENT_RIDERS[element]],
-		"name_parts": [ELEMENT_WORDS[element], BEHAVIOR_WORDS[behavior]],
-		"description_parts": [String(shape["description"]), TAG_NAMES[element], ELEMENT_RIDERS[element]],
 		"requires": requires,
 		"kind": "template",
 		"template": String(shape["template"]),
@@ -274,6 +315,44 @@ static func _generated(element: String, behavior: String, requires: Array) -> Di
 		"behavior": behavior,
 		"cooldown": float(shape["cooldown"]),
 	}
+	_name_fusion(entry, String(shape["carrier"]))
+	return entry
+
+
+## Writes the carrier into a fused entry, with the name and sentence that go
+## with it.
+static func _name_fusion(entry: Dictionary, carrier: String) -> void:
+	var words: Dictionary = CARRIERS.get(carrier, CARRIERS["supernova"])
+	var element := String(entry["element"])
+	entry["carrier"] = carrier
+	entry["name_parts"] = [ELEMENT_WORDS[element], String(words["noun"])]
+	entry["name"] = "%s %s" % [ELEMENT_WORDS[element], String(words["noun"])]
+	entry["description_parts"] = [FUSION_DESCRIPTION, String(words["clause"]), String(ELEMENT_RIDERS[element])]
+	entry["description"] = FUSION_DESCRIPTION % [String(words["clause"]), String(ELEMENT_RIDERS[element])]
+
+
+## Which of the two weapons carries a fused resonance and which one lends it the
+## element, for this particular pair.
+##
+## The carrier is the weapon holding the behaviour tag. When both hold it (two
+## `aura` weapons, say), the one that is *not* also supplying the element
+## carries, so both weapons show up in the attack rather than one of them twice.
+static func bind_fusion(entry: Dictionary, weapon_a: Dictionary, weapon_b: Dictionary) -> void:
+	if String(entry.get("kind", "")) != "template":
+		return
+	var element := String(entry["element"])
+	var behavior := String(entry["behavior"])
+	var a_behaves: bool = behavior in (weapon_a.get("tags", []) as Array)
+	var b_behaves: bool = behavior in (weapon_b.get("tags", []) as Array)
+	var a_element: bool = element in (weapon_a.get("tags", []) as Array)
+	var carrier := weapon_a if a_behaves else weapon_b
+	if a_behaves and b_behaves:
+		carrier = weapon_b if a_element else weapon_a
+	elif not a_behaves and not b_behaves:
+		return
+	var carrier_id := String(carrier.get("weapon_id", ""))
+	if CARRIERS.has(carrier_id):
+		_name_fusion(entry, carrier_id)
 
 
 ## Checks every weapon pair across both players' loadouts (up to 3x3) rather
@@ -291,8 +370,8 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 	var seen_ids: Dictionary = {}
 	# Resonance is the top of the tree, not a mid-run bonus: only enhanced
 	# weapons reach it. A weapon already backing an active resonance cannot earn
-	# a second one — it is spent, which is what keeps two resonances costing four
-	# weapon slots rather than two.
+	# a second one — it has been absorbed into the first and no longer fires,
+	# which is what keeps two resonances costing four weapon slots rather than two.
 	for slot_a in loadout_a.size():
 		var weapon_a: Dictionary = loadout_a[slot_a]
 		if not bool(weapon_a.get("evolved", false)) or is_bound(0, slot_a):
@@ -321,6 +400,7 @@ func get_candidates_for_loadouts(loadout_a: Array, loadout_b: Array) -> Array[Di
 				# two weapons it is spending.
 				candidate["weapon_a_slot"] = slot_a
 				candidate["weapon_b_slot"] = slot_b
+				bind_fusion(candidate, weapon_a, weapon_b)
 				candidates.append(candidate)
 	return candidates
 
@@ -427,11 +507,18 @@ func activate(resonance: Dictionary) -> void:
 ## resonances off fewer weapons than earned them. The HUD marks a bound slot in
 ## gold, and the candidate card says so too (§17).
 func is_bound(player_index: int, weapon_slot: int) -> bool:
+	return not bound_entry(player_index, weapon_slot).is_empty()
+
+
+## The active resonance a weapon slot has been absorbed into, or an empty
+## dictionary. The HUD reads its charge from here: an absorbed weapon's own
+## cooldown means nothing any more, the resonance's does.
+func bound_entry(player_index: int, weapon_slot: int) -> Dictionary:
 	var key := "weapon_a_slot" if player_index == 0 else "weapon_b_slot"
 	for entry in active_resonances:
 		if int(entry.get(key, -1)) == weapon_slot:
-			return true
-	return false
+			return entry
+	return {}
 
 
 ## How much slower a resonance charges while the pair is not really a pair.
@@ -441,8 +528,12 @@ const DOWNED_CHARGE := 0.3
 ## feeds it: holding the leash out — the same risk that burns integrity and pays
 ## the overcharge bonus — brings the pair's move round faster, and standing on
 ## top of each other slows it down.
-const TAUT_CHARGE := 1.6
-const SLACK_CHARGE := 0.65
+##
+## Narrower than it was (0.65 – 1.6). The resonance now replaces two weapons
+## that fire at the same rate however the pair is standing, so a slack chain
+## may not drag it below them: SLACK_CHARGE × RESONANCE_PREMIUM stays above 1.
+const TAUT_CHARGE := 1.35
+const SLACK_CHARGE := 0.8
 
 
 ## What one second of play is worth to the resonance clocks, given how the pair

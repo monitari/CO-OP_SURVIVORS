@@ -221,6 +221,10 @@ func _test_shared_treasures(main: Node) -> void:
 
 
 func _test_gimmick_treasures(main: Node) -> void:
+	# These isolated effect checks use finished weapons so material reservations
+	# do not consume one of the four treasure slots under test.
+	for slot in 2:
+		main.weapon_loadouts[slot][0]["evolved"] = true
 	main.treasure_loadouts[0] = []
 	main.treasure_loadouts[1] = []
 	_unlock(main, 0, "catnip")

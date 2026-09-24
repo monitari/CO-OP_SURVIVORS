@@ -43,8 +43,11 @@ enum Stage { OPENING, ROUTE, FINAL }
 ## card should be worth more than an early one, but the whole staircase is much
 ## shallower: the same eleven cards now land near ×8 instead of ×35.
 const POWER_GAIN := [0.12, 0.16, 0.19]
-## Cooldown multiplier per 속도 card is 1 - RATE_GAIN[stage] * focus.
-const RATE_GAIN := [0.04, 0.06, 0.07]
+## A focused 속도 card pays the same damage-per-second multiplier as a
+## 화력 card at the same stage and focus. A cooldown factor of 1 / (1 + gain)
+## makes the reciprocal cadence grow by exactly the damage card's multiplier.
+## The cooldown floor still limits total stacking.
+
 ## Scales the continuous delta of a unique special (range, radius, slow...).
 const SPECIAL_SCALE := [0.70, 0.85, 1.00]
 ## The absolute fastest any weapon may ever be cast, whatever it started at.
@@ -132,7 +135,8 @@ static func power_step(state: Dictionary) -> float:
 
 
 static func rate_step(state: Dictionary) -> float:
-	return 1.0 - float(RATE_GAIN[stage(state)]) * focus(state, "weapon_rate")
+	var equivalent_power := float(POWER_GAIN[stage(state)]) * focus(state, "weapon_rate")
+	return 1.0 / (1.0 + equivalent_power)
 
 
 ## What this weapon's interval was in the catalogue, before anything was spent
@@ -184,3 +188,29 @@ static func carry_into_evolution(evolved: Dictionary, grown: Dictionary, base_da
 	if base_cooldown > 0.0 and evolved.has("cooldown"):
 		var rate_ratio := clampf(float(grown.get("cooldown", base_cooldown)) / base_cooldown, 0.1, 1.0)
 		evolved["cooldown"] = maxf(RATE_FLOOR, float(evolved["cooldown"]) * rate_ratio)
+
+
+## How big a weapon *is* on the roof, as a multiple of how it looked at Lv.1.
+##
+## Every card used to change a number and nothing else, so a Lv.12 enhanced
+## weapon fired the same eight-pixel ember as a Lv.1 one and the only evidence
+## that a run had gone anywhere was the damage text. A weapon now visibly grows
+## with it: each level adds a step, the enhancement adds a jump, and the route
+## decides which way it grows — 화력 routes (A) put everything into fewer, much
+## bigger shots, 속도 routes (B) into more of slightly smaller ones.
+##
+## Shots carry this into their hit radius as well as their drawing (a shot that
+## looks huge and hits like a pellet reads as a bug); blades, rings, bolts and
+## beams carry it into their drawing only, since their reach is already a stat.
+const PRESENCE_PER_TIER := 0.075
+const PRESENCE_ENHANCED := 1.3
+const PRESENCE_ROUTE := {"a": 1.25, "b": 0.92}
+const PRESENCE_MAX := 3.2
+
+
+static func presence(state: Dictionary) -> float:
+	var value := 1.0 + PRESENCE_PER_TIER * float(maxi(0, int(state.get("tier", 1)) - 1))
+	if bool(state.get("evolved", false)):
+		value *= PRESENCE_ENHANCED
+	value *= float(PRESENCE_ROUTE.get(String(tech(state).get("role", "")), 1.0))
+	return minf(PRESENCE_MAX, value)

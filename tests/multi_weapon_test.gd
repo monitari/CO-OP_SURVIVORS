@@ -38,7 +38,7 @@ func _run() -> void:
 	await _test_weapon_cap(main)
 	await _test_independent_cooldowns(main)
 	_test_loadout_resonance(main)
-	await _test_a_resonance_does_not_stop_its_weapons(main)
+	await _test_a_resonance_absorbs_its_weapons(main)
 
 	if failures.is_empty():
 		print("MULTI_WEAPON_PASS: cap enforced, independent cooldowns, resonance reaches through a picked-up weapon")
@@ -169,24 +169,30 @@ func _test_independent_cooldowns(main: Node) -> void:
 	_check(main.attack_timers[0][2] > 25.0, "the third weapon's timer is likewise untouched")
 
 
-## A resonance used to take the two weapons that earned it out of service. That
-## is gone: they keep firing and the resonance fires as well.
+## A resonance absorbs the two weapons that earned it: they stop firing and the
+## resonance fires in their place, at what they were worth together
+## (ResonanceSystem.RESONANCE_PREMIUM). Only those two — every other weapon the
+## pair carries keeps its own cooldown.
 ##
 ## Checked by driving real ticks and counting casts rather than by reading a
-## flag, because the silencing lived in main's own weapon loop — a flag would
-## have gone on reporting the right answer while the loop skipped the slot.
-func _test_a_resonance_does_not_stop_its_weapons(main: Node) -> void:
+## flag, because the silencing lives in main's own weapon loop — a flag would go
+## on reporting the right answer while the loop fired the slot anyway.
+func _test_a_resonance_absorbs_its_weapons(main: Node) -> void:
 	main.resonance_system.active_resonances.clear()
 	# The phase lives in the dictionary with the counts: a GDScript lambda captures
 	# a local by value, so a plain String would have stayed "before" forever and
 	# the second half of this test would have counted nothing no matter what the
 	# weapon loop did.
-	var casts := {"phase": "before", "before": 0, "after": 0}
-	var counter := func(player_index: int, _weapon_id: String, _origin: Vector2,
+	var casts := {"phase": "before", "before": 0, "after": 0, "other_before": 0, "other_after": 0}
+	var bound_id := String(main.weapon_loadouts[0][0]["weapon_id"])
+	var counter := func(player_index: int, weapon_id: String, _origin: Vector2,
 			_color: Color, _radius: float) -> void:
-		if player_index == 0:
-			var key: String = casts["phase"]
-			casts[key] = int(casts[key]) + 1
+		if player_index != 0:
+			return
+		var key: String = casts["phase"]
+		if weapon_id != bound_id:
+			key = "other_" + key
+		casts[key] = int(casts[key]) + 1
 	main.weapon_controller.attack_visual.connect(counter)
 	var enemy: ChaserEnemy = main.wave_director._acquire_enemy("chaser", 1.0, Vector2.ZERO, false, false)
 	enemy.position = main.players[0].position + Vector2(120.0, 0.0)
@@ -208,9 +214,12 @@ func _test_a_resonance_does_not_stop_its_weapons(main: Node) -> void:
 	_check(main.resonance_system.is_bound(0, 0), "the fixture really did bind P1's first weapon")
 	for tick in 120:
 		main._physics_process(1.0 / 60.0)
-	_check(int(casts["after"]) > 0,
-		"a bound weapon keeps attacking (%d casts before, %d while resonating)"
+	_check(int(casts["after"]) == 0,
+		"an absorbed weapon stops attacking (%d casts before, %d while resonating)"
 			% [int(casts["before"]), int(casts["after"])])
+	if main.weapon_loadouts[0].size() > 1 and int(casts["other_before"]) > 0:
+		_check(int(casts["other_after"]) > 0,
+			"the survivor's other weapons keep attacking (%d casts while resonating)" % int(casts["other_after"]))
 	main.weapon_controller.attack_visual.disconnect(counter)
 	main.resonance_system.active_resonances.clear()
 	main._cull_enemy(enemy)

@@ -21,6 +21,7 @@ const ProgressionScript := preload("res://scripts/systems/progression_system.gd"
 const ExperienceScript := preload("res://scripts/systems/experience_system.gd")
 const WaveDirectorScript := preload("res://scripts/systems/wave_director.gd")
 const ResonanceScript := preload("res://scripts/systems/resonance_system.gd")
+const ResonancePower := preload("res://scripts/catalogs/resonance_power_catalog.gd")
 const BossHealthBarScript := preload("res://scripts/ui/boss_health_bar.gd")
 const EdgePointerScript := preload("res://scripts/ui/edge_pointer.gd")
 const ResonancePipsScript := preload("res://scripts/ui/resonance_pips.gd")
@@ -51,6 +52,7 @@ const DebugInspectorScript := preload("res://scripts/ui/debug_inspector.gd")
 const Treasures := preload("res://scripts/catalogs/treasure_catalog.gd")
 const Evolutions := preload("res://scripts/catalogs/evolution_catalog.gd")
 const WeaponTechs := preload("res://scripts/catalogs/weapon_tech_catalog.gd")
+const TreasureReservationScript := preload("res://scripts/systems/treasure_reservation.gd")
 const WeaponGrowthScript := preload("res://scripts/systems/weapon_growth.gd")
 const RunStatsTemplate := preload("res://scripts/templates/run_stats_template.gd")
 const InputBindings := preload("res://scripts/templates/input_bindings.gd")
@@ -966,6 +968,10 @@ func _probed_physics_process(delta: float) -> void:
 	_profile("spawning")
 	for player_index in 2:
 		for weapon_slot in weapon_loadouts[player_index].size():
+			# A weapon a resonance has absorbed does not fire: the resonance
+			# fires for it, at what it and its partner were worth together.
+			if resonance_system.is_bound(player_index, weapon_slot):
+				continue
 			if attack_timers[player_index][weapon_slot] <= 0.0:
 				weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 				attack_timers[player_index][weapon_slot] = _weapon_interval(player_index, weapon_slot)
@@ -982,9 +988,13 @@ func _probed_physics_process(delta: float) -> void:
 		clampf(players[0].position.distance_to(players[1].position) / maxf(1.0, chain_max_length), 0.0, 1.0),
 		not players[0].downed and not players[1].downed)):
 		weapon_controller.perform_resonance(resonance,
-			_tension_damage_multiplier() * _resonance_trade_power(resonance))
-		# The payoff for having been tied together all run: the chain floods.
+			_tension_damage_multiplier() * _resonance_power(resonance))
+		# The payoff for having been tied together all run: the chain floods,
+		# and the roof feels it. Two weapons' worth of damage arriving in one
+		# moment should land like the heaviest thing on screen, because it is.
 		chain_flow.surge()
+		camera_shake = maxf(camera_shake, 9.0)
+		_ask_hit_stop(HIT_STOP_HEAVY)
 		run_stats["resonance_casts"] = int(run_stats["resonance_casts"]) + 1
 	if is_instance_valid(boss_enemy) and not boss_enemy.dead:
 		boss_bar.report(boss_enemy.health, boss_enemy.max_health, bool(boss_enemy.boss_enraged))
@@ -3526,6 +3536,8 @@ func _activate_pause_item(index: int) -> void:
 ## real cooldowns.
 func _perform_character_attack(player_index: int) -> void:
 	for weapon_slot in weapon_loadouts[player_index].size():
+		if resonance_system.is_bound(player_index, weapon_slot):
+			continue
 		weapon_controller.perform_attack(player_index, weapon_slot, _tension_damage_multiplier())
 
 
@@ -3994,7 +4006,7 @@ func _chest_upgrade_candidates() -> Array[Dictionary]:
 			var treasure: Dictionary = treasure_loadouts[slot][treasure_slot]
 			if int(treasure["tier"]) < Treasures.MAX_TIER:
 				candidates.append({
-					"slot": slot, "priority": 2,
+					"slot": slot, "priority": 3 if _required_treasure_needs_tier(slot, String(treasure["id"])) else 2,
 					"option": {"id": "treasure_upgrade", "treasure_slot": treasure_slot, "title": String(treasure["name"])},
 					"label": "%s Lv.%d" % [String(treasure["name"]), int(treasure["tier"]) + 1],
 				})
@@ -4006,6 +4018,8 @@ func _chest_unlock_candidates() -> Array[Dictionary]:
 	for slot in 2:
 		if weapon_loadouts[slot].size() < WEAPON_LOADOUT_CAP:
 			for character in _pick_unowned_characters(slot, character_catalog.size()):
+				if not _treasure_slots_viable(slot, String(character["weapon_id"])):
+					continue
 				candidates.append({
 					"slot": slot, "priority": 1,
 					"option": {"id": "unlock_weapon", "character": character,
@@ -4014,8 +4028,10 @@ func _chest_unlock_candidates() -> Array[Dictionary]:
 				})
 		if treasure_loadouts[slot].size() < TREASURE_LOADOUT_CAP:
 			for treasure in _pick_unowned_treasures(slot, Treasures.all_treasures().size()):
+				if not _treasure_slots_viable(slot, "", -1, "", String(treasure["id"])):
+					continue
 				candidates.append({
-					"slot": slot, "priority": 1,
+					"slot": slot, "priority": 2 if _required_treasure_needs_tier(slot, String(treasure["id"])) else 1,
 					"option": {"id": "unlock_treasure", "treasure": treasure,
 						"title": "새 보물: %s" % String(treasure["name"])},
 					"label": "신규 %s" % String(treasure["name"]),
@@ -4419,9 +4435,23 @@ func _apply_pending_evolutions(player_slot: int) -> Array[Dictionary]:
 	return enhanced
 
 
+## Preserve enough slots for every unfinished weapon's chosen or possible recipe.
+func _treasure_slots_viable(slot: int, extra_weapon_id := "", route_slot := -1,
+		route_treasure_id := "", extra_treasure_id := "") -> bool:
+	return TreasureReservationScript.viable(weapon_loadouts[slot], treasure_loadouts[slot],
+		TREASURE_LOADOUT_CAP, extra_weapon_id, route_slot, route_treasure_id, extra_treasure_id)
+
+
+func _required_treasure_needs_tier(slot: int, treasure_id: String) -> bool:
+	if _treasure_tier(slot, treasure_id) >= Evolutions.REQUIRED_TREASURE_TIER:
+		return false
+	for weapon: Dictionary in weapon_loadouts[slot]:
+		if not bool(weapon.get("evolved", false)) and String(weapon.get("tech_synergy_treasure_id", "")) == treasure_id:
+			return true
+	return false
+
+
 ## Required treasures named by this survivor's chosen routes and not yet held.
-## They receive a useful weight, not a guaranteed slot: missing one is now a
-## real reason to reroll or change the rest of the build.
 func _synergy_treasures(slot: int) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var seen: Dictionary = {}
@@ -4637,6 +4667,8 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			continue
 		var tech_choices: Array[Dictionary] = []
 		for tech in WeaponTechs.for_weapon(String(carried.get("base_weapon_id", carried["weapon_id"]))):
+			if not _treasure_slots_viable(slot, "", weapon_slot, String(tech["synergy_treasure_id"])):
+				continue
 			var option := {
 				"id": "choose_tech", "weapon_slot": weapon_slot, "tech": tech,
 				"title": String(tech["name"]),
@@ -4668,7 +4700,7 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 			"id": "treasure_upgrade", "weapon_slot": -1, "treasure_slot": treasure_slot,
 			"title": String(treasure["name"]),
 		}
-		if UpgradeValue.has_effect(self, slot, option):
+		if UpgradeValue.has_effect(self, slot, option) or _required_treasure_needs_tier(slot, String(treasure["id"])):
 			treasure_growth.append(option)
 
 	# 신규 무기 — a new weapon arrives untyped: its route is chosen at
@@ -4676,34 +4708,39 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 	var new_weapons: Array[Dictionary] = []
 	if loadout.size() < WEAPON_LOADOUT_CAP:
 		for character in _pick_unowned_characters(slot, 3):
+			if not _treasure_slots_viable(slot, String(character["weapon_id"])):
+				continue
 			new_weapons.append({
 				"id": "unlock_weapon", "weapon_slot": -1, "character": character,
 				"title": "신규 무기: %s" % String(character["weapon_name"]),
 			})
 
-	# 신규 보물 — required route materials join the same weighted discovery pool
-	# as everything else; they are not inserted into the hand for free.
+	# 신규 보물 — route materials are always eligible, and the final open slots
+	# stay available for a route that has not yet evolved.
 	var new_treasures: Array[Dictionary] = []
 	if treasures.size() < TREASURE_LOADOUT_CAP:
 		var suited := _synergy_treasures(slot)
 		var offered_ids: Dictionary = {}
 		for treasure in suited:
+			if not _treasure_slots_viable(slot, "", -1, "", String(treasure["id"])):
+				continue
 			offered_ids[String(treasure["id"])] = true
 			new_treasures.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
 				"title": "필수 보물: %s" % String(treasure["name"]),
 			})
 		for treasure in _pick_unowned_treasures(slot, maxi(3, suited.size()) + 3):
-			if offered_ids.has(String(treasure["id"])):
+			if offered_ids.has(String(treasure["id"])) or not _treasure_slots_viable(slot, "", -1, "", String(treasure["id"])):
 				continue
 			offered_ids[String(treasure["id"])] = true
 			new_treasures.append({
 				"id": "unlock_treasure", "weapon_slot": -1, "treasure": treasure,
 				"title": "새 보물: %s" % String(treasure["name"]),
 			})
-	var discovery_filter := func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option)
-	new_weapons.assign(new_weapons.filter(discovery_filter))
-	new_treasures.assign(new_treasures.filter(discovery_filter))
+	new_weapons.assign(new_weapons.filter(
+		func(option: Dictionary) -> bool: return UpgradeValue.has_effect(self, slot, option)))
+	new_treasures.assign(new_treasures.filter(func(option: Dictionary) -> bool:
+		return UpgradeValue.has_effect(self, slot, option) or _required_treasure_needs_tier(slot, String((option["treasure"] as Dictionary)["id"]))))
 
 	var luck_lean := maxf(0.0, float(team_luck)) * LUCK_DISCOVERY_WEIGHT
 	var buckets: Array = [
@@ -4722,6 +4759,20 @@ func _get_upgrade_choices(player_index: int) -> Array[Dictionary]:
 		if drawn.is_empty():
 			break
 		choices.append(drawn)
+
+	# At the last free material slot, keep one required treasure visible. The
+	# player still chooses a card, but cannot be dealt hands that only dead-end.
+	if treasures.size() + TreasureReservationScript.missing_slots(loadout, treasures) >= TREASURE_LOADOUT_CAP:
+		var missing_required := new_treasures.filter(func(option: Dictionary) -> bool:
+			return _required_treasure_needs_tier(slot, String((option["treasure"] as Dictionary)["id"])))
+		if not missing_required.is_empty():
+			var required_id := String((missing_required[0]["treasure"] as Dictionary)["id"])
+			var already_offered := choices.any(func(option: Dictionary) -> bool:
+				return String(option["id"]) == "unlock_treasure" and String((option["treasure"] as Dictionary)["id"]) == required_id)
+			if not already_offered:
+				if choices.size() >= choice_count:
+					choices.remove_at(choices.size() - 1)
+				choices.append(missing_required[0])
 
 	for option in choices:
 		option["description"] = _upgrade_preview(slot, option)
@@ -5827,9 +5878,11 @@ func _select_upgrade(player_index: int, choice_index: int) -> void:
 func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 	var upgrade_id := String(option["id"])
 	if upgrade_id == "choose_tech":
-		weapon_controller.clear_sustained_for_player(player_slot)
 		var route_slot := int(option["weapon_slot"])
 		var route: Dictionary = option["tech"]
+		if not _treasure_slots_viable(player_slot, "", route_slot, String(route["synergy_treasure_id"])):
+			return
+		weapon_controller.clear_sustained_for_player(player_slot)
 		WeaponTechs.apply_to_state(weapon_loadouts[player_slot][route_slot], route)
 		# Choosing a route takes a whole growth hand, so it pays one step on the
 		# route's own lead axis. Without it every weapon cost a card more than it
@@ -5864,10 +5917,15 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 		# stale card can push a loadout past the number of sockets the HUD draws.
 		if weapon_loadouts[player_slot].size() >= WEAPON_LOADOUT_CAP:
 			return
+		if not _treasure_slots_viable(player_slot, weapon_id):
+			return
 		var new_state := _build_weapon_state(character)
 		# Older callers (chest fixtures, saved tests) may still hand a route in.
 		if option.has("tech"):
 			WeaponTechs.apply_to_state(new_state, option["tech"] as Dictionary)
+			if not TreasureReservationScript.viable(weapon_loadouts[player_slot] + [new_state],
+					treasure_loadouts[player_slot], TREASURE_LOADOUT_CAP):
+				return
 		weapon_loadouts[player_slot].append(new_state)
 		attack_timers[player_slot].append(0.2)
 		return
@@ -5889,6 +5947,8 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 				_apply_attribute(player_slot, treasure_id, int(owned["tier"]))
 			return
 		if treasure_loadouts[player_slot].size() >= TREASURE_LOADOUT_CAP:
+			return
+		if not _treasure_slots_viable(player_slot, "", -1, "", treasure_id):
 			return
 		var state := Treasures.build_state(treasure)
 		treasure_loadouts[player_slot].append(state)
@@ -5919,6 +5979,8 @@ func _apply_upgrade(player_slot: int, option: Dictionary) -> void:
 				apply_special_to_state(state, key)
 	if upgrade_id in ["weapon_power", "weapon_rate", "special_a", "special_b"]:
 		state["tier"] = mini(Evolutions.WEAPON_MAX_TIER, int(state.get("tier", 1)) + 1)
+		weapon_controller.play_growth_pulse(players[player_slot], Color(state["color"]),
+			WeaponGrowthScript.presence(state))
 
 
 ## Applies the step of a treasure into `tier` and reports whether it handled the
@@ -6331,10 +6393,15 @@ func _resonance_card_model(resonance: Dictionary, badge: String, badge_color: Co
 		supply = "%s %s\n%s %s" % [contributed[0], weapons[0], contributed[1], weapons[1]]
 	elif contributed.size() == 2:
 		supply = "%s\n%s" % [contributed[0], contributed[1]]
+	# The trade, stated on the card that makes it. Choosing a resonance switches
+	# two weapons off, and a pair must never find that out by watching them stop.
+	var trade := tr("두 무기 흡수 · 합친 화력 ×%s") % String.num(ResonanceSystem.RESONANCE_PREMIUM, 1)
 	return {
 		"category": "공명",
 		"title": ResonanceSystem.display_name(resonance),
-		"body": "%s\n\n%s" % [supply, ResonanceSystem.display_description(resonance)],
+		# No spacer line under the trade: the three lines above the description
+		# are one block (who, with what, for what), and the card has five lines.
+		"body": "%s\n%s\n%s" % [supply, trade, ResonanceSystem.display_description(resonance)],
 		"icon": IconCatalog.generated(String(resonance["id"]), "upgrade"),
 		"fusion": null,
 		"fusion_name": "",
@@ -6453,33 +6520,63 @@ func _apply_team_magnet() -> void:
 	experience_system.magnet_radius = EXPERIENCE_MAGNET_BASE * team_magnet
 
 
-## Takes a resonance live.
+## Takes a resonance live, and takes the two weapons behind it out of service.
 ##
-## Nothing is swept any more. This used to silence the two weapons that earned
-## the resonance, and their sustained fields had to be cleared with them —
-## 절대영도 and the frost auras hold a field alive between casts, so a weapon that
-## had stopped casting would have left its aura standing on the roof for the rest
-## of the run. The weapons keep casting now, so their fields are theirs to refresh
-## and clearing them here would only put a hole in an aura the survivor is
-## standing in.
+## Their sustained fields go with them. 절대영도 and the frost auras hold a field
+## alive between casts, so a weapon that has stopped casting would otherwise
+## leave its aura standing on the roof for the rest of the run, doing damage the
+## resonance has already been paid for. Every other field a survivor owns is
+## rebuilt on that weapon's next cast, which is what clear_sustained_for_player
+## has always relied on.
 func _activate_resonance(resonance: Dictionary) -> void:
 	resonance_system.activate(resonance)
+	for player_index in 2:
+		weapon_controller.clear_sustained_for_player(player_index)
 
 
-## What the two weapons behind the pair's move lend it. Both owners' 공격 and both
-## weapons' tiers feed it, so a resonance is the thing their whole build is
-## pointed at rather than a flat effect bolted on top of it.
-func _resonance_trade_power(resonance: Dictionary) -> float:
-	var total := 0.0
-	for side in ["a", "b"]:
-		var player_index := 0 if side == "a" else 1
-		var weapon_slot := int(resonance.get("weapon_%s_slot" % side, -1))
-		var tier := Evolutions.EVOLUTION_TIER
-		if weapon_slot >= 0 and weapon_slot < weapon_loadouts[player_index].size():
-			tier = int(weapon_loadouts[player_index][weapon_slot].get("tier", tier))
-		var above := float(maxi(0, tier - Evolutions.EVOLUTION_TIER))
-		total += players[player_index].might * (1.0 + ResonanceSystem.TRADE_TIER_BONUS * above)
-	return total * 0.5 * ResonanceSystem.TRADE_POWER
+## The damage multiplier a resonance is cast at: whatever makes one cast worth
+## RESONANCE_PREMIUM times what its two absorbed weapons would have dealt over
+## the same cooldown (ResonancePower.multiplier).
+##
+## Everything the pair spent on those two weapons counts, because the weapons'
+## measured output is grown here by how far each has come since its catalogue
+## numbers — 화력 and 속도 cards, extra shots, the owner's 공격력 and 치명. A
+## 화력 card bought for a weapon that is already absorbed is a 화력 card for the
+## resonance, so a pair never has to choose between growing a weapon and fusing
+## it.
+func _resonance_power(resonance: Dictionary) -> float:
+	var crowd := 0.0
+	var boss := 0.0
+	for player_index in 2:
+		var weapon_slot := int(resonance.get("weapon_%s_slot" % ("a" if player_index == 0 else "b"), -1))
+		if weapon_slot < 0 or weapon_slot >= weapon_loadouts[player_index].size():
+			continue
+		var reference: Array = ResonancePower.weapon_reference(weapon_loadouts[player_index][weapon_slot])
+		var growth := _weapon_growth(player_index, weapon_slot)
+		crowd += float(reference[0]) * growth
+		boss += float(reference[1]) * growth
+	if crowd <= 0.0 and boss <= 0.0:
+		# A resonance cast from outside a run (the codex, a test) has no weapons
+		# behind it; it is cast at its reference strength.
+		return 1.0
+	return ResonancePower.multiplier(crowd, boss, resonance)
+
+
+## How far a weapon has been grown past the catalogue numbers its reference
+## output was measured at, as one multiplier on that output.
+func _weapon_growth(player_index: int, weapon_slot: int) -> float:
+	var state: Dictionary = weapon_loadouts[player_index][weapon_slot]
+	var catalogue: Dictionary = Evolutions.by_weapon_id(String(state.get("weapon_id", ""))).get("weapon", {})
+	if catalogue.is_empty():
+		return 1.0
+	var player := players[player_index]
+	var damage := float(state.get("damage", 0.0)) / maxf(0.001, float(catalogue.get("damage", 1.0)))
+	var rate := float(catalogue.get("cooldown", 1.0)) / maxf(0.01, _weapon_interval(player_index, weapon_slot))
+	var count := 1.0
+	if catalogue.has("count"):
+		count = float(int(state.get("count", catalogue["count"])) + floori(player.amount)) / maxf(1.0, float(catalogue["count"]))
+	var crit := 1.0 + player.crit_chance * (ChainPlayer.CRIT_MULTIPLIER - 1.0)
+	return maxf(0.0, damage * rate * count * player.might * crit)
 
 
 func _weapon_interval(player_index: int, weapon_slot: int) -> float:

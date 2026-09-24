@@ -4,9 +4,9 @@ extends RefCounted
 ## The survivors are cats bound together by a magic chain; each entry's title
 ## and description carry that, while the numbers below carry the balance.
 ##
-## Every survivor is budgeted rather than hand-tuned, because the roster is
-## meant to grow and "does the new one feel fair?" is not a question anyone can
-## answer by staring at ten dictionaries.
+## Starting weapon power is measured in tests/weapon_balance_test.gd because
+## reach and cooldown alone cannot describe actual hits against a crowd or boss.
+## The remaining checks protect each survivor's non-weapon identity.
 ##
 ## The roster used to differ only in health (92-115) and speed (205-242) — a
 ## 25% spread on one axis and 18% on another, which is not a choice, it is a
@@ -26,22 +26,6 @@ extends RefCounted
 ## character select and never seen again as a stat screen, only as the length
 ## of the rope on the floor.
 ##
-## Fairness is one budget over all identity axes rather than a band per axis, since
-## a band per axis is exactly what forced the old flat roster. A survivor may
-## be extreme on any axis as long as it pays for it somewhere else:
-##
-##   defense  = health/100 + armor*0.10
-##   mobility = speed/230 + chain/700
-##   offense  = damage/cooldown*reach/34 * (1 + crit*1.5)
-##   utility  = 0.32      neutral baseline; magnet is treasure/meta progression
-##
-## tests/survivor_balance_test.gd asserts the sum lands in TOTAL_BUDGET_MIN..MAX
-## and, separately, that the roster still spreads across every axis — because a
-## budget alone is perfectly happy with ten identical cats.
-
-const TOTAL_BUDGET_MIN := 3.90
-const TOTAL_BUDGET_MAX := 4.00
-
 ## Minimum roster spread per axis: max/min for the ratio axes, max-min for the
 ## additive ones. These encode "the survivors are actually different" as a
 ## thing that fails a test rather than a thing someone remembers.
@@ -57,63 +41,6 @@ const SPREAD_FLOORS := {
 ## this plus both `chain` values, so the run's defining constraint is decided at
 ## character select.
 const CHAIN_BASE_LENGTH := 330.0
-
-
-static func defense_budget(character: Dictionary) -> float:
-	return float(character["health"]) / 100.0 + float(character["armor"]) * 0.10
-
-
-static func mobility_budget(character: Dictionary) -> float:
-	return float(character["speed"]) / 230.0 + float(character["chain"]) / 700.0
-
-
-## What one cast is worth before crit and before normalising: damage per second
-## times how much of the field it covers. Split out from offense_budget so the
-## balance test can average it across the roster and check the normaliser below
-## still matches.
-static func raw_power(character: Dictionary) -> float:
-	var weapon: Dictionary = character["weapon"]
-	var raw := float(weapon["damage"]) / float(weapon["cooldown"]) * float(weapon["reach"])
-	# Persistent weapons buy several seconds of board control with one cast.
-	# Their catalog cooldown now describes that real cast cycle, so the roster
-	# budget prices the active window/lasting trap rather than pretending they
-	# are one-frame hits.
-	# The ring multiplier prices how much board a cast holds, so it moved with the
-	# ring: 궤도 파편 opens with one shard where it used to open with three.
-	if character["weapon_id"] == "orbit": raw *= 2.8
-	if character["weapon_id"] == "mine": raw *= 1.42
-	return raw
-
-
-static func offense_budget(character: Dictionary) -> float:
-	return raw_power(character) / OFFENSE_REFERENCE * (1.0 + float(character["crit"]) * 1.5)
-
-
-## The scale the offense term is measured against — roughly the roster's mean
-## raw power, a little under it because crit is priced on top. All the budget
-## answers is "are these ten fair to each other", never "is the game easy", so
-## this has to move whenever the whole roster is rebalanced: it went 34.0 ->
-## 29.0 when every cooldown rose about a fifth. The balance test asserts it
-## still tracks the measured mean, because a global nerf that left the yardstick
-## behind would make all ten survivors read as under-budget and the band would
-## start rejecting a perfectly fair roster.
-const OFFENSE_REFERENCE := 29.0
-
-
-static func utility_budget(character: Dictionary) -> float:
-	return float(character["pickup"]) * 0.32
-
-
-static func total_budget(character: Dictionary) -> float:
-	return (defense_budget(character) + mobility_budget(character)
-		+ offense_budget(character) + utility_budget(character))
-
-
-## Kept because the power band is still the honest read on a weapon in
-## isolation, which is what the fusion and treasure tuning compares against.
-static func power_budget(character: Dictionary) -> float:
-	var weapon: Dictionary = character["weapon"]
-	return float(weapon["damage"]) / float(weapon["cooldown"]) * float(weapon["reach"])
 
 
 ## The leash two picked survivors end up sharing.
@@ -296,7 +223,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": -20.0,
 			"might": 1.12, "area": 0.86, "haste": 0.90, "recovery": 0.0,
 			"projectile_speed": 1.18, "dodge": 0.06,
-			"weapon": {"damage": 29.0, "cooldown": 1.12, "count": 1, "speed": 415.0, "pierce": 1, "reach": 1.20, "tier": 1}
+			"weapon": {"damage": 190.0, "cooldown": 1.12, "count": 1, "speed": 415.0, "pierce": 1, "reach": 1.20, "tier": 1}
 		},
 		{
 			"id": "volta",
@@ -314,7 +241,7 @@ static func all_characters() -> Array[Dictionary]:
 			"pickup": 1.0,
 			"chain": 10.0,
 			"might": 1.0, "area": 1.08, "haste": 0.96, "recovery": 0.2,
-			"weapon": {"damage": 23.4, "cooldown": 1.78, "jumps": 3, "range": 395.0, "reach": 2.50, "tier": 1}
+			"weapon": {"damage": 242.0, "cooldown": 1.78, "jumps": 3, "range": 395.0, "reach": 2.50, "tier": 1}
 		},
 		{
 			"id": "ignis",
@@ -337,7 +264,7 @@ static func all_characters() -> Array[Dictionary]:
 			# that positioning can exploit. Everything that raises 개수 — the weapon's
 			# own cards, 증폭 treasures, a survivor's amount — turns this into the
 			# nebula the name promises, which is the point of starting it small.
-			"weapon": {"damage": 22.2, "cooldown": 2.02, "count": 4, "speed": 280.0, "reach": 2.75, "tier": 1}
+			"weapon": {"damage": 205.0, "cooldown": 2.02, "count": 4, "speed": 280.0, "reach": 2.75, "tier": 1}
 		},
 		{
 			"id": "neve",
@@ -356,7 +283,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 65.0,
 			"might": 0.90, "area": 1.25, "haste": 1.10, "recovery": 0.9,
 			"resolve": 2.0,
-			"weapon": {"damage": 19.0, "cooldown": 2.56, "radius": 132.0, "slow": 0.58, "reach": 4.0, "tier": 1}
+			"weapon": {"damage": 31.5, "cooldown": 2.56, "radius": 132.0, "slow": 0.58, "reach": 4.0, "tier": 1}
 		},
 		{
 			"id": "moro",
@@ -423,13 +350,9 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 20.0,
 			"might": 0.94, "area": 1.12, "haste": 0.92, "recovery": 0.3,
 			"amount": 1,
-			# One shard in the catalogue, two on the field: 카일 carries a point of
-			# 개수 of their own, so the character still opens with a ring rather
-			# than a single stone while the weapon itself starts where every other
-			# multi-projectile weapon now starts. Shards hit whatever walks into
-			# them without any aiming at all, so the per-shard number stays small
-			# and reach carries the weight.
-			"weapon": {"damage": 21.0, "cooldown": 6.6, "count": 1, "radius": 102.0, "speed": 2.85, "reach": 3.35, "tier": 1}
+			# One catalogue shard plus 카일's own amount forms a ring.
+			# Continuous contact is priced by the live damage test.
+			"weapon": {"damage": 158.0, "cooldown": 6.6, "count": 1, "radius": 102.0, "speed": 2.85, "reach": 3.35, "tier": 1}
 		},
 		{
 			"id": "rian",
@@ -489,7 +412,7 @@ static func all_characters() -> Array[Dictionary]:
 			"chain": 5.0,
 			"might": 1.0, "area": 1.20, "haste": 1.05, "recovery": 0.2,
 			"projectile_speed": 0.90,
-			"weapon": {"damage": 25.4, "cooldown": 2.87, "radius": 220.0, "pull": 165.0, "cast_range": 480.0, "reach": 3.4, "tier": 1}
+			"weapon": {"damage": 28.0, "cooldown": 2.87, "radius": 220.0, "pull": 165.0, "cast_range": 480.0, "reach": 3.4, "tier": 1}
 		}
 	]
 	# 에코 throws the toy out, catches nothing, and lets it carry straight on
@@ -499,12 +422,10 @@ static func all_characters() -> Array[Dictionary]:
 		"tags": ["frost", "tracking"], "description": "생선 장난감이 나갔다가 돌아오고, 멈추지 않고 반대편까지 지나갑니다.",
 		"color": Color("d59356"), "health": 101.0, "speed": 255.0, "armor": 1.0, "crit": 0.10, "pickup": 1.0, "chain": -10.0,
 		"might": 1.06, "area": 0.95, "haste": 0.98, "recovery": 0.1,
-		"weapon": {"damage": 35.0, "cooldown": 2.5, "range": 315.0, "count": 1, "reach": 2.55, "tier": 1}})
-	# 라떼 does not aim at anything. Milk lands where it lands, and what it
-	# lands on stands in it — the one weapon in the roster whose value is
-	# decided by where the pair chooses to fight rather than by what it hits.
+		"weapon": {"damage": 27.5, "cooldown": 2.5, "range": 315.0, "count": 1, "reach": 2.55, "tier": 1}})
+	# One pool follows a nearby elite or boss; the rest scatter across the roof.
 	roster.append({"id": "latte", "name": "라떼", "title": "우유를 나르는 노르웨이숲", "weapon_id": "milk", "weapon_name": "우유 흩뿌리기",
-		"tags": ["frost", "control"], "description": "우유를 주변에 흩뿌립니다. 웅덩이에 선 적은 계속 미끄러지고 젖습니다.",
+		"tags": ["frost", "control"], "description": "우유를 주변에 흩뿌리고 한 웅덩이는 정예를 겨냥합니다. 젖은 적은 계속 미끄러집니다.",
 		"color": Color("f2e2c4"), "health": 121.0, "speed": 190.0, "armor": 2.0, "crit": 0.05, "pickup": 1.0, "chain": 45.0,
 		"might": 0.96, "area": 1.12, "haste": 1.04, "recovery": 0.65,
 		"weapon": {"damage": 12.5, "cooldown": 3.1, "range": 330.0, "count": 1, "radius": 96.0, "slow": 0.55, "reach": 8.7, "tier": 1}})

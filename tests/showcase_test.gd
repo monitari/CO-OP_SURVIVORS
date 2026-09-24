@@ -59,6 +59,10 @@ func _test_fusion_takes_the_screen(main: Node) -> void:
 
 	main.WeaponTechs.apply_to_state(weapon, main.WeaponTechs.for_weapon(String(weapon["weapon_id"]))[0])
 	weapon["tier"] = EvolutionCatalog.EVOLUTION_TIER
+	var required_id := String(weapon["tech_synergy_treasure_id"])
+	var material: Dictionary = main.Treasures.build_state(main.Treasures.by_id(required_id))
+	material["tier"] = EvolutionCatalog.REQUIRED_TREASURE_TIER
+	main.treasure_loadouts[0].append(material)
 	main._apply_pending_evolutions(0)
 	_check(main.showcase_queue.size() == 1, "an enhancement queues a showcase")
 	_check(String(main.showcase_queue[0]["kind"]) == "fusion", "and it is the enhancement one")
