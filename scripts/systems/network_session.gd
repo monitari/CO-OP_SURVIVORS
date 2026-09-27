@@ -115,10 +115,14 @@ func send_snapshot(payload: Dictionary) -> void:
 	var base := payload.duplicate(true)
 	var enemies: Array = base.get("enemies", [])
 	base.erase("enemies")
-	var part_count := maxi(1, ceili(float(enemies.size()) / float(ENEMIES_PER_SNAPSHOT_PART)))
+	# Keep the shared state below the unreliable packet MTU even as new HUD or
+	# audio fields are added. Enemy chunks travel in their own small packets.
+	var part_count := 1 + ceili(float(enemies.size()) / float(ENEMIES_PER_SNAPSHOT_PART))
 	for part in part_count:
-		var first := part * ENEMIES_PER_SNAPSHOT_PART
-		var chunk := enemies.slice(first, mini(first + ENEMIES_PER_SNAPSHOT_PART, enemies.size()))
+		var chunk: Array = []
+		if part > 0:
+			var first := (part - 1) * ENEMIES_PER_SNAPSHOT_PART
+			chunk = enemies.slice(first, mini(first + ENEMIES_PER_SNAPSHOT_PART, enemies.size()))
 		_receive_snapshot_part.rpc(snapshot_sequence, part, part_count, base if part == 0 else {}, chunk)
 
 

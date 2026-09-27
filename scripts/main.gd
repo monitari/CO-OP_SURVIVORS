@@ -2449,12 +2449,15 @@ func _update_revives(delta: float) -> void:
 		if not downed_player.downed:
 			continue
 		var rescuer := players[1 - downed_index]
+		var previous_progress := downed_player.revive_progress
 		if not rescuer.downed and downed_player.global_position.distance_to(rescuer.global_position) <= 105.0:
 			# 불굴 buys time on both sides of a rescue: a longer bleedout to be
 			# reached in, and a faster rescue once the partner arrives.
 			downed_player.revive_progress += delta * (1.0 + rescuer.resolve * 0.05)
 		else:
 			downed_player.revive_progress = maxf(0.0, downed_player.revive_progress - delta * 0.55)
+		if previous_progress < 1.3 and downed_player.revive_progress >= 1.3:
+			feedback.play_cue_at("rescue_progress", downed_player.global_position)
 		if downed_player.revive_progress >= 2.6:
 			downed_player.revive()
 		downed_player.queue_redraw()
@@ -2788,13 +2791,17 @@ func _on_wave_started(wave_index: int, is_surge: bool) -> void:
 		_show_message(tr("%d파 대공세    서로 등을 맡으세요!") % (wave_index + 1), Color("ff5d8f"))
 		feedback.play_cue("warning")
 		camera_shake = maxf(camera_shake, 7.0)
+		if not wave_director.boss_active and elapsed + 0.05 < wave_director.next_boss_time():
+			var arrangement := "moonlight" if int(wave_index / 3) % 2 == 1 else "field"
+			feedback.play_music(arrangement + ("_late" if wave_director.bosses_spawned >= 2 else ""))
 	else:
 		_show_message(tr("%d파 시작    발을 맞춰 포위를 뚫으세요") % (wave_index + 1), Color("fff275"))
-		feedback.play_cue("kill")
+		feedback.play_cue("wave_start")
 
 
 func _on_wave_calm_started(_wave_index: int) -> void:
 	_show_message("공세 종료    잠시 숨을 고르세요", Color("80ed99"))
+	feedback.play_cue("wave_calm")
 
 
 func _register_enemy(enemy: ChaserEnemy) -> void:
@@ -2878,6 +2885,7 @@ func _on_enemy_ranged_attack(origin: Vector2, direction: Vector2, damage: float)
 	var projectile := _acquire_enemy_shot()
 	projectile.setup(origin, direction, damage, players)
 	enemy_shots.append(projectile)
+	feedback.play_cue("enemy_shot")
 	if online != null:
 		online.send_enemy_shot(origin, direction, projectile.speed)
 
@@ -3121,6 +3129,7 @@ func _on_second_chance_used(player: ChainPlayer) -> void:
 	particles.emit_motes(player.global_position, Color("fff275"), 18)
 	camera_shake = maxf(camera_shake, 8.0)
 	_show_message(tr("%s의 아홉 목숨!") % player.character_name, Color("fff275"))
+	feedback.play_cue_at("second_chance", player.global_position)
 
 
 func _on_player_dodged(player: ChainPlayer) -> void:
@@ -3134,6 +3143,7 @@ func _on_player_dodged(player: ChainPlayer) -> void:
 ## would be nothing but dust.
 func _on_footfall(at: Vector2, color: Color) -> void:
 	particles.emit_dust(at, color.lerp(Color("d9c9b0"), 0.55))
+	feedback.play_cue("footstep")
 
 
 func _on_player_revived(player: ChainPlayer) -> void:
@@ -5812,9 +5822,11 @@ func _handle_level_up_input() -> void:
 			continue
 		if Input.is_action_just_pressed(prefix + "previous"):
 			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] - 1, 0, choices.size())
+			feedback.play_cue("select")
 			_refresh_level_up_ui()
 		elif Input.is_action_just_pressed(prefix + "next"):
 			upgrade_cursors[slot] = wrapi(upgrade_cursors[slot] + 1, 0, choices.size())
+			feedback.play_cue("select")
 			_refresh_level_up_ui()
 		elif Input.is_action_just_pressed(prefix + "confirm"):
 			_select_upgrade(player_index, upgrade_cursors[slot])
@@ -6287,6 +6299,8 @@ func _set_resonance_cursor(slot: int, index: int) -> void:
 	if online != null and online.is_client():
 		online.request_resonance_action("cursor", next)
 		return
+	if resonance_cursors[slot] != next:
+		feedback.play_cue("select")
 	resonance_cursors[slot] = next
 	_refresh_resonance_vote_ui()
 	if online != null:

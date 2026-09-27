@@ -671,9 +671,11 @@ func _client_growth_input() -> void:
 		return
 	if Input.is_action_just_pressed("p1_select_previous"):
 		game.upgrade_cursors[1] = wrapi(game.upgrade_cursors[1] - 1, 0, game.p2_choices.size())
+		game.feedback.play_cue("select")
 		game._refresh_level_up_ui()
 	elif Input.is_action_just_pressed("p1_select_next"):
 		game.upgrade_cursors[1] = wrapi(game.upgrade_cursors[1] + 1, 0, game.p2_choices.size())
+		game.feedback.play_cue("select")
 		game._refresh_level_up_ui()
 	elif Input.is_action_just_pressed("p1_select_confirm"):
 		game._confirm_growth_choice(1, game.upgrade_cursors[1])
@@ -709,6 +711,7 @@ func _receive_enemy_shot(payload: Dictionary) -> void:
 	# Registered like a host shot: the crowd renderer draws every enemy shot from
 	# this list, and the friendly weapons that knock shots down read it too.
 	game.enemy_shots.append(projectile)
+	game.feedback.play_cue("enemy_shot")
 
 
 func host_tick(delta: float) -> void:
@@ -753,6 +756,9 @@ func _snapshot() -> Dictionary:
 	return {
 		"players": player_states, "enemies": enemy_states, "items": item_states,
 		"elapsed": game.elapsed, "kills": game.kills,
+		"music_track": game.feedback._current_track,
+		"wave_index": game.wave_director.wave_index,
+		"wave_calm": game.wave_director.in_calm,
 		"chain_integrity": game.chain_integrity,
 		"chain_max_length": game.chain_max_length,
 		"chain_overloaded": game.chain_overloaded,
@@ -782,10 +788,22 @@ func _apply_snapshot(payload: Dictionary) -> void:
 		if was_downed != game.players[slot].downed and not game.game_over:
 			game.feedback.play_cue_at("down" if game.players[slot].downed else "revive", game.players[slot].global_position)
 		game.players[slot].bleedout_remaining = float(state["bleedout"])
+		var previous_revive: float = game.players[slot].revive_progress
 		game.players[slot].revive_progress = float(state["revive"])
+		if previous_revive < 1.3 and game.players[slot].revive_progress >= 1.3 and not game.game_over:
+			game.feedback.play_cue_at("rescue_progress", game.players[slot].global_position)
 		game.players[slot].queue_redraw()
 	game.elapsed = float(payload.get("elapsed", game.elapsed))
 	game.kills = int(payload.get("kills", game.kills))
+	var previous_wave: int = game.wave_director.wave_index
+	var previous_calm: bool = game.wave_director.in_calm
+	game.wave_director.wave_index = int(payload.get("wave_index", previous_wave))
+	game.wave_director.in_calm = bool(payload.get("wave_calm", previous_calm))
+	if not game.game_over and not game.title_active:
+		if game.wave_director.wave_index > previous_wave:
+			game.feedback.play_cue("warning" if game.wave_director.is_surge_wave(game.wave_director.wave_index) else "wave_start")
+		elif game.wave_director.in_calm and not previous_calm:
+			game.feedback.play_cue("wave_calm")
 	game.chain_integrity = float(payload.get("chain_integrity", game.chain_integrity))
 	game.chain_max_length = float(payload.get("chain_max_length", game.chain_max_length))
 	var was_overloaded: bool = game.chain_overloaded
@@ -810,6 +828,8 @@ func _apply_snapshot(payload: Dictionary) -> void:
 		_sync_enemies(payload["enemies"])
 	if payload.has("items"):
 		_sync_items(payload["items"])
+	if payload.has("music_track") and not game.game_over and not game.title_active:
+		game.feedback.play_music(String(payload["music_track"]))
 
 
 func _resonance_clocks() -> Array:

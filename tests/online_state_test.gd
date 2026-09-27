@@ -104,6 +104,13 @@ func _run() -> void:
 		and main.resonance_system.pending_cores == 1,
 		"client mirrors chain, timed-item and held-core combat state")
 
+	main.online._apply_snapshot({"wave_index": 3, "wave_calm": false, "music_track": "moonlight"})
+	_check(main.wave_director.wave_index == 3 and main.feedback._current_track == "moonlight"
+		and main.feedback._tone_cache.has("warning"),
+		"client hears a surge and follows its field arrangement")
+	main.online._apply_snapshot({"wave_index": 3, "wave_calm": true})
+	_check(main.feedback._tone_cache.has("wave_calm"), "client hears the wave respite once")
+
 	var nearby := ChaserEnemy.new()
 	nearby.setup(1.0, "runner")
 	nearby.position = Vector2(120, 0)
@@ -113,7 +120,12 @@ func _run() -> void:
 	distant.position = Vector2(OnlineCoop.REPLICATION_RADIUS + 800.0, 0)
 	main.world_stage.add_child(distant)
 	main.enemies.assign([nearby, distant])
+	main.online._apply_snapshot({"music_track": "moonlight"})
+	_check(main.feedback._current_track == "moonlight",
+		"client follows the host field arrangement")
 	var interest_snapshot: Dictionary = main.online._snapshot()
+	_check(interest_snapshot.get("music_track") == "moonlight",
+		"snapshots carry the current arrangement")
 	var interest_ids: Array[int] = []
 	for state: Array in interest_snapshot["enemies"]:
 		interest_ids.append(int(state[OnlineCoop.EnemyField.ID]))
@@ -175,6 +187,7 @@ func _run() -> void:
 			visual_projectile = child
 			break
 	_check(is_instance_valid(visual_projectile), "client creates an enemy projectile visual")
+	_check(main.feedback._tone_cache.has("enemy_shot"), "client hears replicated enemy fire")
 	if is_instance_valid(visual_projectile):
 		_check(visual_projectile.players.is_empty() and visual_projectile.damage == 0.0,
 			"replicated projectile cannot damage client-side players")

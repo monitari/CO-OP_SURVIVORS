@@ -29,6 +29,10 @@ func _run() -> void:
 	main.set_physics_process(false)
 	main.set_process(false)
 	_check(feedback._current_track == "field", "starting a run selects the field theme")
+	main._on_wave_started(3, true)
+	_check(feedback._current_track == "moonlight", "first surge changes the field arrangement")
+	main._on_wave_started(6, true)
+	_check(feedback._current_track == "field", "next surge returns to the other field arrangement")
 	feedback._tone_cache.clear()
 	for player in main.players:
 		player.health = player.max_health
@@ -48,6 +52,9 @@ func _run() -> void:
 	enemy.setup(1.0, "chaser", false, true, 1)
 	main._register_enemy(enemy)
 	_check(feedback._current_track == "boss", "boss arrival changes the music")
+	main.wave_director.boss_active = true
+	main._on_wave_started(9, true)
+	_check(feedback._current_track == "boss", "a surge does not interrupt an active boss theme")
 	enemy.boss_attack_timer = 0.0
 	enemy._step_boss(main.players, main.players[0].position, 1.0, 0.01)
 	_check(feedback._tone_cache.has("danger") and enemy.boss_slam_windup > 0.0,
@@ -69,7 +76,7 @@ func _run() -> void:
 	main.queue_free()
 	await process_frame
 	# Allow AudioServer and deferred scene resources to finish releasing.
-	await create_timer(0.15).timeout
+	await create_timer(0.5).timeout
 	if failures.is_empty():
 		print("AUDIO_FLOW_TEST_PASS")
 		quit(0)

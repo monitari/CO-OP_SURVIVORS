@@ -26,7 +26,7 @@ func _run() -> void:
 	await create_timer(0.15).timeout
 
 	if failures.is_empty():
-		print("FEEDBACK_TEST_PASS: damage numbers capped, tones cached, players pooled, every cue defined, 80s combat loops, menu/end themes, stable volume, warning ducking and directional cues, cues are a cat-themed stereo palette at 48k, fire and impact differ per weapon, combat cues batch under a voice cap, the leash only sounds at its limit")
+		print("FEEDBACK_TEST_PASS: damage numbers capped, tones cached, players pooled, every cue defined, 80s combat loops, menu/end themes, stable volume, warning ducking and directional cues, cues are a cat-themed stereo palette at 48k, fire and impact differ per weapon, combat cues batch under a voice cap, the leash distinguishes overcharge from its limit")
 		quit(0)
 	else:
 		for failure in failures:
@@ -355,8 +355,8 @@ func _test_batching_and_voices() -> void:
 	await process_frame
 
 
-## The leash gets exactly one cue, and it fires when the leash actually reaches
-## its limit. Lower tension bands remain silent.
+## Crossing into overcharge and reaching the hard limit are distinct events.
+## Holding either band or falling back through it remains silent.
 func _test_chain_limit() -> void:
 	var feedback := FeedbackScript.new() as FeedbackSystem
 	root.add_child(feedback)
@@ -367,6 +367,8 @@ func _test_chain_limit() -> void:
 		_check(not feedback.CUE_PARAMS.has(retired),
 			"the per-band tension creak %s is absent" % retired)
 
+	feedback.play_chain_limit(2, 1)
+	_check(feedback._tone_cache.has("chain_overcharge"), "entering overcharge sounds")
 	feedback.play_chain_limit(3, 2)
 	_check(feedback._tone_cache.has("chain_strained"), "arriving at the limit sounds")
 	feedback._tone_cache.clear()
@@ -374,13 +376,14 @@ func _test_chain_limit() -> void:
 
 	for from_stage in 4:
 		for to_stage in 4:
-			if to_stage >= 3 and from_stage < 3:
+			if (to_stage >= 3 and from_stage < 3) or (to_stage == 2 and from_stage < 2):
 				continue
 			feedback.play_chain_limit(to_stage, from_stage)
 	_check(feedback._tone_cache.is_empty(),
-		"lower bands, holding the limit and easing off are silent")
-	_check(float(feedback.CUE_PARAMS["chain_strained"]["gap"]) >= 1.0,
-		"the limit cue cannot chatter faster than once a second")
+		"holding a band and easing off are silent")
+	_check(float(feedback.CUE_PARAMS["chain_strained"]["gap"]) >= 1.0
+		and float(feedback.CUE_PARAMS["chain_overcharge"]["gap"]) >= 1.0,
+		"chain band cues cannot chatter faster than once a second")
 
 	feedback.queue_free()
 	await process_frame

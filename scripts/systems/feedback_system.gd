@@ -140,6 +140,12 @@ const CUE_PARAMS := {
 	"danger": {"freq": 440.0, "to": 220.0, "dur": 0.32, "vol": 0.20, "wave": "bell", "gap": 0.5, "prio": 9},
 	"reroll": {"freq": 392.0, "to": 784.0, "dur": 0.20, "vol": 0.13, "wave": "pluck", "curve": 1.5, "prio": 6},
 	"dash": {"freq": 1400.0, "to": 520.0, "dur": 0.16, "vol": 0.11, "wave": "air", "curve": 2.0, "prio": 4},
+	"footstep": {"freq": 330.0, "to": 220.0, "dur": 0.065, "vol": 0.065, "wave": "pat", "curve": 2.8, "gap": 0.22, "prio": 1},
+	"enemy_shot": {"freq": 740.0, "to": 370.0, "dur": 0.12, "vol": 0.085, "wave": "air", "curve": 2.2, "gap": 0.28, "prio": 4},
+	"rescue_progress": {"freq": 587.0, "to": 880.0, "dur": 0.16, "vol": 0.12, "wave": "pluck", "gap": 0.8, "prio": 6},
+	"second_chance": {"freq": 784.0, "to": 1175.0, "dur": 0.48, "vol": 0.19, "wave": "bell", "tail": 0.20, "prio": 8},
+	"wave_start": {"freq": 392.0, "to": 659.0, "dur": 0.23, "vol": 0.12, "wave": "pluck", "prio": 6},
+	"wave_calm": {"freq": 659.0, "to": 440.0, "dur": 0.30, "vol": 0.10, "wave": "chime", "prio": 5},
 	"resonance": {"freq": 659.0, "to": 1318.0, "dur": 0.52, "vol": 0.22, "wave": "chime", "curve": 1.0, "attack": 0.012, "tail": 0.30, "prio": 9},
 	"boss": {"freq": 110.0, "to": 73.0, "dur": 0.70, "vol": 0.26, "wave": "bell", "cut": 1200.0, "curve": 0.9, "attack": 0.016, "tail": 0.30, "prio": 9},
 	"victory": {"freq": 659.0, "to": 1318.0, "dur": 0.70, "vol": 0.22, "wave": "bell", "curve": 0.9, "attack": 0.014, "tail": 0.35, "prio": 9},
@@ -213,11 +219,10 @@ const CUE_PARAMS := {
 
 	# --- the leash ------------------------------------------------------------
 	#
-	# One cue, and it fires when the leash actually reaches its limit.
-	#
-	# Only the arrival at the leash limit sounds; lower tension bands stay silent.
+	# A light chime marks overcharge; the stronger pluck marks the hard limit.
+	# Both only sound on entry, and their gaps stop boundary jitter chattering.
 	"chain_strained": {"freq": 247.0, "to": 330.0, "dur": 0.34, "vol": 0.15, "wave": "pluck", "curve": 1.4, "gap": 1.2, "prio": 7},
-	"chain_overcharge": {"freq": 587.0, "to": 880.0, "dur": 0.24, "vol": 0.14, "wave": "chime", "prio": 7},
+	"chain_overcharge": {"freq": 587.0, "to": 880.0, "dur": 0.24, "vol": 0.14, "wave": "chime", "gap": 1.2, "prio": 7},
 	"chain_overload": {"freq": 294.0, "to": 98.0, "dur": 0.48, "vol": 0.24, "wave": "bell", "cut": 1500.0, "attack": 0.008, "tail": 0.22, "prio": 9},
 	"chain_repaired": {"freq": 659.0, "to": 988.0, "dur": 0.32, "vol": 0.17, "wave": "bell", "attack": 0.010, "tail": 0.16, "prio": 8},
 	"boss_enrage": {"freq": 165.0, "to": 82.0, "dur": 0.72, "vol": 0.28, "wave": "bell", "cut": 1300.0, "attack": 0.016, "tail": 0.30, "prio": 9},
@@ -448,7 +453,7 @@ func play_cue(cue: String, gain_db := 0.0, pitch := 1.0, direction := 0) -> void
 	if player == null:
 		return
 	player.stream = _tone_cache[cue]
-	var combat := cue == "hit" or cue == "kill" or cue == "xp" or cue == "dash" or cue.begins_with("weapon_") or cue.begins_with("impact_") or cue in ["mine_blast", "gravity_pull", "gravity_collapse", "chain_snap"]
+	var combat := cue in ["hit", "kill", "xp", "dash", "footstep", "enemy_shot"] or cue.begins_with("weapon_") or cue.begins_with("impact_") or cue in ["mine_blast", "gravity_pull", "gravity_collapse", "chain_snap"]
 	player.bus = "Combat" if combat else ("SignalsLeft" if direction < 0 else ("SignalsRight" if direction > 0 else "SFX"))
 	if cue == "hit" or cue == "kill" or cue.begins_with("impact_"):
 		var variant := int(_cue_variants.get(cue, 0))
@@ -543,6 +548,8 @@ func _priority_of(cue: String) -> int:
 func play_chain_limit(stage: int, previous_stage: int) -> void:
 	if stage >= 3 and previous_stage < 3:
 		play_cue("chain_strained")
+	elif stage == 2 and previous_stage < 2:
+		play_cue("chain_overcharge")
 
 
 func play_music(track_id: String) -> void:
